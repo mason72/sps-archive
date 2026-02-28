@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { Download, Heart } from "lucide-react";
+import { Download, Heart, ArrowLeftRight } from "lucide-react";
 
 /* ─────────────────────────────────────────────
  * Types
@@ -38,6 +38,16 @@ interface Variation {
 }
 
 /* ─────────────────────────────────────────────
+ * Logo variants
+ * ───────────────────────────────────────────── */
+const LOGOS = {
+  clean: { src: "/logo.png", label: "Clean", desc: "Bold pixel blocks, logo-ready" },
+  artistic: { src: "/logo-alt.png", label: "Artistic", desc: "Scattered mosaic, illustration feel" },
+} as const;
+
+type LogoVariant = keyof typeof LOGOS;
+
+/* ─────────────────────────────────────────────
  * Google Fonts URL (all needed families)
  * ───────────────────────────────────────────── */
 const GOOGLE_FONTS = [
@@ -50,14 +60,152 @@ const GOOGLE_FONTS = [
   "Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,700",
   "Space+Mono:wght@400;700",
   "Anybody:wght@400;500;600;700;800;900",
+  "Libre+Baskerville:ital,wght@0,400;0,700;1,400",
+  "EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500",
+  "Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600",
+  "Spectral:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400",
 ].join("&family=");
 
 const FONTS_URL = `https://fonts.googleapis.com/css2?family=${GOOGLE_FONTS}&display=swap`;
 
 /* ─────────────────────────────────────────────
- * 9 Variations
+ * Variations
  * ───────────────────────────────────────────── */
 const variations: Variation[] = [
+  // ── ✦ The Pick ──
+  {
+    id: "pick",
+    category: "✦",
+    name: "The Pick",
+    description:
+      "Current app style + Libre Baskerville wordmark. Playfair Display headlines, Inter body, stone palette, emerald accent. The elephant meets its serif voice.",
+    brandFont: "'Libre Baskerville', serif",
+    headlineFont: "'Playfair Display', serif",
+    bodyFont: "'Inter', sans-serif",
+    bg: "#FAFAF9",
+    cardBg: "#FFFFFF",
+    text: "#1C1917",
+    muted: "#A8A29E",
+    accent: "#10B981",
+    border: "#E7E5E4",
+    brandWeight: 700,
+    headlineWeight: 700,
+    brandLetterSpacing: "-0.01em",
+    headlineLetterSpacing: "-0.03em",
+    brandLowercase: true,
+  },
+
+  // ── ★ Current App ──
+  {
+    id: "cur",
+    category: "★",
+    name: "Current App",
+    description:
+      "Exactly how Pixeltrunk looks right now. Inter wordmark + Playfair Display headlines. Stone palette, emerald accent. This is the baseline for comparison.",
+    brandFont: "'Inter', sans-serif",
+    headlineFont: "'Playfair Display', serif",
+    bodyFont: "'Inter', sans-serif",
+    bg: "#FAFAF9",
+    cardBg: "#FFFFFF",
+    text: "#1C1917",
+    muted: "#A8A29E",
+    accent: "#10B981",
+    border: "#E7E5E4",
+    brandWeight: 600,
+    headlineWeight: 700,
+    brandLetterSpacing: "-0.02em",
+    headlineLetterSpacing: "-0.03em",
+    brandLowercase: true,
+  },
+
+  // ── S: Serif Focus (elephant era) ──
+  {
+    id: "s1",
+    category: "S",
+    name: "Library",
+    description:
+      "Libre Baskerville for everything — the definitive book serif. Deeply readable, classic. Accent: teal pulled from the elephant's shoulder tiles.",
+    brandFont: "'Libre Baskerville', serif",
+    headlineFont: "'Libre Baskerville', serif",
+    bodyFont: "'Libre Baskerville', serif",
+    bg: "#FAFAFA",
+    cardBg: "#FFFFFF",
+    text: "#1A1A1A",
+    muted: "#9CA3AF",
+    accent: "#0E7490",
+    border: "#E5E7EB",
+    brandWeight: 700,
+    headlineWeight: 700,
+    brandLetterSpacing: "-0.01em",
+    headlineLetterSpacing: "-0.02em",
+    brandLowercase: true,
+  },
+  {
+    id: "s2",
+    category: "S",
+    name: "Gazette",
+    description:
+      "EB Garamond italic headlines — thin, elegant, old-European newspaper. Inter body stays modern. Accent: cobalt blue from the elephant's legs.",
+    brandFont: "'Inter', sans-serif",
+    headlineFont: "'EB Garamond', serif",
+    bodyFont: "'Inter', sans-serif",
+    bg: "#FAFAFA",
+    cardBg: "#FFFFFF",
+    text: "#111827",
+    muted: "#9CA3AF",
+    accent: "#2563EB",
+    border: "#E5E7EB",
+    brandWeight: 600,
+    headlineWeight: 500,
+    headlineItalic: true,
+    brandLetterSpacing: "-0.02em",
+    headlineLetterSpacing: "0",
+    brandLowercase: true,
+  },
+  {
+    id: "s3",
+    category: "S",
+    name: "Soft Serif",
+    description:
+      "Lora throughout — contemporary serif with calligraphic curves. Handmade warmth. Accent: burnt orange from the elephant's back.",
+    brandFont: "'Lora', serif",
+    headlineFont: "'Lora', serif",
+    bodyFont: "'Lora', serif",
+    bg: "#FAFAFA",
+    cardBg: "#FFFFFF",
+    text: "#1C1917",
+    muted: "#A1A1AA",
+    accent: "#C2410C",
+    border: "#E5E5E5",
+    brandWeight: 600,
+    headlineWeight: 500,
+    headlineItalic: true,
+    brandLetterSpacing: "-0.01em",
+    headlineLetterSpacing: "-0.01em",
+    brandLowercase: true,
+  },
+  {
+    id: "s4",
+    category: "S",
+    name: "Screen Serif",
+    description:
+      "Spectral — designed from scratch for screens. Crisp, modern proportions. Accent: golden amber from the elephant's crown.",
+    brandFont: "'Spectral', serif",
+    headlineFont: "'Spectral', serif",
+    bodyFont: "'Spectral', serif",
+    bg: "#FAFAFA",
+    cardBg: "#FFFFFF",
+    text: "#0F172A",
+    muted: "#94A3B8",
+    accent: "#D97706",
+    border: "#E2E8F0",
+    brandWeight: 600,
+    headlineWeight: 600,
+    brandLetterSpacing: "-0.01em",
+    headlineLetterSpacing: "-0.02em",
+    brandLowercase: true,
+  },
+
   // ── Option A: Inter brand + Playfair content ──
   {
     id: "a1",
@@ -264,6 +412,18 @@ const variations: Variation[] = [
  * Category labels
  * ───────────────────────────────────────────── */
 const CATEGORY_INFO: Record<string, { label: string; description: string }> = {
+  "✦": {
+    label: "✦ The Pick",
+    description: "Current style + Libre Baskerville wordmark — your chosen direction",
+  },
+  "★": {
+    label: "★ Current App — Baseline",
+    description: "How Pixeltrunk looks right now, for direct comparison",
+  },
+  S: {
+    label: "Serif Focus — The Elephant Era",
+    description: "Full serif or serif-dominant, leaning into the elephant's warmth and character",
+  },
   A: {
     label: "Option A — Dual Voice",
     description: "Inter for brand, Playfair Display for content headlines",
@@ -290,14 +450,15 @@ function GalleryCard({
   images,
   expanded,
   onToggle,
+  logoSrc,
 }: {
   v: Variation;
   images: ImageData[];
   expanded: boolean;
   onToggle: () => void;
+  logoSrc: string;
 }) {
   const displayImages = expanded ? images : images.slice(0, 6);
-  const logoFilter = v.darkMode ? "brightness(10)" : "none";
 
   return (
     <div
@@ -321,14 +482,22 @@ function GalleryCard({
           style={{ borderBottom: `1px solid ${v.border}` }}
         >
           <div className="flex items-center gap-2.5">
-            <Image
-              src="/logo.png"
-              alt="pixeltrunk"
-              width={28}
-              height={28}
-              className="rounded-md"
-              style={{ filter: logoFilter }}
-            />
+            <div
+              className="rounded-md overflow-hidden flex items-center justify-center"
+              style={{
+                width: 32,
+                height: 32,
+                backgroundColor: v.darkMode ? "rgba(255,255,255,0.1)" : "transparent",
+              }}
+            >
+              <Image
+                src={logoSrc}
+                alt="pixeltrunk"
+                width={32}
+                height={32}
+                className="object-contain"
+              />
+            </div>
             <span
               style={{
                 fontFamily: v.brandFont,
@@ -475,12 +644,11 @@ function GalleryCard({
           }}
         >
           <Image
-            src="/logo.png"
+            src={logoSrc}
             alt=""
-            width={16}
-            height={16}
-            className="rounded-sm opacity-40"
-            style={{ filter: logoFilter }}
+            width={18}
+            height={18}
+            className="opacity-50"
           />
           <span
             style={{
@@ -508,7 +676,13 @@ function GalleryCard({
               className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
               style={{
                 backgroundColor:
-                  v.category === "A"
+                  v.category === "✦"
+                    ? "#10B981"
+                    : v.category === "★"
+                    ? "#78716C"
+                    : v.category === "S"
+                    ? "#B45309"
+                    : v.category === "A"
                     ? "#10B981"
                     : v.category === "B"
                     ? "#6366F1"
@@ -567,9 +741,13 @@ function GalleryCard({
  * ───────────────────────────────────────────── */
 export function PlaygroundClient({ images }: { images: ImageData[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [logoVariant, setLogoVariant] = useState<LogoVariant>("clean");
+
+  const currentLogo = LOGOS[logoVariant];
+  const otherVariant: LogoVariant = logoVariant === "clean" ? "artistic" : "clean";
 
   // Group variations by category
-  const categories = ["A", "B", "C", "W"];
+  const categories = ["✦", "★", "S", "A", "B", "C", "W"];
 
   return (
     <>
@@ -585,30 +763,72 @@ export function PlaygroundClient({ images }: { images: ImageData[] }) {
       <div className="min-h-screen bg-stone-50">
         {/* Page Header */}
         <div className="max-w-7xl mx-auto px-6 pt-12 pb-8">
-          <div className="flex items-center gap-4 mb-2">
-            <Image
-              src="/logo.png"
-              alt="pixeltrunk"
-              width={48}
-              height={48}
-              className="rounded-xl shadow-md"
-            />
-            <div>
-              <h1 className="font-editorial text-[32px] text-stone-900 leading-none">
-                Style Playground
-              </h1>
-              <p className="text-[14px] text-stone-400 mt-1">
-                9 visual directions for the{" "}
-                <span className="font-semibold text-stone-600">pixeltrunk</span>{" "}
-                rebrand
-              </p>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4 mb-2">
+              <Image
+                src={currentLogo.src}
+                alt="pixeltrunk"
+                width={56}
+                height={56}
+                className="rounded-xl"
+              />
+              <div>
+                <h1 className="font-editorial text-[32px] text-stone-900 leading-none">
+                  Style Playground
+                </h1>
+                <p className="text-[14px] text-stone-400 mt-1">
+                  14 visual directions for the{" "}
+                  <span className="font-semibold text-stone-600">pixeltrunk</span>{" "}
+                  rebrand
+                </p>
+              </div>
             </div>
+
+            {/* Logo Toggle */}
+            <button
+              onClick={() => setLogoVariant(otherVariant)}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 transition-colors shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <Image
+                  src={currentLogo.src}
+                  alt=""
+                  width={28}
+                  height={28}
+                  className="rounded"
+                />
+                <div className="text-left">
+                  <p className="text-[11px] font-semibold text-stone-900">
+                    {currentLogo.label}
+                  </p>
+                  <p className="text-[10px] text-stone-400">{currentLogo.desc}</p>
+                </div>
+              </div>
+              <ArrowLeftRight size={14} className="text-stone-300 mx-1" />
+              <div className="flex items-center gap-2 opacity-40">
+                <Image
+                  src={LOGOS[otherVariant].src}
+                  alt=""
+                  width={28}
+                  height={28}
+                  className="rounded"
+                />
+                <div className="text-left">
+                  <p className="text-[11px] font-semibold text-stone-500">
+                    {LOGOS[otherVariant].label}
+                  </p>
+                  <p className="text-[10px] text-stone-300">
+                    {LOGOS[otherVariant].desc}
+                  </p>
+                </div>
+              </div>
+            </button>
           </div>
+
           <p className="mt-4 text-[13px] text-stone-400 max-w-2xl leading-relaxed">
             Each card simulates a full gallery page with different typography,
             color palettes, and design personalities. Click &quot;Expand&quot; to
-            see the full 4-column grid. All previews use real images from your
-            Tester event.
+            see the full 4-column grid. Toggle between logo variants above.
           </p>
         </div>
 
@@ -634,6 +854,8 @@ export function PlaygroundClient({ images }: { images: ImageData[] }) {
                   className={`grid gap-6 ${
                     catVariations.some((v) => v.id === expandedId)
                       ? "grid-cols-1"
+                      : cat === "✦" || cat === "★"
+                      ? "grid-cols-1 max-w-2xl"
                       : cat === "W"
                       ? "grid-cols-1 lg:grid-cols-3"
                       : "grid-cols-1 lg:grid-cols-2"
@@ -650,6 +872,7 @@ export function PlaygroundClient({ images }: { images: ImageData[] }) {
                           prev === v.id ? null : v.id
                         )
                       }
+                      logoSrc={currentLogo.src}
                     />
                   ))}
                 </div>
