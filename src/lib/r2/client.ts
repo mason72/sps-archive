@@ -97,3 +97,24 @@ export function buildImageKey(
 export function getPublicUrl(key: string): string {
   return `${process.env.R2_PUBLIC_URL}/${key}`;
 }
+
+/**
+ * Derive a thumbnail key from an original r2_key.
+ *
+ * Original:  events/{eventId}/originals/{filename}
+ * Thumbnail: events/{eventId}/thumbnails/{variant}/{filename}.jpg
+ */
+export function getThumbnailKey(
+  r2Key: string,
+  variant: "thumb-sm" | "thumb-md" | "thumb-lg" = "thumb-md"
+): string {
+  // Parse original key: events/{eventId}/originals/{filename}
+  const parts = r2Key.split("/");
+  // parts = ["events", eventId, "originals", filename]
+  if (parts.length < 4 || parts[2] !== "originals") return r2Key;
+
+  const eventId = parts[1];
+  const filename = parts.slice(3).join("/");
+  const thumbFilename = filename.replace(/\.[^.]+$/, ".jpg");
+  return `events/${eventId}/thumbnails/${variant}/${thumbFilename}`;
+}

@@ -1,4 +1,4 @@
-# SPS Archive — Technical Documentation
+# SPS Prism — Technical Documentation
 
 **Last updated:** 2026-02-22
 

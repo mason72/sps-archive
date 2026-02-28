@@ -1,4 +1,4 @@
-# SPS Archive — Product Requirements Document
+# SPS Prism — Product Requirements Document
 
 **Status:** Early development (scaffold complete, not yet deployed)
 **Last updated:** 2026-02-22
@@ -7,7 +7,7 @@
 
 ## 1. Vision
 
-SPS Archive is an AI-powered photo archiving and organization tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)** — SPS handles the live gallery delivery experience; Archive handles the post-shoot organization, culling, and long-term storage layer.
+SPS Prism is an AI-powered photo archiving and organization tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)** — SPS handles the live gallery delivery experience; Prism handles the post-shoot organization, culling, and long-term storage layer.
 
 **One-line pitch:** Drop 3,000 photos from a wedding shoot and get back an organized, searchable, client-ready archive in minutes — not hours.
 
@@ -157,10 +157,10 @@ Select event/section/person → Create share link
 
 ## 8. Open Questions
 
-1. **Product naming:** "SPS Archive" is a working title. Need a real product name that connects to SimplePhotoShare without being generic. Brainstorming session planned.
-2. **Pricing model:** Per-event? Per-image? Monthly subscription? Bundled with SPS?
-3. **Storage quotas:** How much R2 storage included? Tiered by plan?
-4. **AI processing costs:** Modal GPU costs per image (~$0.002-0.005). Pass through? Absorb?
+1. ~~**Product naming:**~~ **Resolved.** Product is named "SPS Prism".
+2. ~~**Pricing model:**~~ **Resolved.** Tiered subscription based on storage volume. See `docs/PRICING.md` for full pricing strategy.
+3. ~~**Storage quotas:**~~ **Resolved.** Free 10 GB, Solo 100 GB, Pro 750 GB, Studio 2 TB. Additional storage $5/100 GB on Studio.
+4. ~~**AI processing costs:**~~ **Resolved.** Absorbed in margins. ~$0.003/image one-time cost.
 5. **Authentication:** Share Supabase project with SPS? Separate project with SSO?
 
 ---

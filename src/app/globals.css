@@ -1,1 +1,283 @@
 @import "tailwindcss";
+
+/* ─── SPS Prism — Editorial Design System ─── */
+/* Playfair Display (serif headlines) + Inter (body) loaded via next/font/google in layout.tsx */
+
+@theme {
+  /* Typography — set by next/font CSS variables */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-playfair), Georgia, "Times New Roman", serif;
+
+  /* Stone palette — warm neutrals */
+  --color-stone-50: #FAFAF9;
+  --color-stone-100: #F5F5F4;
+  --color-stone-150: #EEEEEC;
+  --color-stone-200: #E7E5E4;
+  --color-stone-300: #D6D3D1;
+  --color-stone-400: #A8A29E;
+  --color-stone-500: #78716C;
+  --color-stone-600: #57534E;
+  --color-stone-700: #44403C;
+  --color-stone-800: #292524;
+  --color-stone-900: #1C1917;
+  --color-stone-950: #0C0A09;
+
+  /* Accent — emerald, used with extreme restraint */
+  --color-accent: #10B981;
+  --color-accent-hover: #059669;
+  --color-accent-muted: #D1FAE5;
+
+  /* Surfaces — clean neutral white */
+  --color-page: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+
+  /* Hairline borders */
+  --color-rule: #E7E5E4;
+  --color-rule-subtle: #F5F5F4;
+}
+
+/* ─── Base layer ─── */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-page);
+    color: var(--color-stone-900);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  ::selection {
+    background: var(--color-accent-muted);
+    color: var(--color-stone-900);
+  }
+
+  /* Refined focus ring */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ─── Editorial animation keyframes ─── */
+@layer base {
+  @keyframes editorial-reveal {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes editorial-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes editorial-line {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  @keyframes editorial-scale {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  /* Lightbox animations */
+  @keyframes lightbox-open {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes lightbox-image-enter {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes lightbox-panel-enter {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  @keyframes toolbar-enter {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes processing-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @keyframes panel-slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+}
+
+/* ─── Editorial utility classes ─── */
+@layer utilities {
+  /* Serif headline */
+  .font-editorial {
+    font-family: var(--font-serif);
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+
+  /* Small caps label style */
+  .label-caps {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--color-stone-400);
+  }
+
+  /* Section divider with centered label */
+  .editorial-divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .editorial-divider::before,
+  .editorial-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-rule);
+  }
+
+  /* Underline link animation */
+  .editorial-link {
+    position: relative;
+    display: inline-block;
+  }
+
+  .editorial-link::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: var(--color-accent);
+    transform: scaleX(0);
+    transform-origin: right;
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+
+  .editorial-link:hover::after {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+
+  /* Reveal animations */
+  .reveal {
+    animation: editorial-reveal 0.7s ease-out both;
+  }
+
+  .reveal-line {
+    transform-origin: left;
+    animation: editorial-line 0.8s ease-out both;
+  }
+
+  .fade-in {
+    animation: editorial-fade 0.8s ease-out both;
+  }
+
+  .scale-in {
+    animation: editorial-scale 0.6s ease-out both;
+  }
+
+  /* Photo card hover */
+  .photo-lift {
+    transition: transform 0.5s ease;
+  }
+
+  .photo-lift:hover {
+    transform: translateY(-3px);
+  }
+
+  /* Email body — styles for rendered HTML in email preview */
+  .email-body a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .email-body p {
+    margin-bottom: 0.75em;
+  }
+
+  .email-body strong {
+    color: var(--color-stone-900);
+    font-weight: 600;
+  }
+
+  /* Accent glow — very subtle */
+  .accent-glow {
+    box-shadow: 0 2px 16px rgba(16, 185, 129, 0.12);
+  }
+
+  /* Hairline rule */
+  .rule {
+    height: 1px;
+    background: var(--color-rule);
+  }
+
+  /* Italic caption style */
+  .caption-italic {
+    font-style: italic;
+    color: var(--color-stone-400);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* Lightbox utilities */
+  .lightbox-open {
+    animation: lightbox-open 0.3s ease-out both;
+  }
+
+  .lightbox-image-enter {
+    animation: lightbox-image-enter 0.4s ease-out both;
+  }
+
+  .lightbox-panel-enter {
+    animation: lightbox-panel-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .toolbar-enter {
+    animation: toolbar-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .panel-slide-in {
+    animation: panel-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Film strip — hidden scrollbar */
+  .film-strip-scroll {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+  }
+
+  .film-strip-scroll::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+  }
+
+  /* Processing progress bar — animated shimmer gradient */
+  .processing-bar {
+    background: linear-gradient(
+      90deg,
+      var(--color-stone-900) 0%,
+      var(--color-stone-500) 50%,
+      var(--color-stone-900) 100%
+    );
+    background-size: 200% 100%;
+    animation: processing-shimmer 2s ease-in-out infinite;
+    transition: width 0.6s ease-out;
+  }
+}

@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, Image as ImageIcon, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import {
+  Upload,
+  Image as ImageIcon,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
+
+const BATCH_SIZE = 50;
+const MAX_CONCURRENT_UPLOADS = 12;
 
 interface UploadFile {
   id: string;
@@ -18,14 +27,47 @@ interface UploadFile {
 interface UploadZoneProps {
   eventId: string;
   onUploadComplete?: (imageIds: string[]) => void;
+  onUploadFailed?: (files: File[]) => void;
+  retryFiles?: File[];
 }
 
-export function UploadZone({ eventId, onUploadComplete }: UploadZoneProps) {
+/** Worker-pool pattern for concurrency-limited async tasks */
+async function processPool<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  concurrency: number
+): Promise<void> {
+  let idx = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (idx < items.length) {
+        const i = idx++;
+        await fn(items[i]);
+      }
+    }
+  );
+  await Promise.all(workers);
+}
+
+export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const abortRef = useRef(false);
+
+  const updateFile = useCallback(
+    (id: string, update: Partial<UploadFile>) => {
+      setFiles((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, ...update } : f))
+      );
+    },
+    []
+  );
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
+      abortRef.current = false;
+
       const newFiles: UploadFile[] = acceptedFiles.map((file, i) => ({
         id: `${Date.now()}-${i}`,
         file,
@@ -36,104 +78,154 @@ export function UploadZone({ eventId, onUploadComplete }: UploadZoneProps) {
       setFiles((prev) => [...prev, ...newFiles]);
       setIsUploading(true);
 
+      const completedIds: string[] = [];
+      const succeededIndices = new Set<number>();
+
       try {
-        // 1. Get presigned URLs from our API
-        const response = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventId,
-            files: acceptedFiles.map((f) => ({
-              name: f.name,
-              type: f.type,
-              size: f.size,
-            })),
-          }),
-        });
+        // Process files in batches of BATCH_SIZE
+        for (
+          let batchStart = 0;
+          batchStart < acceptedFiles.length;
+          batchStart += BATCH_SIZE
+        ) {
+          if (abortRef.current) break;
 
-        if (!response.ok) throw new Error("Failed to get upload URLs");
-        const { uploads } = await response.json();
+          const batchEnd = Math.min(
+            batchStart + BATCH_SIZE,
+            acceptedFiles.length
+          );
+          const batchFiles = acceptedFiles.slice(batchStart, batchEnd);
+          const batchNewFiles = newFiles.slice(batchStart, batchEnd);
 
-        // 2. Upload files directly to R2 via presigned URLs
-        const completedIds: string[] = [];
+          // 1. Get presigned URLs for this batch
+          let response: Response;
+          try {
+            response = await fetch("/api/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                eventId,
+                files: batchFiles.map((f) => ({
+                  name: f.name,
+                  type: f.type,
+                  size: f.size,
+                })),
+              }),
+            });
+          } catch (err) {
+            // Network error — mark batch as failed, try next
+            for (const nf of batchNewFiles) {
+              updateFile(nf.id, {
+                status: "error",
+                error:
+                  err instanceof Error ? err.message : "Network error",
+              });
+            }
+            continue;
+          }
 
-        await Promise.all(
-          uploads.map(
-            async (
-              upload: { imageId: string; uploadUrl: string },
+          if (!response.ok) {
+            for (const nf of batchNewFiles) {
+              updateFile(nf.id, {
+                status: "error",
+                error: `Server error (${response.status})`,
+              });
+            }
+            continue;
+          }
+
+          const { uploads } = await response.json();
+
+          // 2. Upload files via our server proxy (no CORS issues)
+          const uploadTasks = uploads.map(
+            (
+              upload: { imageId: string; r2Key: string },
               index: number
-            ) => {
-              const file = acceptedFiles[index];
-              const fileId = newFiles[index].id;
+            ) => ({
+              upload,
+              file: batchFiles[index],
+              fileId: batchNewFiles[index].id,
+              originalIndex: batchStart + index,
+            })
+          );
+
+          await processPool(
+            uploadTasks,
+            async (task: {
+              upload: { imageId: string; r2Key: string };
+              file: File;
+              fileId: string;
+              originalIndex: number;
+            }) => {
+              if (abortRef.current) return;
 
               try {
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.id === fileId ? { ...f, status: "uploading" } : f
-                  )
+                updateFile(task.fileId, { status: "uploading" });
+
+                // Upload through our API proxy → R2
+                const uploadRes = await fetch(
+                  `/api/upload/${task.upload.imageId}`,
+                  {
+                    method: "PUT",
+                    body: task.file,
+                    headers: { "Content-Type": task.file.type },
+                  }
                 );
 
-                // Upload to R2
-                await fetch(upload.uploadUrl, {
-                  method: "PUT",
-                  body: file,
-                  headers: { "Content-Type": file.type },
+                if (!uploadRes.ok) {
+                  throw new Error(`Upload failed (${uploadRes.status})`);
+                }
+
+                // Mark as complete immediately — EXIF is fire-and-forget
+                updateFile(task.fileId, {
+                  status: "complete",
+                  progress: 100,
+                  imageId: task.upload.imageId,
                 });
 
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.id === fileId
-                      ? { ...f, status: "processing", progress: 100 }
-                      : f
-                  )
-                );
-
-                // 3. Extract EXIF and notify server
-                const arrayBuffer = await file.arrayBuffer();
-                const exif = await extractExif(arrayBuffer);
-
-                await fetch("/api/upload/complete", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    imageId: upload.imageId,
-                    width: exif?.width,
-                    height: exif?.height,
-                    exif,
-                  }),
+                // Extract EXIF in background (non-blocking)
+                task.file.arrayBuffer().then(async (buf) => {
+                  try {
+                    const exif = await extractExif(buf);
+                    await fetch("/api/upload/complete", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        imageId: task.upload.imageId,
+                        width: exif?.width,
+                        height: exif?.height,
+                        exif,
+                      }),
+                    });
+                  } catch {
+                    // EXIF extraction is non-critical
+                  }
                 });
 
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.id === fileId
-                      ? { ...f, status: "complete", imageId: upload.imageId }
-                      : f
-                  )
-                );
-
-                completedIds.push(upload.imageId);
+                completedIds.push(task.upload.imageId);
+                succeededIndices.add(task.originalIndex);
               } catch (err) {
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.id === fileId
-                      ? {
-                          ...f,
-                          status: "error",
-                          error:
-                            err instanceof Error
-                              ? err.message
-                              : "Upload failed",
-                        }
-                      : f
-                  )
-                );
+                updateFile(task.fileId, {
+                  status: "error",
+                  error:
+                    err instanceof Error ? err.message : "Upload failed",
+                });
               }
-            }
-          )
-        );
+            },
+            MAX_CONCURRENT_UPLOADS
+          );
+        }
 
         if (completedIds.length > 0) {
           onUploadComplete?.(completedIds);
+        }
+
+        // Collect failed files and notify parent
+        const failedFiles = acceptedFiles.filter(
+          (_, index) => !succeededIndices.has(index)
+        );
+        if (failedFiles.length > 0) {
+          onUploadFailed?.(failedFiles);
         }
       } catch (err) {
         console.error("Upload error:", err);
@@ -141,8 +233,22 @@ export function UploadZone({ eventId, onUploadComplete }: UploadZoneProps) {
         setIsUploading(false);
       }
     },
-    [eventId, onUploadComplete]
+    [eventId, onUploadComplete, onUploadFailed, updateFile]
   );
+
+  // Handle retry: when retryFiles prop is set with files, trigger upload
+  const retryFilesRef = useRef<File[] | undefined>(undefined);
+  useEffect(() => {
+    if (
+      retryFiles &&
+      retryFiles.length > 0 &&
+      retryFiles !== retryFilesRef.current &&
+      !isUploading
+    ) {
+      retryFilesRef.current = retryFiles;
+      onDrop(retryFiles);
+    }
+  }, [retryFiles, isUploading, onDrop]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -153,92 +259,120 @@ export function UploadZone({ eventId, onUploadComplete }: UploadZoneProps) {
       "image/webp": [".webp"],
       "image/heic": [".heic", ".heif"],
     },
-    maxSize: 100 * 1024 * 1024, // 100MB per file
+    maxSize: 100 * 1024 * 1024,
     disabled: isUploading,
   });
 
   const completedCount = files.filter((f) => f.status === "complete").length;
+  const errorCount = files.filter((f) => f.status === "error").length;
   const totalCount = files.length;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* ─── Drop zone ─── */}
       <div
         {...getRootProps()}
         className={cn(
-          "relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-all",
+          "relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center border border-dashed p-12 text-center transition-all duration-300",
           isDragActive
-            ? "border-stone-900 bg-stone-50"
-            : "border-stone-300 hover:border-stone-400 hover:bg-stone-50/50",
-          isUploading && "pointer-events-none opacity-60"
+            ? "border-accent bg-accent-muted/30"
+            : "border-stone-300 hover:border-stone-400",
+          isUploading && "pointer-events-none opacity-40"
         )}
       >
         <input {...getInputProps()} />
         <Upload
           className={cn(
-            "mb-3 h-10 w-10 transition-colors",
-            isDragActive ? "text-stone-900" : "text-stone-400"
+            "mb-4 h-8 w-8 transition-colors duration-300",
+            isDragActive ? "text-accent" : "text-stone-300"
           )}
         />
         {isDragActive ? (
-          <p className="text-lg font-medium text-stone-900">
+          <p className="font-editorial text-lg text-accent">
             Drop images here
           </p>
         ) : (
           <>
-            <p className="text-lg font-medium text-stone-700">
+            <p className="font-editorial text-lg text-stone-700">
               Drag & drop images here
             </p>
-            <p className="mt-1 text-sm text-stone-500">
-              or click to browse. JPEG, PNG, TIFF, WebP, HEIC up to 100MB each.
+            <p className="mt-2 text-[13px] text-stone-400 leading-relaxed">
+              or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB
             </p>
           </>
         )}
       </div>
 
-      {/* Upload progress */}
+      {/* ─── Upload progress ─── */}
       {files.length > 0 && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-stone-700">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="label-caps">
               {isUploading
-                ? `Uploading... ${completedCount}/${totalCount}`
-                : `${completedCount} uploaded`}
+                ? `Uploading ${completedCount} / ${totalCount}`
+                : completedCount === totalCount && totalCount > 0
+                ? `${completedCount} uploaded`
+                : `${completedCount} uploaded, ${errorCount} failed`}
             </span>
-            {completedCount === totalCount && totalCount > 0 && (
-              <button
-                onClick={() => setFiles([])}
-                className="text-stone-500 hover:text-stone-700"
-              >
-                Clear
-              </button>
-            )}
+            <div className="flex items-center gap-4">
+              {isUploading && (
+                <button
+                  onClick={() => {
+                    abortRef.current = true;
+                  }}
+                  className="text-[12px] text-red-400 hover:text-red-600 transition-colors duration-300"
+                >
+                  Cancel
+                </button>
+              )}
+              {!isUploading && (
+                <button
+                  onClick={() => setFiles([])}
+                  className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="max-h-[300px] space-y-1 overflow-y-auto">
+          {/* ─── Progress bar ─── */}
+          {totalCount > 0 && (
+            <div className="h-1 bg-stone-100 w-full overflow-hidden">
+              <div
+                className="h-full bg-accent transition-all duration-500 ease-out"
+                style={{
+                  width: `${(completedCount / totalCount) * 100}%`,
+                }}
+              />
+            </div>
+          )}
+
+          <div className="max-h-[300px] space-y-px overflow-y-auto">
             {files.map((f) => (
               <div
                 key={f.id}
-                className="flex items-center gap-3 rounded-lg bg-stone-50 px-3 py-2 text-sm"
+                className="flex items-center gap-3 border-b border-stone-100 px-0 py-2.5 text-[13px]"
               >
-                <ImageIcon className="h-4 w-4 shrink-0 text-stone-400" />
-                <span className="flex-1 truncate text-stone-700">
+                <ImageIcon className="h-3.5 w-3.5 shrink-0 text-stone-300" />
+                <span className="flex-1 truncate text-stone-600">
                   {f.file.name}
                 </span>
-                <span className="shrink-0 text-stone-400">
+                <span className="shrink-0 text-[12px] text-stone-300">
                   {formatFileSize(f.file.size)}
                 </span>
                 {f.status === "uploading" && (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-stone-500" />
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-400" />
                 )}
                 {f.status === "processing" && (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                 )}
                 {f.status === "complete" && (
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
                 )}
                 {f.status === "error" && (
                   <span title={f.error}>
-                    <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
                   </span>
                 )}
               </div>

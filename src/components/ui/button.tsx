@@ -12,21 +12,21 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center rounded-lg font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex items-center justify-center font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40",
           {
             primary:
-              "bg-stone-900 text-white hover:bg-stone-800 active:bg-stone-950 focus-visible:ring-stone-500",
+              "bg-stone-900 text-white hover:bg-stone-800 active:bg-stone-950 rounded-none tracking-wide",
             secondary:
-              "bg-stone-100 text-stone-900 hover:bg-stone-200 active:bg-stone-300 focus-visible:ring-stone-400",
+              "border border-stone-200 bg-white text-stone-900 hover:border-stone-300 hover:bg-stone-50 rounded-none",
             ghost:
-              "text-stone-600 hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-stone-400",
+              "text-stone-500 hover:text-stone-900 rounded-none",
             danger:
-              "bg-red-600 text-white hover:bg-red-700 active:bg-red-800 focus-visible:ring-red-500",
+              "bg-red-600 text-white hover:bg-red-700 active:bg-red-800 rounded-none",
           }[variant],
           {
-            sm: "h-8 gap-1.5 px-3 text-sm",
-            md: "h-10 gap-2 px-4 text-sm",
-            lg: "h-12 gap-2.5 px-6 text-base",
+            sm: "h-8 gap-1.5 px-4 text-[12px] uppercase tracking-[0.15em]",
+            md: "h-10 gap-2 px-5 text-[13px] uppercase tracking-[0.12em]",
+            lg: "h-12 gap-2.5 px-8 text-[13px] uppercase tracking-[0.15em]",
           }[size],
           className
         )}

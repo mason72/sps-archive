@@ -1,7 +1,7 @@
 /**
- * Auto-generated types placeholder.
- * Run `npm run db:gen-types` to regenerate from your Supabase schema.
- * For now, we define the types manually matching our migration.
+ * Database types for SPS Prism.
+ * Manually maintained to match migrations 001–008.
+ * Run `npm run db:gen-types` to auto-regenerate if Supabase CLI is configured.
  */
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
@@ -12,6 +12,7 @@ export type Database = {
       events: {
         Row: {
           id: string;
+          user_id: string;
           name: string;
           slug: string;
           description: string | null;
@@ -24,6 +25,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          user_id: string;
           name: string;
           slug: string;
           description?: string | null;
@@ -36,6 +38,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          user_id?: string;
           name?: string;
           slug?: string;
           description?: string | null;
@@ -78,6 +81,7 @@ export type Database = {
           stack_id: string | null;
           stack_rank: number | null;
           processing_status: string;
+          thumbnail_generated: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -110,6 +114,7 @@ export type Database = {
           stack_id?: string | null;
           stack_rank?: number | null;
           processing_status?: string;
+          thumbnail_generated?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -142,6 +147,7 @@ export type Database = {
           stack_id?: string | null;
           stack_rank?: number | null;
           processing_status?: string;
+          thumbnail_generated?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -309,10 +315,14 @@ export type Database = {
           share_type: string;
           section_id: string | null;
           person_id: string | null;
+          image_ids: string[] | null;
           allow_download: boolean;
           allow_favorites: boolean;
           download_quality: string;
           custom_message: string | null;
+          download_pin: string | null;
+          require_pin_bulk: boolean;
+          require_pin_individual: boolean;
           view_count: number;
           last_viewed_at: string | null;
           created_at: string;
@@ -328,10 +338,14 @@ export type Database = {
           share_type?: string;
           section_id?: string | null;
           person_id?: string | null;
+          image_ids?: string[] | null;
           allow_download?: boolean;
           allow_favorites?: boolean;
           download_quality?: string;
           custom_message?: string | null;
+          download_pin?: string | null;
+          require_pin_bulk?: boolean;
+          require_pin_individual?: boolean;
           view_count?: number;
           last_viewed_at?: string | null;
           created_at?: string;
@@ -347,10 +361,14 @@ export type Database = {
           share_type?: string;
           section_id?: string | null;
           person_id?: string | null;
+          image_ids?: string[] | null;
           allow_download?: boolean;
           allow_favorites?: boolean;
           download_quality?: string;
           custom_message?: string | null;
+          download_pin?: string | null;
+          require_pin_bulk?: boolean;
+          require_pin_individual?: boolean;
           view_count?: number;
           last_viewed_at?: string | null;
           created_at?: string;
@@ -381,6 +399,156 @@ export type Database = {
           client_name?: string | null;
           client_email?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      user_profiles: {
+        Row: {
+          user_id: string;
+          display_name: string | null;
+          business_name: string | null;
+          bio: string | null;
+          logo_url: string | null;
+          website: string | null;
+          phone: string | null;
+          location: string | null;
+          branding: Json;
+          gallery_defaults: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          display_name?: string | null;
+          business_name?: string | null;
+          bio?: string | null;
+          logo_url?: string | null;
+          website?: string | null;
+          phone?: string | null;
+          location?: string | null;
+          branding?: Json;
+          gallery_defaults?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          display_name?: string | null;
+          business_name?: string | null;
+          bio?: string | null;
+          logo_url?: string | null;
+          website?: string | null;
+          phone?: string | null;
+          location?: string | null;
+          branding?: Json;
+          gallery_defaults?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      email_templates: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          subject: string;
+          body_html: string;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          subject?: string;
+          body_html?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          subject?: string;
+          body_html?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      event_templates: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          description: string | null;
+          event_type: string | null;
+          settings: Json;
+          sections: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          description?: string | null;
+          event_type?: string | null;
+          settings?: Json;
+          sections?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          description?: string | null;
+          event_type?: string | null;
+          settings?: Json;
+          sections?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      email_sends: {
+        Row: {
+          id: string;
+          user_id: string;
+          event_id: string | null;
+          template_id: string | null;
+          recipients: Json;
+          subject: string;
+          body_html: string;
+          status: string;
+          sent_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          event_id?: string | null;
+          template_id?: string | null;
+          recipients: Json;
+          subject: string;
+          body_html?: string;
+          status?: string;
+          sent_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          event_id?: string | null;
+          template_id?: string | null;
+          recipients?: Json;
+          subject?: string;
+          body_html?: string;
+          status?: string;
+          sent_at?: string;
         };
         Relationships: [];
       };

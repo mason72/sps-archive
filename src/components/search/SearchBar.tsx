@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, X, Camera, Sparkles } from "lucide-react";
+import { Search, X, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SearchResult {
@@ -66,12 +66,14 @@ export function SearchBar({
     [eventId, searchType, onResults, onClear]
   );
 
-  // Debounced search as user types
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (query.trim()) {
-      debounceRef.current = setTimeout(() => performSearch(query), 300);
+      // Filename search is fast (DB only) — near-instant
+      // Semantic search hits AI endpoint — debounce more
+      const delay = searchType === "semantic" ? 400 : 100;
+      debounceRef.current = setTimeout(() => performSearch(query), delay);
     } else {
       onClear?.();
     }
@@ -79,7 +81,7 @@ export function SearchBar({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, performSearch, onClear]);
+  }, [query, performSearch, onClear, searchType]);
 
   const handleClear = () => {
     setQuery("");
@@ -88,12 +90,13 @@ export function SearchBar({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      {/* ─── Search input ─── */}
       <div className="relative">
         <Search
           className={cn(
-            "absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 transition-colors",
-            isSearching ? "animate-pulse text-stone-500" : "text-stone-400"
+            "absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors duration-300",
+            isSearching ? "text-accent animate-pulse" : "text-stone-300"
           )}
         />
         <input
@@ -109,41 +112,38 @@ export function SearchBar({
                 ? "Search by filename..."
                 : 'Search images... try "Smith" or "first dance"')
           }
-          className="h-12 w-full rounded-xl border border-stone-200 bg-white pl-11 pr-24 text-stone-900 shadow-sm transition-all placeholder:text-stone-400 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
+          className="h-12 w-full border-b border-stone-200 bg-transparent pl-7 pr-10 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
         />
-        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-          {query && (
-            <button
-              onClick={handleClear}
-              className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
+        {query && (
+          <button
+            onClick={handleClear}
+            className="absolute right-0 top-1/2 -translate-y-1/2 p-1 text-stone-300 hover:text-stone-600 transition-colors duration-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
-      {/* Search type toggles */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-stone-400">Search by:</span>
+      {/* ─── Search type toggles ─── */}
+      <div className="flex items-center gap-3">
+        <span className="label-caps text-[10px]">Search by</span>
         {(
           [
-            { key: "auto", label: "Auto", icon: Sparkles },
-            { key: "semantic", label: "Description", icon: Sparkles },
-            { key: "filename", label: "Filename", icon: Search },
+            { key: "auto", label: "Auto" },
+            { key: "semantic", label: "Description" },
+            { key: "filename", label: "Filename" },
           ] as const
-        ).map(({ key, label, icon: Icon }) => (
+        ).map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setSearchType(key)}
             className={cn(
-              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+              "px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border transition-all duration-300",
               searchType === key
-                ? "bg-stone-900 text-white"
-                : "bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-700"
+                ? "border-stone-900 bg-stone-900 text-white"
+                : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
             )}
           >
-            <Icon className="h-3 w-3" />
             {label}
           </button>
         ))}
@@ -151,10 +151,10 @@ export function SearchBar({
           onClick={() => {
             // TODO: Open selfie upload modal for face search
           }}
-          className="flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-500 hover:bg-stone-200 hover:text-stone-700"
+          className="px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-400 hover:border-accent hover:text-accent transition-all duration-300 flex items-center gap-1.5"
         >
           <Camera className="h-3 w-3" />
-          Find by selfie
+          Selfie
         </button>
       </div>
     </div>

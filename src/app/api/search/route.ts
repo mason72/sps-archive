@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth/helpers";
+import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { createServiceClient } from "@/lib/supabase/server";
+
+type SupabaseDB = ReturnType<typeof createServiceClient>;
 
 /**
  * GET /api/search?q=<query>&eventId=<optional>&type=<semantic|filename|person>
@@ -15,6 +19,9 @@ import { createServiceClient } from "@/lib/supabase/server";
  *   - auto: Tries filename first, falls back to semantic
  */
 export async function GET(request: NextRequest) {
+  const { supabase, error: authError } = await getAuthUser();
+  if (authError) return authError;
+
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q");
   const eventId = searchParams.get("eventId") || undefined;
@@ -24,8 +31,6 @@ export async function GET(request: NextRequest) {
   if (!query) {
     return NextResponse.json({ error: "q parameter is required" }, { status: 400 });
   }
-
-  const supabase = createServiceClient();
 
   try {
     if (searchType === "filename" || searchType === "auto") {
@@ -42,7 +47,16 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchType === "semantic" || searchType === "auto") {
-      // Semantic search: generate CLIP embedding for query text, then vector search
+      // Semantic search requires Modal API — gracefully skip if not configured
+      if (!process.env.MODAL_API_URL) {
+        return NextResponse.json({
+          type: "filename",
+          results: [],
+          count: 0,
+          message: "Semantic search is not configured yet",
+        });
+      }
+
       const semanticResults = await searchBySemantic(supabase, query, eventId, limit);
       return NextResponse.json({
         type: "semantic",
@@ -60,7 +74,7 @@ export async function GET(request: NextRequest) {
 
 /** Search by filename or parsed name (fast, exact-ish matching) */
 async function searchByFilename(
-  supabase: ReturnType<typeof createServiceClient>,
+  supabase: SupabaseDB,
   query: string,
   eventId: string | undefined,
   limit: number
@@ -68,7 +82,6 @@ async function searchByFilename(
   let dbQuery = supabase
     .from("images")
     .select("id, event_id, original_filename, parsed_name, r2_key, aesthetic_score, stack_id, stack_rank")
-    .eq("processing_status", "complete")
     .or(`original_filename.ilike.%${query}%,parsed_name.ilike.%${query}%`)
     .order("original_filename")
     .limit(limit);
@@ -80,21 +93,33 @@ async function searchByFilename(
   const { data, error } = await dbQuery;
   if (error) throw error;
 
-  return (data || []).map((img: Record<string, unknown>) => ({
-    id: img.id,
-    eventId: img.event_id,
-    filename: img.original_filename,
-    parsedName: img.parsed_name,
-    r2Key: img.r2_key,
-    score: 1.0, // exact match
-    stackId: img.stack_id,
-    stackRank: img.stack_rank,
-  }));
+  return Promise.all(
+    (data || []).map(async (img: Record<string, unknown>) => {
+      const r2Key = img.r2_key as string;
+      const thumbKey = getThumbnailKey(r2Key);
+      const [thumbnailUrl, originalUrl] = await Promise.all([
+        getPresignedDownloadUrl(thumbKey, 14400),
+        getPresignedDownloadUrl(r2Key, 14400),
+      ]);
+      return {
+        id: img.id,
+        eventId: img.event_id,
+        filename: img.original_filename,
+        parsedName: img.parsed_name,
+        r2Key,
+        thumbnailUrl,
+        originalUrl,
+        score: 1.0,
+        stackId: img.stack_id,
+        stackRank: img.stack_rank,
+      };
+    })
+  );
 }
 
 /** Search by semantic similarity using CLIP embeddings */
 async function searchBySemantic(
-  supabase: ReturnType<typeof createServiceClient>,
+  supabase: SupabaseDB,
   query: string,
   eventId: string | undefined,
   limit: number
@@ -125,11 +150,22 @@ async function searchBySemantic(
 
   if (error) throw error;
 
-  return (data || []).map((result: { id: string; event_id: string; filename: string; original_filename: string; r2_key: string; similarity: number }) => ({
-    id: result.id,
-    eventId: result.event_id,
-    filename: result.original_filename,
-    r2Key: result.r2_key,
-    score: result.similarity,
-  }));
+  return Promise.all(
+    (data || []).map(async (result: { id: string; event_id: string; filename: string; original_filename: string; r2_key: string; similarity: number }) => {
+      const thumbKey = getThumbnailKey(result.r2_key);
+      const [thumbnailUrl, originalUrl] = await Promise.all([
+        getPresignedDownloadUrl(thumbKey, 14400),
+        getPresignedDownloadUrl(result.r2_key, 14400),
+      ]);
+      return {
+        id: result.id,
+        eventId: result.event_id,
+        filename: result.original_filename,
+        r2Key: result.r2_key,
+        thumbnailUrl,
+        originalUrl,
+        score: result.similarity,
+      };
+    })
+  );
 }

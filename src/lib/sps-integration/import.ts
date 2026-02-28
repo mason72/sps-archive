@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { inngest } from "@/lib/inngest/client";
 import type { SPSEventImport, ArchiveEnhancements } from "./types";
 
 /**
@@ -26,9 +27,11 @@ export async function importFromSPS(data: SPSEventImport): Promise<{ eventId: st
     "-" +
     Date.now().toString(36);
 
+  const { data: { user } } = await supabase.auth.getUser();
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({
+      user_id: user!.id,
       name: data.name,
       slug,
       description: data.description || null,
@@ -64,11 +67,11 @@ export async function importFromSPS(data: SPSEventImport): Promise<{ eventId: st
     if (error) throw error;
   }
 
-  // TODO: Trigger AI processing for all imported images via Inngest
-  // await inngest.send({
-  //   name: "event/imported",
-  //   data: { eventId: event.id, imageCount: data.images.length },
-  // });
+  // Trigger AI processing for all imported images via Inngest
+  await inngest.send({
+    name: "event/imported",
+    data: { eventId: event.id, imageCount: data.images.length },
+  });
 
   return { eventId: event.id };
 }

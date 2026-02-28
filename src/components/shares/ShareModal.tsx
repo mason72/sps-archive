@@ -1,0 +1,454 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { toast } from "sonner";
+import { X, Copy, Check, Link2, Eye, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ShareChecklist } from "@/components/shares/ShareChecklist";
+
+interface Share {
+  id: string;
+  slug: string;
+  shareType?: string;
+  isPasswordProtected: boolean;
+  allowDownload: boolean;
+  allowFavorites: boolean;
+  expiresAt: string | null;
+  customMessage: string | null;
+  isActive: boolean;
+  viewCount?: number;
+  imageIds?: string[] | null;
+  createdAt: string;
+}
+
+interface ShareModalProps {
+  eventId: string;
+  eventName: string;
+  isOpen: boolean;
+  onClose: () => void;
+  /** When provided, creates a 'selection' share containing only these images */
+  imageIds?: string[];
+}
+
+export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: ShareModalProps) {
+  const [shares, setShares] = useState<Share[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const [hasCreatedShare, setHasCreatedShare] = useState(false);
+
+  // New share form state
+  const [password, setPassword] = useState("");
+  const [allowDownload, setAllowDownload] = useState(true);
+  const [allowFavorites, setAllowFavorites] = useState(true);
+  const [customMessage, setCustomMessage] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+
+  // Download PIN protection
+  const [requirePinBulk, setRequirePinBulk] = useState(false);
+  const [requirePinIndividual, setRequirePinIndividual] = useState(false);
+  const [downloadPin, setDownloadPin] = useState("");
+
+  const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
+
+  const fetchShares = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/shares?eventId=${eventId}`);
+      if (!res.ok) throw new Error("Failed to load shares");
+      const data = await res.json();
+      setShares(data.shares);
+    } catch (error) {
+      console.error("Failed to load shares:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setHasCreatedShare(false);
+      fetchShares();
+    }
+  }, [isOpen, fetchShares]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
+
+  const handleCreate = async () => {
+    setIsCreating(true);
+    try {
+      const res = await fetch("/api/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          password: password || undefined,
+          allowDownload,
+          allowFavorites,
+          customMessage: customMessage || undefined,
+          expiresAt: expiresAt || undefined,
+          imageIds: imageIds?.length ? imageIds : undefined,
+          downloadPin: (requirePinBulk || requirePinIndividual) ? downloadPin : undefined,
+          requirePinBulk,
+          requirePinIndividual,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to create share");
+      const data = await res.json();
+
+      // Add to list and reset form
+      setHasCreatedShare(true);
+      setShares((prev) => [data.share, ...prev]);
+      setPassword("");
+      setCustomMessage("");
+      setExpiresAt("");
+      setRequirePinBulk(false);
+      setRequirePinIndividual(false);
+      setDownloadPin("");
+
+      // Auto-copy the link
+      copyLink(data.share.slug);
+      toast.success("Share link created");
+    } catch (error) {
+      console.error("Create share error:", error);
+      toast.error("Failed to create share link");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleRevoke = async (shareId: string) => {
+    try {
+      await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
+      setShares((prev) =>
+        prev.map((s) => (s.id === shareId ? { ...s, isActive: false } : s))
+      );
+      toast.success("Link revoked");
+    } catch (error) {
+      console.error("Revoke error:", error);
+      toast.error("Failed to revoke link");
+    }
+  };
+
+  const copyLink = (slug: string) => {
+    const url = `${window.location.origin}/gallery/${slug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedSlug(slug);
+    setTimeout(() => setCopiedSlug(null), 2000);
+    toast.success("Link copied to clipboard");
+  };
+
+  const galleryUrl = (slug: string) =>
+    `${window.location.origin}/gallery/${slug}`;
+
+  if (!isOpen) return null;
+
+  const activeShares = shares.filter((s) => s.isActive);
+  const revokedShares = shares.filter((s) => !s.isActive);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="relative w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto bg-white border border-stone-200 shadow-2xl">
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-white border-b border-stone-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="font-editorial text-[24px] text-stone-900">
+              Share <span className="italic font-normal">link</span>
+            </h2>
+            <p className="text-[12px] text-stone-400 mt-0.5">
+              {imageIds?.length
+                ? `${imageIds.length} selected images`
+                : eventName}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-stone-400 hover:text-stone-700 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Pre-flight checklist — shown before first share is created */}
+          {!hasCreatedShare && <ShareChecklist eventId={eventId} />}
+
+          {/* Create new share */}
+          <section>
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-4">
+              Create Link
+            </h3>
+
+            <div className="space-y-4">
+              {/* Toggle switches */}
+              <div className="flex items-center justify-between">
+                <label className="text-[13px] text-stone-700">Allow downloads</label>
+                <button
+                  onClick={() => setAllowDownload((v) => !v)}
+                  className={`relative w-10 h-5 rounded-full transition-colors duration-300 ${
+                    allowDownload ? "bg-accent" : "bg-stone-200"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-4 w-4 bg-white rounded-full shadow transition-transform duration-300 ${
+                      allowDownload ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <label className="text-[13px] text-stone-700">Allow favorites</label>
+                <button
+                  onClick={() => setAllowFavorites((v) => !v)}
+                  className={`relative w-10 h-5 rounded-full transition-colors duration-300 ${
+                    allowFavorites ? "bg-accent" : "bg-stone-200"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-4 w-4 bg-white rounded-full shadow transition-transform duration-300 ${
+                      allowFavorites ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="label-caps mb-2 block">
+                  Password <span className="normal-case text-stone-300">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Leave empty for open access"
+                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+                />
+              </div>
+
+              {/* Expiration */}
+              <div>
+                <label className="label-caps mb-2 block">
+                  Expires <span className="normal-case text-stone-300">(optional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                  min={new Date().toISOString().split("T")[0]}
+                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+                />
+              </div>
+
+              {/* Custom message */}
+              <div>
+                <label className="label-caps mb-2 block">
+                  Message <span className="normal-case text-stone-300">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  placeholder="A note for your client"
+                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+                />
+              </div>
+
+              {/* Download Protection */}
+              <div className="pt-2">
+                <p className="text-[11px] uppercase tracking-[0.15em] text-stone-400 font-medium mb-3">
+                  Download Protection
+                </p>
+
+                <label className="flex items-center justify-between py-2 cursor-pointer group">
+                  <span className="text-[13px] text-stone-600 group-hover:text-stone-900 transition-colors">
+                    Require PIN for Download All
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !requirePinBulk;
+                      setRequirePinBulk(next);
+                      if (next && !downloadPin) setDownloadPin(generatePin());
+                    }}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${
+                      requirePinBulk ? "bg-stone-900" : "bg-stone-200"
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      requirePinBulk ? "translate-x-4" : ""
+                    }`} />
+                  </button>
+                </label>
+
+                <label className="flex items-center justify-between py-2 cursor-pointer group">
+                  <span className="text-[13px] text-stone-600 group-hover:text-stone-900 transition-colors">
+                    Require PIN for individual downloads
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !requirePinIndividual;
+                      setRequirePinIndividual(next);
+                      if (next && !downloadPin) setDownloadPin(generatePin());
+                    }}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${
+                      requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      requirePinIndividual ? "translate-x-4" : ""
+                    }`} />
+                  </button>
+                </label>
+
+                {(requirePinBulk || requirePinIndividual) && (
+                  <div className="mt-3">
+                    <label className="label-caps mb-2 block">PIN Code</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={downloadPin}
+                      onChange={(e) => setDownloadPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="4-digit PIN"
+                      className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 font-mono tracking-[0.3em] placeholder:text-stone-300 placeholder:tracking-normal placeholder:font-sans focus:border-stone-900 focus:outline-none transition-colors duration-300"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <Button
+                onClick={handleCreate}
+                disabled={isCreating}
+                className="w-full mt-2"
+              >
+                <Link2 className="h-4 w-4" />
+                {isCreating
+                  ? "Creating..."
+                  : imageIds?.length
+                    ? "Create selection link"
+                    : "Create link"}
+              </Button>
+            </div>
+          </section>
+
+          {/* Existing shares */}
+          {isLoading ? (
+            <div className="space-y-3">
+              <div className="h-16 animate-pulse bg-stone-50" />
+              <div className="h-16 animate-pulse bg-stone-50" />
+            </div>
+          ) : activeShares.length > 0 ? (
+            <section>
+              <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-4">
+                Active Links
+              </h3>
+              <div className="space-y-3">
+                {activeShares.map((share) => (
+                  <div
+                    key={share.id}
+                    className="border border-stone-100 p-4 group hover:border-stone-200 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[13px] text-stone-700 font-mono truncate max-w-[240px]">
+                        {galleryUrl(share.slug)}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => copyLink(share.slug)}
+                          className="p-1.5 text-stone-400 hover:text-stone-700 transition-colors"
+                          title="Copy link"
+                        >
+                          {copiedSlug === share.slug ? (
+                            <Check className="h-3.5 w-3.5 text-accent" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleRevoke(share.id)}
+                          className="p-1.5 text-stone-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Revoke link"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-stone-400">
+                      {share.shareType === "selection" && (
+                        <span className="uppercase tracking-wider text-accent">
+                          Selection{share.imageIds?.length ? ` (${share.imageIds.length})` : ""}
+                        </span>
+                      )}
+                      {share.isPasswordProtected && (
+                        <span className="uppercase tracking-wider">Protected</span>
+                      )}
+                      {share.expiresAt && (
+                        <span className="uppercase tracking-wider">
+                          Expires{" "}
+                          {new Date(share.expiresAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                      )}
+                      {share.viewCount !== undefined && (
+                        <span className="flex items-center gap-1">
+                          <Eye className="h-3 w-3" /> {share.viewCount}
+                        </span>
+                      )}
+                      <span>
+                        {new Date(share.createdAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Revoked shares */}
+          {revokedShares.length > 0 && (
+            <section>
+              <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-300 mb-3">
+                Revoked
+              </h3>
+              <div className="space-y-2">
+                {revokedShares.map((share) => (
+                  <div
+                    key={share.id}
+                    className="border border-stone-100 p-3 opacity-50"
+                  >
+                    <p className="text-[12px] text-stone-400 font-mono line-through">
+                      /gallery/{share.slug}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}

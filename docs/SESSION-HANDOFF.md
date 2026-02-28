@@ -4,9 +4,9 @@ Copy everything below the line into a new Claude Code session.
 
 ---
 
-## Context: SPS Archive Project
+## Context: SPS Prism Project
 
-I'm building **SPS Archive**, an AI-powered photo archiving and organization tool for professional photographers. It's the sister product to **SimplePhotoShare (SPS/spsv2)**, which handles client gallery delivery. Archive handles the step before delivery: organizing, culling, and storing the raw shoot output.
+I'm building **SPS Prism**, an AI-powered photo archiving and organization tool for professional photographers. It's the sister product to **SimplePhotoShare (SPS/spsv2)**, which handles client gallery delivery. Prism handles the step before delivery: organizing, culling, and storing the raw shoot output.
 
 ### What's already built (at ~/sps-archive)
 
@@ -63,7 +63,7 @@ Compare the two codebases and tell me:
 
 **3. Product naming brainstorm**
 
-"SPS Archive" is a working title. I need a real name that:
+"SPS Prism" is the product name. I need to verify the branding:
 - Connects to SimplePhotoShare without being generic
 - Works as a standalone brand too
 - Communicates the AI-powered organization angle
