@@ -122,7 +122,6 @@ async function generateThumbnailsForImage(
     const { generateThumbnails } = await import("@/lib/thumbnails/generate");
     await generateThumbnails(image.r2_key, image.event_id, image.filename);
 
-    console.log(`Thumbnails generated for ${imageId}`);
   } catch (err) {
     // Non-critical — grid will fall back to original URL
     console.error(`Thumbnail generation failed for ${imageId}:`, err);

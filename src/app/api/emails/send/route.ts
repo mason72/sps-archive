@@ -80,10 +80,7 @@ export async function POST(request: NextRequest) {
         status = "failed";
       }
     } else {
-      // No email provider configured — log only
-      console.log(`[Email Preview] To: ${recipients.join(", ")}`);
-      console.log(`[Email Preview] Subject: ${subject}`);
-      console.log(`[Email Preview] From: ${fromName}`);
+      // No email provider configured — preview only
       status = "preview";
     }
 

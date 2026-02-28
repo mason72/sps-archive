@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
+import { useColumnCount } from "@/hooks/useColumnCount";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
@@ -25,6 +26,7 @@ export default function GlobalSearchPage() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchType, setSearchType] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
+  const columnCount = useColumnCount();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -97,7 +99,7 @@ export default function GlobalSearchPage() {
               </div>
 
               <div className="flex gap-1.5">
-                {distributeToColumns(results, 5).map((col, colIdx) => (
+                {distributeToColumns(results, columnCount).map((col, colIdx) => (
                   <div key={colIdx} className="flex-1 flex flex-col gap-1.5">
                     {col.map((result) => (
                       <SearchResultCard key={result.id} result={result} />
@@ -136,7 +138,7 @@ function SearchResultCard({ result }: { result: SearchResult }) {
       <img
         ref={imgRef}
         src={result.thumbnailUrl || result.originalUrl || ""}
-        alt=""
+        alt={result.parsedName || result.filename || ""}
         className={`w-full h-auto object-cover transition-all duration-500 group-hover:scale-[1.03] ${
           loaded ? "opacity-100" : "opacity-0"
         }`}

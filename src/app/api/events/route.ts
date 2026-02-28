@@ -5,12 +5,7 @@ import type { Json } from "@/lib/supabase/database.types";
 /** GET /api/events — List all events for the authenticated user */
 export async function GET(request: NextRequest) {
   const { user, supabase, error: authError } = await getAuthUser();
-  if (authError) {
-    console.error("GET /api/events: auth failed, returning 401");
-    return authError;
-  }
-
-  console.log("GET /api/events: user =", user!.id, user!.email);
+  if (authError) return authError;
 
   const { searchParams } = new URL(request.url);
   const limit = parseInt(searchParams.get("limit") || "50", 10);
@@ -27,8 +22,6 @@ export async function GET(request: NextRequest) {
     console.error("GET /api/events: query error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  console.log("GET /api/events: returning", data?.length, "events out of", count);
 
   return NextResponse.json({
     events: data,

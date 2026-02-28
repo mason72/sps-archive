@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Check } from "lucide-react";
 import { SmartStack } from "./SmartStack";
+import { useColumnCount } from "@/hooks/useColumnCount";
 import type { ImageData, StackData } from "@/types/image";
 
 interface ImageGridProps {
@@ -130,27 +131,6 @@ export function ImageGrid({
   );
 }
 
-/** Responsive column count matching Tailwind breakpoints */
-function useColumnCount() {
-  const [count, setCount] = useState(4);
-
-  useEffect(() => {
-    function update() {
-      const w = window.innerWidth;
-      if (w >= 1280) setCount(7);
-      else if (w >= 1024) setCount(6);
-      else if (w >= 768) setCount(5);
-      else if (w >= 640) setCount(4);
-      else setCount(3);
-    }
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  return count;
-}
-
 /** Individual grid cell with natural aspect ratio + fade-in on load */
 function GridImage({
   image,
@@ -197,7 +177,7 @@ function GridImage({
       <img
         ref={imgRef}
         src={image.thumbnailUrl}
-        alt=""
+        alt={image.parsedName || image.originalFilename || ""}
         className={`w-full h-auto object-cover transition-all duration-500 ${
           isSelecting ? "" : "group-hover:scale-[1.03]"
         } ${loaded ? "opacity-100" : "opacity-0"}`}

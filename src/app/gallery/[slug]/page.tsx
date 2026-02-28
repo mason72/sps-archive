@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
@@ -62,6 +62,7 @@ export default function GalleryPage({
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
 
   // PIN prompt state
   const [showPinModal, setShowPinModal] = useState(false);
@@ -108,6 +109,13 @@ export default function GalleryPage({
   useEffect(() => {
     fetchGallery();
   }, [fetchGallery]);
+
+  // Auto-focus lightbox when it opens for keyboard navigation
+  useEffect(() => {
+    if (selectedImageId && lightboxRef.current) {
+      lightboxRef.current.focus();
+    }
+  }, [selectedImageId]);
 
   const loadFavorites = (shareId: string) => {
     try {
@@ -386,12 +394,35 @@ export default function GalleryPage({
       {/* ─── Simple gallery lightbox ─── */}
       {selectedImage && (
         <div
+          ref={lightboxRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image viewer"
+          tabIndex={-1}
           className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center lightbox-open"
           onClick={() => setSelectedImageId(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setSelectedImageId(null);
+            } else if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              const currentIndex = gallery.images.findIndex((img: any) => img.id === selectedImageId);
+              if (currentIndex > 0) {
+                setSelectedImageId(gallery.images[currentIndex - 1].id);
+              }
+            } else if (e.key === "ArrowRight") {
+              e.preventDefault();
+              const currentIndex = gallery.images.findIndex((img: any) => img.id === selectedImageId);
+              if (currentIndex < gallery.images.length - 1) {
+                setSelectedImageId(gallery.images[currentIndex + 1].id);
+              }
+            }
+          }}
         >
           {/* Navigation */}
           {selectedIndex > 0 && (
             <button
+              aria-label="Previous image"
               className="absolute left-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
               onClick={(e) => {
                 e.stopPropagation();
@@ -405,6 +436,7 @@ export default function GalleryPage({
           )}
           {selectedIndex < gallery.images.length - 1 && (
             <button
+              aria-label="Next image"
               className="absolute right-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
               onClick={(e) => {
                 e.stopPropagation();
@@ -419,6 +451,7 @@ export default function GalleryPage({
 
           {/* Close */}
           <button
+            aria-label="Close image viewer"
             className="absolute top-4 right-4 p-3 text-white/60 hover:text-white transition-colors z-10"
             onClick={() => setSelectedImageId(null)}
           >

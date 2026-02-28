@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 import {
   User,
   Paintbrush,
-  Palette,
   Save,
   ArrowLeft,
 } from "lucide-react";
@@ -369,11 +368,13 @@ function FormField({
   placeholder?: string;
   multiline?: boolean;
 }) {
+  const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div>
-      <label className="label-caps mb-2 block">{label}</label>
+      <label htmlFor={id} className="label-caps mb-2 block">{label}</label>
       {multiline ? (
         <textarea
+          id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -382,6 +383,7 @@ function FormField({
         />
       ) : (
         <input
+          id={id}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -403,9 +405,10 @@ function ColorField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div>
-      <label className="label-caps mb-2 block">{label}</label>
+      <label htmlFor={id} className="label-caps mb-2 block">{label}</label>
       <div className="flex items-center gap-3">
         <label className="relative cursor-pointer">
           <div
@@ -420,6 +423,7 @@ function ColorField({
           />
         </label>
         <input
+          id={id}
           type="text"
           value={value}
           onChange={(e) => {
