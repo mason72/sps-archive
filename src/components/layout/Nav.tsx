@@ -1,23 +1,18 @@
-"use client";
-
 import Link from "next/link";
 import Image from "next/image";
-import { useAuth } from "@/components/auth/AuthProvider";
 
 interface NavProps {
-  /** Extra nav items to render before auth controls */
+  /** Page-specific nav items rendered on the right side */
   children?: React.ReactNode;
 }
 
 /**
- * Nav — Shared auth-aware navigation bar.
+ * Nav — Shared navigation bar with elephant logo + pixeltrunk wordmark.
  *
- * Shows "Sign in" when logged out, user email + "Sign out" when logged in.
- * Accepts optional children for page-specific nav items (Upload, Share, etc).
+ * Pure presentational — works in both server and client components.
+ * Each page passes its own nav items (auth links, action buttons, etc.) as children.
  */
 export function Nav({ children }: NavProps) {
-  const { user, signOut } = useAuth();
-
   return (
     <>
       <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
@@ -33,32 +28,11 @@ export function Nav({ children }: NavProps) {
             pixeltrunk
           </span>
         </Link>
-        <div className="flex items-center gap-6">
-          {children}
-          {user ? (
-            <>
-              <Link
-                href="/account"
-                className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-              >
-                Account
-              </Link>
-              <button
-                onClick={signOut}
-                className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <Link
-              href="/login"
-              className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-            >
-              Sign in
-            </Link>
-          )}
-        </div>
+        {children && (
+          <div className="flex items-center gap-8 text-[13px] tracking-wide">
+            {children}
+          </div>
+        )}
       </nav>
       <div className="mx-8 md:mx-16 rule reveal-line" />
     </>

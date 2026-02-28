@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { Footer } from "@/components/layout/Footer";
 
 export default function GalleryErrorPage({
   error,
@@ -36,14 +37,7 @@ export default function GalleryErrorPage({
         </div>
       </div>
 
-      <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
-        <p className="text-[12px] text-stone-400">
-          Powered by{" "}
-          <span className="font-brand text-[14px] text-stone-900">
-            pixeltrunk
-          </span>
-        </p>
-      </footer>
+      <Footer />
     </div>
   );
 }

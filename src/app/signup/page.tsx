@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -57,29 +58,14 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2.5">
-          <Image
-            src="/logo.png"
-            alt="pixeltrunk"
-            width={32}
-            height={32}
-            className="rounded-md"
-          />
-          <span className="font-brand text-[22px] text-stone-900">
-            pixeltrunk
-          </span>
-        </Link>
+      <Nav>
         <Link
           href="/login"
-          className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
         >
           Sign in
         </Link>
-      </nav>
-
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+      </Nav>
 
       <main className="flex-1 flex items-start justify-center pt-24 px-8 md:px-16">
         <div className="w-full max-w-md">
@@ -173,6 +159,8 @@ export default function SignupPage() {
           )}
         </div>
       </main>
+
+      <Footer />
     </div>
   );
 }

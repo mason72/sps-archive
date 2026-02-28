@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -108,21 +109,14 @@ export default function AccountPage() {
   return (
     <div className="min-h-screen">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
-          <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
+      <Nav>
+        <Link
+          href="/"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          Dashboard
         </Link>
-        <div className="flex items-center gap-6">
-          <Link
-            href="/"
-            className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Dashboard
-          </Link>
-        </div>
-      </nav>
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+      </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-3xl">
         {/* Header */}
@@ -356,14 +350,7 @@ export default function AccountPage() {
       </main>
 
       {/* Footer */}
-      <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
-        <p className="text-[12px] text-stone-400">
-          <span className="font-brand text-[14px] text-stone-900">
-            pixeltrunk
-          </span>
-          {" "}— Intelligent photo archiving
-        </p>
-      </footer>
+      <Footer />
     </div>
   );
 }

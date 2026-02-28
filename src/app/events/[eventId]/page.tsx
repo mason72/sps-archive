@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { UploadZone } from "@/components/upload/UploadZone";
 import { SearchBar } from "@/components/search/SearchBar";
@@ -414,55 +415,21 @@ export default function EventPage({
   return (
     <div className="min-h-screen">
       {/* ─── Nav ─── */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
-          <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
-        </Link>
-        <div className="flex items-center gap-6">
-          <button
-            onClick={() => setShowUpload((v) => !v)}
-            className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            {showUpload ? "Hide Upload" : "Upload"}
-          </button>
-          <button
-            onClick={() => {
-              setShareModalImageIds(undefined);
-              setShowShareModal(true);
-            }}
-            className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Share
-          </button>
-          <button
-            onClick={() => setShowSettings((v) => !v)}
-            className="text-[13px] tracking-wide editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Settings
-          </button>
-          <button
-            onClick={() => {
-              setActivitiesTab("shares");
-              setShowActivities(true);
-            }}
-            className="text-stone-400 hover:text-stone-700 transition-colors duration-300"
-            aria-label="Activity"
-          >
-            <Activity size={16} />
-          </button>
-          <MoreMenu
-            eventId={eventId}
-            eventName={event?.name || "Event"}
-            onShowEmails={() => {
-              setActivitiesTab("emails");
-              setShowActivities(true);
-            }}
-          />
-        </div>
-      </nav>
-
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+      <Nav>
+        <button onClick={() => setShowUpload((v) => !v)} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
+          {showUpload ? "Hide Upload" : "Upload"}
+        </button>
+        <button onClick={() => { setShareModalImageIds(undefined); setShowShareModal(true); }} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
+          Share
+        </button>
+        <button onClick={() => setShowSettings((v) => !v)} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
+          Settings
+        </button>
+        <button onClick={() => { setActivitiesTab("shares"); setShowActivities(true); }} className="text-stone-400 hover:text-stone-700 transition-colors duration-300" aria-label="Activity">
+          <Activity size={16} />
+        </button>
+        <MoreMenu eventId={eventId} eventName={event?.name || "Event"} onShowEmails={() => { setActivitiesTab("emails"); setShowActivities(true); }} />
+      </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24">
         {/* ─── Event header ─── */}
@@ -724,14 +691,7 @@ export default function EventPage({
       </main>
 
       {/* ─── Footer ─── */}
-      <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
-        <p className="text-[12px] text-stone-400">
-          <span className="font-brand text-[14px] text-stone-900">
-            pixeltrunk
-          </span>
-          {" "}— Intelligent photo archiving
-        </p>
-      </footer>
+      <Footer />
 
       {/* ─── Selection Toolbar ─── */}
       {selection.isSelecting && (

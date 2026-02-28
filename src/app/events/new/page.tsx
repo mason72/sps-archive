@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 
 const EVENT_TYPES = [
   { value: "wedding", label: "Wedding" },
@@ -109,24 +110,15 @@ export default function NewEventPage() {
   };
 
   return (
-    <div className="min-h-screen">
-      {/* ─── Nav ─── */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
-          <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
+    <div className="min-h-screen flex flex-col">
+      <Nav>
+        <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
+          Archive
         </Link>
-        <div className="flex items-center gap-10 text-[13px] tracking-wide">
-          <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-            Archive
-          </Link>
-          <Link href="/events/new" className="editorial-link font-medium text-stone-900">
-            New Event
-          </Link>
-        </div>
-      </nav>
-
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+        <Link href="/events/new" className="editorial-link font-medium text-stone-900">
+          New Event
+        </Link>
+      </Nav>
 
       <main className="px-8 md:px-16 pt-16 pb-24 max-w-2xl">
         <p
@@ -258,6 +250,8 @@ export default function NewEventPage() {
           </Button>
         </form>
       </main>
+
+      <Footer />
     </div>
   );
 }

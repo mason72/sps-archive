@@ -1,10 +1,11 @@
 import Link from "next/link";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 
 export const dynamic = "force-dynamic";
 
@@ -28,39 +29,22 @@ export default async function HomePage() {
  * ───────────────────────────────────────────── */
 function DashboardView() {
   return (
-    <div className="min-h-screen">
-      {/* ─── Nav ─── */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2.5">
-          <Image
-            src="/logo.png"
-            alt="pixeltrunk"
-            width={32}
-            height={32}
-            className="rounded-md"
-          />
-          <span className="font-brand text-[22px] text-stone-900">
-            pixeltrunk
-          </span>
+    <div className="min-h-screen flex flex-col">
+      <Nav>
+        <Link
+          href="/events/new"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          New Event
         </Link>
-        <div className="flex items-center gap-10 text-[13px] tracking-wide">
-          <Link
-            href="/events/new"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            New Event
-          </Link>
-          <Link
-            href="/account"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Account
-          </Link>
-          <SignOutButton />
-        </div>
-      </nav>
-
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+        <Link
+          href="/account"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          Account
+        </Link>
+        <SignOutButton />
+      </Nav>
 
       {/* ─── Dashboard header ─── */}
       <div className="px-8 md:px-16 pt-16 pb-4">
@@ -86,17 +70,7 @@ function DashboardView() {
 
       {/* ─── Empty state CTA (shown inside EventList when no events) ─── */}
 
-      {/* ─── Footer ─── */}
-      <footer className="px-8 md:px-16 py-8 border-t border-stone-200 mt-16">
-        <div className="flex items-center justify-between">
-          <p className="text-[12px] text-stone-400">
-            <span className="font-brand text-[14px] text-stone-900">
-              pixeltrunk
-            </span>
-            {" "}— Intelligent photo archiving for professionals
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
@@ -106,35 +80,18 @@ function DashboardView() {
  * ───────────────────────────────────────────── */
 function LandingView() {
   return (
-    <div className="min-h-screen">
-      {/* ─── Nav ─── */}
-      <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="flex items-center gap-2.5">
-          <Image
-            src="/logo.png"
-            alt="pixeltrunk"
-            width={32}
-            height={32}
-            className="rounded-md"
-          />
-          <span className="font-brand text-[22px] text-stone-900">
-            pixeltrunk
-          </span>
+    <div className="min-h-screen flex flex-col">
+      <Nav>
+        <Link
+          href="/login"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          Sign in
         </Link>
-        <div className="flex items-center gap-10 text-[13px] tracking-wide">
-          <Link
-            href="/login"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Sign in
-          </Link>
-          <Link href="/signup">
-            <Button size="sm">Get started</Button>
-          </Link>
-        </div>
-      </nav>
-
-      <div className="mx-8 md:mx-16 rule reveal-line" />
+        <Link href="/signup">
+          <Button size="sm">Get started</Button>
+        </Link>
+      </Nav>
 
       {/* ─── Hero ─── */}
       <div className="px-8 md:px-16 pt-20 pb-24">
@@ -233,17 +190,7 @@ function LandingView() {
         </blockquote>
       </div>
 
-      {/* ─── Footer ─── */}
-      <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
-        <div className="flex items-center justify-between">
-          <p className="text-[12px] text-stone-400">
-            <span className="font-brand text-[14px] text-stone-900">
-              pixeltrunk
-            </span>
-            {" "}— Intelligent photo archiving for professionals
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
