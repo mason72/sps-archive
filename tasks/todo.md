@@ -76,7 +76,52 @@
 - [x] .env.example updated with MODAL_API_URL
 - [x] Migration 003 ready (thumbnail_generated column)
 
-## Phase 9: Production Readiness [TODO]
+## Phase 8.5: Rebrand — Prism → Pixeltrunk [DONE]
+- [x] Elephant pixel-mosaic logo (trunk2 clean, trunk1 artistic)
+- [x] Libre Baskerville wordmark (font-brand)
+- [x] Elephant favicon (icon.png)
+- [x] All ~40 files updated from "Prism" to "pixeltrunk"
+- [x] Style playground with 15 typography variations
+
+---
+
+## Phase 9: QA + Polish Sprint [TODO]
+
+### 🔴 Bugs to Fix
+- [ ] Remove `|| true` debug artifact on event detail section tabs (always renders even when no sections)
+- [ ] Add error state when event fetch fails (currently shows blank "Event" heading forever)
+- [ ] Add Suspense boundary around login page `useSearchParams()` (Next.js 15 requirement)
+- [ ] Fix `selection` object in useEffect dependency array causing re-renders on every render
+
+### 🟡 Architecture Cleanup
+- [ ] Extract shared `<Nav />` — 9 pages duplicate nav bar with subtle spacing inconsistencies (gap-2 vs gap-2.5, gap-6 vs gap-10)
+- [ ] Extract shared `<Footer />` — 6 pages duplicate footer, some with truncated tagline
+- [ ] Consolidate event detail page state — 20+ useState hooks → custom hooks (useUploadState, useModalState, useImageFilter)
+- [ ] Remove 5 console.log statements from production code
+- [ ] Remove unused `Palette` import from account page
+- [ ] Replace inline SVGs with lucide-react equivalents (AlertTriangle, X, Grid3X3)
+
+### 🟢 Elegance & Delight
+- [ ] Add `loading.tsx` files for instant visual feedback during server component rendering
+- [ ] Add keyboard navigation to gallery lightbox (arrow keys, Escape)
+- [ ] Animate upload zone toggle (slide-down/fade instead of abrupt show/hide)
+- [ ] Make search results grid responsive (currently hardcoded 5 columns)
+- [ ] Add meaningful alt text to images using parsedName/originalFilename
+- [ ] Add aria-labels to 8+ icon buttons (upload toggle, share, settings, lightbox nav)
+- [ ] Add `role="dialog"` + focus trap to gallery lightbox
+- [ ] More inviting empty state for event detail (illustration + CTA button)
+- [ ] Per-page `<title>` tags ("Johnson Wedding — Pixeltrunk" instead of generic)
+- [ ] Add image width/height attributes to prevent layout shift (CLS)
+
+### 💡 Nice-to-Haves
+- [ ] Personalized dashboard greeting ("Good morning, [Name]")
+- [ ] Batch download via zip endpoint (current approach creates N simultaneous downloads)
+- [ ] Memoize search results column distribution with useMemo
+- [ ] Footer on login/signup/search pages for visual consistency
+
+---
+
+## Phase 10: Production Readiness [TODO]
 - [ ] Run migration 003 (thumbnail_generated boolean)
 - [ ] Batch-generate thumbnails for existing 446 images
 - [ ] Generate proper database.types.ts from Supabase schema
@@ -84,12 +129,12 @@
 - [ ] Modal deployment
 - [ ] Domain + CDN setup for R2
 
-## Phase 10: SPS Integration [TODO]
+## Phase 11: SPS Integration [TODO]
 - [ ] Wire up API endpoint for SPS → Archive transfer
 - [ ] Wire up API endpoint for Archive → SPS enhancements push
 - [ ] Shared auth (same Supabase project)
 
-## Phase 11: Future Enhancements [TODO]
+## Phase 12: Future Enhancements [TODO]
 - [ ] Face clustering pipeline (DBSCAN on ArcFace embeddings)
 - [ ] ClientIdentityModal for guest favorites
 - [ ] Bulk download (zip generation)
