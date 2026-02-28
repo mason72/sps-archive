@@ -22,7 +22,7 @@ import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
 import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen, Activity } from "lucide-react";
+import { Plus, FolderOpen, Activity, AlertTriangle, X, LayoutGrid, Rows3 } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -60,6 +60,7 @@ export default function EventPage({
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const [allImages, setAllImages] = useState<ImageData[]>([]);
   const [allStacks, setAllStacks] = useState<StackData[]>([]);
@@ -103,8 +104,8 @@ export default function EventPage({
       if (data.event.settings && Object.keys(data.event.settings).length > 0) {
         setEventSettings({ ...DEFAULT_EVENT_SETTINGS, ...data.event.settings });
       }
-    } catch (error) {
-      console.error("Failed to load event:", error);
+    } catch {
+      setLoadError(true);
     } finally {
       setIsLoading(false);
     }
@@ -135,7 +136,7 @@ export default function EventPage({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selection]);
+  }, [selection.isSelecting, selection.deselectAll]);
 
   // ─── Section filtering ───
   // When a section is activated, fetch its image IDs and filter the grid
@@ -199,7 +200,6 @@ export default function EventPage({
 
   const handleUploadComplete = useCallback(
     (imageIds: string[]) => {
-      console.log("Uploaded:", imageIds.length, "images — refreshing...");
       fetchEvent();
       toast.success(`${imageIds.length} images uploaded`);
       // Clear retry state on successful upload (retry worked)
@@ -458,7 +458,25 @@ export default function EventPage({
           </div>
         )}
 
-        {!isLoading && (
+        {/* ─── Error state ─── */}
+        {!isLoading && loadError && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <p className="font-editorial text-xl text-stone-300 italic mb-2">
+              Failed to load event
+            </p>
+            <p className="text-[13px] text-stone-400 mb-6">
+              Something went wrong. Please try again.
+            </p>
+            <button
+              onClick={() => { setLoadError(false); setIsLoading(true); fetchEvent(); }}
+              className="px-6 py-2 text-[12px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-all duration-300"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !loadError && (
           <>
             {/* ─── Processing indicator ─── */}
             {processing.isProcessing && (
@@ -481,25 +499,26 @@ export default function EventPage({
             )}
 
             {/* ─── Upload zone ─── */}
-            {showUpload && (
-              <div className="mb-12 reveal" style={{ animationDelay: "0.1s" }}>
-                <UploadZone
-                  eventId={eventId}
-                  onUploadComplete={handleUploadComplete}
-                  onUploadFailed={handleUploadFailed}
-                  retryFiles={retryFiles}
-                />
-              </div>
-            )}
+            <div
+              className={cn(
+                "transition-all duration-300 ease-in-out overflow-hidden",
+                showUpload ? "max-h-[500px] opacity-100 mb-12" : "max-h-0 opacity-0"
+              )}
+            >
+              <UploadZone
+                eventId={eventId}
+                onUploadComplete={handleUploadComplete}
+                onUploadFailed={handleUploadFailed}
+                retryFiles={retryFiles}
+              />
+            </div>
 
             {/* ─── Failed uploads banner ─── */}
             {failedUploads.length > 0 && (
               <div className="mb-8 p-4 border border-amber-200 bg-amber-50/50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <svg className="h-5 w-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                    </svg>
+                    <AlertTriangle className="h-5 w-5 text-amber-500" />
                     <div>
                       <p className="text-[13px] font-medium text-amber-900">
                         {failedUploads.length} {failedUploads.length === 1 ? "image" : "images"} failed to upload
@@ -520,11 +539,9 @@ export default function EventPage({
                     <button
                       onClick={() => setFailedUploads([])}
                       className="p-1.5 text-amber-400 hover:text-amber-600 transition-colors"
-                      title="Dismiss"
+                      aria-label="Dismiss"
                     >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -545,7 +562,7 @@ export default function EventPage({
 
             {/* ─── Section tabs ─── */}
             <div className="mb-10 flex items-center gap-3 overflow-x-auto">
-              {(sections.length > 0 || true) && (
+              {sections.length > 0 && (
                 <>
                   <button
                     onClick={() => setActiveSection(null)}
@@ -582,7 +599,7 @@ export default function EventPage({
                   <button
                     onClick={() => setShowSectionManager(true)}
                     className="px-3 py-2 text-[12px] border border-dashed border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-300 shrink-0 flex items-center gap-1.5"
-                    title="Manage sections"
+                    aria-label="Add section"
                   >
                     <Plus size={12} />
                     <span className="hidden sm:inline">Add Set</span>
@@ -593,7 +610,7 @@ export default function EventPage({
                     <button
                       onClick={() => setShowSectionManager(true)}
                       className="px-3 py-2 text-[12px] text-stone-400 hover:text-stone-600 transition-colors shrink-0 flex items-center gap-1.5"
-                      title="Manage sections"
+                      aria-label="Manage sections"
                     >
                       <FolderOpen size={12} />
                       <span className="hidden sm:inline">Manage</span>
@@ -614,27 +631,16 @@ export default function EventPage({
                 <button
                   onClick={() => setViewMode("grid")}
                   className={`p-1.5 transition-colors ${viewMode === "grid" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
-                  title="Grid view"
+                  aria-label="Grid view"
                 >
-                  {/* Grid icon - 4 squares */}
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 16 16">
-                    <rect x="0" y="0" width="7" height="7" />
-                    <rect x="9" y="0" width="7" height="7" />
-                    <rect x="0" y="9" width="7" height="7" />
-                    <rect x="9" y="9" width="7" height="7" />
-                  </svg>
+                  <LayoutGrid className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => setViewMode("filmstrip")}
                   className={`p-1.5 transition-colors ${viewMode === "filmstrip" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
-                  title="Film strip view"
+                  aria-label="Film strip view"
                 >
-                  {/* Film strip icon - horizontal lines */}
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 16 16">
-                    <rect x="0" y="2" width="16" height="3" rx="0.5" />
-                    <rect x="0" y="7" width="16" height="3" rx="0.5" />
-                    <rect x="0" y="12" width="16" height="3" rx="0.5" />
-                  </svg>
+                  <Rows3 className="h-4 w-4" />
                 </button>
               </div>
             </div>
