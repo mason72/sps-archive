@@ -1,4 +1,4 @@
-# SPS Prism — Product Requirements Document
+# Pixeltrunk — Product Requirements Document
 
 **Status:** Early development (scaffold complete, not yet deployed)
 **Last updated:** 2026-02-22
@@ -7,7 +7,7 @@
 
 ## 1. Vision
 
-SPS Prism is an AI-powered photo archiving and organization tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)** — SPS handles the live gallery delivery experience; Prism handles the post-shoot organization, culling, and long-term storage layer.
+Pixeltrunk is an AI-powered photo archiving and organization tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)** — SPS handles the live gallery delivery experience; Pixeltrunk handles the post-shoot organization, culling, and long-term storage layer.
 
 **One-line pitch:** Drop 3,000 photos from a wedding shoot and get back an organized, searchable, client-ready archive in minutes — not hours.
 
@@ -157,7 +157,7 @@ Select event/section/person → Create share link
 
 ## 8. Open Questions
 
-1. ~~**Product naming:**~~ **Resolved.** Product is named "SPS Prism".
+1. ~~**Product naming:**~~ **Resolved.** Product is named "Pixeltrunk".
 2. ~~**Pricing model:**~~ **Resolved.** Tiered subscription based on storage volume. See `docs/PRICING.md` for full pricing strategy.
 3. ~~**Storage quotas:**~~ **Resolved.** Free 10 GB, Solo 100 GB, Pro 750 GB, Studio 2 TB. Additional storage $5/100 GB on Studio.
 4. ~~**AI processing costs:**~~ **Resolved.** Absorbed in margins. ~$0.003/image one-time cost.

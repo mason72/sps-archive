@@ -1,5 +1,5 @@
 /**
- * Database types for SPS Prism.
+ * Database types for Pixeltrunk.
  * Manually maintained to match migrations 001–008.
  * Run `npm run db:gen-types` to auto-regenerate if Supabase CLI is configured.
  */

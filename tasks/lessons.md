@@ -1,4 +1,4 @@
-# SPS Prism — Lessons Learned
+# Pixeltrunk — Lessons Learned
 
 ## 1. Always check DB constraints before using custom status values
 **Mistake**: Set `processing_status: "uploaded"` in the upload/complete route, but the DB only allows `('pending', 'processing', 'complete', 'failed')`. Every EXIF update silently failed.

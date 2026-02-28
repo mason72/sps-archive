@@ -1,4 +1,4 @@
-# SPS Prism - Build Plan
+# Pixeltrunk - Build Plan
 
 ## Phase 1: Project Foundation [DONE]
 - [x] Initialize Next.js project (TypeScript, Tailwind, App Router)

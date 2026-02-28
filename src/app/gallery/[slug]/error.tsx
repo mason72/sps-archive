@@ -39,8 +39,8 @@ export default function GalleryErrorPage({
       <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
         <p className="text-[12px] text-stone-400">
           Powered by{" "}
-          <span className="font-editorial text-[14px] text-stone-900">
-            Prism
+          <span className="font-brand text-[14px] text-stone-900">
+            pixeltrunk
           </span>
         </p>
       </footer>

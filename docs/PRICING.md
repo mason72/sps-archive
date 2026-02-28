@@ -1,4 +1,4 @@
-# SPS Prism — Pricing Strategy
+# Pixeltrunk — Pricing Strategy
 
 **Status:** Approved direction
 **Last updated:** 2026-02-24
@@ -7,9 +7,9 @@
 
 ## 1. Positioning
 
-SPS Prism is a **premium product**. Photographers currently pay two separate bills — one for AI culling ($10–60/mo for Narrative or AfterShoot) and one for gallery/archive/delivery ($20–65/mo for ShootProof, Pixieset, Pic-Time). That's $30–125/mo for tools that don't talk to each other.
+Pixeltrunk is a **premium product**. Photographers currently pay two separate bills — one for AI culling ($10–60/mo for Narrative or AfterShoot) and one for gallery/archive/delivery ($20–65/mo for ShootProof, Pixieset, Pic-Time). That's $30–125/mo for tools that don't talk to each other.
 
-Prism is the only product that combines AI-powered organization, semantic search, smart stacks, and archive storage in one place — with native SPS integration for delivery. We do not undercut competitors. We price as a premium, feature-rich offering and deliver outsized value.
+Pixeltrunk is the only product that combines AI-powered organization, semantic search, smart stacks, and archive storage in one place — with native SPS integration for delivery. We do not undercut competitors. We price as a premium, feature-rich offering and deliver outsized value.
 
 ---
 
@@ -189,21 +189,21 @@ Studio margin improves as users add overage storage (69% margin on add-ons). Ble
 
 | Platform | Category | Top tier | Our comparison |
 |---|---|---|---|
-| ShootProof | Gallery + sales | $50/mo unlimited | Prism Studio at $79/mo includes AI that ShootProof doesn't offer |
-| Pixieset Suite | All-in-one | $55/mo annual | Prism Pro at $49/mo with superior AI capabilities |
-| Pic-Time | Gallery + print | $42/mo annual | Prism Pro comparable price, adds AI organization |
-| Narrative Select | AI culling + editing | $60/mo | Prism Studio at $79/mo adds archive + search + sharing |
-| AfterShoot | AI culling + editing | $60/mo | Prism Studio at $79/mo adds archive + search + sharing |
-| SmugMug Pro | Portfolio + sales | $37/mo annual | Prism Solo at $19/mo adds AI, comparable archive |
-| CloudSpot | Gallery + CRM | $50/mo unlimited | Prism Pro at $49/mo with AI features CloudSpot lacks |
+| ShootProof | Gallery + sales | $50/mo unlimited | Pixeltrunk Studio at $79/mo includes AI that ShootProof doesn't offer |
+| Pixieset Suite | All-in-one | $55/mo annual | Pixeltrunk Pro at $49/mo with superior AI capabilities |
+| Pic-Time | Gallery + print | $42/mo annual | Pixeltrunk Pro comparable price, adds AI organization |
+| Narrative Select | AI culling + editing | $60/mo | Pixeltrunk Studio at $79/mo adds archive + search + sharing |
+| AfterShoot | AI culling + editing | $60/mo | Pixeltrunk Studio at $79/mo adds archive + search + sharing |
+| SmugMug Pro | Portfolio + sales | $37/mo annual | Pixeltrunk Solo at $19/mo adds AI, comparable archive |
+| CloudSpot | Gallery + CRM | $50/mo unlimited | Pixeltrunk Pro at $49/mo with AI features CloudSpot lacks |
 
-**Key positioning:** Photographers paying for both a gallery platform ($30–55/mo) and an AI culling tool ($20–60/mo) spend $50–115/mo total. Prism Pro at $49/mo or Studio at $79/mo replaces the AI tool and provides archive/search capabilities neither category offers alone.
+**Key positioning:** Photographers paying for both a gallery platform ($30–55/mo) and an AI culling tool ($20–60/mo) spend $50–115/mo total. Pixeltrunk Pro at $49/mo or Studio at $79/mo replaces the AI tool and provides archive/search capabilities neither category offers alone.
 
 ---
 
 ## 7. Open Pricing Questions
 
-1. **SPS bundle discount** — Should existing SPS subscribers get a discount on Prism (or vice versa)? A 10–20% loyalty discount could accelerate cross-adoption.
+1. **SPS bundle discount** — Should existing SPS subscribers get a discount on Pixeltrunk (or vice versa)? A 10–20% loyalty discount could accelerate cross-adoption.
 2. **Annual-only option** — Should we offer monthly at all, or go annual-only like SmugMug? Monthly provides flexibility but annual improves cash flow and retention.
 3. **Education/nonprofit pricing** — Discounted tiers for schools, churches, nonprofits? Common in the space.
 4. **Referral program** — Free month or storage bonus for referrals? Photographers talk to each other constantly.

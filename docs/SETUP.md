@@ -1,4 +1,4 @@
-# SPS Prism — Setup Guide
+# Pixeltrunk — Setup Guide
 
 Everything you need to go from code to working app.
 

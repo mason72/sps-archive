@@ -39,7 +39,7 @@ export default function Editorial() {
       {/* Nav — ultra minimal */}
       <nav className="flex items-center justify-between px-12 py-8 fade-in">
         <h1 style={{ fontFamily: 'var(--font-playfair), Georgia, serif', fontSize: '28px', fontWeight: 700, letterSpacing: '-0.02em', color: '#111' }}>
-          Prism
+          Pixeltrunk
         </h1>
         <div className="flex items-center gap-10 text-[13px] tracking-wide">
           <span className="editorial-link cursor-pointer text-gray-900 font-medium">Archive</span>
@@ -113,7 +113,7 @@ export default function Editorial() {
       <div className="px-12 py-8" style={{ borderTop: '1px solid #e5e5e5' }}>
         <div className="flex items-center justify-between">
           <p className="text-[12px] text-gray-400">
-            <span style={{ fontFamily: 'var(--font-playfair), Georgia, serif', fontWeight: 600, color: '#111' }}>Prism</span>
+            <span style={{ fontFamily: 'var(--font-playfair), Georgia, serif', fontWeight: 600, color: '#111' }}>Pixeltrunk</span>
             {' '}— Intelligent photo archiving for professionals
           </p>
           <div className="flex gap-6 text-[12px] text-gray-400">

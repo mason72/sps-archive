@@ -4,9 +4,9 @@ Copy everything below the line into a new Claude Code session.
 
 ---
 
-## Context: SPS Prism Project
+## Context: Pixeltrunk Project
 
-I'm building **SPS Prism**, an AI-powered photo archiving and organization tool for professional photographers. It's the sister product to **SimplePhotoShare (SPS/spsv2)**, which handles client gallery delivery. Prism handles the step before delivery: organizing, culling, and storing the raw shoot output.
+I'm building **Pixeltrunk**, an AI-powered photo archiving and organization tool for professional photographers. It's the sister product to **SimplePhotoShare (SPS/spsv2)**, which handles client gallery delivery. Pixeltrunk handles the step before delivery: organizing, culling, and storing the raw shoot output.
 
 ### What's already built (at ~/sps-archive)
 
@@ -63,7 +63,7 @@ Compare the two codebases and tell me:
 
 **3. Product naming brainstorm**
 
-"SPS Prism" is the product name. I need to verify the branding:
+"Pixeltrunk" is the product name. I need to verify the branding:
 - Connects to SimplePhotoShare without being generic
 - Works as a standalone brand too
 - Communicates the AI-powered organization angle
@@ -82,7 +82,7 @@ After the review and naming, I'd like to continue building out the Archive produ
 ---
 
 ### Key architectural decisions already made
-- **Shared R2 bucket** between SPS and Archive (zero-copy imports)
+- **Shared R2 bucket** between SPS and Pixeltrunk (zero-copy imports)
 - **Supabase with pgvector** for semantic search via CLIP embeddings
 - **Modal serverless GPU** for AI processing (CLIP + ArcFace + aesthetic scoring)
 - **Presigned URL uploads** (client → R2 direct, no server bottleneck)

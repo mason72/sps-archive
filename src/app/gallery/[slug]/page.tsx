@@ -511,8 +511,8 @@ export default function GalleryPage({
           </div>
           <p className="text-[11px]" style={{ color: b?.secondaryColor || "#a8a29e" }}>
             Powered by{" "}
-            <span className="font-editorial text-[13px]" style={{ color: b?.primaryColor || "#1c1917" }}>
-              Prism
+            <span className="font-brand text-[13px]" style={{ color: b?.primaryColor || "#1c1917" }}>
+              pixeltrunk
             </span>
           </p>
         </div>

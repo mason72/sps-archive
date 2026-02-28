@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
@@ -48,8 +49,17 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="font-editorial text-[28px] text-stone-900">
-          Prism
+        <Link href="/" className="flex items-center gap-2.5">
+          <Image
+            src="/logo.png"
+            alt="pixeltrunk"
+            width={32}
+            height={32}
+            className="rounded-md"
+          />
+          <span className="font-brand text-[22px] text-stone-900">
+            pixeltrunk
+          </span>
         </Link>
         <Link
           href="/signup"

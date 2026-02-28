@@ -1,5 +1,5 @@
 /**
- * User profile types for SPS Prism.
+ * User profile types for Pixeltrunk.
  *
  * UserProfile — Account-level metadata & branding
  * Branding   — Business colors, logo placement, typography

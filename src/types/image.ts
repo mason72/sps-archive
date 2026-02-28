@@ -1,5 +1,5 @@
 /**
- * Shared image types for SPS Prism.
+ * Shared image types for Pixeltrunk.
  *
  * ImageData  — Grid-level data returned by the event API
  * ImageDetail — Full metadata (EXIF, scores, tags) fetched lazily by lightbox

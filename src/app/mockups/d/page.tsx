@@ -17,7 +17,7 @@ const photos = [
   { gradient: 'linear-gradient(135deg, #a78bfa, #f472b6, #fb923c)', aspect: '3/4', title: 'Peach Blossom', tags: ['floral', 'pastel'] },
 ]
 
-export default function NeonPrism() {
+export default function NeonPixeltrunk() {
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: '#030712', fontFamily: 'var(--font-space), var(--font-inter), system-ui, sans-serif' }}>
       <style>{`
@@ -49,7 +49,7 @@ export default function NeonPrism() {
       <nav className="relative z-10 mx-6 mt-5 px-6 py-4 rounded-xl flex items-center justify-between glow-border slide-up" style={{ background: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(40px)' }}>
         <div className="flex items-center gap-8">
           <span className="text-xl font-bold gradient-shift" style={{ background: 'linear-gradient(135deg, #818CF8, #A78BFA, #EC4899, #818CF8)', backgroundSize: '200% 200%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-            ◈ PRISM
+            ◈ PIXELTRUNK
           </span>
           <div className="flex gap-6 text-[13px]">
             <span className="text-white font-medium cursor-pointer">Library</span>

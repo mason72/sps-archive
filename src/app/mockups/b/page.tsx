@@ -44,7 +44,7 @@ export default function Luminous() {
       {/* Nav */}
       <nav className="relative z-10 mx-6 mt-5 px-6 py-4 rounded-2xl flex items-center justify-between slide-up" style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(40px) saturate(180%)', boxShadow: '0 8px 32px -8px rgba(0,0,0,0.08), 0 0 0 1px rgba(255,255,255,0.7)', }}>
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold gradient-text">Prism</span>
+          <span className="text-xl font-bold gradient-text">pixeltrunk</span>
           <div className="flex gap-6 text-[13px] font-medium">
             <span className="text-gray-900 cursor-pointer">Library</span>
             <span className="text-gray-400 hover:text-gray-700 cursor-pointer transition-colors duration-300">Events</span>

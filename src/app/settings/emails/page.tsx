@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
@@ -165,8 +166,9 @@ export default function EmailSettingsPage() {
     <div className="min-h-screen">
       {/* Nav */}
       <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="font-editorial text-[28px] text-stone-900">
-          Prism
+        <Link href="/" className="flex items-center gap-2">
+          <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
+          <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
         </Link>
         <div className="flex items-center gap-6">
           <Link
@@ -381,7 +383,7 @@ export default function EmailSettingsPage() {
       {/* Footer */}
       <footer className="px-8 md:px-16 py-8 border-t border-stone-200">
         <p className="text-[12px] text-stone-400">
-          <span className="font-editorial text-[14px] text-stone-900">Prism</span>
+          <span className="font-brand text-[14px] text-stone-900">pixeltrunk</span>
           {" "}— Intelligent photo archiving
         </p>
       </footer>

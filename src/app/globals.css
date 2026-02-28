@@ -1,12 +1,13 @@
 @import "tailwindcss";
 
-/* ─── SPS Prism — Editorial Design System ─── */
-/* Playfair Display (serif headlines) + Inter (body) loaded via next/font/google in layout.tsx */
+/* ─── Pixeltrunk — Editorial Design System ─── */
+/* Libre Baskerville (brand) + Playfair Display (serif headlines) + Inter (body) loaded via next/font/google in layout.tsx */
 
 @theme {
   /* Typography — set by next/font CSS variables */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-playfair), Georgia, "Times New Roman", serif;
+  --font-brand: var(--font-libre-baskerville), Georgia, "Times New Roman", serif;
 
   /* Stone palette — warm neutrals */
   --color-stone-50: #FAFAF9;
@@ -124,6 +125,13 @@
   .font-editorial {
     font-family: var(--font-serif);
     letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+
+  /* Brand wordmark */
+  .font-brand {
+    font-family: var(--font-brand);
+    letter-spacing: -0.01em;
     font-weight: 700;
   }
 

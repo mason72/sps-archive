@@ -29,6 +29,6 @@ type Events = {
 };
 
 export const inngest = new Inngest({
-  id: "sps-prism",
+  id: "pixeltrunk",
   schemas: new EventSchemas().fromRecord<Events>(),
 });

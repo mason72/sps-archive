@@ -27,7 +27,7 @@ export interface EmailSend {
  */
 export const TEMPLATE_VARIABLES = [
   { key: "{event_name}", label: "Event Name", example: "Sarah & Tom's Wedding" },
-  { key: "{gallery_link}", label: "Gallery Link", example: "https://prism.app/g/abc123" },
+  { key: "{gallery_link}", label: "Gallery Link", example: "https://pixeltrunk.app/g/abc123" },
   { key: "{business_name}", label: "Your Business Name", example: "Two Dudes Photo" },
   { key: "{photographer_name}", label: "Your Name", example: "Matt Foster" },
   { key: "{client_name}", label: "Client Name", example: "Sarah" },

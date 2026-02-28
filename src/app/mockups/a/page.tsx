@@ -45,7 +45,7 @@ export default function DarkStudio() {
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-3">
             <div className="amber-dot" />
-            <span className="text-lg font-bold tracking-[0.15em]" style={{ color: '#F59E0B' }}>PRISM</span>
+            <span className="text-lg font-bold tracking-[0.15em]" style={{ color: '#F59E0B' }}>PIXELTRUNK</span>
           </div>
           <div className="flex gap-8 text-[13px] tracking-wide">
             <span className="text-white font-medium cursor-pointer">Library</span>

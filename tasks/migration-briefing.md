@@ -1,12 +1,12 @@
 # SPS v2 → Cloudflare R2 Storage Migration Briefing
 
 ## Overview
-Migrate SimplePhotoShare (SPS v2) from Supabase Storage to Cloudflare R2. Precursor to sharing storage infrastructure with SPS Prism. **No active users on SPS v2 — zero disruption risk.**
+Migrate SimplePhotoShare (SPS v2) from Supabase Storage to Cloudflare R2. Precursor to sharing storage infrastructure with Pixeltrunk. **No active users on SPS v2 — zero disruption risk.**
 
 ## Why R2?
 - **20x cheaper at scale** (zero egress fees vs $0.09/GB on Supabase)
 - S3-compatible API — minimal code changes
-- Shared infrastructure with SPS Prism
+- Shared infrastructure with Pixeltrunk
 
 ---
 

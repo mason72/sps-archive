@@ -30,7 +30,7 @@ const options = [
   },
   {
     id: 'd',
-    title: 'Neon Prism',
+    title: 'Neon Pixeltrunk',
     subtitle: 'Vercel meets Stripe',
     description: 'Dark canvas with electric gradient accents. Animated mesh backgrounds, glowing borders, prismatic light effects. Bold and futuristic.',
     gradient: 'linear-gradient(135deg, #030712 0%, #0f0a1e 50%, #030712 100%)',
@@ -51,7 +51,7 @@ export default function MockupsIndex() {
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <h1 className="text-5xl font-bold text-white tracking-tight mb-4">
-            SPS Prism — Design Directions
+            Pixeltrunk — Design Directions
           </h1>
           <p className="text-lg text-gray-400 max-w-2xl mx-auto">
             Four distinct visual identities. Each goes all-out on a different aesthetic.

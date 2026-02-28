@@ -184,7 +184,7 @@ export async function PATCH(request: NextRequest) {
         // Upsert favorites for each image (photographer adding on behalf of client)
         // Use a sentinel email so the unique constraint (share_id, image_id, client_email)
         // properly deduplicates — NULL values are treated as distinct in Postgres.
-        const PHOTOGRAPHER_EMAIL = "photographer@prism.internal";
+        const PHOTOGRAPHER_EMAIL = "photographer@pixeltrunk.internal";
         const rows = ownedIds.map((imageId) => ({
           share_id: shareId,
           image_id: imageId,

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
@@ -111,8 +112,9 @@ export default function NewEventPage() {
     <div className="min-h-screen">
       {/* ─── Nav ─── */}
       <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
-        <Link href="/" className="font-editorial text-[28px] text-stone-900">
-          Prism
+        <Link href="/" className="flex items-center gap-2">
+          <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
+          <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
         </Link>
         <div className="flex items-center gap-10 text-[13px] tracking-wide">
           <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">

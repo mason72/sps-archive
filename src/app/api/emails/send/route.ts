@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     const fromName =
-      profile?.business_name || profile?.display_name || "Prism Gallery";
+      profile?.business_name || profile?.display_name || "Pixeltrunk Gallery";
 
     // Attempt to send via Resend if configured
     let status = "sent";

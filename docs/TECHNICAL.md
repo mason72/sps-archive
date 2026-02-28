@@ -1,4 +1,4 @@
-# SPS Prism — Technical Documentation
+# Pixeltrunk — Technical Documentation
 
 **Last updated:** 2026-02-22
 

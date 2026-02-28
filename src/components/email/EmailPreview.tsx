@@ -89,7 +89,7 @@ export function EmailPreview({
         >
           <p className="text-[11px]">
             Sent via{" "}
-            <span style={{ color: branding.primaryColor }}>Prism</span>
+            <span style={{ color: branding.primaryColor }}>Pixeltrunk</span>
           </p>
         </div>
       </div>

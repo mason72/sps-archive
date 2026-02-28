@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Playfair_Display } from "next/font/google";
+import { Inter, Playfair_Display, Libre_Baskerville } from "next/font/google";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ToasterProvider } from "@/components/ui/ToasterProvider";
@@ -20,8 +20,16 @@ const playfair = Playfair_Display({
   style: ["normal", "italic"],
 });
 
+const libreBaskerville = Libre_Baskerville({
+  subsets: ["latin"],
+  variable: "--font-libre-baskerville",
+  display: "swap",
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
-  title: "Prism — Intelligent Photo Archive",
+  title: "Pixeltrunk — Intelligent Photo Archive",
   description:
     "AI-powered photo organization for professional photographers. Upload thousands of images and let AI organize them into smart stacks, searchable sections, and shareable galleries.",
 };
@@ -37,7 +45,7 @@ export default async function RootLayout({
   } = await supabase.auth.getUser();
 
   return (
-    <html lang="en" className={`${inter.variable} ${playfair.variable}`}>
+    <html lang="en" className={`${inter.variable} ${playfair.variable} ${libreBaskerville.variable}`}>
       <body className="min-h-screen bg-white font-sans text-stone-900 antialiased">
         <AuthProvider initialUser={user}>
           {children}
