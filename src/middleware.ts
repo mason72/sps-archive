@@ -49,7 +49,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/signup" ||
     pathname.startsWith("/gallery") ||
     pathname.startsWith("/api/gallery") ||
-    pathname.startsWith("/api/inngest");
+    pathname.startsWith("/api/inngest") ||
+    pathname.startsWith("/dev");
 
   // Redirect unauthenticated users to login
   if (!user && !isPublic) {

@@ -288,4 +288,71 @@
     animation: processing-shimmer 2s ease-in-out infinite;
     transition: width 0.6s ease-out;
   }
+
+  /* Marquee / rubber-band selection overlay */
+  .marquee-rect {
+    border: 1px solid var(--color-accent);
+    background: rgba(16, 185, 129, 0.08);
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  /* ═══ Brand Button ═══ */
+  .brand-btn {
+    position: relative;
+    overflow: hidden;
+    border-radius: 6px;
+    transition: all 0.25s ease;
+  }
+  .brand-btn:hover {
+    transform: translateY(-2px);
+  }
+  .brand-btn:active {
+    animation: brand-squish 0.4s ease;
+    transform: translateY(1px);
+  }
+
+  /* Iris reveal — Study A bands (45/30/25) */
+  .brand-btn .brand-band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    transform: scaleY(0);
+    transition: transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .brand-btn .brand-band-1 {
+    top: 0;
+    height: 45%;
+    transform-origin: center;
+  }
+  .brand-btn .brand-band-2 {
+    top: 45%;
+    height: 30%;
+    transform-origin: center;
+  }
+  .brand-btn .brand-band-3 {
+    bottom: 0;
+    height: 25%;
+    transform-origin: center;
+  }
+  .brand-btn:hover .brand-band-1 {
+    transform: scaleY(1);
+    transition-delay: 0.08s;
+  }
+  .brand-btn:hover .brand-band-2 {
+    transform: scaleY(1);
+    transition-delay: 0s;
+  }
+  .brand-btn:hover .brand-band-3 {
+    transform: scaleY(1);
+    transition-delay: 0.08s;
+  }
+}
+
+@keyframes brand-squish {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.08, 0.88); }
+  50% { transform: scale(0.96, 1.04); }
+  70% { transform: scale(1.02, 0.98); }
+  100% { transform: scale(1, 1); }
 }

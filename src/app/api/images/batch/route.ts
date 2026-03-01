@@ -81,12 +81,13 @@ export async function PATCH(request: NextRequest) {
 
     const body = (await request.json()) as {
       imageIds: string[];
-      action: "add_to_section" | "remove_from_section" | "favorite";
+      action: "add_to_section" | "remove_from_section" | "favorite" | "rename";
       sectionId?: string;
       shareId?: string;
+      pattern?: string;
     };
 
-    const { imageIds, action, sectionId, shareId } = body;
+    const { imageIds, action, sectionId, shareId, pattern } = body;
 
     if (!imageIds?.length || !action) {
       return NextResponse.json(
@@ -201,6 +202,38 @@ export async function PATCH(request: NextRequest) {
         }
 
         return NextResponse.json({ updated: ownedIds.length, action });
+      }
+
+      case "rename": {
+        if (!pattern) {
+          return NextResponse.json({ error: "pattern required" }, { status: 400 });
+        }
+
+        // Generate new filenames based on the pattern
+        // {N} → zero-padded (001, 002, ...), {n} → plain (1, 2, ...)
+        const updates = ownedIds.map((imageId, index) => {
+          const num = index + 1;
+          const padded = String(num).padStart(3, "0");
+          const newName = pattern
+            .replace(/\{N\}/g, padded)
+            .replace(/\{n\}/g, String(num));
+
+          return supabase
+            .from("images")
+            .update({ original_filename: newName })
+            .eq("id", imageId);
+        });
+
+        const results = await Promise.all(updates);
+        const failed = results.filter((r) => r.error);
+        if (failed.length > 0) {
+          console.error("Some renames failed:", failed.map((r) => r.error));
+        }
+
+        return NextResponse.json({
+          updated: ownedIds.length - failed.length,
+          action,
+        });
       }
 
       default:

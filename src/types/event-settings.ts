@@ -27,6 +27,7 @@ export type GridStyle = "masonry" | "uniform";
 export interface EventSettings {
   cover: {
     layout: CoverLayout;
+    imageId?: string;
   };
   typography: {
     headingFont: HeadingFont;

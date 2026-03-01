@@ -12,7 +12,7 @@ interface MetadataPanelProps {
 
 /** Skeleton line for loading state */
 function Skeleton({ width = "w-32" }: { width?: string }) {
-  return <div className={`h-3 ${width} animate-pulse bg-stone-800`} />;
+  return <div className={`h-3 ${width} animate-pulse bg-stone-200`} />;
 }
 
 /** Thin horizontal score bar */
@@ -21,13 +21,13 @@ function ScoreBar({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex items-center gap-3">
       <span className="w-16 shrink-0 text-[11px] text-stone-500">{label}</span>
-      <div className="flex-1 h-1.5 bg-stone-800 overflow-hidden">
+      <div className="flex-1 h-1.5 bg-stone-200 overflow-hidden">
         <div
           className="h-full bg-accent transition-all duration-500"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-8 text-right text-[12px] tabular-nums text-stone-400">
+      <span className="w-8 text-right text-[12px] tabular-nums text-stone-500">
         {pct}
       </span>
     </div>
@@ -36,7 +36,7 @@ function ScoreBar({ value, label }: { value: number; label: string }) {
 
 /**
  * MetadataPanel — Right sidebar showing full image metadata.
- * Slides in from the right. Sections only render when data exists.
+ * Slides in from the right. Light theme. Sections only render when data exists.
  */
 export function MetadataPanel({
   image,
@@ -53,11 +53,11 @@ export function MetadataPanel({
   const hasTags = detail?.sceneTags && detail.sceneTags.length > 0;
 
   return (
-    <div className="w-[360px] shrink-0 overflow-y-auto border-l border-stone-800 bg-stone-950 lightbox-panel-enter">
+    <div className="w-[360px] shrink-0 overflow-y-auto border-l border-stone-200 bg-white lightbox-panel-enter">
       <div className="p-6 space-y-6">
         {/* ── Details ── */}
         <section>
-          <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+          <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
             Details
           </h3>
           {isLoading ? (
@@ -69,15 +69,15 @@ export function MetadataPanel({
           ) : (
             <div className="space-y-1.5">
               {image.parsedName && (
-                <p className="font-serif text-[18px] font-bold tracking-[-0.03em] text-stone-200 leading-tight">
+                <p className="font-serif text-[18px] font-bold tracking-[-0.03em] text-stone-900 leading-tight">
                   {image.parsedName}
                 </p>
               )}
-              <p className="text-[13px] italic text-stone-400">
+              <p className="text-[13px] italic text-stone-500">
                 {image.originalFilename}
               </p>
               {image.width && image.height && (
-                <p className="text-[12px] text-stone-500">
+                <p className="text-[12px] text-stone-400">
                   {image.width} &times; {image.height}
                 </p>
               )}
@@ -85,12 +85,12 @@ export function MetadataPanel({
           )}
         </section>
 
-        <div className="h-px bg-stone-800" />
+        <div className="h-px bg-stone-200" />
 
         {/* ── Camera ── */}
         {isLoading ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Camera
             </h3>
             <div className="space-y-2">
@@ -101,22 +101,22 @@ export function MetadataPanel({
           </section>
         ) : hasExif ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Camera
             </h3>
             <div className="space-y-1.5">
               {(detail.cameraMake || detail.cameraModel) && (
-                <p className="text-[13px] text-stone-300">
+                <p className="text-[13px] text-stone-700">
                   {[detail.cameraMake, detail.cameraModel]
                     .filter(Boolean)
                     .join(" ")}
                 </p>
               )}
               {detail.lens && (
-                <p className="text-[13px] text-stone-400">{detail.lens}</p>
+                <p className="text-[13px] text-stone-500">{detail.lens}</p>
               )}
               {(detail.aperture || detail.shutterSpeed || detail.iso) && (
-                <p className="text-[12px] text-stone-500">
+                <p className="text-[12px] text-stone-400">
                   {[
                     detail.aperture ? `f/${detail.aperture}` : null,
                     detail.shutterSpeed,
@@ -127,7 +127,7 @@ export function MetadataPanel({
                 </p>
               )}
               {detail.focalLength && (
-                <p className="text-[12px] text-stone-500">
+                <p className="text-[12px] text-stone-400">
                   {detail.focalLength}mm
                 </p>
               )}
@@ -135,22 +135,22 @@ export function MetadataPanel({
           </section>
         ) : null}
 
-        {hasExif && <div className="h-px bg-stone-800" />}
+        {hasExif && <div className="h-px bg-stone-200" />}
 
         {/* ── Captured ── */}
         {isLoading ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Captured
             </h3>
             <Skeleton width="w-48" />
           </section>
         ) : hasCapture ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Captured
             </h3>
-            <p className="text-[13px] text-stone-300">
+            <p className="text-[13px] text-stone-700">
               {new Date(detail.takenAt!).toLocaleDateString("en-US", {
                 month: "long",
                 day: "numeric",
@@ -165,13 +165,13 @@ export function MetadataPanel({
           </section>
         ) : null}
 
-        {hasCapture && <div className="h-px bg-stone-800" />}
+        {hasCapture && <div className="h-px bg-stone-200" />}
 
         {/* ── Quality ── */}
         {hasQuality && (
           <>
             <section>
-              <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+              <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
                 Quality
               </h3>
               <div className="space-y-3">
@@ -182,7 +182,7 @@ export function MetadataPanel({
                   <ScoreBar value={image.sharpnessScore} label="Sharp" />
                 )}
                 {detail?.isEyesOpen != null && (
-                  <div className="flex items-center gap-2 text-[12px] text-stone-400 mt-2">
+                  <div className="flex items-center gap-2 text-[12px] text-stone-500 mt-2">
                     {detail.isEyesOpen ? (
                       <>
                         <Eye className="h-3.5 w-3.5 text-accent" />
@@ -190,7 +190,7 @@ export function MetadataPanel({
                       </>
                     ) : (
                       <>
-                        <EyeOff className="h-3.5 w-3.5 text-stone-500" />
+                        <EyeOff className="h-3.5 w-3.5 text-stone-400" />
                         <span>Eyes closed</span>
                       </>
                     )}
@@ -198,14 +198,14 @@ export function MetadataPanel({
                 )}
               </div>
             </section>
-            <div className="h-px bg-stone-800" />
+            <div className="h-px bg-stone-200" />
           </>
         )}
 
         {/* ── Scene Tags ── */}
         {isLoading ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Scene
             </h3>
             <div className="flex gap-2">
@@ -216,14 +216,14 @@ export function MetadataPanel({
           </section>
         ) : hasTags ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-500 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Scene
             </h3>
             <div className="flex flex-wrap gap-2">
               {detail.sceneTags!.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-block px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-stone-400 border border-stone-700"
+                  className="inline-block px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-stone-500 border border-stone-200"
                 >
                   {tag}
                 </span>

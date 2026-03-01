@@ -10,13 +10,24 @@ const SHORTCUT_GROUPS = [
     shortcuts: [
       { keys: ["⌘", "K"], label: "Command palette" },
       { keys: ["?"], label: "Toggle this help" },
+      { keys: ["["], label: "Toggle sidebar" },
     ],
   },
   {
-    title: "Gallery",
+    title: "Selection",
     shortcuts: [
+      { keys: ["Click"], label: "Select image" },
+      { keys: ["⇧", "Click"], label: "Range select" },
+      { keys: ["Drag"], label: "Marquee select" },
+      { keys: ["Dbl-click"], label: "Open in lightbox" },
       { keys: ["A"], label: "Select all images" },
       { keys: ["D"], label: "Deselect all" },
+      { keys: ["Esc"], label: "Clear selection" },
+    ],
+  },
+  {
+    title: "Actions",
+    shortcuts: [
       { keys: ["F"], label: "Favorite selected" },
       { keys: ["⌫"], label: "Delete selected" },
       { keys: ["U"], label: "Toggle upload" },

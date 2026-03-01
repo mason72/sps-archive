@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { X, Copy, Check, Link2, Eye, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { ShareChecklist } from "@/components/shares/ShareChecklist";
 
 interface Share {
@@ -333,9 +334,11 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                 )}
               </div>
 
-              <Button
+              <BrandButton
                 onClick={handleCreate}
                 disabled={isCreating}
+                color="emerald"
+                celebrate
                 className="w-full mt-2"
               >
                 <Link2 className="h-4 w-4" />
@@ -344,7 +347,7 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                   : imageIds?.length
                     ? "Create selection link"
                     : "Create link"}
-              </Button>
+              </BrandButton>
             </div>
           </section>
 

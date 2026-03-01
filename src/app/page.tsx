@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { SignOutButton } from "@/components/auth/SignOutButton";
@@ -89,7 +90,7 @@ function LandingView() {
           Sign in
         </Link>
         <Link href="/signup">
-          <Button size="sm">Get started</Button>
+          <BrandButton size="sm">Get started</BrandButton>
         </Link>
       </Nav>
 
@@ -122,7 +123,7 @@ function LandingView() {
         </p>
         <div className="mt-12 reveal" style={{ animationDelay: "0.3s" }}>
           <Link href="/signup">
-            <Button size="lg">Create your first event</Button>
+            <BrandButton size="lg">Create your first event</BrandButton>
           </Link>
         </div>
       </div>

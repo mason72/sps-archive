@@ -19,6 +19,7 @@ interface LightboxImageProps {
 /**
  * LightboxImage — Displays the main image with zoom and pan support.
  * Uses CSS transforms for smooth zoom/pan without layout reflows.
+ * Filename display moved to Lightbox top bar.
  */
 export function LightboxImage({
   image,
@@ -76,7 +77,7 @@ export function LightboxImage({
   if (hasError) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-stone-500">
-        <ImageIcon className="h-12 w-12 text-stone-600" />
+        <ImageIcon className="h-12 w-12 text-stone-400" />
         <p className="text-[13px] text-stone-400">Unable to load image</p>
       </div>
     );
@@ -101,16 +102,7 @@ export function LightboxImage({
       {/* Loading placeholder */}
       {!isLoaded && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="h-48 w-48 animate-pulse bg-stone-800" />
-        </div>
-      )}
-
-      {/* Filename label — hidden when zoomed */}
-      {!zoom.isZoomed && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
-          <p className="text-[11px] text-stone-500 tracking-wide truncate max-w-[400px]">
-            {image.originalFilename}
-          </p>
+          <div className="h-48 w-48 animate-pulse bg-stone-200" />
         </div>
       )}
 

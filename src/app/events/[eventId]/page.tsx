@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
-import { useRouter } from "next/navigation";
+
 import { UploadZone } from "@/components/upload/UploadZone";
 import { SearchBar } from "@/components/search/SearchBar";
 import { ImageGrid } from "@/components/gallery/ImageGrid";
@@ -12,17 +12,15 @@ import { FilmStrip } from "@/components/gallery/FilmStrip";
 import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
-import { EventSettingsPanel } from "@/components/settings/EventSettingsPanel";
-import { SectionManager } from "@/components/sections/SectionManager";
-import { ActivitiesPanel } from "@/components/events/ActivitiesPanel";
-import { MoreMenu } from "@/components/events/MoreMenu";
+import { EventSidebar } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
+import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useProcessingStatus } from "@/hooks/useProcessingStatus";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
 import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen, Activity, AlertTriangle, X, LayoutGrid, Rows3 } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, ExternalLink } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -52,7 +50,6 @@ export default function EventPage({
   params: Promise<{ eventId: string }>;
 }) {
   const { eventId } = use(params);
-  const router = useRouter();
   const [event, setEvent] = useState<EventData | null>(null);
   const [images, setImages] = useState<ImageData[]>([]);
   const [stacks, setStacks] = useState<StackData[]>([]);
@@ -68,20 +65,25 @@ export default function EventPage({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareModalImageIds, setShareModalImageIds] = useState<string[] | undefined>(undefined);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showSectionManager, setShowSectionManager] = useState(false);
-  const [showActivities, setShowActivities] = useState(false);
-  const [activitiesTab, setActivitiesTab] = useState<"shares" | "favorites" | "emails">("shares");
   const [eventSettings, setEventSettings] = useState<EventSettings>(DEFAULT_EVENT_SETTINGS);
   const [failedUploads, setFailedUploads] = useState<File[]>([]);
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
+  const [hasActiveShare, setHasActiveShare] = useState(false);
 
   // Section image IDs (for filtering when a section is active)
   const [sectionImageIds, setSectionImageIds] = useState<Set<string> | null>(null);
 
   // Selection state
   const selection = useSelection();
+
+  // Marquee / rubber-band selection
+  const gridAreaRef = useRef<HTMLDivElement>(null);
+  const { isDrawing: isMarqueeDrawing, rect: marqueeRect } = useMarqueeSelect({
+    containerRef: gridAreaRef,
+    onSelect: selection.addToSelection,
+    enabled: !selectedImageId && !showShareModal,
+  });
 
   // Processing status
   const processing = useProcessingStatus(eventId, true);
@@ -103,6 +105,20 @@ export default function EventPage({
       // Load event settings
       if (data.event.settings && Object.keys(data.event.settings).length > 0) {
         setEventSettings({ ...DEFAULT_EVENT_SETTINGS, ...data.event.settings });
+      }
+
+      // Check for active shares (for Publish/Share button)
+      try {
+        const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
+        if (sharesRes.ok) {
+          const sharesData = await sharesRes.json();
+          const active = sharesData.shares?.some(
+            (s: { isActive: boolean }) => s.isActive
+          );
+          setHasActiveShare(!!active);
+        }
+      } catch {
+        // Non-critical — default to no active shares
       }
     } catch {
       setLoadError(true);
@@ -127,16 +143,16 @@ export default function EventPage({
     }
   }, [processing.isProcessing, processing.total, fetchEvent]);
 
-  // Escape key exits selection mode
+  // Escape key clears selection
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && selection.isSelecting) {
+      if (e.key === "Escape" && selection.hasSelection) {
         selection.deselectAll();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selection.isSelecting, selection.deselectAll]);
+  }, [selection.hasSelection, selection.deselectAll]);
 
   // ─── Section filtering ───
   // When a section is activated, fetch its image IDs and filter the grid
@@ -370,6 +386,74 @@ export default function EventPage({
     [selection, fetchEvent]
   );
 
+  const handleMoveToSection = useCallback(
+    async (targetSectionId: string) => {
+      if (!activeSection) return;
+      try {
+        // Remove from current section
+        await fetch(`/api/sections/${activeSection}/images`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: selection.selectedArray }),
+        });
+        // Add to target section
+        await fetch(`/api/sections/${targetSectionId}/images`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: selection.selectedArray }),
+        });
+        selection.deselectAll();
+        fetchEvent();
+        toast.success("Moved to section");
+      } catch (err) {
+        console.error("Move to section failed:", err);
+        toast.error("Failed to move images");
+      }
+    },
+    [activeSection, selection, fetchEvent]
+  );
+
+  const handleRemoveFromSection = useCallback(async () => {
+    if (!activeSection) return;
+    try {
+      await fetch(`/api/sections/${activeSection}/images`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageIds: selection.selectedArray }),
+      });
+      selection.deselectAll();
+      fetchEvent();
+      toast.success("Removed from section");
+    } catch (err) {
+      console.error("Remove from section failed:", err);
+      toast.error("Failed to remove images");
+    }
+  }, [activeSection, selection, fetchEvent]);
+
+  const handleBatchRename = useCallback(
+    async (pattern: string) => {
+      try {
+        const res = await fetch("/api/images/batch", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageIds: selection.selectedArray,
+            action: "rename",
+            pattern,
+          }),
+        });
+        if (!res.ok) throw new Error("Rename failed");
+        selection.deselectAll();
+        fetchEvent();
+        toast.success(`Renamed ${selection.count} images`);
+      } catch (err) {
+        console.error("Batch rename failed:", err);
+        toast.error("Failed to rename images");
+      }
+    },
+    [selection, fetchEvent]
+  );
+
   const handleSectionsChange = useCallback((updated: SectionData[]) => {
     setSections(updated);
   }, []);
@@ -392,10 +476,10 @@ export default function EventPage({
         setShowShareModal(true);
       },
       selectionCount: selection.count,
-      enabled: !selectedImageId && !showSettings && !showShareModal,
+      enabled: !selectedImageId && !showShareModal,
     });
 
-  // Flat list of all images for lightbox navigation
+  // Flat list of all images for lightbox navigation + range selection
   const flatImageList = useMemo(() => {
     const list: ImageData[] = [];
     for (const stack of stacks) {
@@ -409,26 +493,77 @@ export default function EventPage({
     return list;
   }, [stacks, standalone]);
 
+  // Ordered IDs for shift+click range selection
+  const flatOrderedIds = useMemo(
+    () => flatImageList.map((img) => img.id),
+    [flatImageList]
+  );
+
   // Grid settings from event settings
   const gridSettings = eventSettings.grid;
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen">
+      {/* ─── Left Sidebar ─── */}
+      {event && (
+        <EventSidebar
+          eventId={eventId}
+          eventName={event.name}
+          eventType={event.event_type}
+          eventDate={event.event_date}
+          sections={sections}
+          onSectionsChange={handleSectionsChange}
+          activeSection={activeSection}
+          onSetActiveSection={setActiveSection}
+          settings={eventSettings}
+          onSettingsChange={setEventSettings}
+          images={allImages.map((img) => ({
+            id: img.id,
+            thumbnailUrl: img.thumbnailUrl,
+            originalFilename: img.originalFilename,
+          }))}
+        />
+      )}
+
+      {/* ─── Main content ─── */}
+      <div className="flex-1 flex flex-col min-w-0">
       {/* ─── Nav ─── */}
       <Nav>
-        <button onClick={() => setShowUpload((v) => !v)} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          {showUpload ? "Hide Upload" : "Upload"}
+        {/* Add Images / Upload */}
+        <button
+          onClick={() => setShowUpload((v) => !v)}
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
         </button>
-        <button onClick={() => { setShareModalImageIds(undefined); setShowShareModal(true); }} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          Share
+
+        {/* Preview — opens client gallery in new tab */}
+        {event?.slug && (
+          <a
+            href={`/gallery/${event.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300 flex items-center gap-1.5"
+          >
+            Preview
+            <ExternalLink size={12} />
+          </a>
+        )}
+
+        {/* Publish / Share */}
+        <button
+          onClick={() => {
+            setShareModalImageIds(undefined);
+            setShowShareModal(true);
+          }}
+          className={
+            hasActiveShare
+              ? "editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+              : "px-4 py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors duration-300"
+          }
+        >
+          {hasActiveShare ? "Share" : "Publish"}
         </button>
-        <button onClick={() => setShowSettings((v) => !v)} className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          Settings
-        </button>
-        <button onClick={() => { setActivitiesTab("shares"); setShowActivities(true); }} className="text-stone-400 hover:text-stone-700 transition-colors duration-300" aria-label="Activity">
-          <Activity size={16} />
-        </button>
-        <MoreMenu eventId={eventId} eventName={event?.name || "Event"} onShowEmails={() => { setActivitiesTab("emails"); setShowActivities(true); }} />
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24">
@@ -560,66 +695,6 @@ export default function EventPage({
               />
             </div>
 
-            {/* ─── Section tabs ─── */}
-            <div className="mb-10 flex items-center gap-3 overflow-x-auto">
-              {sections.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setActiveSection(null)}
-                    className={cn(
-                      "px-4 py-2 text-[12px] uppercase tracking-[0.15em] font-medium border transition-all duration-300 shrink-0",
-                      !activeSection
-                        ? "border-stone-900 bg-stone-900 text-white"
-                        : "border-stone-200 text-stone-500 hover:border-stone-400"
-                    )}
-                  >
-                    All
-                  </button>
-                  {sections.map((section) => (
-                    <button
-                      key={section.id}
-                      onClick={() => setActiveSection(section.id)}
-                      className={cn(
-                        "px-4 py-2 text-[12px] uppercase tracking-[0.15em] font-medium border transition-all duration-300 shrink-0",
-                        activeSection === section.id
-                          ? "border-stone-900 bg-stone-900 text-white"
-                          : "border-stone-200 text-stone-500 hover:border-stone-400"
-                      )}
-                    >
-                      {section.name}
-                      {section.imageCount > 0 && (
-                        <span className="ml-1.5 text-[10px] opacity-60">
-                          {section.imageCount}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-
-                  {/* Add section button */}
-                  <button
-                    onClick={() => setShowSectionManager(true)}
-                    className="px-3 py-2 text-[12px] border border-dashed border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-300 shrink-0 flex items-center gap-1.5"
-                    aria-label="Add section"
-                  >
-                    <Plus size={12} />
-                    <span className="hidden sm:inline">Add Set</span>
-                  </button>
-
-                  {/* Manage sections button (if sections exist) */}
-                  {sections.length > 0 && (
-                    <button
-                      onClick={() => setShowSectionManager(true)}
-                      className="px-3 py-2 text-[12px] text-stone-400 hover:text-stone-600 transition-colors shrink-0 flex items-center gap-1.5"
-                      aria-label="Manage sections"
-                    >
-                      <FolderOpen size={12} />
-                      <span className="hidden sm:inline">Manage</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-
             {/* ─── Gallery divider ─── */}
             <div className="editorial-divider mb-10">
               <span className="label-caps shrink-0">
@@ -646,52 +721,53 @@ export default function EventPage({
             </div>
 
             {/* ─── Gallery view ─── */}
-            {viewMode === "grid" ? (
-              <ImageGrid
-                images={images}
-                stacks={stacks}
-                standalone={standalone}
-                onImageClick={(id, shiftKey) => {
-                  if (selection.isSelecting) {
-                    selection.toggle(id);
-                  } else if (shiftKey) {
-                    // Shift+click enters selection mode
-                    selection.toggle(id);
-                  } else {
-                    setSelectedImageId(id);
-                  }
-                }}
-                onSetCover={async (stackId, imageId) => {
-                  await fetch(`/api/stacks/${stackId}/cover`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ imageId }),
-                  });
-                  fetchEvent();
-                }}
-                isSelecting={selection.isSelecting}
-                selectedIds={selection.selectedIds}
-                onToggleSelect={selection.toggle}
-                columnCount={gridSettings?.columns}
-                gap={gridSettings?.gap}
-              />
-            ) : (
-              <FilmStrip
-                images={images}
-                stacks={stacks}
-                standalone={standalone}
-                onImageClick={(id) => {
-                  if (selection.isSelecting) {
-                    selection.toggle(id);
-                  } else {
-                    setSelectedImageId(id);
-                  }
-                }}
-                isSelecting={selection.isSelecting}
-                selectedIds={selection.selectedIds}
-                onToggleSelect={selection.toggle}
-              />
-            )}
+            <div ref={gridAreaRef} className="relative">
+              {viewMode === "grid" ? (
+                <ImageGrid
+                  images={images}
+                  stacks={stacks}
+                  standalone={standalone}
+                  onToggleSelect={selection.toggle}
+                  onRangeSelect={(id) => selection.rangeSelect(id, flatOrderedIds)}
+                  onImageDoubleClick={(id) => setSelectedImageId(id)}
+                  onSetCover={async (stackId, imageId) => {
+                    await fetch(`/api/stacks/${stackId}/cover`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ imageId }),
+                    });
+                    fetchEvent();
+                  }}
+                  hasSelection={selection.hasSelection}
+                  selectedIds={selection.selectedIds}
+                  columnCount={gridSettings?.columns}
+                  gap={gridSettings?.gap}
+                />
+              ) : (
+                <FilmStrip
+                  images={images}
+                  stacks={stacks}
+                  standalone={standalone}
+                  onToggleSelect={selection.toggle}
+                  onImageDoubleClick={(id) => setSelectedImageId(id)}
+                  hasSelection={selection.hasSelection}
+                  selectedIds={selection.selectedIds}
+                />
+              )}
+
+              {/* Marquee selection overlay */}
+              {isMarqueeDrawing && marqueeRect && (
+                <div
+                  className="absolute marquee-rect"
+                  style={{
+                    left: marqueeRect.x,
+                    top: marqueeRect.y,
+                    width: marqueeRect.width,
+                    height: marqueeRect.height,
+                  }}
+                />
+              )}
+            </div>
           </>
         )}
       </main>
@@ -700,7 +776,7 @@ export default function EventPage({
       <Footer />
 
       {/* ─── Selection Toolbar ─── */}
-      {selection.isSelecting && (
+      {selection.hasSelection && (
         <SelectionToolbar
           count={selection.count}
           onDeselectAll={selection.deselectAll}
@@ -709,37 +785,13 @@ export default function EventPage({
           onCreateShareLink={handleCreateSelectionLink}
           onDownload={handleBatchDownload}
           onAddToSection={handleAddToSection}
+          onMoveToSection={activeSection ? handleMoveToSection : undefined}
+          onRemoveFromSection={activeSection ? handleRemoveFromSection : undefined}
+          onRename={handleBatchRename}
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
+          activeSection={activeSection}
         />
       )}
-
-      {/* ─── Section Manager ─── */}
-      {showSectionManager && (
-        <SectionManager
-          eventId={eventId}
-          sections={sections}
-          onSectionsChange={handleSectionsChange}
-          onClose={() => setShowSectionManager(false)}
-        />
-      )}
-
-      {/* ─── Settings Panel ─── */}
-      {showSettings && (
-        <EventSettingsPanel
-          eventId={eventId}
-          settings={eventSettings}
-          onSettingsChange={setEventSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-
-      {/* ─── Activities Panel ─── */}
-      <ActivitiesPanel
-        eventId={eventId}
-        open={showActivities}
-        onClose={() => setShowActivities(false)}
-        initialTab={activitiesTab}
-      />
 
       {/* ─── Share Modal ─── */}
       <ShareModal
@@ -754,7 +806,7 @@ export default function EventPage({
       />
 
       {/* ─── Lightbox ─── */}
-      {selectedImageId && flatImageList.length > 0 && !selection.isSelecting && (
+      {selectedImageId && flatImageList.length > 0 && (
         <Lightbox
           images={flatImageList}
           initialImageId={selectedImageId}
@@ -766,6 +818,7 @@ export default function EventPage({
       {showShortcutsHelp && (
         <ShortcutsHelp onClose={() => setShowShortcutsHelp(false)} />
       )}
+      </div>{/* end main content flex child */}
     </div>
   );
 }

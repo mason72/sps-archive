@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 import { Nav } from "@/components/layout/Nav";
@@ -245,9 +245,9 @@ export default function NewEventPage() {
             <DatePicker value={eventDate} onChange={setEventDate} />
           </div>
 
-          <Button type="submit" size="lg" disabled={!name.trim() || isCreating}>
+          <BrandButton type="submit" size="lg" color="emerald" celebrate disabled={!name.trim() || isCreating}>
             {isCreating ? "Creating..." : "Create event & start uploading"}
-          </Button>
+          </BrandButton>
         </form>
       </main>
 

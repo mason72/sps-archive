@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Check } from "lucide-react";
 import { SmartStack } from "./SmartStack";
 import { useColumnCount } from "@/hooks/useColumnCount";
@@ -10,12 +10,13 @@ interface ImageGridProps {
   images: ImageData[];
   stacks: StackData[];
   standalone: ImageData[];
-  onImageClick?: (imageId: string, shiftKey?: boolean) => void;
+  onToggleSelect?: (imageId: string) => void;
+  onRangeSelect?: (imageId: string) => void;
+  onImageDoubleClick?: (imageId: string) => void;
   onSetCover?: (stackId: string, imageId: string) => void;
   // Selection props
-  isSelecting?: boolean;
+  hasSelection?: boolean;
   selectedIds?: Set<string>;
-  onToggleSelect?: (imageId: string) => void;
   // Grid settings (from event settings)
   columnCount?: number;
   gap?: "tight" | "normal" | "loose";
@@ -30,16 +31,17 @@ const GAP_MAP = {
 /**
  * ImageGrid — Masonry layout with left-to-right chronological reading order.
  * Uses round-robin column distribution: image 1 → col 1, image 2 → col 2, etc.
- * Supports multi-select mode with checkbox overlays.
+ * Selection-first: checkboxes always visible, single click selects, double-click opens lightbox.
  */
 export function ImageGrid({
   stacks,
   standalone,
-  onImageClick,
-  onSetCover,
-  isSelecting,
-  selectedIds,
   onToggleSelect,
+  onRangeSelect,
+  onImageDoubleClick,
+  onSetCover,
+  hasSelection,
+  selectedIds,
   columnCount: settingsColumnCount,
   gap = "normal",
 }: ImageGridProps) {
@@ -94,13 +96,10 @@ export function ImageGrid({
                       stackRank: img.stackRank ?? 0,
                     }))}
                     personName={item.data.personName}
-                    onImageClick={
-                      isSelecting
-                        ? (id) => onToggleSelect?.(id)
-                        : onImageClick
-                    }
+                    onToggleSelect={onToggleSelect}
+                    onImageDoubleClick={onImageDoubleClick}
                     onSetCover={onSetCover}
-                    isSelecting={isSelecting}
+                    hasSelection={hasSelection}
                     selectedIds={selectedIds}
                   />
                 </div>
@@ -113,15 +112,11 @@ export function ImageGrid({
               <GridImage
                 key={`img-${item.data.id}`}
                 image={item.data}
-                isSelecting={isSelecting}
+                hasSelection={hasSelection}
                 isSelected={isSelected}
-                onClick={(shiftKey) => {
-                  if (isSelecting) {
-                    onToggleSelect?.(item.data.id);
-                  } else {
-                    onImageClick?.(item.data.id, shiftKey);
-                  }
-                }}
+                onSelect={() => onToggleSelect?.(item.data.id)}
+                onRangeSelect={() => onRangeSelect?.(item.data.id)}
+                onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
               />
             );
           })}
@@ -131,45 +126,88 @@ export function ImageGrid({
   );
 }
 
-/** Individual grid cell with natural aspect ratio + fade-in on load */
+/** Individual grid cell with natural aspect ratio + fade-in on load.
+ *  Selection-first: single click → select, double click → lightbox.
+ */
 function GridImage({
   image,
-  onClick,
-  isSelecting,
+  onSelect,
+  onRangeSelect,
+  onDoubleClick,
+  hasSelection,
   isSelected,
 }: {
   image: ImageData;
-  onClick: (shiftKey?: boolean) => void;
-  isSelecting?: boolean;
+  onSelect: () => void;
+  onRangeSelect: () => void;
+  onDoubleClick: () => void;
+  hasSelection?: boolean;
   isSelected?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      // Shift+click → range select (immediate, no debounce)
+      if (e.shiftKey) {
+        if (clickTimerRef.current) {
+          clearTimeout(clickTimerRef.current);
+          clickTimerRef.current = null;
+        }
+        onRangeSelect();
+        return;
+      }
+
+      // Single click debounced — wait 200ms to see if double-click follows
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      clickTimerRef.current = setTimeout(() => {
+        clickTimerRef.current = null;
+        onSelect();
+      }, 200);
+    },
+    [onSelect, onRangeSelect]
+  );
+
+  const handleDoubleClick = useCallback(() => {
+    // Cancel the pending single-click
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    onDoubleClick();
+  }, [onDoubleClick]);
 
   return (
     <button
-      onClick={(e) => onClick(e.shiftKey)}
-      className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-        isSelecting ? "cursor-pointer" : "photo-lift"
-      } ${isSelected ? "ring-2 ring-accent ring-inset" : ""}`}
+      data-image-id={image.id}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
+        isSelected ? "ring-2 ring-accent ring-inset" : ""
+      }`}
     >
-      {/* Selection checkbox */}
-      {isSelecting && (
-        <div className="absolute top-2 left-2 z-10">
-          <div
-            className={`w-5 h-5 border-2 flex items-center justify-center transition-all duration-150 ${
-              isSelected
-                ? "bg-accent border-accent"
-                : "border-white/80 bg-black/20 backdrop-blur-sm"
-            }`}
-          >
-            {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-          </div>
+      {/* Selection checkbox — always visible */}
+      <div className="absolute top-2 left-2 z-10">
+        <div
+          className={`w-5 h-5 border-2 flex items-center justify-center transition-all duration-150 ${
+            isSelected
+              ? "bg-accent border-accent"
+              : hasSelection
+              ? "border-white/80 bg-black/20 backdrop-blur-sm"
+              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
         </div>
-      )}
+      </div>
 
       {/* Selection overlay tint */}
-      {isSelecting && isSelected && (
+      {isSelected && (
         <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
       )}
 
@@ -179,7 +217,7 @@ function GridImage({
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename || ""}
         className={`w-full h-auto object-cover transition-all duration-500 ${
-          isSelecting ? "" : "group-hover:scale-[1.03]"
+          hasSelection ? "" : "group-hover:scale-[1.03]"
         } ${loaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
         onLoad={() => setLoaded(true)}

@@ -8,24 +8,25 @@ interface FilmStripProps {
   images: ImageData[];
   stacks: StackData[];
   standalone: ImageData[];
-  onImageClick: (id: string) => void;
-  isSelecting: boolean;
-  selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  onImageDoubleClick: (id: string) => void;
+  hasSelection: boolean;
+  selectedIds: Set<string>;
 }
 
 /**
  * FilmStrip -- Horizontal scrolling gallery view.
  * Full viewport height, images flow left to right with scroll snap.
+ * Selection-first: single click selects, double-click opens lightbox.
  * Keyboard: Left/Right arrows navigate between images.
  */
 export function FilmStrip({
   stacks,
   standalone,
-  onImageClick,
-  isSelecting,
-  selectedIds,
   onToggleSelect,
+  onImageDoubleClick,
+  hasSelection,
+  selectedIds,
 }: FilmStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -143,16 +144,10 @@ export function FilmStrip({
           <FilmStripFrame
             key={image.id}
             image={image}
-            isSelecting={isSelecting}
+            hasSelection={hasSelection}
             isSelected={selectedIds.has(image.id)}
-            onClick={() => {
-              if (isSelecting) {
-                onToggleSelect(image.id);
-              } else {
-                onImageClick(image.id);
-              }
-            }}
-            onToggleSelect={() => onToggleSelect(image.id)}
+            onSelect={() => onToggleSelect(image.id)}
+            onDoubleClick={() => onImageDoubleClick(image.id)}
           />
         ))}
       </div>
@@ -191,50 +186,73 @@ export function FilmStrip({
   );
 }
 
-/** Individual film strip frame */
+/** Individual film strip frame — single click selects, double-click opens lightbox */
 function FilmStripFrame({
   image,
-  isSelecting,
+  hasSelection,
   isSelected,
-  onClick,
+  onSelect,
+  onDoubleClick,
 }: {
   image: ImageData;
-  isSelecting: boolean;
+  hasSelection: boolean;
   isSelected: boolean;
-  onClick: () => void;
-  onToggleSelect: () => void;
+  onSelect: () => void;
+  onDoubleClick: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClick = useCallback(() => {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    clickTimerRef.current = setTimeout(() => {
+      clickTimerRef.current = null;
+      onSelect();
+    }, 200);
+  }, [onSelect]);
+
+  const handleDoubleClick = useCallback(() => {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    onDoubleClick();
+  }, [onDoubleClick]);
 
   return (
     <div className="snap-center flex-shrink-0 flex flex-col items-center">
       <button
-        onClick={onClick}
-        className={`relative h-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-          isSelecting ? "cursor-pointer" : "photo-lift"
-        } ${isSelected ? "ring-2 ring-accent ring-inset" : ""}`}
+        data-image-id={image.id}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        className={`relative h-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
+          isSelected ? "ring-2 ring-accent ring-inset" : ""
+        }`}
         style={{ height: "calc(100vh - 240px)" }}
       >
-        {/* Selection checkbox */}
-        {isSelecting && (
-          <div className="absolute top-3 left-3 z-10">
-            <div
-              className={`w-6 h-6 border-2 flex items-center justify-center transition-all duration-150 ${
-                isSelected
-                  ? "bg-accent border-accent"
-                  : "border-white/80 bg-black/20 backdrop-blur-sm"
-              }`}
-            >
-              {isSelected && (
-                <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-              )}
-            </div>
+        {/* Selection checkbox — always visible */}
+        <div className="absolute top-3 left-3 z-10">
+          <div
+            className={`w-6 h-6 border-2 flex items-center justify-center transition-all duration-150 ${
+              isSelected
+                ? "bg-accent border-accent"
+                : hasSelection
+                ? "border-white/80 bg-black/20 backdrop-blur-sm"
+                : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100"
+            }`}
+          >
+            {isSelected && (
+              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+            )}
           </div>
-        )}
+        </div>
 
         {/* Selection overlay tint */}
-        {isSelecting && isSelected && (
+        {isSelected && (
           <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
         )}
 
