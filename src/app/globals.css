@@ -135,6 +135,32 @@
     font-weight: 700;
   }
 
+  /* Gallery typography fonts */
+  .font-cormorant {
+    font-family: var(--font-cormorant), Georgia, serif;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  .font-dm-serif {
+    font-family: var(--font-dm-serif), Georgia, serif;
+    letter-spacing: -0.02em;
+    font-weight: 400;
+  }
+  .font-space-grotesk {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+  .font-source-serif {
+    font-family: var(--font-source-serif), Georgia, serif;
+  }
+  .font-lora {
+    font-family: var(--font-lora), Georgia, serif;
+  }
+  .font-dm-sans {
+    font-family: var(--font-dm-sans), system-ui, sans-serif;
+  }
+
   /* Small caps label style */
   .label-caps {
     font-size: 11px;
@@ -355,4 +381,51 @@
   50% { transform: scale(0.96, 1.04); }
   70% { transform: scale(1.02, 0.98); }
   100% { transform: scale(1, 1); }
+}
+
+/* ─── TipTap WYSIWYG Editor ─── */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #a8a29e;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+.tiptap:focus {
+  outline: none;
+}
+
+.tiptap h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.5em 0;
+}
+
+.tiptap h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.4em 0;
+}
+
+.tiptap p {
+  margin: 0.4em 0;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid #e7e5e4;
+  margin: 1em 0;
+}
+
+.tiptap a {
+  color: #10b981;
+  text-decoration: underline;
 }

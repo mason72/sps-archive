@@ -8,12 +8,15 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { cn } from "@/lib/utils";
 import {
   User,
   Paintbrush,
   Save,
   ArrowLeft,
+  Upload,
+  X,
 } from "lucide-react";
 import type { UserProfile, Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
@@ -43,6 +46,8 @@ export default function AccountPage() {
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -67,6 +72,7 @@ export default function AccountPage() {
         setPhone(p.phone || "");
         setLocation(p.location || "");
         setBranding({ ...DEFAULT_BRANDING, ...p.branding });
+        setLogoUrl(p.logoUrl || null);
       } catch (err) {
         console.error("Load profile failed:", err);
       } finally {
@@ -136,16 +142,16 @@ export default function AccountPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-3 mb-10">
+        <div className="flex border-b border-stone-200 mb-10">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 text-[12px] uppercase tracking-[0.15em] font-medium border transition-all duration-300",
+                "flex items-center gap-2 px-5 py-3 text-[12px] uppercase tracking-[0.15em] font-medium border-b-2 transition-all duration-300",
                 activeTab === tab.id
-                  ? "border-stone-900 bg-stone-900 text-white"
-                  : "border-stone-200 text-stone-500 hover:border-stone-400"
+                  ? "border-stone-900 text-stone-900"
+                  : "border-transparent text-stone-400 hover:text-stone-600"
               )}
             >
               {tab.icon}
@@ -250,6 +256,81 @@ export default function AccountPage() {
                 </div>
 
                 <div className="editorial-divider mb-6 mt-10">
+                  <span className="label-caps shrink-0">Logo</span>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  {logoUrl ? (
+                    <div className="relative group">
+                      <img
+                        src={logoUrl}
+                        alt="Logo"
+                        className="h-16 w-auto max-w-[200px] object-contain border border-stone-200 p-2"
+                      />
+                      <button
+                        onClick={async () => {
+                          await fetch("/api/account/logo", { method: "DELETE" });
+                          setLogoUrl(null);
+                          toast.success("Logo removed");
+                        }}
+                        className="absolute -top-2 -right-2 p-1 bg-white border border-stone-200 text-stone-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-16 w-16 border border-dashed border-stone-200 flex items-center justify-center">
+                      <Upload size={16} className="text-stone-300" />
+                    </div>
+                  )}
+                  <div>
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-[12px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 transition-all">
+                      <Upload size={12} />
+                      {isUploadingLogo ? "Uploading…" : logoUrl ? "Replace" : "Upload logo"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        disabled={isUploadingLogo}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 2 * 1024 * 1024) {
+                            toast.error("File too large. Maximum 2MB.");
+                            return;
+                          }
+                          setIsUploadingLogo(true);
+                          try {
+                            const res = await fetch("/api/account/logo", {
+                              method: "PUT",
+                              headers: { "Content-Type": file.type },
+                              body: file,
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              throw new Error(err.error || "Upload failed");
+                            }
+                            // Refetch profile to get fresh presigned URL
+                            const profileRes = await fetch("/api/account");
+                            if (profileRes.ok) {
+                              const profileData = await profileRes.json();
+                              setLogoUrl(profileData.profile?.logoUrl || null);
+                            }
+                            toast.success("Logo uploaded");
+                          } catch {
+                            toast.error("Failed to upload logo");
+                          } finally {
+                            setIsUploadingLogo(false);
+                            e.target.value = "";
+                          }
+                        }}
+                      />
+                    </label>
+                    <p className="text-[11px] text-stone-400 mt-2">PNG, JPG, SVG, or WebP. Max 2MB.</p>
+                  </div>
+                </div>
+
+                <div className="editorial-divider mb-6 mt-10">
                   <span className="label-caps shrink-0">Logo Placement</span>
                 </div>
 
@@ -287,12 +368,21 @@ export default function AccountPage() {
                       branding.logoPlacement === "center" && "text-center"
                     )}
                   >
-                    <span
-                      className="font-editorial text-[24px]"
-                      style={{ color: branding.primaryColor }}
-                    >
-                      {businessName || "Your Studio"}
-                    </span>
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt={businessName || "Logo"}
+                        className="h-10 w-auto max-w-[180px] object-contain"
+                        style={branding.logoPlacement === "center" ? { margin: "0 auto" } : undefined}
+                      />
+                    ) : (
+                      <span
+                        className="font-editorial text-[24px]"
+                        style={{ color: branding.primaryColor }}
+                      >
+                        {businessName || "Your Studio"}
+                      </span>
+                    )}
                   </div>
                   <p
                     className="text-[13px] leading-relaxed"
@@ -315,10 +405,10 @@ export default function AccountPage() {
 
             {/* Save button */}
             <div className="mt-12 flex items-center gap-4">
-              <Button onClick={handleSave} disabled={isSaving}>
+              <BrandButton onClick={handleSave} disabled={isSaving}>
                 <Save size={14} />
-                {isSaving ? "Saving…" : saved ? "Saved ✓" : "Save Changes"}
-              </Button>
+                {isSaving ? "Saving…" : saved ? "Saved" : "Save Changes"}
+              </BrandButton>
               {saved && (
                 <span className="text-[13px] text-accent">Changes saved</span>
               )}

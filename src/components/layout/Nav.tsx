@@ -29,7 +29,7 @@ export function Nav({ children }: NavProps) {
           </span>
         </Link>
         {children && (
-          <div className="flex items-center gap-8 text-[13px] tracking-wide">
+          <div className="flex items-center gap-5 md:gap-8 text-[13px] tracking-wide shrink-0">
             {children}
           </div>
         )}

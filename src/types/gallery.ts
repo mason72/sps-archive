@@ -23,6 +23,16 @@ export interface GalleryBranding {
   fontFamily: string;
 }
 
+export interface GallerySettings {
+  coverLayout?: string;
+  coverImageUrl?: string;
+  headingFont?: string;
+  bodyFont?: string;
+  gridStyle?: "masonry" | "uniform";
+  gridColumns?: number;
+  gridGap?: "tight" | "normal" | "loose";
+}
+
 export interface GalleryData {
   eventName: string;
   eventDate: string | null;
@@ -34,4 +44,5 @@ export interface GalleryData {
   images: GalleryImage[];
   shareId: string;
   branding: GalleryBranding | null;
+  settings?: GallerySettings;
 }

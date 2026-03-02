@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ImageIcon, Check } from "lucide-react";
+import { ImageIcon, Check, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { COVER_LAYOUTS, type CoverLayout } from "@/types/event-settings";
 
@@ -22,6 +23,8 @@ interface CoverLayoutTabProps {
   images?: CoverImage[];
   /** Called when cover image is selected */
   onCoverImageChange?: (imageId: string) => void;
+  /** Event ID for uploading a new cover image */
+  eventId?: string;
 }
 
 /**
@@ -36,8 +39,50 @@ export function CoverLayoutTab({
   coverImageId,
   images,
   onCoverImageChange,
+  eventId,
 }: CoverLayoutTabProps) {
   const [showPicker, setShowPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleCoverUpload = async (file: File) => {
+    if (!eventId || !onCoverImageChange) return;
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("File too large. Maximum 20MB.");
+      return;
+    }
+    setIsUploading(true);
+    try {
+      // Step 1: Create image record
+      const metaRes = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+        }),
+      });
+      if (!metaRes.ok) throw new Error("Failed to create upload");
+      const { imageId } = await metaRes.json();
+
+      // Step 2: Upload binary
+      const uploadRes = await fetch(`/api/upload/${imageId}`, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload file");
+
+      // Step 3: Set as cover
+      onCoverImageChange(imageId);
+      toast.success("Cover image uploaded");
+    } catch {
+      toast.error("Failed to upload cover image");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <div>
@@ -47,64 +92,87 @@ export function CoverLayoutTab({
       </p>
 
       {/* ─── Cover image selector ─── */}
-      {images && images.length > 0 && onCoverImageChange && (
+      {onCoverImageChange && (
         <div className="mb-6">
-          <button
-            onClick={() => setShowPicker((v) => !v)}
-            className="flex items-center gap-3 w-full p-3 border border-stone-200 hover:border-stone-400 transition-colors"
-          >
-            {coverImageUrl ? (
-              <img
-                src={coverImageUrl}
-                alt="Cover"
-                className="w-12 h-12 object-cover bg-stone-100 shrink-0"
+          {/* Upload cover image */}
+          {eventId && (
+            <label className="flex items-center gap-2 mb-2 px-3 py-2.5 border border-dashed border-stone-300 hover:border-stone-400 cursor-pointer transition-colors text-[12px] text-stone-500 hover:text-stone-700">
+              <Upload size={14} />
+              {isUploading ? "Uploading…" : "Upload cover image"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                disabled={isUploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleCoverUpload(file);
+                  e.target.value = "";
+                }}
               />
-            ) : (
-              <div className="w-12 h-12 bg-stone-100 flex items-center justify-center shrink-0">
-                <ImageIcon size={16} className="text-stone-300" />
-              </div>
-            )}
-            <div className="text-left flex-1 min-w-0">
-              <p className="text-[12px] font-medium text-stone-700">
-                {coverImageUrl ? "Change cover image" : "Choose cover image"}
-              </p>
-              <p className="text-[11px] text-stone-400 truncate">
-                {coverImageUrl ? "Click to select a different photo" : "Select a photo for the gallery cover"}
-              </p>
-            </div>
-          </button>
+            </label>
+          )}
 
-          {/* Image picker grid */}
-          {showPicker && (
-            <div className="mt-2 max-h-48 overflow-y-auto border border-stone-200 p-2">
-              <div className="grid grid-cols-4 gap-1">
-                {images.map((img) => (
-                  <button
-                    key={img.id}
-                    onClick={() => {
-                      onCoverImageChange(img.id);
-                      setShowPicker(false);
-                    }}
-                    className={cn(
-                      "relative aspect-square overflow-hidden bg-stone-100",
-                      coverImageId === img.id && "ring-2 ring-accent"
-                    )}
-                  >
-                    <img
-                      src={img.thumbnailUrl}
-                      alt={img.originalFilename}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                    {coverImageId === img.id && (
-                      <div className="absolute inset-0 bg-accent/20 flex items-center justify-center">
-                        <Check size={16} className="text-white drop-shadow" />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {images && images.length > 0 && (
+            <>
+              <button
+                onClick={() => setShowPicker((v) => !v)}
+                className="flex items-center gap-3 w-full p-3 border border-stone-200 hover:border-stone-400 transition-colors"
+              >
+                {coverImageUrl ? (
+                  <img
+                    src={coverImageUrl}
+                    alt="Cover"
+                    className="w-12 h-12 object-cover bg-stone-100 shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-stone-100 flex items-center justify-center shrink-0">
+                    <ImageIcon size={16} className="text-stone-300" />
+                  </div>
+                )}
+                <div className="text-left flex-1 min-w-0">
+                  <p className="text-[12px] font-medium text-stone-700">
+                    {coverImageUrl ? "Change cover image" : "Choose from gallery"}
+                  </p>
+                  <p className="text-[11px] text-stone-400 truncate">
+                    {coverImageUrl ? "Click to select a different photo" : "Select a photo for the gallery cover"}
+                  </p>
+                </div>
+              </button>
+
+              {/* Image picker grid */}
+              {showPicker && (
+                <div className="mt-2 max-h-48 overflow-y-auto border border-stone-200 p-2">
+                  <div className="grid grid-cols-4 gap-1">
+                    {images.map((img) => (
+                      <button
+                        key={img.id}
+                        onClick={() => {
+                          onCoverImageChange(img.id);
+                          setShowPicker(false);
+                        }}
+                        className={cn(
+                          "relative aspect-square overflow-hidden bg-stone-100",
+                          coverImageId === img.id && "ring-2 ring-accent"
+                        )}
+                      >
+                        <img
+                          src={img.thumbnailUrl}
+                          alt={img.originalFilename}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                        {coverImageId === img.id && (
+                          <div className="absolute inset-0 bg-accent/20 flex items-center justify-center">
+                            <Check size={16} className="text-white drop-shadow" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

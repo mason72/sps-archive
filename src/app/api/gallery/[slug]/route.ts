@@ -3,7 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
-import type { GalleryBranding } from "@/types/gallery";
+import type { GalleryBranding, GallerySettings } from "@/types/gallery";
+import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 
 /**
  * GET /api/gallery/[slug]
@@ -84,10 +85,10 @@ export async function GET(
       }
     }
 
-    // 3. Fetch event + owner for branding
+    // 3. Fetch event + owner for branding + settings
     const { data: event, error: eventError } = await supabase
       .from("events")
-      .select("name, event_date, user_id")
+      .select("name, event_date, user_id, settings")
       .eq("id", share.event_id)
       .single();
 
@@ -123,7 +124,7 @@ export async function GET(
       .from("images")
       .select("id, r2_key, original_filename, parsed_name, width, height")
       .eq("event_id", share.event_id)
-      .eq("processing_status", "complete");
+      .neq("processing_status", "error");
 
     if (share.share_type === "selection" && share.image_ids?.length) {
       imagesQuery = imagesQuery.in("id", share.image_ids);
@@ -164,7 +165,30 @@ export async function GET(
       })
     );
 
-    // 6. Increment view count (fire and forget)
+    // 6. Build gallery settings from event settings
+    const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
+    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string };
+    const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
+    const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
+
+    const gallerySettings: GallerySettings = {
+      coverLayout: cover.layout,
+      headingFont: typography.headingFont,
+      bodyFont: typography.bodyFont,
+      gridStyle: grid.style as "masonry" | "uniform",
+      gridColumns: grid.columns,
+      gridGap: grid.gap as "tight" | "normal" | "loose",
+    };
+
+    // Generate presigned URL for cover image if set
+    if (cover.imageId) {
+      const coverImage = (rawImages || []).find((img) => img.id === cover.imageId);
+      if (coverImage) {
+        gallerySettings.coverImageUrl = await getPresignedDownloadUrl(coverImage.r2_key, 14400);
+      }
+    }
+
+    // 7. Increment view count (fire and forget)
     supabase
       .from("shares")
       .update({ view_count: (share.view_count || 0) + 1 })
@@ -182,6 +206,7 @@ export async function GET(
       images,
       shareId: share.id,
       branding,
+      settings: gallerySettings,
     });
   } catch (error) {
     console.error("Gallery error:", error);

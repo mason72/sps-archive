@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import type { Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 
@@ -63,7 +64,11 @@ export async function GET() {
         displayName: profile.display_name,
         businessName: profile.business_name,
         bio: profile.bio,
-        logoUrl: profile.logo_url,
+        logoUrl: profile.logo_url
+          ? profile.logo_url.startsWith("branding/")
+            ? await getPresignedDownloadUrl(profile.logo_url, 86400) // 1 day TTL, refreshed each load
+            : profile.logo_url // Legacy presigned URLs still work until they expire
+          : null,
         website: profile.website,
         phone: profile.phone,
         location: profile.location,

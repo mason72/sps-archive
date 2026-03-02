@@ -22,6 +22,7 @@ import { ColorTab } from "@/components/settings/ColorTab";
 import { GridTab } from "@/components/settings/GridTab";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DatePicker } from "@/components/ui/date-picker";
 import type { EventSettings } from "@/types/event-settings";
 
 /* ─── Types ─── */
@@ -52,6 +53,12 @@ interface EventSidebarProps {
   onSettingsChange: (settings: EventSettings) => void;
   /** Images available for cover image selection */
   images?: CoverImage[];
+  /** Callback to refresh image URLs (presigned URLs expire after 4hr) */
+  onRefreshImages?: () => void;
+  /** Callback when event metadata (type, date) changes */
+  onEventUpdate?: (updates: { event_type?: string; event_date?: string }) => void;
+  /** Notify parent when sidebar opens/closes (for toolbar centering) */
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 type Panel = "sections" | "design" | "details" | "activity";
@@ -75,6 +82,9 @@ export function EventSidebar({
   settings,
   onSettingsChange,
   images,
+  onRefreshImages,
+  onEventUpdate,
+  onOpenChange,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -83,10 +93,11 @@ export function EventSidebar({
   });
   const [activePanel, setActivePanel] = useState<Panel>("sections");
 
-  // Persist open state
+  // Persist open state + notify parent
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, String(isOpen));
-  }, [isOpen]);
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   // `[` keyboard shortcut to toggle sidebar
   useEffect(() => {
@@ -126,7 +137,7 @@ export function EventSidebar({
   }
 
   return (
-    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden">
+    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden h-screen sticky top-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
         <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
@@ -169,8 +180,8 @@ export function EventSidebar({
         />
       </div>
 
-      {/* Panel content */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Panel content — sections panel manages its own scroll, others need overflow-y-auto */}
+      <div className={`flex-1 ${activePanel === "sections" ? "overflow-hidden" : "overflow-y-auto"}`}>
         {activePanel === "sections" && (
           <SectionsPanel
             eventId={eventId}
@@ -186,6 +197,7 @@ export function EventSidebar({
             settings={settings}
             onSettingsChange={onSettingsChange}
             images={images}
+            onRefreshImages={onRefreshImages}
           />
         )}
         {activePanel === "details" && (
@@ -194,6 +206,7 @@ export function EventSidebar({
             eventName={eventName}
             eventType={eventType}
             eventDate={eventDate}
+            onEventUpdate={onEventUpdate}
           />
         )}
         {activePanel === "activity" && (
@@ -381,9 +394,9 @@ function SectionsPanel({
       </div>
 
       {/* Create new section */}
-      <div className="border-t border-stone-100 px-4 py-3">
+      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-3">
         <div className="flex items-center gap-2">
-          <Plus size={14} className="text-stone-300 shrink-0" />
+          <Plus size={14} className="text-stone-500 shrink-0" />
           <input
             type="text"
             value={newName}
@@ -414,14 +427,23 @@ function DesignPanel({
   settings,
   onSettingsChange,
   images,
+  onRefreshImages,
 }: {
   eventId: string;
   settings: EventSettings;
   onSettingsChange: (s: EventSettings) => void;
   images?: CoverImage[];
+  onRefreshImages?: () => void;
 }) {
   const [designTab, setDesignTab] = useState<"cover" | "typography" | "color" | "grid">("cover");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refresh image URLs every time cover tab opens (presigned URLs expire after 4hr)
+  useEffect(() => {
+    if (designTab === "cover" && onRefreshImages) {
+      onRefreshImages();
+    }
+  }, [designTab, onRefreshImages]);
 
   const handleChange = useCallback(
     (partial: Partial<EventSettings>) => {
@@ -449,20 +471,23 @@ function DesignPanel({
     <div>
       {/* Design sub-tabs */}
       <div className="flex border-b border-stone-100 px-2">
-        {(["cover", "typography", "color", "grid"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setDesignTab(tab)}
-            className={cn(
-              "flex-1 py-2 text-[10px] uppercase tracking-[0.12em] font-medium transition-colors border-b-2",
-              designTab === tab
-                ? "border-stone-900 text-stone-900"
-                : "border-transparent text-stone-400 hover:text-stone-600"
-            )}
-          >
-            {tab}
-          </button>
-        ))}
+        {(["cover", "typography", "color", "grid"] as const).map((tab) => {
+          const label = tab === "typography" ? "fonts" : tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setDesignTab(tab)}
+              className={cn(
+                "flex-1 py-2 text-[10px] uppercase tracking-[0.12em] font-medium transition-colors border-b-2",
+                designTab === tab
+                  ? "border-stone-900 text-stone-900"
+                  : "border-transparent text-stone-400 hover:text-stone-600"
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="p-4">
@@ -482,6 +507,7 @@ function DesignPanel({
               onCoverImageChange={(imageId) =>
                 handleChange({ cover: { ...settings.cover, imageId } })
               }
+              eventId={eventId}
             />
           );
         })()}
@@ -508,6 +534,7 @@ function DesignPanel({
             columns={settings.grid?.columns || 5}
             gap={settings.grid?.gap || "normal"}
             style={settings.grid?.style || "masonry"}
+            showFilenames={settings.grid?.showFilenames}
             onChange={(updates) =>
               handleChange({ grid: { ...settings.grid, ...updates } })
             }
@@ -519,26 +546,52 @@ function DesignPanel({
 }
 
 /* ─── Details Panel ─── */
+const EVENT_TYPES = [
+  "Wedding",
+  "Portrait",
+  "Corporate",
+  "Birthday",
+  "Engagement",
+  "Maternity",
+  "Newborn",
+  "Family",
+  "Event",
+  "Editorial",
+  "Product",
+  "Real Estate",
+  "Other",
+];
+
 function DetailsPanel({
   eventId,
   eventName,
   eventType,
   eventDate,
+  onEventUpdate,
 }: {
   eventId: string;
   eventName: string;
   eventType?: string | null;
   eventDate?: string | null;
+  onEventUpdate?: (updates: { event_type?: string; event_date?: string }) => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(eventName);
+  const [type, setType] = useState(eventType || "");
+  const [date, setDate] = useState(eventDate || "");
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Sync name with prop
+  // Sync with props
   useEffect(() => {
     setName(eventName);
   }, [eventName]);
+  useEffect(() => {
+    setType(eventType || "");
+  }, [eventType]);
+  useEffect(() => {
+    setDate(eventDate || "");
+  }, [eventDate]);
 
   const handleSaveName = useCallback(async () => {
     if (name.trim() === eventName) return;
@@ -556,6 +609,21 @@ function DetailsPanel({
       setIsSaving(false);
     }
   }, [eventId, name, eventName]);
+
+  const handleSaveField = useCallback(async (field: "eventType" | "eventDate", value: string) => {
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value || null }),
+      });
+      // Map camelCase API fields to snake_case state fields
+      const stateKey = field === "eventType" ? "event_type" : "event_date";
+      onEventUpdate?.({ [stateKey]: value || undefined });
+    } catch {
+      toast.error("Failed to update");
+    }
+  }, [eventId, onEventUpdate]);
 
   const handleDuplicate = useCallback(async () => {
     try {
@@ -598,20 +666,38 @@ function DetailsPanel({
         />
       </div>
 
-      {/* Event type & date (read-only for now) */}
-      <div className="space-y-2">
-        {eventType && (
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-stone-400">Type</span>
-            <span className="text-[12px] text-stone-600">{eventType}</span>
-          </div>
-        )}
-        {eventDate && (
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-stone-400">Date</span>
-            <span className="text-[12px] text-stone-600">{eventDate}</span>
-          </div>
-        )}
+      {/* Event type & date */}
+      <div className="space-y-3">
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+            Type
+          </label>
+          <select
+            value={type}
+            onChange={(e) => {
+              setType(e.target.value);
+              handleSaveField("eventType", e.target.value);
+            }}
+            className="w-full text-[13px] text-stone-700 border border-stone-200 px-3 py-2 focus:border-stone-900 outline-none transition-colors bg-white appearance-none cursor-pointer"
+          >
+            <option value="">Not set</option>
+            {EVENT_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+            Date
+          </label>
+          <DatePicker
+            value={date}
+            onChange={(val) => {
+              setDate(val);
+              handleSaveField("eventDate", val);
+            }}
+          />
+        </div>
       </div>
 
       <div className="h-px bg-stone-100" />

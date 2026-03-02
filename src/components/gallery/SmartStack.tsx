@@ -26,6 +26,7 @@ interface SmartStackProps {
   // Selection props
   hasSelection?: boolean;
   selectedIds?: Set<string>;
+  showFilename?: boolean;
 }
 
 /**
@@ -44,6 +45,7 @@ export function SmartStack({
   onSetCover,
   hasSelection,
   selectedIds,
+  showFilename,
 }: SmartStackProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,6 +68,7 @@ export function SmartStack({
           allSelected={allSelected}
           selectedCount={selectedCount}
           hasSelection={hasSelection}
+          showFilename={showFilename}
           onSingleClick={() => {
             // Toggle all images in stack
             images.forEach((img) => onToggleSelect?.(img.id));
@@ -100,6 +103,7 @@ export function SmartStack({
                   isSelected={isSelected}
                   hasSelection={hasSelection}
                   stackId={stackId}
+                  showFilename={showFilename}
                   onToggleSelect={() => onToggleSelect?.(img.id)}
                   onDoubleClick={() => onImageDoubleClick?.(img.id)}
                   onSetCover={onSetCover}
@@ -121,6 +125,7 @@ function CollapsedStack({
   allSelected,
   selectedCount,
   hasSelection,
+  showFilename,
   onSingleClick,
   onDoubleClick,
 }: {
@@ -130,6 +135,7 @@ function CollapsedStack({
   allSelected: boolean;
   selectedCount: number;
   hasSelection?: boolean;
+  showFilename?: boolean;
   onSingleClick: () => void;
   onDoubleClick: () => void;
 }) {
@@ -224,6 +230,11 @@ function CollapsedStack({
           </div>
         )}
       </div>
+      {showFilename && (cover.parsedName || cover.originalFilename) && (
+        <p className="text-[10px] text-stone-400 truncate px-1.5 py-1 bg-white">
+          {cover.parsedName || cover.originalFilename}
+        </p>
+      )}
     </button>
   );
 }
@@ -235,6 +246,7 @@ function ExpandedStackImage({
   isSelected,
   hasSelection,
   stackId,
+  showFilename,
   onToggleSelect,
   onDoubleClick,
   onSetCover,
@@ -244,6 +256,7 @@ function ExpandedStackImage({
   isSelected: boolean;
   hasSelection?: boolean;
   stackId: string;
+  showFilename?: boolean;
   onToggleSelect: () => void;
   onDoubleClick: () => void;
   onSetCover?: (stackId: string, imageId: string) => void;
@@ -336,6 +349,11 @@ function ExpandedStackImage({
         <div className="absolute bottom-1 right-1 bg-black/50 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/80">
           {Math.round(img.aestheticScore * 100)}
         </div>
+      )}
+      {showFilename && (img.parsedName || img.originalFilename) && (
+        <p className="text-[10px] text-stone-400 truncate px-1 py-0.5 bg-white">
+          {img.parsedName || img.originalFilename}
+        </p>
       )}
     </button>
   );

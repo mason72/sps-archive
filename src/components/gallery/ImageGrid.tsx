@@ -20,6 +20,8 @@ interface ImageGridProps {
   // Grid settings (from event settings)
   columnCount?: number;
   gap?: "tight" | "normal" | "loose";
+  style?: "masonry" | "uniform";
+  showFilenames?: boolean;
 }
 
 const GAP_MAP = {
@@ -44,6 +46,8 @@ export function ImageGrid({
   selectedIds,
   columnCount: settingsColumnCount,
   gap = "normal",
+  style = "masonry",
+  showFilenames,
 }: ImageGridProps) {
   const gridItems: Array<
     | { type: "stack"; data: StackData }
@@ -101,6 +105,7 @@ export function ImageGrid({
                     onSetCover={onSetCover}
                     hasSelection={hasSelection}
                     selectedIds={selectedIds}
+                    showFilename={showFilenames}
                   />
                 </div>
               );
@@ -117,6 +122,8 @@ export function ImageGrid({
                 onSelect={() => onToggleSelect?.(item.data.id)}
                 onRangeSelect={() => onRangeSelect?.(item.data.id)}
                 onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
+                uniform={style === "uniform"}
+                showFilename={showFilenames}
               />
             );
           })}
@@ -136,6 +143,8 @@ function GridImage({
   onDoubleClick,
   hasSelection,
   isSelected,
+  uniform,
+  showFilename,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -143,6 +152,8 @@ function GridImage({
   onDoubleClick: () => void;
   hasSelection?: boolean;
   isSelected?: boolean;
+  uniform?: boolean;
+  showFilename?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -216,7 +227,9 @@ function GridImage({
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename || ""}
-        className={`w-full h-auto object-cover transition-all duration-500 ${
+        className={`w-full object-cover transition-all duration-500 ${
+          uniform ? "aspect-square" : "h-auto"
+        } ${
           hasSelection ? "" : "group-hover:scale-[1.03]"
         } ${loaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
@@ -230,6 +243,11 @@ function GridImage({
       />
       {/* Placeholder maintains minimum height while loading */}
       {!loaded && <div className="aspect-square" />}
+      {showFilename && (image.parsedName || image.originalFilename) && (
+        <p className="text-[10px] text-stone-400 truncate px-1.5 py-1 bg-white">
+          {image.parsedName || image.originalFilename}
+        </p>
+      )}
     </button>
   );
 }

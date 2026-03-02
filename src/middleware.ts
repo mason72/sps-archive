@@ -5,7 +5,8 @@ import { createServerClient } from "@supabase/ssr";
  * Middleware — Route protection + Supabase session management.
  *
  * Public routes (no auth required):
- *   /, /login, /signup, /gallery/*, /api/gallery/*, /api/inngest
+ *   /, /login, /signup, /forgot-password, /reset-password,
+ *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest
  *
  * Protected routes (redirect to /login if unauthenticated):
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
@@ -47,6 +48,10 @@ export async function middleware(request: NextRequest) {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/signup" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/gallery") ||
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||

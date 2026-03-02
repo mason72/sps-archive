@@ -33,6 +33,8 @@ interface SelectionToolbarProps {
   onRename?: (pattern: string) => void;
   sections?: SectionOption[];
   activeSection?: string | null;
+  /** Sidebar width in px — used to center toolbar over the content area */
+  sidebarOffset?: number;
 }
 
 /**
@@ -53,6 +55,7 @@ export function SelectionToolbar({
   onRename,
   sections = [],
   activeSection,
+  sidebarOffset = 0,
 }: SelectionToolbarProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -61,7 +64,8 @@ export function SelectionToolbar({
   const [showRenamePopover, setShowRenamePopover] = useState(false);
   const [addedToSection, setAddedToSection] = useState<string | null>(null);
   const [movedToSection, setMovedToSection] = useState<string | null>(null);
-  const [renamePattern, setRenamePattern] = useState("{N}");
+  const [renameBaseName, setRenameBaseName] = useState("");
+  const [renameZeroPad, setRenameZeroPad] = useState(true);
   const pickerRef = useRef<HTMLDivElement>(null);
   const movePickerRef = useRef<HTMLDivElement>(null);
   const renameRef = useRef<HTMLDivElement>(null);
@@ -97,38 +101,46 @@ export function SelectionToolbar({
   };
 
   const handleRenameApply = () => {
-    if (onRename && renamePattern.trim()) {
-      onRename(renamePattern.trim());
+    if (onRename && renameBaseName.trim()) {
+      const pattern = renameZeroPad
+        ? `${renameBaseName.trim()} {N}`
+        : `${renameBaseName.trim()} {n}`;
+      onRename(pattern);
       setShowRenamePopover(false);
     }
   };
 
-  // Generate preview filenames based on the pattern
-  const renamePreview = Array.from({ length: Math.min(count, 3) }, (_, i) => {
-    return renamePattern
-      .replace("{N}", String(i + 1).padStart(3, "0"))
-      .replace("{n}", String(i + 1));
-  });
+  // Generate preview filenames
+  const renamePreview = renameBaseName.trim()
+    ? Array.from({ length: Math.min(count, 3) }, (_, i) => {
+        const num = renameZeroPad
+          ? String(i + 1).padStart(3, "0")
+          : String(i + 1);
+        return `${renameBaseName.trim()} ${num}`;
+      })
+    : [];
 
   return createPortal(
-    <div className="fixed bottom-0 left-0 right-0 z-50 toolbar-enter">
-      <div className="mx-4 mb-4 bg-stone-900 text-white flex items-center justify-between px-6 h-14 shadow-xl">
-        {/* Left: Count + deselect */}
-        <div className="flex items-center gap-4">
-          <span className="text-[13px] font-medium tracking-wide">
-            {count} selected
-          </span>
-          <button
-            onClick={onDeselectAll}
-            className="flex items-center gap-1.5 text-[12px] text-stone-400 hover:text-white transition-colors"
-          >
-            <X className="h-3.5 w-3.5" />
-            Deselect
-          </button>
-        </div>
+    <div
+      className="fixed bottom-6 -translate-x-1/2 z-50 toolbar-enter"
+      style={{ left: `calc(50% + ${sidebarOffset / 2}px)` }}
+    >
+      <div className="inline-flex items-center gap-1 bg-white/90 backdrop-blur-2xl text-stone-900 px-5 h-11 rounded-full border border-stone-200/80 shadow-[0_8px_40px_rgba(0,0,0,0.12),0_2px_12px_rgba(0,0,0,0.08)]">
+        {/* Count + deselect */}
+        <span className="text-[12px] font-medium tabular-nums whitespace-nowrap">
+          {count}
+        </span>
+        <button
+          onClick={onDeselectAll}
+          title="Deselect all"
+          className="p-1.5 text-stone-400 hover:text-stone-900 transition-colors"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
 
-        {/* Right: Action icons */}
-        <div className="flex items-center gap-1">
+        <div className="w-px h-4 bg-stone-200" />
+
+        {/* Action icons */}
           {/* Rename */}
           {onRename && (
             <div className="relative" ref={renameRef}>
@@ -139,33 +151,61 @@ export function SelectionToolbar({
                 active={showRenamePopover}
               />
               {showRenamePopover && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 w-[260px] p-4 scale-in">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-2">
+                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 w-[280px] p-4 scale-in">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3">
                     Batch rename
                   </p>
+                  <label className="text-[11px] text-stone-500 mb-1 block">Base name</label>
                   <input
                     type="text"
-                    value={renamePattern}
-                    onChange={(e) => setRenamePattern(e.target.value)}
-                    className="w-full border border-stone-200 px-3 py-2 text-[13px] text-stone-900 focus:border-accent focus:outline-none mb-2"
-                    placeholder="{N} for zero-padded, {n} for plain"
+                    value={renameBaseName}
+                    onChange={(e) => setRenameBaseName(e.target.value)}
+                    className="w-full border border-stone-200 px-3 py-2 text-[13px] text-stone-900 focus:border-accent focus:outline-none mb-3"
+                    placeholder="e.g. Johnson Wedding"
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleRenameApply();
                       if (e.key === "Escape") setShowRenamePopover(false);
                     }}
                   />
-                  <div className="text-[11px] text-stone-400 mb-3 space-y-0.5">
-                    {renamePreview.map((name, i) => (
-                      <p key={i}>{name}</p>
-                    ))}
-                    {count > 3 && <p>…and {count - 3} more</p>}
+                  <label className="text-[11px] text-stone-500 mb-1.5 block">Numbering</label>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setRenameZeroPad(true)}
+                      className={`flex-1 py-1.5 text-[12px] border transition-colors ${
+                        renameZeroPad
+                          ? "border-stone-900 bg-stone-900 text-white"
+                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                      }`}
+                    >
+                      001, 002, 003
+                    </button>
+                    <button
+                      onClick={() => setRenameZeroPad(false)}
+                      className={`flex-1 py-1.5 text-[12px] border transition-colors ${
+                        !renameZeroPad
+                          ? "border-stone-900 bg-stone-900 text-white"
+                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                      }`}
+                    >
+                      1, 2, 3
+                    </button>
                   </div>
+                  {renamePreview.length > 0 && (
+                    <div className="text-[11px] text-stone-400 mb-3 space-y-0.5 bg-stone-50 px-3 py-2 border border-stone-100">
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wider mb-1">Preview</p>
+                      {renamePreview.map((name, i) => (
+                        <p key={i} className="text-stone-600">{name}.jpg</p>
+                      ))}
+                      {count > 3 && <p className="text-stone-400">…and {count - 3} more</p>}
+                    </div>
+                  )}
                   <button
                     onClick={handleRenameApply}
-                    className="w-full py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors"
+                    disabled={!renameBaseName.trim()}
+                    className="w-full py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Apply
+                    Rename {count} files
                   </button>
                 </div>
               )}
@@ -188,7 +228,7 @@ export function SelectionToolbar({
             onClick={onDownload}
           />
 
-          <div className="w-px h-5 bg-stone-700 mx-1" />
+          <div className="w-px h-4 bg-stone-200" />
 
           {/* Copy to section */}
           {onAddToSection && sections.length > 0 && (
@@ -277,22 +317,22 @@ export function SelectionToolbar({
             />
           )}
 
-          <div className="w-px h-5 bg-stone-700 mx-1" />
+          <div className="w-px h-4 bg-stone-200" />
 
           {showDeleteConfirm ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="text-[12px] text-red-400 hover:text-red-300 font-medium transition-colors px-2 py-1"
+                className="text-[11px] text-red-500 hover:text-red-600 font-medium transition-colors px-2 py-1 whitespace-nowrap"
               >
-                {isDeleting ? "Deleting..." : "Confirm delete"}
+                {isDeleting ? "..." : "Confirm"}
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="text-[12px] text-stone-500 hover:text-stone-300 transition-colors px-2 py-1"
+                className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
               >
-                Cancel
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ) : (
@@ -303,7 +343,6 @@ export function SelectionToolbar({
               danger
             />
           )}
-        </div>
       </div>
     </div>,
     document.body
@@ -327,12 +366,12 @@ function ToolbarButton({
     <button
       onClick={onClick}
       title={label}
-      className={`p-2.5 transition-colors ${
+      className={`p-2 transition-colors ${
         danger
-          ? "text-stone-400 hover:text-red-400"
+          ? "text-stone-400 hover:text-red-500"
           : active
-            ? "text-white"
-            : "text-stone-400 hover:text-white"
+            ? "text-stone-900"
+            : "text-stone-400 hover:text-stone-900"
       }`}
     >
       {icon}

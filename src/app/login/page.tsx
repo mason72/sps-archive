@@ -1,10 +1,10 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
@@ -17,7 +17,6 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "/";
 
@@ -45,8 +44,8 @@ function LoginForm() {
         return;
       }
 
-      router.push(redirect);
-      router.refresh();
+      // Full page navigation ensures cookies are set before the next request
+      window.location.href = redirect;
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -101,6 +100,14 @@ function LoginForm() {
                 required
                 className="w-full border-b border-stone-200 bg-transparent py-3 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
               />
+              <div className="mt-2 text-right">
+                <Link
+                  href="/forgot-password"
+                  className="text-[13px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
             {/* Error */}
@@ -110,9 +117,9 @@ function LoginForm() {
 
             {/* Submit */}
             <div className="reveal" style={{ animationDelay: "0.2s" }}>
-              <Button type="submit" disabled={isLoading} className="w-full">
+              <BrandButton type="submit" disabled={isLoading} className="w-full">
                 {isLoading ? "Signing in..." : "Sign in"}
-              </Button>
+              </BrandButton>
             </div>
           </form>
 

@@ -4,7 +4,23 @@ import { useState, useEffect, useCallback, useRef, use } from "react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
-import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
+import type { GalleryData, GalleryImage, GalleryBranding, GallerySettings } from "@/types/gallery";
+
+/* ─── Font class mappings ─── */
+const HEADING_FONT_CLASS: Record<string, string> = {
+  playfair: "font-editorial",     // Playfair Display — already loaded globally
+  inter: "font-sans",             // Inter — already loaded globally
+  cormorant: "font-cormorant",
+  "dm-serif": "font-dm-serif",
+  "space-grotesk": "font-space-grotesk",
+};
+
+const BODY_FONT_CLASS: Record<string, string> = {
+  inter: "font-sans",
+  "source-serif": "font-source-serif",
+  lora: "font-lora",
+  "dm-sans": "font-dm-sans",
+};
 
 /** PIN prompt modal for download protection */
 function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void; onClose: () => void }) {
@@ -40,6 +56,85 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
         >
           Download
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Cover section — displays a hero cover image above the gallery header */
+function CoverSection({
+  imageUrl,
+  layout,
+  eventName,
+  headingClass,
+  primaryColor,
+}: {
+  imageUrl: string;
+  layout: string;
+  eventName: string;
+  headingClass: string;
+  primaryColor?: string;
+}) {
+  if (layout === "left") {
+    return (
+      <div className="flex flex-col md:flex-row min-h-[60vh]">
+        <div className="md:w-1/2 flex items-center justify-center p-12 md:p-16">
+          <h1
+            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95]`}
+            style={{ color: primaryColor }}
+          >
+            {eventName}
+          </h1>
+        </div>
+        <div className="md:w-1/2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+        </div>
+      </div>
+    );
+  }
+
+  if (layout === "frame") {
+    return (
+      <div className="px-8 md:px-16 pt-12">
+        <div className="relative aspect-[16/7] overflow-hidden bg-stone-100">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 border-[8px] md:border-[16px] border-white pointer-events-none" />
+        </div>
+      </div>
+    );
+  }
+
+  if (layout === "classic") {
+    return (
+      <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-8 md:p-16">
+          <h1
+            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}
+          >
+            {eventName}
+          </h1>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: "center" layout
+  return (
+    <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-black/30" />
+      <div className="absolute inset-0 flex items-center justify-center text-center p-8">
+        <h1
+          className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}
+        >
+          {eventName}
+        </h1>
       </div>
     </div>
   );
@@ -278,6 +373,16 @@ export default function GalleryPage({
   if (!gallery) return null;
 
   const b = gallery.branding;
+  const s = gallery.settings;
+
+  // Resolve font classes
+  const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
+  const bodyClass = BODY_FONT_CLASS[s?.bodyFont || "inter"] || "font-sans";
+
+  // Cover image present?
+  const hasCover = !!(s?.coverImageUrl && s?.coverLayout);
+  // Some layouts render the title inside the cover — skip it in the header
+  const coverRendersTitle = hasCover && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
 
   // Build CSS custom properties from branding colors
   const brandStyles = b
@@ -290,7 +395,18 @@ export default function GalleryPage({
     : {};
 
   return (
-    <div className="min-h-screen" style={{ ...brandStyles, backgroundColor: b?.backgroundColor }}>
+    <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: b?.backgroundColor }}>
+      {/* ─── Cover image ─── */}
+      {hasCover && (
+        <CoverSection
+          imageUrl={s!.coverImageUrl!}
+          layout={s!.coverLayout!}
+          eventName={gallery.eventName}
+          headingClass={headingClass}
+          primaryColor={b?.primaryColor}
+        />
+      )}
+
       {/* ─── Branded header ─── */}
       <header className="px-8 md:px-16 pt-12 pb-8">
         {/* Photographer branding row */}
@@ -319,12 +435,14 @@ export default function GalleryPage({
           </div>
         )}
 
-        <h1
-          className="font-editorial text-[clamp(32px,5vw,56px)] leading-[0.95] reveal"
-          style={{ color: b?.primaryColor }}
-        >
-          {gallery.eventName}
-        </h1>
+        {!coverRendersTitle && (
+          <h1
+            className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
+            style={{ color: b?.primaryColor }}
+          >
+            {gallery.eventName}
+          </h1>
+        )}
         {gallery.eventDate && (
           <p className="caption-italic mt-2" style={{ color: b?.secondaryColor }}>
             {new Date(gallery.eventDate).toLocaleDateString("en-US", {
@@ -388,6 +506,9 @@ export default function GalleryPage({
           onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
           onImageClick={(id) => setSelectedImageId(id)}
           onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+          gridStyle={s?.gridStyle}
+          gridColumns={s?.gridColumns}
+          gridGap={s?.gridGap}
         />
       </main>
 

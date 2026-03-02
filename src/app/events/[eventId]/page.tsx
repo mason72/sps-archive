@@ -18,9 +18,10 @@ import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useProcessingStatus } from "@/hooks/useProcessingStatus";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
 import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
+import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, ExternalLink } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3 } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -70,9 +71,11 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
   const [hasActiveShare, setHasActiveShare] = useState(false);
+  const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
 
   // Section image IDs (for filtering when a section is active)
   const [sectionImageIds, setSectionImageIds] = useState<Set<string> | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Selection state
   const selection = useSelection();
@@ -107,15 +110,20 @@ export default function EventPage({
         setEventSettings({ ...DEFAULT_EVENT_SETTINGS, ...data.event.settings });
       }
 
-      // Check for active shares (for Publish/Share button)
+      // Check for active shares (for Publish/Share button + Preview link)
       try {
         const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
         if (sharesRes.ok) {
           const sharesData = await sharesRes.json();
-          const active = sharesData.shares?.some(
+          const activeShares = sharesData.shares?.filter(
             (s: { isActive: boolean }) => s.isActive
+          ) || [];
+          setHasActiveShare(activeShares.length > 0);
+          // Prefer "full" share for preview; fall back to any active share
+          const fullShare = activeShares.find(
+            (s: { shareType: string }) => s.shareType === "full"
           );
-          setHasActiveShare(!!active);
+          setActiveShareSlug(fullShare?.slug || activeShares[0]?.slug || null);
         }
       } catch {
         // Non-critical — default to no active shares
@@ -316,13 +324,27 @@ export default function EventPage({
       const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
       if (!sharesRes.ok) throw new Error("Failed to load shares");
       const sharesData = await sharesRes.json();
-      const activeShare = sharesData.shares?.find(
+      let activeShare = sharesData.shares?.find(
         (s: { isActive: boolean }) => s.isActive
       );
 
+      // Auto-create share if none exists
       if (!activeShare) {
-        toast.error("Create a share link first before marking favorites.");
-        return;
+        const createRes = await fetch("/api/shares", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId,
+            shareType: "full",
+            allowDownload: true,
+            allowFavorites: true,
+          }),
+        });
+        if (!createRes.ok) throw new Error("Failed to create share");
+        const createData = await createRes.json();
+        activeShare = createData.share;
+        setHasActiveShare(true);
+        setActiveShareSlug(activeShare.slug);
       }
 
       const res = await fetch("/api/images/batch", {
@@ -336,12 +358,15 @@ export default function EventPage({
       });
       if (!res.ok) throw new Error("Favorite failed");
       selection.deselectAll();
-      toast.success(`Starred ${selection.count} images`);
+      const msg = !hasActiveShare
+        ? `Share link created. ${selection.count} images starred.`
+        : `Starred ${selection.count} images`;
+      toast.success(msg);
     } catch (err) {
       console.error("Batch favorite failed:", err);
       toast.error("Failed to star images");
     }
-  }, [eventId, selection]);
+  }, [eventId, selection, hasActiveShare]);
 
   const handleCreateSelectionLink = useCallback(() => {
     setShareModalImageIds([...selection.selectedArray]);
@@ -522,6 +547,13 @@ export default function EventPage({
             thumbnailUrl: img.thumbnailUrl,
             originalFilename: img.originalFilename,
           }))}
+          onRefreshImages={fetchEvent}
+          onEventUpdate={(updates) => {
+            setEvent((prev) =>
+              prev ? { ...prev, ...updates } : prev
+            );
+          }}
+          onOpenChange={setSidebarOpen}
         />
       )}
 
@@ -538,32 +570,43 @@ export default function EventPage({
         </button>
 
         {/* Preview — opens client gallery in new tab */}
-        {event?.slug && (
+        {activeShareSlug ? (
           <a
-            href={`/gallery/${event.slug}`}
+            href={`/gallery/${activeShareSlug}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300 flex items-center gap-1.5"
+            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
           >
             Preview
-            <ExternalLink size={12} />
           </a>
+        ) : (
+          <span
+            title="Create a share link to preview"
+            className="text-stone-300 text-[13px] cursor-default"
+          >
+            Preview
+          </span>
         )}
 
         {/* Publish / Share */}
-        <button
-          onClick={() => {
-            setShareModalImageIds(undefined);
-            setShowShareModal(true);
-          }}
-          className={
-            hasActiveShare
-              ? "editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-              : "px-4 py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors duration-300"
-          }
-        >
-          {hasActiveShare ? "Share" : "Publish"}
-        </button>
+        {hasActiveShare ? (
+          <Link href={`/events/${eventId}/share?slug=${activeShareSlug}`}>
+            <BrandButton size="sm">
+              Share
+            </BrandButton>
+          </Link>
+        ) : (
+          <BrandButton
+            color="emerald"
+            celebrate
+            onClick={() => {
+              setShareModalImageIds(undefined);
+              setShowShareModal(true);
+            }}
+          >
+            Publish
+          </BrandButton>
+        )}
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24">
@@ -742,6 +785,8 @@ export default function EventPage({
                   selectedIds={selection.selectedIds}
                   columnCount={gridSettings?.columns}
                   gap={gridSettings?.gap}
+                  style={gridSettings?.style}
+                  showFilenames={gridSettings?.showFilenames}
                 />
               ) : (
                 <FilmStrip
@@ -790,6 +835,7 @@ export default function EventPage({
           onRename={handleBatchRename}
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           activeSection={activeSection}
+          sidebarOffset={sidebarOpen ? 320 : 48}
         />
       )}
 

@@ -12,12 +12,37 @@ interface GalleryGridProps {
   onFavorite?: (imageId: string) => void;
   onImageClick: (imageId: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
+  gridStyle?: "masonry" | "uniform";
+  gridColumns?: number;
+  gridGap?: "tight" | "normal" | "loose";
 }
 
 /**
  * GalleryGrid — Public gallery masonry layout.
  * Clean, client-facing design with optional download/favorite overlays.
  */
+const GALLERY_GAP_MAP = {
+  tight: "gap-1",
+  normal: "gap-4",
+  loose: "gap-6",
+};
+
+const GALLERY_COLUMNS_MAP: Record<number, string> = {
+  2: "columns-1 sm:columns-2",
+  3: "columns-1 sm:columns-2 lg:columns-3",
+  4: "columns-1 sm:columns-2 lg:columns-3 xl:columns-4",
+  5: "columns-2 sm:columns-3 lg:columns-4 xl:columns-5",
+  6: "columns-2 sm:columns-3 lg:columns-4 xl:columns-6",
+};
+
+const UNIFORM_COLUMNS_MAP: Record<number, string> = {
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-2 sm:grid-cols-3",
+  4: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
+  5: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+  6: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+};
+
 export function GalleryGrid({
   images,
   allowDownload,
@@ -26,6 +51,9 @@ export function GalleryGrid({
   onFavorite,
   onImageClick,
   onDownloadClick,
+  gridStyle = "masonry",
+  gridColumns = 4,
+  gridGap = "normal",
 }: GalleryGridProps) {
   if (images.length === 0) {
     return (
@@ -35,8 +63,14 @@ export function GalleryGrid({
     );
   }
 
+  const gapClass = GALLERY_GAP_MAP[gridGap];
+  const isUniform = gridStyle === "uniform";
+  const colClass = isUniform
+    ? UNIFORM_COLUMNS_MAP[gridColumns] || UNIFORM_COLUMNS_MAP[4]
+    : GALLERY_COLUMNS_MAP[gridColumns] || GALLERY_COLUMNS_MAP[4];
+
   return (
-    <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4">
+    <div className={isUniform ? `grid ${colClass} ${gapClass}` : `${colClass} ${gapClass}`}>
       {images.map((image) => (
         <GalleryCard
           key={image.id}
@@ -47,6 +81,7 @@ export function GalleryGrid({
           onFavorite={onFavorite}
           onClick={() => onImageClick(image.id)}
           onDownloadClick={onDownloadClick}
+          uniform={isUniform}
         />
       ))}
     </div>
@@ -61,6 +96,7 @@ function GalleryCard({
   onFavorite,
   onClick,
   onDownloadClick,
+  uniform,
 }: {
   image: GalleryImage;
   allowDownload: boolean;
@@ -69,6 +105,7 @@ function GalleryCard({
   onFavorite?: (imageId: string) => void;
   onClick: () => void;
   onDownloadClick?: (image: GalleryImage) => void;
+  uniform?: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -94,7 +131,7 @@ function GalleryCard({
 
   return (
     <div
-      className="relative mb-4 break-inside-avoid group cursor-pointer overflow-hidden bg-stone-100"
+      className={`relative group cursor-pointer overflow-hidden bg-stone-100 ${uniform ? "" : "mb-4 break-inside-avoid"}`}
       onClick={onClick}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -102,9 +139,9 @@ function GalleryCard({
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename}
-        className={`w-full h-auto object-cover transition-all duration-500 group-hover:scale-[1.03] ${
-          isLoaded ? "opacity-100" : "opacity-0"
-        }`}
+        className={`w-full object-cover transition-all duration-500 group-hover:scale-[1.03] ${
+          uniform ? "aspect-square" : "h-auto"
+        } ${isLoaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
         onLoad={() => setIsLoaded(true)}
         onError={() => {
@@ -113,7 +150,7 @@ function GalleryCard({
           }
         }}
       />
-      {!isLoaded && <div className="aspect-[3/4]" />}
+      {!isLoaded && <div className={uniform ? "aspect-square" : "aspect-[3/4]"} />}
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

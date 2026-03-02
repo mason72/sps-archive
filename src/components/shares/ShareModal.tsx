@@ -38,6 +38,8 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
   const [isCreating, setIsCreating] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [hasCreatedShare, setHasCreatedShare] = useState(false);
+  const [quickShareUrl, setQuickShareUrl] = useState<string | null>(null);
+  const [showQuickOptions, setShowQuickOptions] = useState(false);
 
   // New share form state
   const [password, setPassword] = useState("");
@@ -69,9 +71,42 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
   useEffect(() => {
     if (isOpen) {
       setHasCreatedShare(false);
+      setQuickShareUrl(null);
+      setShowQuickOptions(false);
       fetchShares();
     }
   }, [isOpen, fetchShares]);
+
+  /** Quick share: one-click creation with defaults */
+  const handleQuickCreate = async () => {
+    setIsCreating(true);
+    try {
+      const body: Record<string, unknown> = {
+        eventId,
+        allowDownload: true,
+        allowFavorites: true,
+        imageIds: imageIds?.length ? imageIds : undefined,
+      };
+      if (password) body.password = password;
+      if (expiresAt) body.expiresAt = expiresAt;
+
+      const res = await fetch("/api/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to create share");
+      const data = await res.json();
+      const url = `${window.location.origin}/gallery/${data.share.slug}`;
+      setQuickShareUrl(url);
+      navigator.clipboard.writeText(url);
+      toast.success("Link created and copied!");
+    } catch {
+      toast.error("Failed to create share link");
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   // Close on Escape
   useEffect(() => {
@@ -155,6 +190,111 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
 
   const activeShares = shares.filter((s) => s.isActive);
   const revokedShares = shares.filter((s) => !s.isActive);
+
+  // Quick share mode — slim card for image selections
+  const isQuickMode = !!(imageIds && imageIds.length > 0);
+
+  if (isQuickMode) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="relative w-full max-w-sm mx-4 bg-white border border-stone-200 shadow-2xl p-6">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-700 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+
+          {quickShareUrl ? (
+            /* Success state — show URL */
+            <div className="text-center">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-emerald-50 flex items-center justify-center">
+                <Check className="h-5 w-5 text-emerald-600" />
+              </div>
+              <h3 className="font-editorial text-[20px] text-stone-900 mb-1">
+                Link <span className="italic font-normal">created</span>
+              </h3>
+              <p className="text-[12px] text-stone-400 mb-4">Copied to clipboard</p>
+              <div className="flex items-center gap-2 border border-stone-200 px-3 py-2.5 bg-stone-50">
+                <p className="text-[12px] text-stone-600 font-mono truncate flex-1">
+                  {quickShareUrl}
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(quickShareUrl);
+                    toast.success("Copied!");
+                  }}
+                  className="p-1 text-stone-400 hover:text-stone-700 shrink-0 transition-colors"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Create state */
+            <>
+              <h3 className="font-editorial text-[20px] text-stone-900 mb-1">
+                Share <span className="italic font-normal">{imageIds.length} images</span>
+              </h3>
+              <p className="text-[12px] text-stone-400 mb-5">
+                Create a shareable link with one click
+              </p>
+
+              <BrandButton
+                onClick={handleQuickCreate}
+                disabled={isCreating}
+                color="emerald"
+                celebrate
+                className="w-full"
+              >
+                <Link2 className="h-4 w-4" />
+                {isCreating ? "Creating..." : "Create Link"}
+              </BrandButton>
+
+              {/* Collapsed options */}
+              <button
+                onClick={() => setShowQuickOptions((v) => !v)}
+                className="mt-3 text-[12px] text-stone-400 hover:text-stone-600 transition-colors w-full text-center"
+              >
+                {showQuickOptions ? "Hide options" : "More options"}
+              </button>
+
+              {showQuickOptions && (
+                <div className="mt-3 pt-3 border-t border-stone-100 space-y-3">
+                  <div>
+                    <label className="text-[11px] text-stone-400 mb-1 block">Password</label>
+                    <input
+                      type="text"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Optional"
+                      className="w-full border-b border-stone-200 bg-transparent py-1.5 text-[13px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-stone-400 mb-1 block">Expires</label>
+                    <input
+                      type="date"
+                      value={expiresAt}
+                      onChange={(e) => setExpiresAt(e.target.value)}
+                      min={new Date().toISOString().split("T")[0]}
+                      className="w-full border-b border-stone-200 bg-transparent py-1.5 text-[13px] text-stone-900 focus:border-stone-900 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div

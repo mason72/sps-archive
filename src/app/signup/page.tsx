@@ -1,16 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
 export default function SignupPage() {
-  const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -42,8 +40,7 @@ export default function SignupPage() {
 
       // If session exists, email confirmation is disabled — go straight in
       if (authData.session) {
-        router.push("/");
-        router.refresh();
+        window.location.href = "/";
         return;
       }
 
@@ -143,9 +140,9 @@ export default function SignupPage() {
 
                 {/* Submit */}
                 <div className="reveal" style={{ animationDelay: "0.25s" }}>
-                  <Button type="submit" disabled={isLoading} className="w-full">
+                  <BrandButton type="submit" disabled={isLoading} color="emerald" className="w-full">
                     {isLoading ? "Creating account..." : "Create account"}
-                  </Button>
+                  </BrandButton>
                 </div>
               </form>
 

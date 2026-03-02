@@ -43,6 +43,7 @@ export interface EventSettings {
     columns: number;
     gap: GridGap;
     style: GridStyle;
+    showFilenames?: boolean;
   };
 }
 

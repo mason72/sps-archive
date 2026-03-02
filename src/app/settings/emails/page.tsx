@@ -1,21 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { Button } from "@/components/ui/button";
+import { BrandButton } from "@/components/ui/brand-button";
 import { EmailPreview } from "@/components/email/EmailPreview";
-import { cn } from "@/lib/utils";
+import { EmailEditor, type EmailEditorHandle } from "@/components/email/EmailEditor";
 import {
   ArrowLeft,
   Plus,
   Trash2,
   Save,
-  Eye,
-  Edit3,
   Mail,
   Variable,
   Star,
@@ -41,7 +39,7 @@ export default function EmailSettingsPage() {
   const [editBody, setEditBody] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const editorRef = useRef<EmailEditorHandle | null>(null);
 
   // Branding from account
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
@@ -90,7 +88,6 @@ export default function EmailSettingsPage() {
     setEditName(template.name);
     setEditSubject(template.subject);
     setEditBody(template.bodyHtml);
-    setShowPreview(false);
     setView("edit");
   }, []);
 
@@ -156,7 +153,11 @@ export default function EmailSettingsPage() {
 
   const insertVariable = useCallback(
     (key: string) => {
-      setEditBody((prev) => prev + key);
+      if (editorRef.current) {
+        editorRef.current.insertContent(key);
+      } else {
+        setEditBody((prev) => prev + key);
+      }
     },
     []
   );
@@ -274,42 +275,19 @@ export default function EmailSettingsPage() {
                 <ArrowLeft size={12} />
                 All Templates
               </button>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowPreview(!showPreview)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border transition-all duration-300",
-                    showPreview
-                      ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 text-stone-500 hover:border-stone-400"
-                  )}
-                >
-                  {showPreview ? <Edit3 size={12} /> : <Eye size={12} />}
-                  {showPreview ? "Edit" : "Preview"}
-                </button>
-                <Button
-                  onClick={saveTemplate}
-                  disabled={isSaving}
-                  size="sm"
-                >
-                  <Save size={12} />
-                  {isSaving ? "Saving…" : saved ? "Saved ✓" : "Save"}
-                </Button>
-              </div>
+              <BrandButton
+                onClick={saveTemplate}
+                disabled={isSaving}
+                size="sm"
+              >
+                <Save size={12} />
+                {isSaving ? "Saving…" : saved ? "Saved" : "Save"}
+              </BrandButton>
             </div>
 
-            {showPreview ? (
-              /* Preview */
-              <div className="max-w-lg mx-auto">
-                <EmailPreview
-                  subject={editSubject}
-                  bodyHtml={editBody}
-                  branding={branding}
-                  businessName={businessName}
-                />
-              </div>
-            ) : (
-              /* Edit form */
+            {/* Side-by-side: editor + live preview */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left: Editor */}
               <div className="space-y-8">
                 <div>
                   <label className="label-caps mb-2 block">Template Name</label>
@@ -334,18 +312,12 @@ export default function EmailSettingsPage() {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="label-caps">Email Body</label>
-                    <span className="text-[11px] text-stone-400">
-                      HTML supported
-                    </span>
-                  </div>
-                  <textarea
+                  <label className="label-caps mb-2 block">Email Body</label>
+                  <EmailEditor
                     value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="<p>Hi {client_name},</p><p>Your gallery is ready!</p>"
-                    rows={12}
-                    className="w-full text-[13px] text-stone-900 placeholder:text-stone-300 bg-stone-50 border border-stone-200 focus:border-stone-900 outline-none p-4 resize-y transition-colors font-mono leading-relaxed"
+                    onChange={setEditBody}
+                    editorRef={editorRef}
+                    placeholder="Start writing your email…"
                   />
                 </div>
 
@@ -369,7 +341,20 @@ export default function EmailSettingsPage() {
                   </div>
                 </div>
               </div>
-            )}
+
+              {/* Right: Live Preview */}
+              <div className="lg:sticky lg:top-20 lg:self-start">
+                <p className="label-caps mb-3">Preview</p>
+                <div className="border border-stone-100 bg-stone-50 p-1">
+                  <EmailPreview
+                    subject={editSubject}
+                    bodyHtml={editBody}
+                    branding={branding}
+                    businessName={businessName}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>
