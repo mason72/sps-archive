@@ -2,17 +2,47 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 /**
- * Middleware — Route protection + Supabase session management.
+ * Middleware — Subdomain routing + Route protection + Supabase session management.
  *
- * Public routes (no auth required):
+ * Domain routing:
+ *   pixeltrunk.com (marketing domain) → rewrites to /m/... routes
+ *   app.pixeltrunk.com (app domain)   → serves app routes directly
+ *   localhost:3002 (dev)              → serves app routes (visit /m for marketing in dev)
+ *
+ * Public app routes (no auth required):
  *   /, /login, /signup, /forgot-password, /reset-password,
- *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest
+ *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook
  *
- * Protected routes (redirect to /login if unauthenticated):
+ * Protected app routes (redirect to /login if unauthenticated):
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
- *   /api/images/*, /api/stacks/*, /api/shares/*
+ *   /api/images/*, /api/stacks/*, /api/shares/*, /api/account/*
  */
 export async function middleware(request: NextRequest) {
+  const hostname = request.headers.get("host") || "";
+  const { pathname } = request.nextUrl;
+
+  // ─── Marketing domain detection ───
+  // pixeltrunk.com or www.pixeltrunk.com → rewrite to /m/... (marketing routes)
+  const isMarketingDomain =
+    hostname === "pixeltrunk.com" ||
+    hostname === "www.pixeltrunk.com";
+
+  if (isMarketingDomain) {
+    // Marketing routes are all public — no auth needed
+    // Rewrite / → /m, /pricing → /m/pricing, etc.
+    const marketingPath = pathname === "/" ? "/m" : `/m${pathname}`;
+    const url = request.nextUrl.clone();
+    url.pathname = marketingPath;
+    return NextResponse.rewrite(url);
+  }
+
+  // ─── /m routes accessible directly in dev (localhost:3002/m/...) ───
+  if (pathname.startsWith("/m")) {
+    // Allow direct access to marketing routes (for dev + internal linking)
+    return NextResponse.next({ request });
+  }
+
+  // ─── App domain: Supabase auth + route protection ───
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -41,8 +71,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-
   // Define public routes
   const isPublic =
     pathname === "/" ||
@@ -55,6 +83,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/gallery") ||
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||
+    pathname.startsWith("/api/stripe/webhook") ||
     pathname.startsWith("/dev");
 
   // Redirect unauthenticated users to login

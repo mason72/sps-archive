@@ -30,14 +30,16 @@ export async function GET() {
     if (authError) return authError;
 
     // Try to fetch existing profile
-    let { data: profile, error } = await supabase
+    const profileResult = await supabase
       .from("user_profiles")
       .select("*")
       .eq("user_id", user!.id)
       .single() as { data: ProfileRow | null; error: unknown };
 
+    let profile = profileResult.data;
+
     // Auto-create if not found (handles users created before the trigger)
-    if (error || !profile) {
+    if (profileResult.error || !profile) {
       const { data: newProfile, error: insertError } = await supabase
         .from("user_profiles")
         .upsert({ user_id: user!.id })

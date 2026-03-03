@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient();
-    const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "";
+    const origin = process.env.NEXT_PUBLIC_APP_URL || request.headers.get("origin") || "";
 
     // Generate a recovery link (requires service role)
     const { data, error: linkError } = await supabase.auth.admin.generateLink({

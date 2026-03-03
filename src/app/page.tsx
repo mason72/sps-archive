@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { redirect } from "next/navigation";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
@@ -21,7 +21,13 @@ export default async function HomePage() {
     return <DashboardView />;
   }
 
-  // Unauthenticated users get the landing page
+  // In production, unauth users on app.pixeltrunk.com redirect to marketing site
+  const marketingUrl = process.env.NEXT_PUBLIC_MARKETING_URL;
+  if (marketingUrl) {
+    redirect(marketingUrl);
+  }
+
+  // In dev (no MARKETING_URL set), show the inline landing page
   return <LandingView />;
 }
 

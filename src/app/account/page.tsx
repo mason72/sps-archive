@@ -13,20 +13,23 @@ import { cn } from "@/lib/utils";
 import {
   User,
   Paintbrush,
+  CreditCard,
   Save,
   ArrowLeft,
   Upload,
   X,
+  ExternalLink,
 } from "lucide-react";
 import type { UserProfile, Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { SettingsPanelSkeleton } from "@/components/ui/Skeleton";
 
-type Tab = "profile" | "branding";
+type Tab = "profile" | "branding" | "billing";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "Profile", icon: <User size={16} /> },
   { id: "branding", label: "Branding", icon: <Paintbrush size={16} /> },
+  { id: "billing", label: "Billing", icon: <CreditCard size={16} /> },
 ];
 
 export default function AccountPage() {
@@ -48,6 +51,17 @@ export default function AccountPage() {
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+
+  // Billing state
+  const [subscription, setSubscription] = useState<{
+    plan: string;
+    status: string;
+    billing_interval: string | null;
+    current_period_end: string | null;
+    trial_end: string | null;
+    cancel_at_period_end: boolean;
+  } | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -403,7 +417,30 @@ export default function AccountPage() {
               </div>
             )}
 
-            {/* Save button */}
+            {/* ─── Billing Tab ─── */}
+            {activeTab === "billing" && (
+              <BillingSection
+                subscription={subscription}
+                loading={billingLoading}
+                onLoadSubscription={async () => {
+                  setBillingLoading(true);
+                  try {
+                    const res = await fetch("/api/account/subscription");
+                    if (res.ok) {
+                      const data = await res.json();
+                      setSubscription(data.subscription);
+                    }
+                  } catch {
+                    // Subscription may not exist yet
+                  } finally {
+                    setBillingLoading(false);
+                  }
+                }}
+              />
+            )}
+
+            {/* Save button — only show on profile/branding tabs */}
+            {activeTab !== "billing" && (
             <div className="mt-12 flex items-center gap-4">
               <BrandButton onClick={handleSave} disabled={isSaving}>
                 <Save size={14} />
@@ -413,6 +450,7 @@ export default function AccountPage() {
                 <span className="text-[13px] text-accent">Changes saved</span>
               )}
             </div>
+            )}
 
             {/* Quick links */}
             <div className="mt-16">
@@ -481,6 +519,159 @@ function FormField({
           className="w-full text-[14px] text-stone-900 placeholder:text-stone-300 bg-transparent border-b border-stone-200 focus:border-stone-900 outline-none py-2 transition-colors"
         />
       )}
+    </div>
+  );
+}
+
+/** Billing tab content */
+function BillingSection({
+  subscription,
+  loading,
+  onLoadSubscription,
+}: {
+  subscription: {
+    plan: string;
+    status: string;
+    billing_interval: string | null;
+    current_period_end: string | null;
+    trial_end: string | null;
+    cancel_at_period_end: boolean;
+    stripe_customer_id?: string | null;
+  } | null;
+  loading: boolean;
+  onLoadSubscription: () => void;
+}) {
+  const [portalLoading, setPortalLoading] = useState(false);
+  const marketingUrl = process.env.NEXT_PUBLIC_MARKETING_URL || "/m";
+
+  useEffect(() => {
+    onLoadSubscription();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleManageBilling = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error(data.error || "Could not open billing portal");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
+  const PLAN_LABELS: Record<string, string> = {
+    free: "Free",
+    solo: "Solo",
+    pro: "Pro",
+    studio: "Studio",
+    enterprise: "Enterprise",
+  };
+
+  const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+    trialing: { label: "Trial", color: "text-blue-600 bg-blue-50" },
+    active: { label: "Active", color: "text-emerald-600 bg-emerald-50" },
+    past_due: { label: "Past Due", color: "text-orange-600 bg-orange-50" },
+    canceled: { label: "Canceled", color: "text-red-600 bg-red-50" },
+    free: { label: "Free", color: "text-stone-500 bg-stone-100" },
+  };
+
+  if (loading) {
+    return <SettingsPanelSkeleton />;
+  }
+
+  const plan = subscription?.plan || "free";
+  const status = subscription?.status || "free";
+  const statusInfo = STATUS_LABELS[status] || STATUS_LABELS.free;
+
+  return (
+    <div className="space-y-8">
+      {/* Current Plan */}
+      <div className="border border-stone-200 p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="label-caps mb-1">Current Plan</p>
+            <p className="font-editorial text-[28px] text-stone-900">
+              {PLAN_LABELS[plan] || plan}
+            </p>
+          </div>
+          <span
+            className={`text-[11px] font-medium uppercase tracking-wider px-2.5 py-1 ${statusInfo.color}`}
+          >
+            {statusInfo.label}
+          </span>
+        </div>
+
+        {subscription?.billing_interval && (
+          <p className="text-[13px] text-stone-400 mb-1">
+            Billed {subscription.billing_interval}
+          </p>
+        )}
+
+        {status === "trialing" && subscription?.trial_end && (
+          <p className="text-[13px] text-stone-400">
+            Trial ends{" "}
+            {new Date(subscription.trial_end).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </p>
+        )}
+
+        {status === "active" && subscription?.current_period_end && (
+          <p className="text-[13px] text-stone-400">
+            {subscription.cancel_at_period_end
+              ? "Cancels on "
+              : "Next billing date: "}
+            {new Date(
+              subscription.current_period_end
+            ).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-3">
+        {(plan === "free" || status === "trialing") && (
+          <a href={`${marketingUrl}/pricing`}>
+            <BrandButton size="sm" color="emerald">
+              <ExternalLink size={13} />
+              Upgrade Plan
+            </BrandButton>
+          </a>
+        )}
+
+        {subscription?.stripe_customer_id && (
+          <Button
+            variant="secondary"
+            onClick={handleManageBilling}
+            disabled={portalLoading}
+          >
+            {portalLoading ? "Loading…" : "Manage Subscription"}
+          </Button>
+        )}
+      </div>
+
+      {/* Plan comparison link */}
+      <p className="text-[13px] text-stone-400">
+        <a
+          href={`${marketingUrl}/pricing`}
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          Compare all plans →
+        </a>
+      </p>
     </div>
   );
 }

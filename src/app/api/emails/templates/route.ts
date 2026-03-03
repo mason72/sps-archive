@@ -15,13 +15,14 @@ export async function GET() {
 
 
     // Fetch existing templates
-    let { data: templates, error } = await supabase
+    const templatesResult = await supabase
       .from("email_templates")
       .select("*")
       .eq("user_id", user!.id)
       .order("created_at", { ascending: true });
 
-    if (error) throw error;
+    let templates = templatesResult.data;
+    if (templatesResult.error) throw templatesResult.error;
 
     // Auto-seed starter templates if none exist
     if (!templates || templates.length === 0) {

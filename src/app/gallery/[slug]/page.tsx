@@ -527,13 +527,13 @@ export default function GalleryPage({
               setSelectedImageId(null);
             } else if (e.key === "ArrowLeft") {
               e.preventDefault();
-              const currentIndex = gallery.images.findIndex((img: any) => img.id === selectedImageId);
+              const currentIndex = gallery.images.findIndex((img: { id: string }) => img.id === selectedImageId);
               if (currentIndex > 0) {
                 setSelectedImageId(gallery.images[currentIndex - 1].id);
               }
             } else if (e.key === "ArrowRight") {
               e.preventDefault();
-              const currentIndex = gallery.images.findIndex((img: any) => img.id === selectedImageId);
+              const currentIndex = gallery.images.findIndex((img: { id: string }) => img.id === selectedImageId);
               if (currentIndex < gallery.images.length - 1) {
                 setSelectedImageId(gallery.images[currentIndex + 1].id);
               }

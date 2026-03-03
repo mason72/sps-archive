@@ -24,28 +24,38 @@ export default function SignupPage() {
     setError(null);
 
     try {
-      const supabase = createClient();
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: { full_name: name.trim() || undefined },
-        },
+      // Use server-side signup route (enforces allowlist)
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          fullName: name.trim() || undefined,
+        }),
       });
 
-      if (authError) {
-        setError(authError.message);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Something went wrong. Please try again.");
         return;
       }
 
-      // If session exists, email confirmation is disabled — go straight in
-      if (authData.session) {
-        window.location.href = "/";
+      // Account created — now sign in to get a session
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (signInError) {
+        // Account created but sign-in failed — send to login
+        setIsSuccess(true);
         return;
       }
 
-      // Otherwise show "check your email" state
-      setIsSuccess(true);
+      window.location.href = "/";
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
