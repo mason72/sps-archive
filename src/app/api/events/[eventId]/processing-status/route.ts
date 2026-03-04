@@ -57,9 +57,30 @@ export async function GET(
       { pending: 0, processing: 0, complete: 0, failed: 0 }
     );
 
+    // Check AI analysis status from event settings
+    const { data: eventSettings } = await supabase
+      .from("events")
+      .select("settings, event_type")
+      .eq("id", eventId)
+      .single();
+
+    const settings = (eventSettings?.settings ?? {}) as Record<string, unknown>;
+    const allDone = result.pending === 0 && result.processing === 0;
+
     return NextResponse.json({
       total: result.pending + result.processing + result.complete + result.failed,
       ...result,
+      analysis: {
+        complete: !!settings.ai_detected_type,
+        detectedType: settings.ai_detected_type || null,
+        confidence: settings.ai_confidence || null,
+        eventType: eventSettings?.event_type || null,
+      },
+      stage: !allDone
+        ? "processing"
+        : settings.ai_detected_type
+          ? "ready"
+          : "analyzing",
     });
   } catch (error) {
     console.error("Processing status error:", error);

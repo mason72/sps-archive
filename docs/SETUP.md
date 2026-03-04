@@ -131,36 +131,105 @@ Then open [localhost:3000](http://localhost:3000).
 
 ---
 
-## 5. AI Processing (Phase 2 — add when ready)
+## 5. AI Processing — Modal + Inngest
 
-This powers smart stacks, semantic search, aesthetic scoring, and face clustering.
+This powers smart stacks, semantic search, aesthetic scoring, face clustering, and **AI event type detection**.
 
-### Modal (serverless GPU)
-1. Sign up at [modal.com](https://modal.com)
-2. Create a token: `modal token new`
-3. Deploy the processing function (we need to build this — it's the Modal app that runs CLIP + ArcFace)
+### 5a. Modal (serverless GPU)
 
+Modal runs CLIP, ArcFace, and aesthetic scoring on a T4 GPU.
+
+1. **Install Modal CLI:**
+   ```bash
+   pip install modal
+   modal setup  # Opens browser to authenticate
+   ```
+2. **Create a Modal token:**
+   ```bash
+   modal token new
+   ```
+3. **Deploy the AI pipeline:**
+   ```bash
+   modal deploy modal/ai_pipeline.py
+   ```
+4. **Copy the endpoint URLs** from the deploy output:
+   ```
+   ├── process_image        => https://you--pixeltrunk-ai-process-image.modal.run
+   ├── embed_text           => https://you--pixeltrunk-ai-embed-text.modal.run
+   └── analyze_event_sample => https://you--pixeltrunk-ai-analyze-event-sample.modal.run
+   ```
+5. **Set env vars:**
+   ```bash
+   MODAL_API_URL=https://you--pixeltrunk-ai-process-image.modal.run
+   MODAL_ANALYZE_URL=https://you--pixeltrunk-ai-analyze-event-sample.modal.run
+   ```
+
+**Test it:**
 ```bash
-MODAL_API_URL=https://your-modal-app--process-image.modal.run
+curl -X POST https://your-modal-url--embed-text.modal.run \
+  -H "Content-Type: application/json" \
+  -d '{"text": "wedding ceremony"}'
+# Should return a 768-dim embedding array
 ```
 
-> **Without Modal:** Upload and gallery viewing work fine. Images just skip the AI analysis step — no aesthetic scores, scene tags, or semantic search. Filename search still works.
+> **Without Modal:** Upload and gallery viewing work fine. Images skip AI analysis — no aesthetic scores, scene tags, or semantic search. Filename search still works.
 
-### Inngest (background job orchestration)
-1. Sign up at [inngest.com](https://inngest.com)
-2. Create an app → get your keys
-3. For local dev, run the Inngest dev server:
+### 5b. Inngest (event orchestration)
 
-```bash
-npx inngest-cli@latest dev
+Inngest orchestrates the multi-step pipeline: upload → thumbnails → AI → stacks → event analysis.
+
+1. **Sign up** at [inngest.com](https://inngest.com) → Create an app
+2. **Get your keys** from app settings:
+   ```bash
+   INNGEST_EVENT_KEY=your-event-key
+   INNGEST_SIGNING_KEY=your-signing-key
+   ```
+3. **For local dev**, run the Inngest dev server:
+   ```bash
+   npx inngest-cli@latest dev
+   ```
+   This starts at `http://localhost:8288` and auto-discovers your functions.
+
+4. **For production**, sync your app:
+   - Inngest dashboard → Apps → Sync New App
+   - Enter: `https://your-app.vercel.app/api/inngest`
+
+5. **Verify 4 functions are registered:**
+   - `process-uploaded-image` — per-image AI processing
+   - `build-event-stacks` — face + burst stacks, auto sections
+   - `process-imported-event` — SPS import fan-out
+   - `analyze-event` — AI event type detection + template matching
+
+> **Without Inngest:** Uploads save to R2 and create DB records, but the background pipeline won't trigger. Images stay in "pending" status.
+
+### 5c. Run migrations 003-009
+
+If you only ran migrations 001-002 earlier, run the rest now:
+```
+supabase/migrations/003_thumbnail_column.sql
+supabase/migrations/004_user_profiles.sql
+supabase/migrations/005_email_templates.sql
+supabase/migrations/006_share_image_ids.sql
+supabase/migrations/007_download_pin.sql
+supabase/migrations/008_event_templates.sql
+supabase/migrations/009_waitlist.sql
 ```
 
-```bash
-INNGEST_EVENT_KEY=your-event-key
-INNGEST_SIGNING_KEY=your-signing-key
-```
+### 5d. End-to-End AI Test
 
-> **Without Inngest:** Uploads still save to R2 and create DB records. The background processing pipeline (thumbnails → AI analysis → stacking) just won't trigger. You'll see images in "processing" status.
+1. Start the app with all env vars set
+2. Create an event and upload 15-20 photos from a real shoot (with EXIF)
+3. Watch the Inngest dashboard:
+   - `process-uploaded-image` fires per image (~5s each after GPU warmup)
+   - When all complete → `build-event-stacks` fires
+   - Then → `analyze-event` fires
+4. Check the event page:
+   - Auto sections created from scene tags
+   - Smart stacks group similar/burst images
+   - Event type auto-detected (check via `GET /api/events/{id}/analyze`)
+5. Check processing status:
+   - `GET /api/events/{id}/processing-status`
+   - `stage` field: `processing` → `analyzing` → `ready`
 
 ---
 
@@ -180,8 +249,61 @@ INNGEST_SIGNING_KEY=your-signing-key
 | Aesthetic scores + smart stacks | **required** | **required** | **required** | **required** |
 | Face clustering | **required** | **required** | **required** | **required** |
 | Thumbnail generation | **required** | **required** | — | **required** |
+| AI event type detection | **required** | **required** | **required** | **required** |
+| Auto sections (scene-based) | **required** | **required** | **required** | **required** |
+| Event template matching | **required** | — | — | **required** |
+| Multi-event splitting | **required** | **required** | **required** | **required** |
+| Waitlist signups | **required** | — | — | — |
 
 **TL;DR — Supabase + R2 gets you a fully working app. Modal + Inngest add the AI magic.**
+
+---
+
+## AI Pipeline Flow
+
+```
+User uploads photos
+       │
+       ▼
+POST /api/upload → creates image records, returns presigned R2 URLs
+       │
+       ▼
+Client uploads directly to R2
+       │
+       ▼
+POST /api/upload/complete → saves EXIF, fires Inngest "image/uploaded"
+       │
+       ▼
+┌──────────────────────────────────────────────────┐
+│  Inngest: processUploadedImage (per image)       │
+│  1. Generate thumbnails (3 sizes via sharp)      │
+│  2. Call Modal AI (CLIP + ArcFace + aesthetic)   │
+│  3. Save results to Supabase                     │
+│  4. Check: all images done? → fire next event    │
+└──────────────────────────────────────────────────┘
+       │ when all images complete
+       ▼
+┌──────────────────────────────────────────────────┐
+│  Inngest: buildEventStacks                       │
+│  1. Build face stacks (group by person)          │
+│  2. Build burst stacks (sequential photos)       │
+│  3. Generate auto sections (scene-based)         │
+│  4. Trigger event analysis                       │
+└──────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────┐
+│  Inngest: analyzeEvent                           │
+│  1. Analyze scene tag distribution               │
+│  2. Detect event type (wedding/corp/headshot)    │
+│  3. Match to event template                      │
+│  4. Auto-apply type + template sections          │
+│  5. Notify analysis complete                     │
+└──────────────────────────────────────────────────┘
+       │
+       ▼
+Event is fully organized and ready to share
+```
 
 ---
 
@@ -201,3 +323,24 @@ INNGEST_SIGNING_KEY=your-signing-key
 
 **TypeScript errors about database types**
 → Run `npm run db:gen-types` after setting `SUPABASE_PROJECT_ID`. This regenerates types from your live schema.
+
+**Images stuck in "pending" status**
+→ Inngest is not receiving events. Check that `INNGEST_EVENT_KEY` is set. For local dev, run `npx inngest-cli@latest dev` and verify your functions appear at `http://localhost:8288`.
+
+**Modal timeout on first image**
+→ T4 GPU containers cold-start in ~60s. First image is slow, subsequent ones take ~5s. This is normal.
+
+**No stacks created after processing**
+→ Face stacks need 2+ images of the same person. Burst stacks need 3+ sequential images within 2 seconds. Upload more photos or check that Modal is returning face embeddings.
+
+**No auto sections created**
+→ Sections need 3+ images with the same scene tag. Check that Modal is returning `scene_tags` in processing results. Upload at least 15-20 photos for reliable section detection.
+
+**Event type shows "general"**
+→ Not enough scene diversity to detect a specific type. Wedding detection needs 2+ wedding-specific tags (ceremony, reception, first-dance, etc.). Upload at least 20 photos from a real event.
+
+**`analyze-event` not firing**
+→ Check that the Inngest dashboard shows 4 functions (not 3). If `analyze-event` is missing, redeploy — the function was recently added to the route handler.
+
+**Processing status shows "analyzing" indefinitely**
+→ The `analyze-event` Inngest function may have failed. Check the Inngest dashboard for error details. Common cause: no images with `processing_status = 'complete'`.
