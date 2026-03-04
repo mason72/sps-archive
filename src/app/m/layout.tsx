@@ -56,7 +56,7 @@ export default function MarketingLayout({
           </a>
           <a href={`${APP_URL}/signup`}>
             <BrandButton size="sm" color="emerald">
-              Get Started
+              Join Waitlist
             </BrandButton>
           </a>
         </div>
@@ -115,7 +115,7 @@ export default function MarketingLayout({
                     href={`${APP_URL}/signup`}
                     className="text-stone-400 hover:text-stone-900 transition-colors"
                   >
-                    Get Started
+                    Join Waitlist
                   </a>
                 </li>
               </ul>

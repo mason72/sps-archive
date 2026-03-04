@@ -250,6 +250,45 @@ class ImageProcessor:
             return 0.3
         return (v1 + v2) / (2.0 * h)
 
+    @modal.method()
+    def analyze_event_sample(self, image_urls: list[str], event_id: str) -> dict:
+        """
+        Analyze a sample of images to determine event type.
+        Runs CLIP scene classification on each image and aggregates results.
+        """
+        import httpx
+        from PIL import Image
+
+        scene_counts: dict[str, int] = {}
+        processed = 0
+        errors = 0
+
+        for url in image_urls[:20]:  # Cap at 20 images
+            try:
+                response = httpx.get(url, timeout=30)
+                response.raise_for_status()
+
+                pil_image = Image.open(io.BytesIO(response.content)).convert("RGB")
+                clip_result = self._generate_clip_embedding(pil_image)
+
+                for tag in clip_result["scene_tags"]:
+                    scene_counts[tag] = scene_counts.get(tag, 0) + 1
+
+                processed += 1
+            except Exception as e:
+                errors += 1
+                print(f"Error processing sample image: {e}")
+
+        # Sort by frequency
+        sorted_scenes = sorted(scene_counts.items(), key=lambda x: -x[1])
+
+        return {
+            "eventId": event_id,
+            "sceneDistribution": dict(sorted_scenes),
+            "sampleSize": processed,
+            "errors": errors,
+        }
+
     def _score_aesthetics(self, pil_image, cv_image) -> dict:
         """Score image quality: sharpness, exposure, overall aesthetic."""
         import cv2
@@ -326,3 +365,28 @@ def process_batch(items: list[dict]) -> list[dict]:
                 "error": str(e),
             })
     return results
+
+
+# ---------------------------------------------------------------------------
+# Event-level analysis (classify event type from a sample of images)
+# ---------------------------------------------------------------------------
+@app.function(image=ai_image, gpu="T4", timeout=120)
+@modal.web_endpoint(method="POST")
+def analyze_event_sample(item: dict) -> dict:
+    """
+    HTTP endpoint: analyze a sample of images to detect event type.
+
+    Input:
+      {
+        "image_urls": ["url1", "url2", ...],  // 5-20 sample images
+        "event_id": "..."
+      }
+
+    Returns aggregated scene classification across the sample,
+    enabling event type detection before full processing completes.
+    """
+    processor = ImageProcessor()
+    return processor.analyze_event_sample.remote(
+        image_urls=item["image_urls"],
+        event_id=item["event_id"],
+    )

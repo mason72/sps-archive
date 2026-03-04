@@ -2,36 +2,33 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import { BrandButton } from "@/components/ui/brand-button";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) return;
+    if (!email.trim()) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      // Use server-side signup route (enforces allowlist)
-      const res = await fetch("/api/auth/signup", {
+      const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim(),
-          password,
-          fullName: name.trim() || undefined,
+          name: name.trim() || undefined,
+          company: company.trim() || undefined,
         }),
       });
 
@@ -42,20 +39,7 @@ export default function SignupPage() {
         return;
       }
 
-      // Account created — now sign in to get a session
-      const supabase = createClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (signInError) {
-        // Account created but sign-in failed — send to login
-        setIsSuccess(true);
-        return;
-      }
-
-      window.location.href = "/";
+      setIsSuccess(true);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -80,25 +64,34 @@ export default function SignupPage() {
             /* Success state */
             <div className="reveal">
               <h1 className="font-editorial text-[clamp(36px,5vw,56px)] leading-[0.95] text-stone-900">
-                Check your{" "}
-                <span className="italic font-normal">email</span>
+                You&apos;re{" "}
+                <span className="italic font-normal">on the list</span>
               </h1>
-              <p className="caption-italic mt-3 mb-8">
-                We sent a confirmation link to {email}
+              <p className="caption-italic mt-3 mb-4">
+                Thanks for your interest in Pixeltrunk.
               </p>
-              <Link href="/login">
-                <Button variant="secondary">Back to sign in</Button>
+              <p className="text-stone-400 text-[14px] leading-[1.8] mb-8">
+                We&apos;ll reach out to <span className="text-stone-600">{email}</span> when
+                your spot opens up. In the meantime, keep shooting.
+              </p>
+              <Link href="/">
+                <BrandButton variant="secondary">Back to home</BrandButton>
               </Link>
             </div>
           ) : (
-            /* Signup form */
+            /* Waitlist form */
             <>
+              <div className="mb-3 reveal">
+                <span className="inline-block px-3 py-1 text-[11px] uppercase tracking-[0.15em] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200">
+                  Closed Beta
+                </span>
+              </div>
               <h1 className="font-editorial text-[clamp(36px,5vw,56px)] leading-[0.95] text-stone-900 reveal">
-                Get{" "}
-                <span className="italic font-normal">started</span>
+                Join the{" "}
+                <span className="italic font-normal">waitlist</span>
               </h1>
               <p className="caption-italic mt-3 mb-12">
-                Create your pixeltrunk account
+                Pixeltrunk is currently in closed beta. Sign up to reserve your spot.
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-8">
@@ -129,16 +122,16 @@ export default function SignupPage() {
                   />
                 </div>
 
-                {/* Password */}
+                {/* Company / Studio */}
                 <div className="reveal" style={{ animationDelay: "0.2s" }}>
-                  <label className="label-caps mb-3 block">Password</label>
+                  <label className="label-caps mb-3 block">
+                    Studio / Company <span className="normal-case tracking-normal text-stone-300">optional</span>
+                  </label>
                   <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    required
-                    minLength={6}
+                    type="text"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    placeholder="Your studio or business name"
                     className="w-full border-b border-stone-200 bg-transparent py-3 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
                   />
                 </div>
@@ -151,7 +144,7 @@ export default function SignupPage() {
                 {/* Submit */}
                 <div className="reveal" style={{ animationDelay: "0.25s" }}>
                   <BrandButton type="submit" disabled={isLoading} color="emerald" className="w-full">
-                    {isLoading ? "Creating account..." : "Create account"}
+                    {isLoading ? "Joining waitlist..." : "Join the waitlist"}
                   </BrandButton>
                 </div>
               </form>

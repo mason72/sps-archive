@@ -24,6 +24,14 @@ export default function MarketingLandingPage() {
       {/* ─── Hero ─── */}
       <section className="px-8 md:px-16 pt-20 pb-28">
         <div className="max-w-4xl">
+          <div
+            className="mb-6 reveal"
+            style={{ animationDelay: "0.05s" }}
+          >
+            <span className="inline-block px-3 py-1 text-[11px] uppercase tracking-[0.15em] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200">
+              Closed Beta
+            </span>
+          </div>
           <p
             className="label-caps mb-6 reveal"
             style={{ animationDelay: "0.1s" }}
@@ -55,7 +63,7 @@ export default function MarketingLandingPage() {
           >
             <a href={`${APP_URL}/signup`}>
               <BrandButton size="lg" color="emerald">
-                Start Free Trial
+                Join the Waitlist
               </BrandButton>
             </a>
             <Link
@@ -69,7 +77,7 @@ export default function MarketingLandingPage() {
             className="mt-4 text-[12px] text-stone-300 reveal"
             style={{ animationDelay: "0.35s" }}
           >
-            14-day Pro trial · No credit card required
+            Currently in closed beta · Join the waitlist for early access
           </p>
         </div>
       </section>
@@ -322,7 +330,7 @@ export default function MarketingLandingPage() {
           <div className="reveal" style={{ animationDelay: "0.1s" }}>
             <a href={`${APP_URL}/signup`}>
               <BrandButton size="lg" color="emerald" celebrate>
-                Start Your Free Trial
+                Join the Waitlist
               </BrandButton>
             </a>
           </div>
@@ -330,7 +338,7 @@ export default function MarketingLandingPage() {
             className="mt-4 text-[12px] text-stone-300 reveal"
             style={{ animationDelay: "0.15s" }}
           >
-            14-day Pro trial · No credit card required
+            Currently in closed beta · We&apos;ll notify you when your spot opens up
           </p>
         </div>
       </section>

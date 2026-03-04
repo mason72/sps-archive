@@ -93,12 +93,17 @@ function LandingView() {
           Sign in
         </Link>
         <Link href="/signup">
-          <BrandButton size="sm">Get started</BrandButton>
+          <BrandButton size="sm">Join Waitlist</BrandButton>
         </Link>
       </Nav>
 
       {/* ─── Hero ─── */}
       <div className="px-8 md:px-16 pt-20 pb-24">
+        <div className="mb-6 reveal" style={{ animationDelay: "0.05s" }}>
+          <span className="inline-block px-3 py-1 text-[11px] uppercase tracking-[0.15em] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200">
+            Closed Beta
+          </span>
+        </div>
         <p
           className="label-caps mb-6 reveal"
           style={{ animationDelay: "0.1s" }}
@@ -126,8 +131,11 @@ function LandingView() {
         </p>
         <div className="mt-12 reveal" style={{ animationDelay: "0.3s" }}>
           <Link href="/signup">
-            <BrandButton size="lg">Create your first event</BrandButton>
+            <BrandButton size="lg">Join the Waitlist</BrandButton>
           </Link>
+          <p className="mt-4 text-[12px] text-stone-300">
+            Currently in closed beta · We&apos;ll notify you when your spot opens up
+          </p>
         </div>
       </div>
 

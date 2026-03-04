@@ -3,6 +3,7 @@ import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import type { ProcessingJob, ImageProcessingResult } from "./types";
 
 const MODAL_API_URL = process.env.MODAL_API_URL || "https://your-modal-app--process-image.modal.run";
+const MODAL_ANALYZE_URL = process.env.MODAL_ANALYZE_URL || "https://your-modal-app--analyze-event-sample.modal.run";
 
 /**
  * Trigger AI processing for a single image.
@@ -60,6 +61,38 @@ export async function saveProcessingResults(result: ImageProcessingResult) {
     const { error: facesError } = await supabase.from("faces").insert(faceRows);
     if (facesError) throw facesError;
   }
+}
+
+/** Result from event sample analysis via Modal */
+export interface EventSampleAnalysis {
+  eventId: string;
+  sceneDistribution: Record<string, number>;
+  sampleSize: number;
+  errors: number;
+}
+
+/**
+ * Run quick event-level analysis on a sample of images via Modal.
+ * Used for early event type detection during upload (before full processing).
+ */
+export async function analyzeEventSample(
+  imageUrls: string[],
+  eventId: string
+): Promise<EventSampleAnalysis> {
+  const response = await fetch(MODAL_ANALYZE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image_urls: imageUrls,
+      event_id: eventId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Modal event analysis failed: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
 }
 
 /**

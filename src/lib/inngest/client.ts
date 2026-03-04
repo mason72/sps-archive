@@ -26,6 +26,21 @@ type Events = {
       eventId: string;
     };
   };
+  "event/analyze": {
+    data: {
+      eventId: string;
+      /** If true, auto-apply detected settings to the event */
+      autoApply: boolean;
+    };
+  };
+  "event/analysis.complete": {
+    data: {
+      eventId: string;
+      detectedEventType: string;
+      suggestedName: string;
+      shouldSplit: boolean;
+    };
+  };
 };
 
 export const inngest = new Inngest({

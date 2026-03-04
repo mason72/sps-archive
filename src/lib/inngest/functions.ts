@@ -4,6 +4,8 @@ import { createProcessingJob, processImage, saveProcessingResults } from "@/lib/
 import { buildFaceStacks, buildBurstStacks } from "@/lib/ai/stacks";
 import { generateAutoSections } from "@/lib/ai/sections";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
+import { analyzeExistingEvent } from "@/lib/ai/event-analysis";
+import { matchEventTemplate } from "@/lib/ai/event-templates";
 
 /**
  * Function 1: Process a single uploaded image.
@@ -104,6 +106,14 @@ export const buildEventStacks = inngest.createFunction(
       await generateAutoSections(eventId);
     });
 
+    // Trigger AI event analysis after stacks and sections are built
+    await step.run("trigger-event-analysis", async () => {
+      await inngest.send({
+        name: "event/analyze",
+        data: { eventId, autoApply: true },
+      });
+    });
+
     return { eventId, status: "stacks-and-sections-built" };
   }
 );
@@ -153,5 +163,100 @@ export const processImportedEvent = inngest.createFunction(
     }
 
     return { eventId, imageCount: pendingImages.length };
+  }
+);
+
+/**
+ * Function 4: Analyze an event's images to detect type, suggest config, and auto-organize.
+ *
+ * Triggered after all images are processed, or manually by the user.
+ * If autoApply is true, updates the event with detected settings.
+ */
+export const analyzeEvent = inngest.createFunction(
+  {
+    id: "analyze-event",
+    retries: 2,
+  },
+  { event: "event/analyze" },
+  async ({ event, step }) => {
+    const { eventId, autoApply } = event.data;
+
+    // Step 1: Run AI analysis on the event's processed images
+    const analysis = await step.run("analyze-event-images", async () => {
+      return analyzeExistingEvent(eventId);
+    });
+
+    // Step 2: Match to an event template if one exists
+    const template = await step.run("match-template", async () => {
+      return matchEventTemplate(
+        analysis.detectedEventType,
+        event.data.eventId
+      );
+    });
+
+    // Step 3: Auto-apply detected settings if requested
+    if (autoApply) {
+      await step.run("apply-event-settings", async () => {
+        const supabase = createServiceClient();
+
+        const updates: Record<string, unknown> = {
+          event_type: analysis.detectedEventType,
+        };
+
+        // Apply template sections if found
+        if (template) {
+          updates.settings = {
+            ai_detected_type: analysis.detectedEventType,
+            ai_confidence: analysis.typeConfidence,
+            template_id: template.id,
+          };
+        } else {
+          updates.settings = {
+            ai_detected_type: analysis.detectedEventType,
+            ai_confidence: analysis.typeConfidence,
+          };
+        }
+
+        await supabase.from("events").update(updates).eq("id", eventId);
+
+        // Create template sections if a template was matched
+        if (template?.sections) {
+          const sectionInserts = template.sections.map(
+            (s: { name: string; sortOrder: number }, idx: number) => ({
+              event_id: eventId,
+              name: s.name,
+              sort_order: s.sortOrder ?? idx,
+              is_auto: false,
+            })
+          );
+          await supabase.from("sections").insert(sectionInserts);
+        }
+      });
+    }
+
+    // Step 4: Notify that analysis is complete
+    await step.run("notify-analysis-complete", async () => {
+      await inngest.send({
+        name: "event/analysis.complete",
+        data: {
+          eventId,
+          detectedEventType: analysis.detectedEventType,
+          suggestedName: analysis.suggestedName,
+          shouldSplit: analysis.shouldSplit,
+        },
+      });
+    });
+
+    return {
+      eventId,
+      analysis: {
+        detectedEventType: analysis.detectedEventType,
+        typeConfidence: analysis.typeConfidence,
+        suggestedName: analysis.suggestedName,
+        shouldSplit: analysis.shouldSplit,
+        timeGaps: analysis.timeGaps.length,
+        suggestedEventCount: analysis.suggestedEvents.length,
+      },
+    };
   }
 );
