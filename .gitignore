@@ -43,3 +43,10 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .modal/
+
+# claude code
+.claude/
+Claude*.MD
+
+# supabase local temp
+supabase/.temp/

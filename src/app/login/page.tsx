@@ -10,7 +10,7 @@ import { Footer } from "@/components/layout/Footer";
 
 export default function LoginPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<div className="min-h-screen" />}>
       <LoginForm />
     </Suspense>
   );

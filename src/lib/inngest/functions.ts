@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { createProcessingJob, processImage, saveProcessingResults } from "@/lib/ai/process";
 import { buildFaceStacks, buildBurstStacks } from "@/lib/ai/stacks";
 import { generateAutoSections } from "@/lib/ai/sections";
+import { clusterFaces } from "@/lib/ai/clustering";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 
 /**
@@ -14,7 +15,7 @@ export const processUploadedImage = inngest.createFunction(
   {
     id: "process-uploaded-image",
     retries: 3,
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     onFailure: async ({ event }) => {
       // Mark image as failed so it doesn't block event completion
       const supabase = createServiceClient();
@@ -44,6 +45,13 @@ export const processUploadedImage = inngest.createFunction(
     // Step 2: Generate thumbnails (3 sizes via sharp)
     await step.run("generate-thumbnails", async () => {
       await generateThumbnails(r2Key, eventId, imageRecord.original_filename);
+
+      // Mark thumbnail as generated
+      const supabase = createServiceClient();
+      await supabase
+        .from("images")
+        .update({ thumbnail_generated: true })
+        .eq("id", imageId);
     });
 
     // Step 3: Run AI processing via Modal (CLIP + ArcFace + aesthetic)
@@ -91,6 +99,11 @@ export const buildEventStacks = inngest.createFunction(
   { event: "event/processing.complete" },
   async ({ event, step }) => {
     const { eventId } = event.data;
+
+    // Cluster face embeddings into persons (populates faces.person_id)
+    await step.run("cluster-faces", async () => {
+      await clusterFaces(eventId);
+    });
 
     await step.run("build-face-stacks", async () => {
       await buildFaceStacks(eventId);

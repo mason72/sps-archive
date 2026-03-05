@@ -55,10 +55,21 @@ export async function saveProcessingResults(result: ImageProcessingResult) {
       bbox_w: face.bbox.w,
       bbox_h: face.bbox.h,
       embedding: JSON.stringify(face.embedding),
+      is_eyes_open: face.isEyesOpen,
+      quality: face.quality,
     }));
 
     const { error: facesError } = await supabase.from("faces").insert(faceRows);
     if (facesError) throw facesError;
+
+    // Set image-level is_eyes_open from the largest (primary) face
+    const primaryFace = result.faces.faces.reduce((best, face) =>
+      face.bbox.w * face.bbox.h > best.bbox.w * best.bbox.h ? face : best
+    );
+    await supabase
+      .from("images")
+      .update({ is_eyes_open: primaryFace.isEyesOpen })
+      .eq("id", result.imageId);
   }
 }
 

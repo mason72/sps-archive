@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { hashPassword } from "@/lib/shares/hash";
+import { logActivity } from "@/lib/analytics/log";
 
 /**
  * POST /api/shares — Create a new share link for an event.
@@ -88,6 +89,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    // Log share creation (fire and forget)
+    logActivity({
+      userId: user!.id,
+      action: "share_created",
+      eventId,
+      shareId: data.id,
+    });
 
     return NextResponse.json(
       {

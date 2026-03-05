@@ -11,7 +11,7 @@ import { createServerClient } from "@supabase/ssr";
  *
  * Public app routes (no auth required):
  *   /, /login, /signup, /forgot-password, /reset-password,
- *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook
+ *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/sps/*
  *
  * Protected app routes (redirect to /login if unauthenticated):
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
@@ -28,6 +28,10 @@ export async function middleware(request: NextRequest) {
     hostname === "www.pixeltrunk.com";
 
   if (isMarketingDomain) {
+    // Let API routes pass through on marketing domain (Inngest, Stripe webhooks, etc.)
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.next({ request });
+    }
     // Marketing routes are all public — no auth needed
     // Rewrite / → /m, /pricing → /m/pricing, etc.
     const marketingPath = pathname === "/" ? "/m" : `/m${pathname}`;
@@ -84,6 +88,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||
     pathname.startsWith("/api/stripe/webhook") ||
+    pathname.startsWith("/api/sps") ||
     pathname.startsWith("/dev");
 
   // Redirect unauthenticated users to login

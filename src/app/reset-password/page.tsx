@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -9,6 +9,27 @@ import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex flex-col">
+        <Nav />
+        <main className="flex-1 flex items-start justify-center pt-24 px-8 md:px-16">
+          <div className="w-full max-w-md">
+            <h1 className="font-editorial text-[clamp(36px,5vw,56px)] leading-[0.95] text-stone-900">
+              New <span className="italic font-normal">password</span>
+            </h1>
+            <p className="caption-italic mt-3 mb-12">Loading…</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    }>
+      <ResetPasswordInner />
+    </Suspense>
+  );
+}
+
+function ResetPasswordInner() {
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

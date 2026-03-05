@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { logActivity } from "@/lib/analytics/log";
 
 /**
  * POST /api/gallery/[slug]/favorites — Add a favorite.
@@ -33,7 +34,7 @@ export async function POST(
     // Verify share is active and allows favorites
     const { data: share, error: shareError } = await supabase
       .from("shares")
-      .select("id, allow_favorites")
+      .select("id, allow_favorites, event_id")
       .eq("id", shareId)
       .eq("slug", slug)
       .eq("is_active", true)
@@ -62,6 +63,28 @@ export async function POST(
       .single();
 
     if (error) throw error;
+
+    // Log favorite (fire and forget — look up photographer)
+    (async () => {
+      try {
+        const { data: evt } = await supabase
+          .from("events")
+          .select("user_id")
+          .eq("id", share.event_id)
+          .single();
+        if (evt?.user_id) {
+          logActivity({
+            userId: evt.user_id,
+            action: "image_favorite",
+            eventId: share.event_id,
+            shareId: shareId,
+            imageId: imageId,
+          });
+        }
+      } catch {
+        /* fire and forget */
+      }
+    })();
 
     return NextResponse.json({ favorite: data }, { status: 201 });
   } catch (error) {
@@ -153,6 +176,29 @@ export async function DELETE(
       .eq("image_id", imageId);
 
     if (error) throw error;
+
+    // Log unfavorite (fire and forget — single join instead of 2 queries)
+    (async () => {
+      try {
+        const { data: s } = await supabase
+          .from("shares")
+          .select("event_id, events!inner(user_id)")
+          .eq("id", shareId)
+          .single();
+        const evt = s?.events as unknown as { user_id: string } | null;
+        if (evt?.user_id) {
+          logActivity({
+            userId: evt.user_id,
+            action: "image_unfavorite",
+            eventId: s!.event_id,
+            shareId: shareId,
+            imageId: imageId,
+          });
+        }
+      } catch {
+        /* fire and forget */
+      }
+    })();
 
     return NextResponse.json({ success: true });
   } catch (error) {

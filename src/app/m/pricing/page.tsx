@@ -237,7 +237,7 @@ export default function PricingPage() {
               >
                 {plan.badge && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="text-[10px] uppercase tracking-[0.15em] font-medium bg-emerald-500 text-white px-3 py-1">
+                    <span className="text-[10px] uppercase tracking-[0.15em] font-medium bg-emerald-500 text-white px-3 py-1 whitespace-nowrap">
                       {plan.badge}
                     </span>
                   </div>
@@ -381,14 +381,14 @@ export default function PricingPage() {
                 ) : isEnterprise ? (
                   <a
                     href="mailto:hello@pixeltrunk.com"
-                    className="inline-flex items-center justify-center h-8 px-4 text-[12px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300"
+                    className="inline-flex items-center justify-center h-8 px-4 text-[11px] uppercase tracking-[0.12em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300 whitespace-nowrap"
                   >
                     Contact Us
                   </a>
                 ) : (
                   <a
                     href={`${APP_URL}/signup`}
-                    className="inline-flex items-center justify-center h-8 px-4 text-[12px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300"
+                    className="inline-flex items-center justify-center h-8 px-4 text-[11px] uppercase tracking-[0.12em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300 whitespace-nowrap"
                   >
                     {plan.cta}
                   </a>

@@ -14,8 +14,14 @@ import type { SPSEventImport, ArchiveEnhancements } from "./types";
  *   2. Archive creates event + image records (no file copy!)
  *   3. Archive triggers AI processing pipeline
  *   4. Once processed, Archive sends enhancements back to SPS
+ *
+ * @param data - Event and image metadata from SPS
+ * @param userId - Authenticated user ID (validated by the API route)
  */
-export async function importFromSPS(data: SPSEventImport): Promise<{ eventId: string }> {
+export async function importFromSPS(
+  data: SPSEventImport,
+  userId: string
+): Promise<{ eventId: string }> {
   const supabase = createServiceClient();
 
   // Create the event
@@ -27,11 +33,10 @@ export async function importFromSPS(data: SPSEventImport): Promise<{ eventId: st
     "-" +
     Date.now().toString(36);
 
-  const { data: { user } } = await supabase.auth.getUser();
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({
-      user_id: user!.id,
+      user_id: userId,
       name: data.name,
       slug,
       description: data.description || null,

@@ -79,6 +79,9 @@ export default function EventPage({
 
   // Selection state
   const selection = useSelection();
+  // Destructure stable references for use in dependency arrays
+  // (the `selection` object itself is recreated every render)
+  const { selectedArray, selectedIds, count: selectionCount, hasSelection, deselectAll } = selection;
 
   // Marquee / rubber-band selection
   const gridAreaRef = useRef<HTMLDivElement>(null);
@@ -154,13 +157,13 @@ export default function EventPage({
   // Escape key clears selection
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && selection.hasSelection) {
-        selection.deselectAll();
+      if (e.key === "Escape" && hasSelection) {
+        deselectAll();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selection.hasSelection, selection.deselectAll]);
+  }, [hasSelection, deselectAll]);
 
   // ─── Section filtering ───
   // When a section is activated, fetch its image IDs and filter the grid
@@ -302,21 +305,21 @@ export default function EventPage({
   // ─── Selection actions ───
   const handleBatchDelete = useCallback(async () => {
     try {
-      const count = selection.count;
+      const cnt = selectionCount;
       const res = await fetch("/api/images/batch", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: selection.selectedArray }),
+        body: JSON.stringify({ imageIds: selectedArray }),
       });
       if (!res.ok) throw new Error("Delete failed");
-      selection.deselectAll();
+      deselectAll();
       fetchEvent();
-      toast.success(`Deleted ${count} images`);
+      toast.success(`Deleted ${cnt} images`);
     } catch (err) {
       console.error("Batch delete failed:", err);
       toast.error("Failed to delete images");
     }
-  }, [selection, fetchEvent]);
+  }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
 
   const handleBatchFavorite = useCallback(async () => {
     try {
@@ -351,31 +354,31 @@ export default function EventPage({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageIds: selection.selectedArray,
+          imageIds: selectedArray,
           action: "favorite",
           shareId: activeShare.id,
         }),
       });
       if (!res.ok) throw new Error("Favorite failed");
-      selection.deselectAll();
+      deselectAll();
       const msg = !hasActiveShare
-        ? `Share link created. ${selection.count} images starred.`
-        : `Starred ${selection.count} images`;
+        ? `Share link created. ${selectionCount} images starred.`
+        : `Starred ${selectionCount} images`;
       toast.success(msg);
     } catch (err) {
       console.error("Batch favorite failed:", err);
       toast.error("Failed to star images");
     }
-  }, [eventId, selection, hasActiveShare]);
+  }, [eventId, selectedArray, selectionCount, deselectAll, hasActiveShare]);
 
   const handleCreateSelectionLink = useCallback(() => {
-    setShareModalImageIds([...selection.selectedArray]);
+    setShareModalImageIds([...selectedArray]);
     setShowShareModal(true);
-  }, [selection.selectedArray]);
+  }, [selectedArray]);
 
   const handleBatchDownload = useCallback(() => {
     const selectedImages = images.filter((img) =>
-      selection.selectedIds.has(img.id)
+      selectedIds.has(img.id)
     );
     selectedImages.forEach((img) => {
       const url = img.originalUrl || img.thumbnailUrl;
@@ -389,7 +392,7 @@ export default function EventPage({
         document.body.removeChild(a);
       }
     });
-  }, [images, selection.selectedIds]);
+  }, [images, selectedIds]);
 
   const handleAddToSection = useCallback(
     async (sectionId: string) => {
@@ -397,10 +400,9 @@ export default function EventPage({
         const res = await fetch(`/api/sections/${sectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: selection.selectedArray }),
+          body: JSON.stringify({ imageIds: selectedArray }),
         });
         if (!res.ok) throw new Error("Failed to add images to section");
-        // Refresh to update section counts
         fetchEvent();
         toast.success("Added to section");
       } catch (err) {
@@ -408,26 +410,24 @@ export default function EventPage({
         toast.error("Failed to add to section");
       }
     },
-    [selection, fetchEvent]
+    [selectedArray, fetchEvent]
   );
 
   const handleMoveToSection = useCallback(
     async (targetSectionId: string) => {
       if (!activeSection) return;
       try {
-        // Remove from current section
         await fetch(`/api/sections/${activeSection}/images`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: selection.selectedArray }),
+          body: JSON.stringify({ imageIds: selectedArray }),
         });
-        // Add to target section
         await fetch(`/api/sections/${targetSectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: selection.selectedArray }),
+          body: JSON.stringify({ imageIds: selectedArray }),
         });
-        selection.deselectAll();
+        deselectAll();
         fetchEvent();
         toast.success("Moved to section");
       } catch (err) {
@@ -435,7 +435,7 @@ export default function EventPage({
         toast.error("Failed to move images");
       }
     },
-    [activeSection, selection, fetchEvent]
+    [activeSection, selectedArray, deselectAll, fetchEvent]
   );
 
   const handleRemoveFromSection = useCallback(async () => {
@@ -444,16 +444,16 @@ export default function EventPage({
       await fetch(`/api/sections/${activeSection}/images`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: selection.selectedArray }),
+        body: JSON.stringify({ imageIds: selectedArray }),
       });
-      selection.deselectAll();
+      deselectAll();
       fetchEvent();
       toast.success("Removed from section");
     } catch (err) {
       console.error("Remove from section failed:", err);
       toast.error("Failed to remove images");
     }
-  }, [activeSection, selection, fetchEvent]);
+  }, [activeSection, selectedArray, deselectAll, fetchEvent]);
 
   const handleBatchRename = useCallback(
     async (pattern: string) => {
@@ -462,21 +462,21 @@ export default function EventPage({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            imageIds: selection.selectedArray,
+            imageIds: selectedArray,
             action: "rename",
             pattern,
           }),
         });
         if (!res.ok) throw new Error("Rename failed");
-        selection.deselectAll();
+        deselectAll();
         fetchEvent();
-        toast.success(`Renamed ${selection.count} images`);
+        toast.success(`Renamed ${selectionCount} images`);
       } catch (err) {
         console.error("Batch rename failed:", err);
         toast.error("Failed to rename images");
       }
     },
-    [selection, fetchEvent]
+    [selectedArray, selectionCount, deselectAll, fetchEvent]
   );
 
   const handleSectionsChange = useCallback((updated: SectionData[]) => {
@@ -726,7 +726,29 @@ export default function EventPage({
               </div>
             )}
 
-            {/* ─── Search ─── */}
+            {/* ─── Empty state ─── */}
+            {allImages.length === 0 && !processing.isProcessing && (
+              <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
+                <div className="w-16 h-16 mb-6 text-stone-200">
+                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="8" y="12" width="48" height="36" rx="3" stroke="currentColor" strokeWidth="2" />
+                    <circle cx="24" cy="28" r="5" stroke="currentColor" strokeWidth="2" />
+                    <path d="M8 40 L24 30 L36 38 L48 26 L56 32 L56 48 L8 48 Z" fill="currentColor" opacity="0.15" />
+                    <path d="M24 30 L36 38 L48 26" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <p className="font-editorial text-xl text-stone-300 italic mb-2">
+                  Your gallery awaits
+                </p>
+                <p className="text-[13px] text-stone-400 max-w-xs leading-relaxed">
+                  Drop images above or click upload to begin. AI will organize everything automatically.
+                </p>
+              </div>
+            )}
+
+            {/* ─── Search + Gallery (only show when images exist) ─── */}
+            {allImages.length > 0 && (
+            <>
             <div
               className="mb-10 max-w-2xl reveal"
               style={{ animationDelay: "0.15s" }}
@@ -813,6 +835,8 @@ export default function EventPage({
                 />
               )}
             </div>
+            </>
+            )}
           </>
         )}
       </main>

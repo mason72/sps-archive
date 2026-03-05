@@ -62,6 +62,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    // ─── Send notification email to admin ───
+    const resendKey = process.env.RESEND_API_KEY;
+    const notifyEmail = process.env.RESEND_FROM_EMAIL || "info@simplephotoshare.com";
+    if (resendKey) {
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `Pixeltrunk <${notifyEmail}>`,
+          to: [notifyEmail],
+          subject: `New signup: ${trimmedEmail}`,
+          html: `<p>A new user just signed up for Pixeltrunk.</p>
+<p><strong>Email:</strong> ${trimmedEmail}</p>
+<p><strong>Name:</strong> ${fullName?.trim() || "(not provided)"}</p>
+<p><strong>Time:</strong> ${new Date().toISOString()}</p>`,
+        }),
+      }).catch((e) => console.error("Signup notification email failed:", e));
+    }
+
     return NextResponse.json({ user: data.user });
   } catch (err) {
     console.error("Signup error:", err);

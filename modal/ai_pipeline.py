@@ -13,7 +13,6 @@ Test:   modal run modal/ai_pipeline.py
 
 import modal
 import io
-import numpy as np
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -33,6 +32,7 @@ ai_image = (
         "pillow==11.0.0",
         "numpy==1.26.4",
         "httpx==0.28.0",
+        "fastapi[standard]",
     )
     .run_commands("pip install open_clip_torch==2.29.0")
 )
@@ -44,9 +44,9 @@ ai_image = (
     image=ai_image,
     gpu="T4",  # Cheapest GPU, sufficient for inference
     timeout=300,
-    container_idle_timeout=60,  # Keep warm for 60s between calls
-    allow_concurrent_inputs=4,  # Process multiple images per container
+    scaledown_window=60,  # Keep warm for 60s between calls
 )
+@modal.concurrent(max_inputs=4)
 class ImageProcessor:
     @modal.enter()
     def load_models(self):
@@ -102,6 +102,8 @@ class ImageProcessor:
         response = httpx.get(image_url, timeout=60)
         response.raise_for_status()
         image_bytes = response.content
+
+        import numpy as np
 
         pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -237,6 +239,8 @@ class ImageProcessor:
     @staticmethod
     def _eye_aspect_ratio(eye_points) -> float:
         """Calculate eye aspect ratio (EAR)."""
+        import numpy as np
+
         if len(eye_points) < 6:
             return 0.3  # Default to "open"
 
@@ -285,7 +289,7 @@ class ImageProcessor:
 # Web endpoints (called from Next.js via HTTP)
 # ---------------------------------------------------------------------------
 @app.function(image=ai_image, gpu="T4", timeout=300)
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def process_image(item: dict) -> dict:
     """HTTP endpoint: process a single image."""
     processor = ImageProcessor()
@@ -297,7 +301,7 @@ def process_image(item: dict) -> dict:
 
 
 @app.function(image=ai_image, gpu="T4", timeout=60)
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def embed_text(item: dict) -> dict:
     """HTTP endpoint: generate text embedding for search."""
     processor = ImageProcessor()

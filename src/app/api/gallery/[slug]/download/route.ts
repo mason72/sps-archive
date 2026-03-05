@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import archiver from "archiver";
+import { logActivity } from "@/lib/analytics/log";
 
 export async function GET(
   request: NextRequest,
@@ -82,7 +83,7 @@ export async function GET(
   // 3. Fetch event name for ZIP filename
   const { data: event } = await supabase
     .from("events")
-    .select("name")
+    .select("name, user_id")
     .eq("id", share.event_id)
     .single();
 
@@ -132,6 +133,17 @@ export async function GET(
       archive.abort();
     }
   })();
+
+  // Log gallery download (fire and forget)
+  if (event?.user_id) {
+    logActivity({
+      userId: event.user_id,
+      action: "gallery_download",
+      eventId: share.event_id,
+      shareId: share.id,
+      metadata: { imageCount: images.length },
+    });
+  }
 
   return new Response(readable, {
     headers: {

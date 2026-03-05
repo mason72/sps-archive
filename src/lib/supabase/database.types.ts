@@ -164,6 +164,8 @@ export type Database = {
           embedding: string | null;
           person_id: string | null;
           confidence: number | null;
+          is_eyes_open: boolean;
+          quality: number;
           created_at: string;
         };
         Insert: {
@@ -176,6 +178,8 @@ export type Database = {
           embedding?: string | null;
           person_id?: string | null;
           confidence?: number | null;
+          is_eyes_open?: boolean;
+          quality?: number;
           created_at?: string;
         };
         Update: {
@@ -188,6 +192,8 @@ export type Database = {
           embedding?: string | null;
           person_id?: string | null;
           confidence?: number | null;
+          is_eyes_open?: boolean;
+          quality?: number;
           created_at?: string;
         };
         Relationships: [];
@@ -552,9 +558,61 @@ export type Database = {
         };
         Relationships: [];
       };
+      activity_log: {
+        Row: {
+          id: string;
+          user_id: string;
+          event_id: string | null;
+          share_id: string | null;
+          image_id: string | null;
+          action: string;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          event_id?: string | null;
+          share_id?: string | null;
+          image_id?: string | null;
+          action: string;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          event_id?: string | null;
+          share_id?: string | null;
+          image_id?: string | null;
+          action?: string;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
+      get_activity_totals: {
+        Args: { p_user_id: string };
+        Returns: Json;
+      };
+      get_daily_activity: {
+        Args: {
+          p_user_id: string;
+          p_days?: number;
+        };
+        Returns: {
+          day: string;
+          action: string;
+          total: number;
+        }[];
+      };
+      increment_share_views: {
+        Args: { p_share_id: string };
+        Returns: undefined;
+      };
       search_images_by_embedding: {
         Args: {
           query_embedding: string;
