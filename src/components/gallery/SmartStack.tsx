@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Layers, ChevronDown, Star, Check } from "lucide-react";
+import { Layers, ChevronDown, Star, Check, ArrowLeftRight, Info, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StackImage {
@@ -23,6 +23,7 @@ interface SmartStackProps {
   onToggleSelect?: (imageId: string) => void;
   onImageDoubleClick?: (imageId: string) => void;
   onSetCover?: (stackId: string, imageId: string) => void;
+  onCompare?: (stackId: string) => void;
   // Selection props
   hasSelection?: boolean;
   selectedIds?: Set<string>;
@@ -43,6 +44,7 @@ export function SmartStack({
   onToggleSelect,
   onImageDoubleClick,
   onSetCover,
+  onCompare,
   hasSelection,
   selectedIds,
   showFilename,
@@ -80,34 +82,95 @@ export function SmartStack({
       {/* ─── Expanded view ─── */}
       {isExpanded && (
         <div className="space-y-3">
-          <button
-            onClick={() => setIsExpanded(false)}
-            className="flex items-center gap-1.5 text-[12px] uppercase tracking-[0.12em] font-medium text-stone-500 hover:text-stone-900 transition-colors duration-300"
-          >
-            <ChevronDown className="h-3.5 w-3.5 rotate-180" />
-            {personName || `${imageCount} shots`}
-            <span className="normal-case tracking-normal italic text-stone-300 font-normal">
-              — pick best
-            </span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsExpanded(false)}
+              className="flex items-center gap-1.5 text-[12px] uppercase tracking-[0.12em] font-medium text-stone-500 hover:text-stone-900 transition-colors duration-300"
+            >
+              <ChevronDown className="h-3.5 w-3.5 rotate-180" />
+              {personName || `${imageCount} shots`}
+              <span className="normal-case tracking-normal italic text-stone-300 font-normal">
+                — pick best
+              </span>
+            </button>
+
+            {/* Q1: AI tooltip explaining smart stacks */}
+            <div className="group/tip relative">
+              <Info className="h-3 w-3 text-stone-300 hover:text-stone-500 transition-colors cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 z-20">
+                <div className="bg-stone-900 text-white text-[10px] leading-relaxed px-3 py-2 rounded-sm shadow-lg">
+                  AI grouped these shots by{" "}
+                  {stackType === "face" ? "face recognition" : stackType === "burst" ? "burst timing" : "visual similarity"}.
+                  The best shot is ranked first.
+                </div>
+              </div>
+            </div>
+
+            {/* Q5: Select all button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (allSelected) {
+                  // Deselect all
+                  images.forEach((img) => {
+                    if (selectedIds?.has(img.id)) onToggleSelect?.(img.id);
+                  });
+                } else {
+                  // Select all unselected
+                  images.forEach((img) => {
+                    if (!selectedIds?.has(img.id)) onToggleSelect?.(img.id);
+                  });
+                }
+              }}
+              className={cn(
+                "flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] font-medium transition-colors duration-300",
+                allSelected ? "text-accent hover:text-stone-500" : "text-stone-400 hover:text-accent"
+              )}
+            >
+              <CheckCheck className="h-3 w-3" />
+              {allSelected ? "Deselect all" : "Select all"}
+            </button>
+
+            {/* Q5: Selected counter pill */}
+            {selectedCount > 0 && (
+              <span className="count-badge-pop bg-accent text-white text-[9px] font-medium px-2 py-0.5 tabular-nums">
+                {selectedCount}
+              </span>
+            )}
+
+            {/* Compare button — opens side-by-side comparison */}
+            {images.length >= 2 && onCompare && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCompare(stackId);
+                }}
+                className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] font-medium text-stone-400 hover:text-emerald-600 transition-colors duration-300"
+              >
+                <ArrowLeftRight className="h-3 w-3" />
+                Compare
+              </button>
+            )}
+          </div>
 
           <div className="grid grid-cols-3 gap-1.5">
-            {images.map((img) => {
+            {images.map((img, i) => {
               const isSelected = selectedIds?.has(img.id) ?? false;
 
               return (
-                <ExpandedStackImage
-                  key={img.id}
-                  img={img}
-                  isCover={img.id === cover.id}
-                  isSelected={isSelected}
-                  hasSelection={hasSelection}
-                  stackId={stackId}
-                  showFilename={showFilename}
-                  onToggleSelect={() => onToggleSelect?.(img.id)}
-                  onDoubleClick={() => onImageDoubleClick?.(img.id)}
-                  onSetCover={onSetCover}
-                />
+                <div key={img.id} className="stack-expand-item" style={{ animationDelay: `${i * 50}ms` }}>
+                  <ExpandedStackImage
+                    img={img}
+                    isCover={img.id === cover.id}
+                    isSelected={isSelected}
+                    hasSelection={hasSelection}
+                    stackId={stackId}
+                    showFilename={showFilename}
+                    onToggleSelect={() => onToggleSelect?.(img.id)}
+                    onDoubleClick={() => onImageDoubleClick?.(img.id)}
+                    onSetCover={onSetCover}
+                  />
+                </div>
               );
             })}
           </div>

@@ -121,18 +121,39 @@
 
 ---
 
-## Phase 10: Production Readiness [TODO]
-- [ ] Run migration 003 (thumbnail_generated boolean)
-- [ ] Batch-generate thumbnails for existing 446 images
-- [ ] Generate proper database.types.ts from Supabase schema
-- [ ] Vercel deployment config
-- [ ] Modal deployment
-- [ ] Domain + CDN setup for R2
+## Phase 10: Production Readiness [IN PROGRESS]
 
-## Phase 11: SPS Integration [TODO]
-- [ ] Wire up API endpoint for SPS → Archive transfer
-- [ ] Wire up API endpoint for Archive → SPS enhancements push
-- [ ] Shared auth (same Supabase project)
+### Code (Done)
+- [x] Migration 003 — thumbnail_generated column (file exists, needs applying to prod DB)
+- [x] Migrations 004–008 — user_profiles, email_templates, share_image_ids, download_pin, event_templates
+- [x] database.types.ts manually maintained matching all 8 migrations
+- [x] Batch thumbnail endpoint: `POST /api/admin/batch-thumbnails` (processes in chunks with concurrency)
+- [x] Batch thumbnail status: `GET /api/admin/batch-thumbnails` (check progress)
+- [x] Fixed upload/complete + Inngest to set `thumbnail_generated = true`
+- [x] Security headers in next.config.ts (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy)
+- [x] Gallery routes allow SAMEORIGIN framing (for portfolio embeds)
+- [x] Vercel project linked (.vercel/project.json)
+- [x] next.config.ts R2 remote patterns + 100mb server action limit
+
+### Infrastructure (Needs Manual Action)
+- [ ] Apply all migrations to production Supabase (run SQL files in order)
+- [ ] Run batch thumbnail backfill: `POST /api/admin/batch-thumbnails` (call repeatedly until remaining = 0)
+- [ ] Deploy Modal AI pipeline: `modal deploy modal/ai_pipeline.py`
+- [ ] Configure R2 custom domain (Cloudflare dashboard → R2 → Custom Domain)
+- [ ] Set all env vars in Vercel project settings
+- [ ] Deploy to Vercel: `vercel --prod`
+
+## Phase 11: SPS Integration [DONE]
+- [x] Wire up API endpoint for SPS → Archive transfer (`POST /api/sps/import`)
+- [x] Wire up API endpoint for Archive → SPS enhancements push (`GET /api/sps/enhancements/[eventId]`)
+- [x] Shared auth — dual auth strategy (Supabase JWT for user actions, API key for service-to-service)
+- [x] SPS auth helper (`src/lib/sps-integration/auth.ts`) with JWT validation + `X-SPS-Key` support
+- [x] Fixed `importFromSPS()` to accept userId param (service client can't call `getUser()`)
+- [x] Middleware updated — `/api/sps/*` routes bypass cookie auth (handled by route-level auth)
+- [x] `SPS_INTEGRATION_KEY` added to `.env.example`
+- [x] Input validation on import endpoint (required fields, per-image validation)
+- [x] Enhancements endpoint returns processing progress (202) or complete results (200)
+- [x] 0 TypeScript errors
 
 ## Phase 12: Future Enhancements [TODO]
 - [ ] Face clustering pipeline (DBSCAN on ArcFace embeddings)

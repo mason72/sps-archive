@@ -36,17 +36,19 @@ interface Event {
 export function EventList() {
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
 
   const loadEvents = useCallback(async () => {
+    setLoadError(false);
     try {
       const res = await fetch("/api/events?limit=100");
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("Failed to load events");
       const data = await res.json();
       setEvents(data.events || []);
-    } catch (err) {
-      console.error("EventList: fetch error:", err);
+    } catch {
+      setLoadError(true);
     } finally {
       setIsLoaded(true);
     }
@@ -96,6 +98,23 @@ export function EventList() {
           {Array.from({ length: 6 }).map((_, i) => (
             <EventCardSkeleton key={i} />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (loadError && events.length === 0) {
+    return (
+      <div className="px-8 md:px-16 py-20">
+        <div className="flex flex-col items-center justify-center text-center py-16 border border-dashed border-stone-200">
+          <p className="font-editorial text-2xl text-stone-300 italic mb-3">
+            Something went wrong
+          </p>
+          <p className="text-[13px] text-stone-400 mb-8">
+            We couldn&apos;t load your events. Please try again.
+          </p>
+          <BrandButton color="emerald" onClick={loadEvents}>Retry</BrandButton>
         </div>
       </div>
     );

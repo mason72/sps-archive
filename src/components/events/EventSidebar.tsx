@@ -91,7 +91,7 @@ export function EventSidebar({
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored !== "false";
   });
-  const [activePanel, setActivePanel] = useState<Panel>("sections");
+  const [activePanel, setActivePanel] = useState<Panel | null>("sections");
 
   // Persist open state + notify parent
   useEffect(() => {
@@ -119,7 +119,7 @@ export function EventSidebar({
   }, []);
 
   const togglePanel = (panel: Panel) => {
-    setActivePanel((prev) => (prev === panel ? prev : panel));
+    setActivePanel((prev) => (prev === panel ? null : panel));
   };
 
   if (!isOpen) {

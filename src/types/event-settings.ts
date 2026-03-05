@@ -10,7 +10,8 @@ export type CoverLayout =
   | "journal"
   | "stamp"
   | "outline"
-  | "classic";
+  | "classic"
+  | "mosaic";
 
 export type HeadingFont =
   | "playfair"
@@ -72,6 +73,7 @@ export const COVER_LAYOUTS: { value: CoverLayout; label: string }[] = [
   { value: "stamp", label: "Stamp" },
   { value: "outline", label: "Outline" },
   { value: "classic", label: "Classic" },
+  { value: "mosaic", label: "Smart Mosaic" },
 ];
 
 export const HEADING_FONTS: { value: HeadingFont; label: string }[] = [

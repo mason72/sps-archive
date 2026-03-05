@@ -18,7 +18,7 @@ export default async function HomePage() {
 
   // Authenticated users get the dashboard
   if (user) {
-    return <DashboardView />;
+    return <DashboardView user={{ id: user.id, email: user.email }} />;
   }
 
   // In production, unauth users on app.pixeltrunk.com redirect to marketing site
@@ -34,7 +34,27 @@ export default async function HomePage() {
 /* ─────────────────────────────────────────────
  * Dashboard — Authenticated user's event list
  * ───────────────────────────────────────────── */
-function DashboardView() {
+async function DashboardView({ user }: { user: { id: string; email?: string } }) {
+  // Fetch profile for personalized greeting
+  const supabase = await createServerSupabaseClient();
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("display_name, business_name")
+    .eq("user_id", user.id)
+    .single();
+
+  const p = profile as { display_name?: string; business_name?: string } | null;
+  const displayName =
+    p?.display_name ||
+    p?.business_name ||
+    user.email?.split("@")[0] ||
+    null;
+
+  // Time-of-day greeting
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
@@ -50,17 +70,28 @@ function DashboardView() {
         <SignOutButton />
       </Nav>
 
-      {/* ─── Dashboard header ─── */}
+      {/* ─── V3: Personalized greeting ─── */}
       <div className="px-8 md:px-16 pt-16 pb-4">
-        <p className="label-caps mb-4 reveal" style={{ animationDelay: "0.1s" }}>
-          Your Archive
-        </p>
         <h2
           className="font-editorial text-[clamp(36px,5vw,56px)] leading-[0.95] text-stone-900 reveal"
+          style={{ animationDelay: "0.1s" }}
+        >
+          {greeting}
+          {displayName && (
+            <>
+              ,{" "}
+              <span className="italic text-stone-500 font-serif font-normal">
+                {displayName}
+              </span>
+            </>
+          )}
+        </h2>
+        <p
+          className="label-caps mt-4 reveal"
           style={{ animationDelay: "0.15s" }}
         >
-          Events
-        </h2>
+          Your Archive
+        </p>
       </div>
 
       {/* ─── Stats row ─── */}

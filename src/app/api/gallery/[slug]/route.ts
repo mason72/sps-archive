@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
+import { logActivity } from "@/lib/analytics/log";
 
 /**
  * GET /api/gallery/[slug]
@@ -122,7 +124,7 @@ export async function GET(
     // 5. Fetch images — filter to selection if share_type is 'selection'
     let imagesQuery = supabase
       .from("images")
-      .select("id, r2_key, original_filename, parsed_name, width, height")
+      .select("id, r2_key, original_filename, parsed_name, width, height, aesthetic_score")
       .eq("event_id", share.event_id)
       .neq("processing_status", "error");
 
@@ -188,12 +190,40 @@ export async function GET(
       }
     }
 
-    // 7. Increment view count (fire and forget)
-    supabase
-      .from("shares")
-      .update({ view_count: (share.view_count || 0) + 1 })
-      .eq("id", share.id)
-      .then(() => {});
+    // Smart Mosaic: select top 5 images by aesthetic score
+    if (cover.layout === "mosaic") {
+      const scored = (rawImages || [])
+        .filter((img) => img.aesthetic_score != null)
+        .sort(
+          (a, b) =>
+            ((b.aesthetic_score as number) ?? 0) -
+            ((a.aesthetic_score as number) ?? 0)
+        )
+        .slice(0, 5);
+
+      const mosaicSources =
+        scored.length >= 3 ? scored : (rawImages || []).slice(0, 5);
+
+      if (mosaicSources.length > 0) {
+        gallerySettings.mosaicImageUrls = await Promise.all(
+          mosaicSources.map((img) =>
+            getPresignedDownloadUrl(img.r2_key, 14400)
+          )
+        );
+      }
+    }
+
+    // 7. Increment view count + log activity (deferred until after response)
+    after(async () => {
+      const svc = createServiceClient();
+      await svc.rpc("increment_share_views", { p_share_id: share.id });
+      logActivity({
+        userId: event.user_id,
+        action: "share_view",
+        eventId: share.event_id,
+        shareId: share.id,
+      });
+    });
 
     return NextResponse.json({
       eventName: event.name,

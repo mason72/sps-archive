@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use } from "react";
+import { Download, ChevronLeft, ChevronRight, X, Heart } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
@@ -68,13 +69,89 @@ function CoverSection({
   eventName,
   headingClass,
   primaryColor,
+  mosaicImageUrls,
 }: {
-  imageUrl: string;
+  imageUrl?: string;
   layout: string;
   eventName: string;
   headingClass: string;
   primaryColor?: string;
+  mosaicImageUrls?: string[];
 }) {
+  // ─── Mosaic layout ───
+  if (layout === "mosaic" && mosaicImageUrls && mosaicImageUrls.length > 0) {
+    const urls = mosaicImageUrls;
+
+    // 5 images: hero (col-span-2 row-span-2) + 4 tiles
+    if (urls.length >= 5) {
+      return (
+        <div className="h-[50vh] md:h-[65vh] grid grid-cols-4 grid-rows-2 gap-1 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[0]} alt="" className="col-span-2 row-span-2 w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[1]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[2]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[3]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "240ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[4]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "320ms" }} />
+        </div>
+      );
+    }
+
+    // 4 images: hero (col-span-2 row-span-2) + 2 side tiles
+    if (urls.length === 4) {
+      return (
+        <div className="h-[50vh] md:h-[65vh] grid grid-cols-3 grid-rows-2 gap-1 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[0]} alt="" className="col-span-2 row-span-2 w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[1]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[2]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[3]} alt="" className="w-full h-full object-cover mosaic-tile-in hidden md:block" style={{ animationDelay: "240ms" }} />
+        </div>
+      );
+    }
+
+    // 3 images: hero 60% left + 2 stacked right 40%
+    if (urls.length === 3) {
+      return (
+        <div className="h-[50vh] md:h-[65vh] flex gap-1 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={urls[0]} alt="" className="w-[60%] h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
+          <div className="w-[40%] flex flex-col gap-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={urls[1]} alt="" className="flex-1 w-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={urls[2]} alt="" className="flex-1 w-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
+          </div>
+        </div>
+      );
+    }
+
+    // <3 images: fall back to single center cover with first image
+    return (
+      <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={urls[0]} alt="" className="w-full h-full object-cover ken-burns-settle" />
+        <div className="absolute inset-0 bg-black/30" />
+        <div className="absolute inset-0 flex items-center justify-center text-center p-8">
+          <h1
+            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}
+          >
+            {eventName}
+          </h1>
+        </div>
+      </div>
+    );
+  }
+
+  // Non-mosaic layouts require a cover image URL
+  if (!imageUrl) return null;
+
   if (layout === "left") {
     return (
       <div className="flex flex-col md:flex-row min-h-[60vh]">
@@ -88,7 +165,7 @@ function CoverSection({
         </div>
         <div className="md:w-1/2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
         </div>
       </div>
     );
@@ -99,7 +176,7 @@ function CoverSection({
       <div className="px-8 md:px-16 pt-12">
         <div className="relative aspect-[16/7] overflow-hidden bg-stone-100">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
           <div className="absolute inset-0 border-[8px] md:border-[16px] border-white pointer-events-none" />
         </div>
       </div>
@@ -110,7 +187,7 @@ function CoverSection({
     return (
       <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+        <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-8 md:p-16">
           <h1
@@ -127,7 +204,7 @@ function CoverSection({
   return (
     <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+      <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
       <div className="absolute inset-0 bg-black/30" />
       <div className="absolute inset-0 flex items-center justify-center text-center p-8">
         <h1
@@ -161,6 +238,8 @@ export default function GalleryPage({
 
   // PIN prompt state
   const [showPinModal, setShowPinModal] = useState(false);
+  // G5: Favorite milestone thresholds
+  const favoriteThresholdsRef = useRef(new Set<number>());
   const [pinAction, setPinAction] = useState<{ type: "bulk" } | { type: "individual"; image: GalleryImage } | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
 
@@ -249,6 +328,16 @@ export default function GalleryPage({
 
     setFavoriteIds(newFavorites);
 
+    // G5: Favorite milestone toasts
+    const count = newFavorites.size;
+    for (const threshold of [5, 10, 20]) {
+      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+        favoriteThresholdsRef.current.add(threshold);
+        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+        break; // Only one toast per action
+      }
+    }
+
     // Persist to localStorage
     try {
       localStorage.setItem(
@@ -286,10 +375,23 @@ export default function GalleryPage({
       return;
     }
     if (image.downloadUrl) {
+      // Track download (fire-and-forget via sendBeacon)
+      try {
+        navigator.sendBeacon(
+          `/api/gallery/${slug}/track`,
+          new Blob(
+            [JSON.stringify({ action: "image_download", imageId: image.id, shareId: gallery.shareId })],
+            { type: "application/json" }
+          )
+        );
+      } catch {
+        /* sendBeacon not supported — non-critical */
+      }
       const link = document.createElement("a");
       link.href = image.downloadUrl;
       link.download = image.originalFilename;
       link.click();
+      toast.success("Downloaded", { description: image.originalFilename });
     }
   };
 
@@ -379,10 +481,12 @@ export default function GalleryPage({
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
   const bodyClass = BODY_FONT_CLASS[s?.bodyFont || "inter"] || "font-sans";
 
-  // Cover image present?
-  const hasCover = !!(s?.coverImageUrl && s?.coverLayout);
+  // Cover image present? Mosaic uses mosaicImageUrls instead of a single coverImageUrl
+  const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
+  const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout);
   // Some layouts render the title inside the cover — skip it in the header
-  const coverRendersTitle = hasCover && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
+  // Mosaic does NOT render title inside — excluded from this list
+  const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
 
   // Build CSS custom properties from branding colors
   const brandStyles = b
@@ -399,11 +503,12 @@ export default function GalleryPage({
       {/* ─── Cover image ─── */}
       {hasCover && (
         <CoverSection
-          imageUrl={s!.coverImageUrl!}
+          imageUrl={s?.coverImageUrl}
           layout={s!.coverLayout!}
           eventName={gallery.eventName}
           headingClass={headingClass}
           primaryColor={b?.primaryColor}
+          mosaicImageUrls={s?.mosaicImageUrls}
         />
       )}
 
@@ -468,19 +573,7 @@ export default function GalleryPage({
               onClick={handleDownloadAll}
               className="text-[13px] text-stone-900 border border-stone-200 px-4 py-2 hover:bg-stone-50 transition-colors flex items-center gap-2"
             >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
-                />
-              </svg>
+              <Download className="h-4 w-4" strokeWidth={1.5} />
               Download All
             </button>
           </div>
@@ -550,9 +643,7 @@ export default function GalleryPage({
                 setSelectedImageId(gallery.images[selectedIndex - 1].id);
               }}
             >
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-              </svg>
+              <ChevronLeft className="h-8 w-8" strokeWidth={1.5} />
             </button>
           )}
           {selectedIndex < gallery.images.length - 1 && (
@@ -564,9 +655,7 @@ export default function GalleryPage({
                 setSelectedImageId(gallery.images[selectedIndex + 1].id);
               }}
             >
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-              </svg>
+              <ChevronRight className="h-8 w-8" strokeWidth={1.5} />
             </button>
           )}
 
@@ -576,9 +665,7 @@ export default function GalleryPage({
             className="absolute top-4 right-4 p-3 text-white/60 hover:text-white transition-colors z-10"
             onClick={() => setSelectedImageId(null)}
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="h-6 w-6" strokeWidth={1.5} />
           </button>
 
           {/* Image — show full-res original in lightbox */}
@@ -604,9 +691,7 @@ export default function GalleryPage({
                   handleFavorite(selectedImage.id);
                 }}
               >
-                <svg className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-                </svg>
+                <Heart className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} strokeWidth={1.5} />
               </button>
             )}
             {gallery.allowDownload && selectedImage.downloadUrl && (
@@ -617,9 +702,7 @@ export default function GalleryPage({
                   handleIndividualDownload(selectedImage);
                 }}
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
+                <Download className="h-5 w-5" strokeWidth={1.5} />
               </button>
             )}
           </div>
@@ -631,11 +714,42 @@ export default function GalleryPage({
         </div>
       )}
 
-      {/* ─── Footer ─── */}
-      <footer
-        className="px-8 md:px-16 py-8 border-t"
-        style={{ borderColor: b?.secondaryColor ? `${b.secondaryColor}20` : undefined }}
-      >
+      {/* ─── End-of-gallery moment ─── */}
+      {b && (
+        <div className="py-16 text-center stagger-in">
+          {b.logoUrl && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={b.logoUrl}
+              alt={b.businessName || ""}
+              className="h-12 w-auto object-contain mx-auto mb-4 opacity-60"
+            />
+          )}
+          <p className="text-[13px] text-stone-400 tracking-wide uppercase">
+            Photographed by
+          </p>
+          <p className="font-editorial italic text-[22px] text-stone-700 mt-1">
+            {b.businessName || "Your Photographer"}
+          </p>
+          {b.website && (
+            <a
+              href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-3 text-[12px] text-stone-400 hover:text-stone-600 transition-colors duration-300 border-b border-stone-200 hover:border-stone-400 pb-0.5"
+            >
+              View Portfolio →
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* ─── V4: Photographer signature footer ─── */}
+      <footer className="px-8 md:px-16 pt-4 pb-8">
+        <hr
+          className="mb-8 border-0 h-px"
+          style={{ backgroundColor: b?.secondaryColor ? `${b.secondaryColor}20` : "rgba(168,162,158,0.2)" }}
+        />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {b?.logoUrl && (
@@ -647,13 +761,13 @@ export default function GalleryPage({
               />
             )}
             {b?.businessName && (
-              <span className="text-[12px]" style={{ color: b.secondaryColor }}>
+              <span className="font-editorial italic text-[15px]" style={{ color: b.secondaryColor }}>
                 {b.website ? (
                   <a
                     href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:underline"
+                    className="editorial-link"
                   >
                     {b.businessName}
                   </a>
@@ -663,8 +777,27 @@ export default function GalleryPage({
               </span>
             )}
           </div>
-          <p className="text-[11px]" style={{ color: b?.secondaryColor || "#a8a29e" }}>
+          <p className="text-[11px] flex items-center gap-1.5" style={{ color: b?.secondaryColor || "#a8a29e" }}>
             Powered by{" "}
+            {/* Pixel-mosaic favicon */}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="opacity-40">
+              <rect x="0" y="0" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.3" />
+              <rect x="4" y="0" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.6" />
+              <rect x="8" y="0" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4" />
+              <rect x="12" y="0" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.2" />
+              <rect x="0" y="4" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.5" />
+              <rect x="4" y="4" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.9" />
+              <rect x="8" y="4" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7" />
+              <rect x="12" y="4" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.3" />
+              <rect x="0" y="8" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4" />
+              <rect x="4" y="8" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7" />
+              <rect x="8" y="8" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.8" />
+              <rect x="12" y="8" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.5" />
+              <rect x="0" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.2" />
+              <rect x="4" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4" />
+              <rect x="8" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.5" />
+              <rect x="12" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.9" />
+            </svg>
             <span className="font-brand text-[13px]" style={{ color: b?.primaryColor || "#1c1917" }}>
               pixeltrunk
             </span>

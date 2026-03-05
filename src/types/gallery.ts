@@ -26,6 +26,7 @@ export interface GalleryBranding {
 export interface GallerySettings {
   coverLayout?: string;
   coverImageUrl?: string;
+  mosaicImageUrls?: string[];
   headingFont?: string;
   bodyFont?: string;
   gridStyle?: "masonry" | "uniform";

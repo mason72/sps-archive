@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Check, AlertCircle, Info } from "lucide-react";
 
 interface ShareChecklistProps {
   eventId: string;
@@ -138,49 +139,13 @@ export function ShareChecklist({ eventId }: ShareChecklistProps) {
         <div key={item.label} className="flex items-center gap-3 py-1.5">
           {/* Status icon */}
           {item.status === "ok" && (
-            <svg
-              className="h-4 w-4 text-emerald-500 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+            <Check className="h-4 w-4 text-emerald-500 flex-shrink-0" strokeWidth={2} />
           )}
           {item.status === "warning" && (
-            <svg
-              className="h-4 w-4 text-amber-500 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-              />
-            </svg>
+            <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0" strokeWidth={2} />
           )}
           {item.status === "info" && (
-            <svg
-              className="h-4 w-4 text-stone-300 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"
-              />
-            </svg>
+            <Info className="h-4 w-4 text-stone-300 flex-shrink-0" strokeWidth={2} />
           )}
           <div className="flex-1">
             <span className="text-[13px] text-stone-600">{item.detail}</span>

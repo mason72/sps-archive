@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Download, Heart } from "lucide-react";
 import type { GalleryImage } from "@/types/gallery";
 
@@ -57,8 +57,29 @@ export function GalleryGrid({
 }: GalleryGridProps) {
   if (images.length === 0) {
     return (
-      <div className="py-24 text-center">
-        <p className="text-[14px] text-stone-400">No images yet</p>
+      <div className="py-24 flex flex-col items-center justify-center max-w-xs mx-auto text-center gap-4">
+        {/* D5: Camera outline SVG illustration */}
+        <svg
+          className="h-16 w-16 text-stone-200"
+          viewBox="0 0 64 64"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="6" y="18" width="52" height="36" rx="4" />
+          <path d="M22 18l3-6h14l3 6" />
+          <circle cx="32" cy="36" r="10" />
+          <circle cx="32" cy="36" r="5" />
+          <circle cx="48" cy="26" r="2" fill="currentColor" />
+        </svg>
+        <div className="space-y-1.5">
+          <p className="font-editorial text-[16px] text-stone-400">No photos yet</p>
+          <p className="text-[13px] text-stone-300 leading-relaxed">
+            Upload images to start building your gallery
+          </p>
+        </div>
       </div>
     );
   }
@@ -108,7 +129,17 @@ function GalleryCard({
   uniform?: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [heartPop, setHeartPop] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const prevFavoritedRef = useRef(isFavorited);
+
+  // D2: Heart celebration — detect false→true transition
+  useEffect(() => {
+    if (isFavorited && !prevFavoritedRef.current) {
+      setHeartPop(true);
+    }
+    prevFavoritedRef.current = isFavorited;
+  }, [isFavorited]);
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -150,7 +181,7 @@ function GalleryCard({
           }
         }}
       />
-      {!isLoaded && <div className={uniform ? "aspect-square" : "aspect-[3/4]"} />}
+      {!isLoaded && <div className={`shimmer-placeholder ${uniform ? "aspect-square" : "aspect-[3/4]"}`} />}
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -168,8 +199,9 @@ function GalleryCard({
             title={isFavorited ? "Remove from favorites" : "Add to favorites"}
           >
             <Heart
-              className="h-4 w-4"
+              className={`h-4 w-4 ${heartPop ? "heart-pop" : ""}`}
               fill={isFavorited ? "currentColor" : "none"}
+              onAnimationEnd={() => setHeartPop(false)}
             />
           </button>
         )}

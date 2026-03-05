@@ -91,8 +91,18 @@ export function CoverLayoutTab({
         Choose how the cover image is displayed on the gallery page.
       </p>
 
+      {/* ─── Mosaic auto-select notice ─── */}
+      {value === "mosaic" && (
+        <div className="mb-6 p-4 bg-stone-50 border border-stone-200">
+          <p className="text-[13px] font-medium text-stone-700 mb-1">AI-powered cover</p>
+          <p className="text-[12px] text-stone-400 leading-relaxed">
+            Smart Mosaic automatically selects your highest-rated photos and arranges them in a magazine-style grid. No image selection needed.
+          </p>
+        </div>
+      )}
+
       {/* ─── Cover image selector ─── */}
-      {onCoverImageChange && (
+      {onCoverImageChange && value !== "mosaic" && (
         <div className="mb-6">
           {/* Upload cover image */}
           {eventId && (
@@ -254,6 +264,16 @@ function CoverImagePreview({
           </div>
         </div>
       );
+    case "mosaic":
+      return (
+        <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-0.5 p-0.5">
+          <img src={imageUrl} alt="" className="col-span-2 row-span-2 w-full h-full object-cover" />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" style={{ objectPosition: "left" }} />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" style={{ objectPosition: "right" }} />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" style={{ objectPosition: "top" }} />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" style={{ objectPosition: "bottom" }} />
+        </div>
+      );
     default:
       return (
         <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
@@ -354,6 +374,16 @@ function LayoutPreview({ layout, isActive }: { layout: CoverLayout; isActive: bo
       return (
         <div className={`absolute inset-0 ${bg} flex items-end p-2`}>
           <div className={`h-1 w-10 bg-white`} />
+        </div>
+      );
+    case "mosaic":
+      return (
+        <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-0.5 p-1.5">
+          <div className={`col-span-2 row-span-2 ${isActive ? "bg-stone-500" : "bg-stone-350"} ${bg}`} />
+          <div className={bg} />
+          <div className={bg} />
+          <div className={bg} />
+          <div className={bg} />
         </div>
       );
     default:

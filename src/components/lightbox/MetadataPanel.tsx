@@ -1,6 +1,19 @@
 "use client";
 
-import { Eye, EyeOff } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import {
+  Eye,
+  EyeOff,
+  Camera,
+  User,
+  Mountain,
+  Sparkles,
+  Users,
+  Aperture,
+  Info,
+  Pencil,
+  type LucideIcon,
+} from "lucide-react";
 import type { ImageData, ImageDetail } from "@/types/image";
 
 interface MetadataPanelProps {
@@ -8,6 +21,103 @@ interface MetadataPanelProps {
   detail: ImageDetail | null;
   isLoading: boolean;
   isOpen: boolean;
+  onNameUpdate?: (imageId: string, newName: string) => void;
+}
+
+/** Q1: CSS-only tooltip for AI feature explanations */
+function AiTooltip({ text }: { text: string }) {
+  return (
+    <div className="group/tip relative inline-flex ml-1.5">
+      <Info className="h-3 w-3 text-stone-300 hover:text-stone-500 transition-colors cursor-help" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 z-20">
+        <div className="bg-stone-900 text-white text-[10px] leading-relaxed px-3 py-2 rounded-sm shadow-lg">
+          {text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Q2: Inline editable name field */
+function InlineEditName({
+  imageId,
+  value,
+  onSave,
+}: {
+  imageId: string;
+  value: string;
+  onSave?: (imageId: string, newName: string) => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleSave = useCallback(async () => {
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === value) {
+      setEditValue(value);
+      setIsEditing(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/images/${imageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parsedName: trimmed }),
+      });
+      if (res.ok) {
+        onSave?.(imageId, trimmed);
+      } else {
+        setEditValue(value); // revert
+      }
+    } catch {
+      setEditValue(value); // revert
+    } finally {
+      setIsSaving(false);
+      setIsEditing(false);
+    }
+  }, [editValue, value, imageId, onSave]);
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleSave();
+          if (e.key === "Escape") {
+            setEditValue(value);
+            setIsEditing(false);
+          }
+        }}
+        autoFocus
+        disabled={isSaving}
+        className="font-serif text-[18px] font-bold tracking-[-0.03em] text-stone-900 leading-tight bg-transparent border-b border-stone-300 focus:border-stone-900 outline-none w-full transition-colors duration-200"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setIsEditing(true);
+        setEditValue(value);
+      }}
+      className="group/edit flex items-center gap-1.5 text-left w-full"
+      title="Click to rename"
+    >
+      <span className="font-serif text-[18px] font-bold tracking-[-0.03em] text-stone-900 leading-tight">
+        {value}
+      </span>
+      <Pencil className="h-3 w-3 text-stone-300 opacity-0 group-hover/edit:opacity-100 transition-opacity duration-200 shrink-0" />
+    </button>
+  );
 }
 
 /** Skeleton line for loading state */
@@ -15,15 +125,15 @@ function Skeleton({ width = "w-32" }: { width?: string }) {
   return <div className={`h-3 ${width} animate-pulse bg-stone-200`} />;
 }
 
-/** Thin horizontal score bar */
-function ScoreBar({ value, label }: { value: number; label: string }) {
+/** Thin horizontal score bar — G2: glows amber when value > 0.85 */
+function ScoreBar({ value, label, glow }: { value: number; label: string; glow?: boolean }) {
   const pct = Math.round(value * 100);
   return (
-    <div className="flex items-center gap-3">
+    <div className={`flex items-center gap-3 px-2 py-1.5 -mx-2 rounded-sm transition-all duration-300 ${glow ? "ring-1 ring-amber-200/50 bg-amber-50/30" : ""}`}>
       <span className="w-16 shrink-0 text-[11px] text-stone-500">{label}</span>
       <div className="flex-1 h-1.5 bg-stone-200 overflow-hidden">
         <div
-          className="h-full bg-accent transition-all duration-500"
+          className={`h-full transition-all duration-500 ${glow ? "bg-amber-500" : "bg-accent"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -31,6 +141,39 @@ function ScoreBar({ value, label }: { value: number; label: string }) {
         {pct}
       </span>
     </div>
+  );
+}
+
+/** V1: Icon mapping for scene tag chips */
+const SCENE_TAG_ICONS: Record<string, LucideIcon> = {
+  portrait: User,
+  portraits: User,
+  people: Users,
+  group: Users,
+  crowd: Users,
+  landscape: Mountain,
+  nature: Mountain,
+  outdoor: Mountain,
+  outdoors: Mountain,
+  ceremony: Sparkles,
+  celebration: Sparkles,
+  party: Sparkles,
+  wedding: Sparkles,
+  detail: Camera,
+  details: Camera,
+  close_up: Camera,
+  macro: Camera,
+  food: Aperture,
+  architecture: Mountain,
+};
+
+function SceneTagChip({ tag }: { tag: string }) {
+  const Icon = SCENE_TAG_ICONS[tag.toLowerCase().replace(/[\s-]/g, "_")] ?? Aperture;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-stone-500 border border-stone-200 hover:bg-stone-50 transition-colors duration-200 cursor-default">
+      <Icon className="h-3 w-3 text-stone-400" />
+      {tag}
+    </span>
   );
 }
 
@@ -43,6 +186,7 @@ export function MetadataPanel({
   detail,
   isLoading,
   isOpen,
+  onNameUpdate,
 }: MetadataPanelProps) {
   if (!isOpen) return null;
 
@@ -69,9 +213,11 @@ export function MetadataPanel({
           ) : (
             <div className="space-y-1.5">
               {image.parsedName && (
-                <p className="font-serif text-[18px] font-bold tracking-[-0.03em] text-stone-900 leading-tight">
-                  {image.parsedName}
-                </p>
+                <InlineEditName
+                  imageId={image.id}
+                  value={image.parsedName}
+                  onSave={onNameUpdate}
+                />
               )}
               <p className="text-[13px] italic text-stone-500">
                 {image.originalFilename}
@@ -104,31 +250,29 @@ export function MetadataPanel({
             <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
               Camera
             </h3>
-            <div className="space-y-1.5">
-              {(detail.cameraMake || detail.cameraModel) && (
-                <p className="text-[13px] text-stone-700">
+            {/* V2: Compact camera info card */}
+            <div className="bg-stone-50 p-3 border border-stone-100 space-y-2">
+              <div className="flex items-center gap-2">
+                <Camera className="h-3.5 w-3.5 text-stone-400" />
+                <p className="text-[13px] font-medium text-stone-700">
                   {[detail.cameraMake, detail.cameraModel]
                     .filter(Boolean)
-                    .join(" ")}
+                    .join(" ") || "Unknown Camera"}
+                  {detail.lens && (
+                    <span className="text-stone-400 font-normal"> · {detail.lens}</span>
+                  )}
                 </p>
-              )}
-              {detail.lens && (
-                <p className="text-[13px] text-stone-500">{detail.lens}</p>
-              )}
-              {(detail.aperture || detail.shutterSpeed || detail.iso) && (
-                <p className="text-[12px] text-stone-400">
+              </div>
+              {(detail.focalLength || detail.aperture || detail.shutterSpeed || detail.iso) && (
+                <p className="text-[12px] text-stone-400 pl-[22px]">
                   {[
+                    detail.focalLength ? `${detail.focalLength}mm` : null,
                     detail.aperture ? `f/${detail.aperture}` : null,
                     detail.shutterSpeed,
                     detail.iso ? `ISO ${detail.iso}` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
-                </p>
-              )}
-              {detail.focalLength && (
-                <p className="text-[12px] text-stone-400">
-                  {detail.focalLength}mm
                 </p>
               )}
             </div>
@@ -167,16 +311,24 @@ export function MetadataPanel({
 
         {hasCapture && <div className="h-px bg-stone-200" />}
 
-        {/* ── Quality ── */}
+        {/* ── Quality — G2: Top Shot glow when aesthetic > 0.85 ── */}
         {hasQuality && (
           <>
             <section>
-              <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
-                Quality
-              </h3>
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 flex items-center">
+                  Quality
+                  <AiTooltip text="AI analyzes composition, lighting, and technical quality to score each image." />
+                </h3>
+                {image.aestheticScore != null && image.aestheticScore > 0.85 && (
+                  <span className="bg-amber-50 text-amber-700 text-[9px] uppercase tracking-wider font-medium px-1.5 py-0.5">
+                    Top Shot
+                  </span>
+                )}
+              </div>
               <div className="space-y-3">
                 {image.aestheticScore != null && (
-                  <ScoreBar value={image.aestheticScore} label="Overall" />
+                  <ScoreBar value={image.aestheticScore} label="Overall" glow={image.aestheticScore > 0.85} />
                 )}
                 {image.sharpnessScore != null && (
                   <ScoreBar value={image.sharpnessScore} label="Sharp" />
@@ -216,17 +368,13 @@ export function MetadataPanel({
           </section>
         ) : hasTags ? (
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3 flex items-center">
               Scene
+              <AiTooltip text="AI classifies scenes based on visual content — people, locations, and moments." />
             </h3>
             <div className="flex flex-wrap gap-2">
               {detail.sceneTags!.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-block px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-stone-500 border border-stone-200"
-                >
-                  {tag}
-                </span>
+                <SceneTagChip key={tag} tag={tag} />
               ))}
             </div>
           </section>

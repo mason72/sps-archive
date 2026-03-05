@@ -24,6 +24,15 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
+/** Q3: Suggestion chips for search discovery */
+const SEARCH_SUGGESTIONS = [
+  { label: "Portraits", query: "portraits of people" },
+  { label: "Outdoors", query: "outdoor nature landscape" },
+  { label: "Golden Hour", query: "golden hour warm light" },
+  { label: "Details", query: "detail close up" },
+  { label: "Ceremony", query: "ceremony celebration" },
+];
+
 export function SearchBar({
   eventId,
   onResults,
@@ -32,6 +41,7 @@ export function SearchBar({
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [searchType, setSearchType] = useState<"auto" | "semantic" | "filename">("auto");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -104,6 +114,8 @@ export function SearchBar({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setTimeout(() => setIsFocused(false), 150)}
           placeholder={
             placeholder ||
             (searchType === "semantic"
@@ -123,6 +135,27 @@ export function SearchBar({
           </button>
         )}
       </div>
+
+      {/* ─── Q3: Search discovery prompts ─── */}
+      {isFocused && !query && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-300 mr-1">Try</span>
+          {SEARCH_SUGGESTIONS.map((suggestion, i) => (
+            <button
+              key={suggestion.label}
+              onMouseDown={(e) => {
+                e.preventDefault(); // prevent blur
+                setQuery(suggestion.query);
+                setSearchType("semantic");
+              }}
+              className="stagger-in px-2.5 py-1 text-[11px] bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors duration-200 cursor-pointer"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              {suggestion.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ─── Search type toggles ─── */}
       <div className="flex items-center gap-3">
