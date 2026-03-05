@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import type { Json } from "@/lib/supabase/database.types";
+
+/** Row shape returned by the activity_log select query */
+interface ActivityRow {
+  action: string;
+  event_id: string | null;
+  share_id: string | null;
+  image_id: string | null;
+  metadata: Json;
+  created_at: string;
+}
 
 /**
  * GET /api/analytics/engagement?eventId=...&days=30
@@ -17,8 +28,8 @@ export async function GET(request: Request) {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  // Base query — always scoped to the user
-  let query = supabase
+  // Build query — explicit type avoids Supabase generic inference issues on Vercel
+  const baseQuery = supabase
     .from("activity_log")
     .select("action, event_id, share_id, image_id, metadata, created_at")
     .eq("user_id", userId)
@@ -26,22 +37,22 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false })
     .limit(500);
 
-  if (eventId) {
-    query = query.eq("event_id", eventId);
-  }
-
-  const { data, error } = await query;
+  const { data: rawData, error } = eventId
+    ? await baseQuery.eq("event_id", eventId)
+    : await baseQuery;
 
   if (error) {
     console.error("[analytics/engagement] query error:", error);
     return NextResponse.json({ error: "Failed to load engagement data" }, { status: 500 });
   }
 
+  const data = (rawData ?? []) as ActivityRow[];
+
   // Single-pass aggregation: by-event and by-image
   const byEvent: Record<string, { views: number; downloads: number; favorites: number }> = {};
   const imageEngagement: Record<string, { downloads: number; favorites: number }> = {};
 
-  for (const row of data ?? []) {
+  for (const row of data) {
     const eid = row.event_id ?? "unknown";
     if (!byEvent[eid]) byEvent[eid] = { views: 0, downloads: 0, favorites: 0 };
 
@@ -81,7 +92,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     byEvent,
     topImages,
-    recentActivity: (data ?? []).slice(0, 20).map((row) => ({
+    recentActivity: data.slice(0, 20).map((row) => ({
       action: row.action,
       eventId: row.event_id,
       imageId: row.image_id,
