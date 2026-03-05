@@ -5,7 +5,7 @@ import { Download, ChevronLeft, ChevronRight, X, Heart } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
-import type { GalleryData, GalleryImage, GalleryBranding, GallerySettings } from "@/types/gallery";
+import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {

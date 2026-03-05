@@ -101,6 +101,16 @@ export function AnalyticsDashboard() {
     fetchData();
   }, []);
 
+  // A1: Chart entrance animations (must be before early returns)
+  const { ref: areaChartRef, isInView: areaChartInView } = useInView<HTMLDivElement>();
+  const { ref: barChartRef, isInView: barChartInView } = useInView<HTMLDivElement>();
+
+  // A2: Group activity items by date bucket
+  const groupedActivity = useMemo(() => {
+    if (!engagement?.recentActivity?.length) return null;
+    return groupActivityByDate(engagement.recentActivity);
+  }, [engagement]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -119,16 +129,6 @@ export function AnalyticsDashboard() {
   }
 
   const { totals, period30d, sparkline } = overview;
-
-  // A1: Chart entrance animations
-  const { ref: areaChartRef, isInView: areaChartInView } = useInView<HTMLDivElement>();
-  const { ref: barChartRef, isInView: barChartInView } = useInView<HTMLDivElement>();
-
-  // A2: Group activity items by date bucket
-  const groupedActivity = useMemo(() => {
-    if (!engagement?.recentActivity?.length) return null;
-    return groupActivityByDate(engagement.recentActivity);
-  }, [engagement]);
 
   return (
     <div className="space-y-8">
