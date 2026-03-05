@@ -244,9 +244,11 @@ function GridImage({
       {/* Placeholder maintains minimum height while loading */}
       {!loaded && <div className="aspect-square" />}
       {showFilename && (image.parsedName || image.originalFilename) && (
-        <p className="text-[10px] text-stone-400 truncate px-1.5 py-1 bg-white">
-          {image.parsedName || image.originalFilename}
-        </p>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">
+          <p className="text-[11px] text-white truncate">
+            {image.parsedName || image.originalFilename}
+          </p>
+        </div>
       )}
     </button>
   );

@@ -21,7 +21,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3 } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -70,6 +70,7 @@ export default function EventPage({
   const [failedUploads, setFailedUploads] = useState<File[]>([]);
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
+  const [sortBy, setSortBy] = useState<"upload" | "filename" | "date-taken">("upload");
   const [hasActiveShare, setHasActiveShare] = useState(false);
   const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
 
@@ -289,6 +290,8 @@ export default function EventPage({
         processingStatus: "complete",
         width: null,
         height: null,
+        createdAt: new Date().toISOString(),
+        takenAt: null,
       }));
       setImages(searchImages);
       setStacks([]);
@@ -483,7 +486,32 @@ export default function EventPage({
     setSections(updated);
   }, []);
 
-  const standalone = images.filter((img) => !img.stackId);
+  // Sort images based on user selection (stacks keep internal rank order)
+  const sortedImages = useMemo(() => {
+    const sorted = [...images];
+    switch (sortBy) {
+      case "filename":
+        sorted.sort((a, b) =>
+          (a.parsedName || a.originalFilename).localeCompare(
+            b.parsedName || b.originalFilename
+          )
+        );
+        break;
+      case "date-taken":
+        sorted.sort((a, b) => {
+          if (!a.takenAt && !b.takenAt) return 0;
+          if (!a.takenAt) return 1;
+          if (!b.takenAt) return -1;
+          return a.takenAt.localeCompare(b.takenAt);
+        });
+        break;
+      default:
+        break; // "upload" — keep API order (created_at asc)
+    }
+    return sorted;
+  }, [images, sortBy]);
+
+  const standalone = sortedImages.filter((img) => !img.stackId);
 
   // ─── Gallery keyboard shortcuts ───
   const { showHelp: showShortcutsHelp, setShowHelp: setShowShortcutsHelp } =
@@ -497,8 +525,10 @@ export default function EventPage({
       onDeleteSelected: handleBatchDelete,
       onToggleUpload: () => setShowUpload((v) => !v),
       onShare: () => {
-        setShareModalImageIds(undefined);
-        setShowShareModal(true);
+        // Navigate to email compose page
+        window.location.href = hasActiveShare
+          ? `/events/${eventId}/share?slug=${activeShareSlug}`
+          : `/events/${eventId}/share`;
       },
       selectionCount: selection.count,
       enabled: !selectedImageId && !showShareModal,
@@ -526,6 +556,22 @@ export default function EventPage({
 
   // Grid settings from event settings
   const gridSettings = eventSettings.grid;
+
+  // Toggle filename overlay (persists to event settings)
+  const toggleFilenames = useCallback(async () => {
+    const newVal = !gridSettings?.showFilenames;
+    const newGrid = { ...gridSettings, showFilenames: newVal };
+    setEventSettings((prev) => ({ ...prev, grid: newGrid }));
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { grid: newGrid } }),
+      });
+    } catch {
+      /* non-critical */
+    }
+  }, [gridSettings, eventId]);
 
   return (
     <div className="flex min-h-screen">
@@ -570,43 +616,24 @@ export default function EventPage({
         </button>
 
         {/* Preview — opens client gallery in new tab */}
-        {activeShareSlug ? (
-          <a
-            href={`/gallery/${activeShareSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Preview
-          </a>
-        ) : (
-          <span
-            title="Create a share link to preview"
-            className="text-stone-300 text-[13px] cursor-default"
-          >
-            Preview
-          </span>
-        )}
+        <a
+          href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          Preview
+        </a>
 
-        {/* Publish / Share */}
-        {hasActiveShare ? (
-          <Link href={`/events/${eventId}/share?slug=${activeShareSlug}`}>
-            <BrandButton size="sm">
-              Share
-            </BrandButton>
-          </Link>
-        ) : (
-          <BrandButton
-            color="emerald"
-            celebrate
-            onClick={() => {
-              setShareModalImageIds(undefined);
-              setShowShareModal(true);
-            }}
-          >
-            Publish
+        {/* Publish / Share — both go to email compose page */}
+        <Link href={hasActiveShare
+          ? `/events/${eventId}/share?slug=${activeShareSlug}`
+          : `/events/${eventId}/share`
+        }>
+          <BrandButton size={hasActiveShare ? "sm" : "md"} color={hasActiveShare ? "blue" : "emerald"} celebrate={!hasActiveShare}>
+            {hasActiveShare ? "Share" : "Publish"}
           </BrandButton>
-        )}
+        </Link>
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24">
@@ -767,7 +794,40 @@ export default function EventPage({
                   ? sections.find((s) => s.id === activeSection)?.name || "Section"
                   : "Gallery"}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {/* Sort dropdown */}
+                <div className="relative flex items-center gap-1.5">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-stone-400" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as "upload" | "filename" | "date-taken")}
+                    className="appearance-none bg-transparent text-[12px] text-stone-500 hover:text-stone-700 cursor-pointer pr-4 focus:outline-none transition-colors"
+                  >
+                    <option value="upload">Upload Date</option>
+                    <option value="filename">Filename</option>
+                    <option value="date-taken">Date Taken</option>
+                  </select>
+                </div>
+
+                <div className="w-px h-4 bg-stone-200" />
+
+                {/* Filename overlay toggle */}
+                <button
+                  onClick={toggleFilenames}
+                  className={`p-1.5 transition-colors ${gridSettings?.showFilenames ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  aria-label="Toggle filenames"
+                  title={gridSettings?.showFilenames ? "Hide filenames" : "Show filenames"}
+                >
+                  {gridSettings?.showFilenames ? (
+                    <Eye className="h-4 w-4" />
+                  ) : (
+                    <EyeOff className="h-4 w-4" />
+                  )}
+                </button>
+
+                <div className="w-px h-4 bg-stone-200" />
+
+                {/* View mode toggles */}
                 <button
                   onClick={() => setViewMode("grid")}
                   className={`p-1.5 transition-colors ${viewMode === "grid" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}

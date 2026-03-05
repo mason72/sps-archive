@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { X, Copy, Check, Link2, Eye, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { BrandButton } from "@/components/ui/brand-button";
 import { ShareChecklist } from "@/components/shares/ShareChecklist";
 
@@ -41,19 +40,9 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
   const [quickShareUrl, setQuickShareUrl] = useState<string | null>(null);
   const [showQuickOptions, setShowQuickOptions] = useState(false);
 
-  // New share form state
+  // Quick mode options only
   const [password, setPassword] = useState("");
-  const [allowDownload, setAllowDownload] = useState(true);
-  const [allowFavorites, setAllowFavorites] = useState(true);
-  const [customMessage, setCustomMessage] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
-
-  // Download PIN protection
-  const [requirePinBulk, setRequirePinBulk] = useState(false);
-  const [requirePinIndividual, setRequirePinIndividual] = useState(false);
-  const [downloadPin, setDownloadPin] = useState("");
-
-  const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
   const fetchShares = useCallback(async () => {
     try {
@@ -118,6 +107,7 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, onClose]);
 
+  /** Create a share link using event sharing settings as defaults */
   const handleCreate = async () => {
     setIsCreating(true);
     try {
@@ -126,30 +116,16 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId,
-          password: password || undefined,
-          allowDownload,
-          allowFavorites,
-          customMessage: customMessage || undefined,
-          expiresAt: expiresAt || undefined,
+          useEventDefaults: true,
           imageIds: imageIds?.length ? imageIds : undefined,
-          downloadPin: (requirePinBulk || requirePinIndividual) ? downloadPin : undefined,
-          requirePinBulk,
-          requirePinIndividual,
         }),
       });
 
       if (!res.ok) throw new Error("Failed to create share");
       const data = await res.json();
 
-      // Add to list and reset form
       setHasCreatedShare(true);
       setShares((prev) => [data.share, ...prev]);
-      setPassword("");
-      setCustomMessage("");
-      setExpiresAt("");
-      setRequirePinBulk(false);
-      setRequirePinIndividual(false);
-      setDownloadPin("");
 
       // Auto-copy the link
       copyLink(data.share.slug);
@@ -328,167 +304,29 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
           {/* Pre-flight checklist — shown before first share is created */}
           {!hasCreatedShare && <ShareChecklist eventId={eventId} />}
 
-          {/* Create new share */}
+          {/* Create new share — settings now live in Design → Sharing tab */}
           <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-4">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-2">
               Create Link
             </h3>
+            <p className="text-[12px] text-stone-400 mb-4">
+              Uses your sharing defaults from the Design panel.
+            </p>
 
-            <div className="space-y-4">
-              {/* Toggle switches */}
-              <div className="flex items-center justify-between">
-                <label className="text-[13px] text-stone-700">Allow downloads</label>
-                <button
-                  onClick={() => setAllowDownload((v) => !v)}
-                  className={`relative w-10 h-5 rounded-full transition-colors duration-300 ${
-                    allowDownload ? "bg-accent" : "bg-stone-200"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 h-4 w-4 bg-white rounded-full shadow transition-transform duration-300 ${
-                      allowDownload ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <label className="text-[13px] text-stone-700">Allow favorites</label>
-                <button
-                  onClick={() => setAllowFavorites((v) => !v)}
-                  className={`relative w-10 h-5 rounded-full transition-colors duration-300 ${
-                    allowFavorites ? "bg-accent" : "bg-stone-200"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 h-4 w-4 bg-white rounded-full shadow transition-transform duration-300 ${
-                      allowFavorites ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="label-caps mb-2 block">
-                  Password <span className="normal-case text-stone-300">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Leave empty for open access"
-                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
-                />
-              </div>
-
-              {/* Expiration */}
-              <div>
-                <label className="label-caps mb-2 block">
-                  Expires <span className="normal-case text-stone-300">(optional)</span>
-                </label>
-                <input
-                  type="date"
-                  value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                  min={new Date().toISOString().split("T")[0]}
-                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
-                />
-              </div>
-
-              {/* Custom message */}
-              <div>
-                <label className="label-caps mb-2 block">
-                  Message <span className="normal-case text-stone-300">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={customMessage}
-                  onChange={(e) => setCustomMessage(e.target.value)}
-                  placeholder="A note for your client"
-                  className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
-                />
-              </div>
-
-              {/* Download Protection */}
-              <div className="pt-2">
-                <p className="text-[11px] uppercase tracking-[0.15em] text-stone-400 font-medium mb-3">
-                  Download Protection
-                </p>
-
-                <label className="flex items-center justify-between py-2 cursor-pointer group">
-                  <span className="text-[13px] text-stone-600 group-hover:text-stone-900 transition-colors">
-                    Require PIN for Download All
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !requirePinBulk;
-                      setRequirePinBulk(next);
-                      if (next && !downloadPin) setDownloadPin(generatePin());
-                    }}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${
-                      requirePinBulk ? "bg-stone-900" : "bg-stone-200"
-                    }`}
-                  >
-                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      requirePinBulk ? "translate-x-4" : ""
-                    }`} />
-                  </button>
-                </label>
-
-                <label className="flex items-center justify-between py-2 cursor-pointer group">
-                  <span className="text-[13px] text-stone-600 group-hover:text-stone-900 transition-colors">
-                    Require PIN for individual downloads
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !requirePinIndividual;
-                      setRequirePinIndividual(next);
-                      if (next && !downloadPin) setDownloadPin(generatePin());
-                    }}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${
-                      requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
-                    }`}
-                  >
-                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      requirePinIndividual ? "translate-x-4" : ""
-                    }`} />
-                  </button>
-                </label>
-
-                {(requirePinBulk || requirePinIndividual) && (
-                  <div className="mt-3">
-                    <label className="label-caps mb-2 block">PIN Code</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={4}
-                      value={downloadPin}
-                      onChange={(e) => setDownloadPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      placeholder="4-digit PIN"
-                      className="w-full border-b border-stone-200 bg-transparent py-2 text-[14px] text-stone-900 font-mono tracking-[0.3em] placeholder:text-stone-300 placeholder:tracking-normal placeholder:font-sans focus:border-stone-900 focus:outline-none transition-colors duration-300"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <BrandButton
-                onClick={handleCreate}
-                disabled={isCreating}
-                color="emerald"
-                celebrate
-                className="w-full mt-2"
-              >
-                <Link2 className="h-4 w-4" />
-                {isCreating
-                  ? "Creating..."
-                  : imageIds?.length
-                    ? "Create selection link"
-                    : "Create link"}
-              </BrandButton>
-            </div>
+            <BrandButton
+              onClick={handleCreate}
+              disabled={isCreating}
+              color="emerald"
+              celebrate
+              className="w-full"
+            >
+              <Link2 className="h-4 w-4" />
+              {isCreating
+                ? "Creating..."
+                : imageIds?.length
+                  ? "Create selection link"
+                  : "Create link"}
+            </BrandButton>
           </section>
 
           {/* Existing shares */}

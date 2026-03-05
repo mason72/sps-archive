@@ -91,6 +91,16 @@ export function CoverLayoutTab({
         Choose how the cover image is displayed on the gallery page.
       </p>
 
+      {/* ─── None notice ─── */}
+      {value === "none" && (
+        <div className="mb-6 p-4 bg-stone-50 border border-stone-200">
+          <p className="text-[13px] font-medium text-stone-700 mb-1">No cover image</p>
+          <p className="text-[12px] text-stone-400 leading-relaxed">
+            The gallery will open directly with the title and photo grid — no hero section.
+          </p>
+        </div>
+      )}
+
       {/* ─── Mosaic auto-select notice ─── */}
       {value === "mosaic" && (
         <div className="mb-6 p-4 bg-stone-50 border border-stone-200">
@@ -102,7 +112,7 @@ export function CoverLayoutTab({
       )}
 
       {/* ─── Cover image selector ─── */}
-      {onCoverImageChange && value !== "mosaic" && (
+      {onCoverImageChange && value !== "mosaic" && value !== "none" && (
         <div className="mb-6">
           {/* Upload cover image */}
           {eventId && (
@@ -240,6 +250,13 @@ function CoverImagePreview({
   const text = isActive ? "bg-stone-600" : "bg-stone-400";
 
   switch (layout) {
+    case "none":
+      return (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3">
+          <div className={`h-1 w-10 ${text}`} />
+          <div className={`h-0.5 w-6 bg-stone-200`} />
+        </div>
+      );
     case "center":
       return (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-1">
@@ -287,6 +304,18 @@ function LayoutPreview({ layout, isActive }: { layout: CoverLayout; isActive: bo
   const text = isActive ? "bg-stone-600" : "bg-stone-400";
 
   switch (layout) {
+    case "none":
+      return (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3">
+          <div className={`h-1 w-10 ${text}`} />
+          <div className={`h-0.5 w-6 ${isActive ? "bg-stone-300" : "bg-stone-200"}`} />
+          <div className="flex gap-0.5 mt-1">
+            <div className={`w-3 h-3 ${isActive ? "bg-stone-200" : "bg-stone-150"} bg-stone-200`} />
+            <div className={`w-3 h-3 ${isActive ? "bg-stone-200" : "bg-stone-150"} bg-stone-200`} />
+            <div className={`w-3 h-3 ${isActive ? "bg-stone-200" : "bg-stone-150"} bg-stone-200`} />
+          </div>
+        </div>
+      );
     case "center":
       return (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3">

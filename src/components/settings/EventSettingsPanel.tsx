@@ -3,22 +3,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { X, Image, Type, Palette, Grid3X3, BookmarkPlus } from "lucide-react";
+import { X, Image, Type, Palette, Grid3X3, Share2, BookmarkPlus } from "lucide-react";
 import { CoverLayoutTab } from "./CoverLayoutTab";
 import { TypographyTab } from "./TypographyTab";
 import { ColorTab } from "./ColorTab";
 import { GridTab } from "./GridTab";
+import { SharingTab } from "./SharingTab";
 import type { EventSettings } from "@/types/event-settings";
-import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
+import { DEFAULT_EVENT_SETTINGS, DEFAULT_SHARING_SETTINGS } from "@/types/event-settings";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "cover" | "typography" | "color" | "grid";
+type SettingsTab = "cover" | "typography" | "color" | "grid" | "sharing";
 
 const TABS: { id: SettingsTab; icon: typeof Image; label: string }[] = [
   { id: "cover", icon: Image, label: "Cover" },
   { id: "typography", icon: Type, label: "Typography" },
   { id: "color", icon: Palette, label: "Color" },
   { id: "grid", icon: Grid3X3, label: "Grid" },
+  { id: "sharing", icon: Share2, label: "Sharing" },
 ];
 
 interface EventSettingsPanelProps {
@@ -211,6 +213,12 @@ export function EventSettingsPanel({
               onChange={(grid) =>
                 updateSettings({ grid: { ...localSettings.grid, ...grid } })
               }
+            />
+          )}
+          {activeTab === "sharing" && (
+            <SharingTab
+              value={localSettings.sharing ?? DEFAULT_SHARING_SETTINGS}
+              onChange={(sharing) => updateSettings({ sharing })}
             />
           )}
         </div>

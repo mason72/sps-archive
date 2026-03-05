@@ -1,4 +1,5 @@
 export type CoverLayout =
+  | "none"
   | "center"
   | "love"
   | "left"
@@ -25,6 +26,17 @@ export type BodyFont = "inter" | "source-serif" | "lora" | "dm-sans";
 export type GridGap = "tight" | "normal" | "loose";
 export type GridStyle = "masonry" | "uniform";
 
+export interface SharingSettings {
+  allowDownload: boolean;
+  allowFavorites: boolean;
+  password: string;
+  expiresAt: string;
+  customMessage: string;
+  requirePinBulk: boolean;
+  requirePinIndividual: boolean;
+  downloadPin: string;
+}
+
 export interface EventSettings {
   cover: {
     layout: CoverLayout;
@@ -46,10 +58,22 @@ export interface EventSettings {
     style: GridStyle;
     showFilenames?: boolean;
   };
+  sharing: SharingSettings;
 }
 
+export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
+  allowDownload: true,
+  allowFavorites: true,
+  password: "",
+  expiresAt: "",
+  customMessage: "",
+  requirePinBulk: false,
+  requirePinIndividual: false,
+  downloadPin: "",
+};
+
 export const DEFAULT_EVENT_SETTINGS: EventSettings = {
-  cover: { layout: "center" },
+  cover: { layout: "none" },
   typography: { headingFont: "playfair", bodyFont: "inter" },
   color: {
     primary: "#1C1917",
@@ -58,9 +82,11 @@ export const DEFAULT_EVENT_SETTINGS: EventSettings = {
     background: "#FFFFFF",
   },
   grid: { columns: 5, gap: "normal", style: "masonry" },
+  sharing: DEFAULT_SHARING_SETTINGS,
 };
 
 export const COVER_LAYOUTS: { value: CoverLayout; label: string }[] = [
+  { value: "none", label: "None" },
   { value: "center", label: "Center" },
   { value: "love", label: "Love" },
   { value: "left", label: "Left" },

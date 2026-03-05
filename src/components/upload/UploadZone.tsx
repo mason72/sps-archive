@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useRef, useEffect } from "react";
+import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Upload,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
@@ -15,10 +16,13 @@ import { extractExif } from "@/lib/upload/parse-filename";
 const BATCH_SIZE = 50;
 const MAX_CONCURRENT_UPLOADS = 12;
 
+type FileStatus = "pending" | "uploading" | "processing" | "complete" | "error";
+type FilterTab = "all" | "uploading" | "done" | "errors";
+
 interface UploadFile {
   id: string;
   file: File;
-  status: "pending" | "uploading" | "processing" | "complete" | "error";
+  status: FileStatus;
   progress: number;
   error?: string;
   imageId?: string;
@@ -52,7 +56,9 @@ async function processPool<T>(
 
 export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const [activeUploads, setActiveUploads] = useState(0);
+  const [filterTab, setFilterTab] = useState<FilterTab>("all");
+  const isUploading = activeUploads > 0;
   const abortRef = useRef(false);
 
   const updateFile = useCallback(
@@ -63,6 +69,10 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
     },
     []
   );
+
+  const removeFiles = useCallback((ids: Set<string>) => {
+    setFiles((prev) => prev.filter((f) => !ids.has(f.id)));
+  }, []);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -76,7 +86,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
       }));
 
       setFiles((prev) => [...prev, ...newFiles]);
-      setIsUploading(true);
+      setActiveUploads((c) => c + 1);
 
       const completedIds: string[] = [];
       const succeededIndices = new Set<number>();
@@ -136,10 +146,10 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
 
           const { uploads } = await response.json();
 
-          // 2. Upload files via our server proxy (no CORS issues)
+          // 2. Upload files directly to R2 via presigned URLs
           const uploadTasks = uploads.map(
             (
-              upload: { imageId: string; r2Key: string },
+              upload: { imageId: string; r2Key: string; uploadUrl: string },
               index: number
             ) => ({
               upload,
@@ -152,7 +162,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
           await processPool(
             uploadTasks,
             async (task: {
-              upload: { imageId: string; r2Key: string };
+              upload: { imageId: string; r2Key: string; uploadUrl: string };
               file: File;
               fileId: string;
               originalIndex: number;
@@ -162,45 +172,52 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
               try {
                 updateFile(task.fileId, { status: "uploading" });
 
-                // Upload through our API proxy → R2
-                const uploadRes = await fetch(
-                  `/api/upload/${task.upload.imageId}`,
-                  {
-                    method: "PUT",
-                    body: task.file,
-                    headers: { "Content-Type": task.file.type },
-                  }
-                );
+                // Upload directly to R2 via presigned URL (no size limit)
+                const uploadRes = await fetch(task.upload.uploadUrl, {
+                  method: "PUT",
+                  body: task.file,
+                  headers: { "Content-Type": task.file.type },
+                });
 
                 if (!uploadRes.ok) {
                   throw new Error(`Upload failed (${uploadRes.status})`);
                 }
 
-                // Mark as complete immediately — EXIF is fire-and-forget
+                // Mark as complete immediately
                 updateFile(task.fileId, {
                   status: "complete",
                   progress: 100,
                   imageId: task.upload.imageId,
                 });
 
-                // Extract EXIF in background (non-blocking)
-                task.file.arrayBuffer().then(async (buf) => {
+                // Extract EXIF (non-blocking), then ALWAYS call complete
+                // This ensures AI processing triggers even if EXIF fails
+                (async () => {
+                  let exifData: Record<string, unknown> = {};
                   try {
+                    const buf = await task.file.arrayBuffer();
                     const exif = await extractExif(buf);
+                    if (exif) exifData = exif;
+                  } catch {
+                    // EXIF extraction is non-critical
+                  }
+
+                  // Always fire — triggers thumbnails + AI pipeline
+                  try {
                     await fetch("/api/upload/complete", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({
                         imageId: task.upload.imageId,
-                        width: exif?.width,
-                        height: exif?.height,
-                        exif,
+                        width: (exifData as { width?: number }).width ?? null,
+                        height: (exifData as { height?: number }).height ?? null,
+                        exif: exifData,
                       }),
                     });
                   } catch {
-                    // EXIF extraction is non-critical
+                    // Non-critical — thumbnails/AI will be retried
                   }
-                });
+                })();
 
                 completedIds.push(task.upload.imageId);
                 succeededIndices.add(task.originalIndex);
@@ -230,7 +247,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
       } catch (err) {
         console.error("Upload error:", err);
       } finally {
-        setIsUploading(false);
+        setActiveUploads((c) => c - 1);
       }
     },
     [eventId, onUploadComplete, onUploadFailed, updateFile]
@@ -260,12 +277,48 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
       "image/heic": [".heic", ".heif"],
     },
     maxSize: 100 * 1024 * 1024,
-    disabled: isUploading,
   });
 
+  // ─── Counts ───
+  const uploadingCount = files.filter(
+    (f) => f.status === "pending" || f.status === "uploading" || f.status === "processing"
+  ).length;
   const completedCount = files.filter((f) => f.status === "complete").length;
   const errorCount = files.filter((f) => f.status === "error").length;
   const totalCount = files.length;
+
+  // ─── Filtered file list ───
+  const filteredFiles = useMemo(() => {
+    switch (filterTab) {
+      case "uploading":
+        return files.filter(
+          (f) => f.status === "pending" || f.status === "uploading" || f.status === "processing"
+        );
+      case "done":
+        return files.filter((f) => f.status === "complete");
+      case "errors":
+        return files.filter((f) => f.status === "error");
+      default:
+        return files;
+    }
+  }, [files, filterTab]);
+
+  // ─── Retry helpers ───
+  const retryFile = useCallback(
+    (fileEntry: UploadFile) => {
+      removeFiles(new Set([fileEntry.id]));
+      onDrop([fileEntry.file]);
+    },
+    [onDrop, removeFiles]
+  );
+
+  const retryAllFailed = useCallback(() => {
+    const errorFiles = files.filter((f) => f.status === "error");
+    const errorIds = new Set(errorFiles.map((f) => f.id));
+    const rawFiles = errorFiles.map((f) => f.file);
+    removeFiles(errorIds);
+    onDrop(rawFiles);
+  }, [files, onDrop, removeFiles]);
 
   return (
     <div className="space-y-6">
@@ -277,7 +330,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
           isDragActive
             ? "border-accent bg-accent-muted/30"
             : "border-stone-300 hover:border-stone-400",
-          isUploading && "pointer-events-none opacity-40"
+          isUploading && "opacity-60"
         )}
       >
         <input {...getInputProps()} />
@@ -315,6 +368,15 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
                 : `${completedCount} uploaded, ${errorCount} failed`}
             </span>
             <div className="flex items-center gap-4">
+              {!isUploading && errorCount > 0 && (
+                <button
+                  onClick={retryAllFailed}
+                  className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 transition-colors duration-300"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Retry {errorCount} failed
+                </button>
+              )}
               {isUploading && (
                 <button
                   onClick={() => {
@@ -348,8 +410,41 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
             </div>
           )}
 
+          {/* ─── Filter tabs ─── */}
+          {totalCount > 0 && (
+            <div className="flex items-center gap-1.5">
+              {(
+                [
+                  { id: "all" as FilterTab, label: "All", count: totalCount },
+                  { id: "uploading" as FilterTab, label: "Uploading", count: uploadingCount },
+                  { id: "done" as FilterTab, label: "Done", count: completedCount },
+                  { id: "errors" as FilterTab, label: "Errors", count: errorCount },
+                ] as const
+              )
+                .filter((tab) => tab.id === "all" || tab.count > 0)
+                .map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setFilterTab(tab.id)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[11px] transition-colors duration-200",
+                      filterTab === tab.id
+                        ? "bg-stone-900 text-white"
+                        : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                    )}
+                  >
+                    {tab.label}
+                    {tab.count > 0 && (
+                      <span className="ml-1 opacity-60">{tab.count}</span>
+                    )}
+                  </button>
+                ))}
+            </div>
+          )}
+
+          {/* ─── File list ─── */}
           <div className="max-h-[300px] space-y-px overflow-y-auto">
-            {files.map((f) => (
+            {filteredFiles.map((f) => (
               <div
                 key={f.id}
                 className="flex items-center gap-3 border-b border-stone-100 px-0 py-2.5 text-[13px]"
@@ -361,7 +456,9 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
                 <span className="shrink-0 text-[12px] text-stone-300">
                   {formatFileSize(f.file.size)}
                 </span>
-                {f.status === "uploading" && (
+
+                {/* Status indicators */}
+                {(f.status === "pending" || f.status === "uploading") && (
                   <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-400" />
                 )}
                 {f.status === "processing" && (
@@ -371,9 +468,18 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
                   <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
                 )}
                 {f.status === "error" && (
-                  <span title={f.error}>
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[11px] text-red-400 truncate max-w-[200px]">
+                      {f.error || "Upload failed"}
+                    </span>
+                    <button
+                      onClick={() => retryFile(f)}
+                      className="flex items-center gap-0.5 text-[11px] text-stone-400 hover:text-stone-700 transition-colors duration-200"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Retry
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

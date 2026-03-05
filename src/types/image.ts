@@ -21,6 +21,8 @@ export interface ImageData {
   processingStatus: string;
   width: number | null;
   height: number | null;
+  createdAt: string;
+  takenAt: string | null;
 }
 
 /** Full image detail returned by GET /api/images/[imageId] */

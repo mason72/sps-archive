@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { buildImageKey } from "@/lib/r2/client";
+import {
+  buildImageKey,
+  getPresignedUploadUrl,
+  ensureR2Cors,
+} from "@/lib/r2/client";
 import { parseFilename } from "@/lib/upload/parse-filename";
 
 /**
@@ -20,6 +24,9 @@ export async function POST(request: NextRequest) {
       eventId: string;
       files: { name: string; type: string; size: number }[];
     };
+
+    // Ensure R2 CORS is configured for direct browser uploads (cached per process)
+    await ensureR2Cors();
 
     if (!eventId || !files?.length) {
       return NextResponse.json(
@@ -65,13 +72,17 @@ export async function POST(request: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // Return image IDs + r2Keys (client uploads via PUT /api/upload/[imageId])
-    const uploads = records.map((r) => ({
-      imageId: r.id,
-      r2Key: r.r2Key,
-      originalFilename: r.file.name,
-      parsedName: r.parsed.name,
-    }));
+    // Generate presigned upload URLs so the browser uploads directly to R2
+    // (bypasses the ~4.5MB Vercel request body limit)
+    const uploads = await Promise.all(
+      records.map(async (r) => ({
+        imageId: r.id,
+        r2Key: r.r2Key,
+        uploadUrl: await getPresignedUploadUrl(r.r2Key, r.file.type, 3600),
+        originalFilename: r.file.name,
+        parsedName: r.parsed.name,
+      }))
+    );
 
     return NextResponse.json({ uploads });
   } catch (error) {

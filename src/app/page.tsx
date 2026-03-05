@@ -7,6 +7,7 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
+import { Greeting } from "@/components/dashboard/Greeting";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +51,7 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
     user.email?.split("@")[0] ||
     null;
 
-  // Time-of-day greeting
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  // Greeting resolved client-side (see Greeting component) to use visitor's timezone
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -76,15 +74,7 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
           className="font-editorial text-[clamp(36px,5vw,56px)] leading-[0.95] text-stone-900 reveal"
           style={{ animationDelay: "0.1s" }}
         >
-          {greeting}
-          {displayName && (
-            <>
-              ,{" "}
-              <span className="italic text-stone-500 font-serif font-normal">
-                {displayName}
-              </span>
-            </>
-          )}
+          <Greeting name={displayName} />
         </h2>
         <p
           className="label-caps mt-4 reveal"

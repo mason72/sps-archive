@@ -39,7 +39,7 @@ export async function GET(
     const { data: rawImages, error: imagesError } = await supabase
       .from("images")
       .select(
-        "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height"
+        "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at"
       )
       .eq("event_id", eventId)
       .neq("processing_status", "error")
@@ -70,6 +70,8 @@ export async function GET(
           processingStatus: img.processing_status,
           width: img.width,
           height: img.height,
+          createdAt: img.created_at,
+          takenAt: img.taken_at,
         };
       })
     );

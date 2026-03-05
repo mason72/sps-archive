@@ -483,7 +483,7 @@ export default function GalleryPage({
 
   // Cover image present? Mosaic uses mosaicImageUrls instead of a single coverImageUrl
   const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
-  const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout);
+  const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout && s?.coverLayout !== "none");
   // Some layouts render the title inside the cover — skip it in the header
   // Mosaic does NOT render title inside — excluded from this list
   const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");

@@ -3,12 +3,15 @@ import { nanoid } from "nanoid";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { hashPassword } from "@/lib/shares/hash";
 import { logActivity } from "@/lib/analytics/log";
+import { DEFAULT_SHARING_SETTINGS } from "@/types/event-settings";
+import type { SharingSettings } from "@/types/event-settings";
 
 /**
  * POST /api/shares — Create a new share link for an event.
  *
  * Body: {
  *   eventId: string,
+ *   useEventDefaults?: boolean,   // pull defaults from event settings.sharing
  *   password?: string,
  *   allowDownload?: boolean,
  *   allowFavorites?: boolean,
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       eventId,
+      useEventDefaults,
       password,
       allowDownload,
       allowFavorites,
@@ -36,6 +40,7 @@ export async function POST(request: NextRequest) {
       requirePinIndividual,
     } = body as {
       eventId: string;
+      useEventDefaults?: boolean;
       password?: string;
       allowDownload?: boolean;
       allowFavorites?: boolean;
@@ -51,10 +56,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "eventId is required" }, { status: 400 });
     }
 
-    // Verify user owns this event
+    // Verify user owns this event (and fetch settings when needed)
     const { data: event, error: eventError } = await supabase
       .from("events")
-      .select("id")
+      .select("id, settings")
       .eq("id", eventId)
       .single();
 
@@ -62,8 +67,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Resolve share settings — either from event defaults or request body
+    const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
+    const sharing: SharingSettings = useEventDefaults
+      ? { ...DEFAULT_SHARING_SETTINGS, ...((eventSettings.sharing ?? {}) as Partial<SharingSettings>) }
+      : DEFAULT_SHARING_SETTINGS;
+
+    const resolvedPassword = useEventDefaults ? sharing.password : password;
+    const resolvedAllowDownload = useEventDefaults ? sharing.allowDownload : (allowDownload ?? true);
+    const resolvedAllowFavorites = useEventDefaults ? sharing.allowFavorites : (allowFavorites ?? true);
+    const resolvedExpiresAt = useEventDefaults ? sharing.expiresAt : expiresAt;
+    const resolvedCustomMessage = useEventDefaults ? sharing.customMessage : customMessage;
+    const resolvedDownloadPin = useEventDefaults ? sharing.downloadPin : downloadPin;
+    const resolvedRequirePinBulk = useEventDefaults ? sharing.requirePinBulk : (requirePinBulk ?? false);
+    const resolvedRequirePinIndividual = useEventDefaults ? sharing.requirePinIndividual : (requirePinIndividual ?? false);
+
     const slug = nanoid(10);
-    const passwordHash = password ? await hashPassword(password) : null;
+    const passwordHash = resolvedPassword ? await hashPassword(resolvedPassword) : null;
 
     // Determine share type: 'selection' if imageIds provided, else 'full'
     const isSelection = imageIds && imageIds.length > 0;
@@ -74,16 +94,16 @@ export async function POST(request: NextRequest) {
         event_id: eventId,
         slug,
         password_hash: passwordHash,
-        allow_download: allowDownload ?? true,
-        allow_favorites: allowFavorites ?? true,
-        expires_at: expiresAt || null,
-        custom_message: customMessage || null,
+        allow_download: resolvedAllowDownload,
+        allow_favorites: resolvedAllowFavorites,
+        expires_at: resolvedExpiresAt || null,
+        custom_message: resolvedCustomMessage || null,
         is_active: true,
         share_type: isSelection ? "selection" : "full",
         image_ids: isSelection ? imageIds : null,
-        download_pin: downloadPin || null,
-        require_pin_bulk: requirePinBulk ?? false,
-        require_pin_individual: requirePinIndividual ?? false,
+        download_pin: resolvedDownloadPin || null,
+        require_pin_bulk: resolvedRequirePinBulk,
+        require_pin_individual: resolvedRequirePinIndividual,
       })
       .select()
       .single();
