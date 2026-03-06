@@ -9,12 +9,20 @@ import {
   Loader2,
   AlertCircle,
   RotateCcw,
+  ShieldAlert,
 } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
 
 const BATCH_SIZE = 50;
 const MAX_CONCURRENT_UPLOADS = 12;
+
+/**
+ * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to fetch")
+ * with no response body. After this many consecutive TypeErrors on R2 PUTs,
+ * we surface a CORS configuration error instead of per-file errors.
+ */
+const CORS_FAILURE_THRESHOLD = 3;
 
 type FileStatus = "pending" | "uploading" | "processing" | "complete" | "error";
 type FilterTab = "all" | "uploading" | "done" | "errors";
@@ -58,8 +66,10 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [activeUploads, setActiveUploads] = useState(0);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
+  const [corsError, setCorsError] = useState(false);
   const isUploading = activeUploads > 0;
   const abortRef = useRef(false);
+  const corsFailureCount = useRef(0);
 
   const updateFile = useCallback(
     (id: string, update: Partial<UploadFile>) => {
@@ -77,6 +87,8 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       abortRef.current = false;
+      corsFailureCount.current = 0;
+      setCorsError(false);
 
       const newFiles: UploadFile[] = acceptedFiles.map((file, i) => ({
         id: `${Date.now()}-${i}`,
@@ -173,15 +185,32 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
                 updateFile(task.fileId, { status: "uploading" });
 
                 // Upload directly to R2 via presigned URL (no size limit)
-                const uploadRes = await fetch(task.upload.uploadUrl, {
-                  method: "PUT",
-                  body: task.file,
-                  headers: { "Content-Type": task.file.type },
-                });
+                let uploadRes: Response;
+                try {
+                  uploadRes = await fetch(task.upload.uploadUrl, {
+                    method: "PUT",
+                    body: task.file,
+                    headers: { "Content-Type": task.file.type },
+                  });
+                } catch (fetchErr) {
+                  // TypeError("Failed to fetch") is the browser's signal for CORS blocks.
+                  // Track consecutive failures — if systematic, it's a CORS config issue.
+                  if (fetchErr instanceof TypeError) {
+                    corsFailureCount.current++;
+                    if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
+                      setCorsError(true);
+                      abortRef.current = true;
+                    }
+                  }
+                  throw fetchErr;
+                }
 
                 if (!uploadRes.ok) {
                   throw new Error(`Upload failed (${uploadRes.status})`);
                 }
+
+                // R2 PUT succeeded — reset CORS failure counter
+                corsFailureCount.current = 0;
 
                 // Mark as complete immediately
                 updateFile(task.fileId, {
@@ -225,7 +254,9 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
                 updateFile(task.fileId, {
                   status: "error",
                   error:
-                    err instanceof Error ? err.message : "Upload failed",
+                    err instanceof TypeError
+                      ? "Storage connection failed"
+                      : err instanceof Error ? err.message : "Upload failed",
                 });
               }
             },
@@ -322,6 +353,27 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
 
   return (
     <div className="space-y-6">
+      {/* ─── CORS / infrastructure error banner ─── */}
+      {corsError && (
+        <div className="flex items-start gap-3 border border-red-200 bg-red-50 px-4 py-3">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+          <div className="min-w-0 space-y-1">
+            <p className="text-[13px] font-medium text-red-800">
+              Storage configuration required
+            </p>
+            <p className="text-[12px] leading-relaxed text-red-600">
+              Uploads are being blocked by the storage provider. CORS must be
+              configured on the R2 bucket to allow direct browser uploads.
+              Run{" "}
+              <code className="rounded bg-red-100 px-1 py-0.5 text-[11px] font-mono">
+                node scripts/setup-r2-cors.mjs
+              </code>{" "}
+              or configure CORS in the Cloudflare R2 dashboard.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ─── Drop zone ─── */}
       <div
         {...getRootProps()}

@@ -4,7 +4,6 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import {
   buildImageKey,
   getPresignedUploadUrl,
-  ensureR2Cors,
 } from "@/lib/r2/client";
 import { parseFilename } from "@/lib/upload/parse-filename";
 
@@ -24,9 +23,6 @@ export async function POST(request: NextRequest) {
       eventId: string;
       files: { name: string; type: string; size: number }[];
     };
-
-    // Ensure R2 CORS is configured for direct browser uploads (cached per process)
-    await ensureR2Cors();
 
     if (!eventId || !files?.length) {
       return NextResponse.json(

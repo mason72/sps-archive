@@ -3,7 +3,6 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  PutBucketCorsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -54,35 +53,6 @@ export async function getPresignedUploadUrl(
     }),
     { expiresIn }
   );
-}
-
-/**
- * Ensure CORS is configured on the R2 bucket for direct browser uploads.
- * Idempotent — safe to call multiple times. Cached per process.
- */
-let corsConfigured = false;
-export async function ensureR2Cors(): Promise<void> {
-  if (corsConfigured) return;
-  try {
-    await R2.send(
-      new PutBucketCorsCommand({
-        Bucket: BUCKET,
-        CORSConfiguration: {
-          CORSRules: [
-            {
-              AllowedOrigins: ["*"],
-              AllowedMethods: ["PUT", "GET"],
-              AllowedHeaders: ["Content-Type"],
-              MaxAgeSeconds: 86400,
-            },
-          ],
-        },
-      })
-    );
-    corsConfigured = true;
-  } catch (e) {
-    console.warn("Failed to configure R2 CORS (may need manual setup):", e);
-  }
 }
 
 /** Generate a presigned download URL */
