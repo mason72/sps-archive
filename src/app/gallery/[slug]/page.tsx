@@ -217,6 +217,92 @@ function CoverSection({
   );
 }
 
+/* ─────────────────────────────────────────────
+ * SectionedGallery — renders images grouped by section
+ * ───────────────────────────────────────────── */
+function SectionedGallery({
+  images,
+  sections,
+  allowDownload,
+  allowFavorites,
+  favoriteIds,
+  onFavorite,
+  onImageClick,
+  onDownloadClick,
+  gridStyle,
+  gridColumns,
+  gridGap,
+  branding,
+}: {
+  images: GalleryImage[];
+  sections: GallerySection[];
+  allowDownload: boolean;
+  allowFavorites: boolean;
+  favoriteIds: Set<string>;
+  onFavorite?: (imageId: string) => void;
+  onImageClick: (id: string) => void;
+  onDownloadClick?: (image: GalleryImage) => void;
+  gridStyle?: "masonry" | "uniform";
+  gridColumns?: number;
+  gridGap?: "tight" | "normal" | "loose";
+  branding: GalleryBranding | null;
+}) {
+  const imageMap = new Map(images.map((img) => [img.id, img]));
+  const assignedIds = new Set(sections.flatMap((s) => s.imageIds));
+  const unsectioned = images.filter((img) => !assignedIds.has(img.id));
+
+  const gridProps = {
+    allowDownload,
+    allowFavorites,
+    favoriteIds,
+    onFavorite,
+    onImageClick,
+    onDownloadClick,
+    gridStyle,
+    gridColumns,
+    gridGap,
+  };
+
+  return (
+    <div className="space-y-16">
+      {/* Unsectioned images first */}
+      {unsectioned.length > 0 && (
+        <GalleryGrid images={unsectioned} {...gridProps} />
+      )}
+
+      {/* Each section with a heading */}
+      {sections.map((section) => {
+        const sectionImages = section.imageIds
+          .map((id) => imageMap.get(id))
+          .filter((img): img is GalleryImage => !!img);
+        if (sectionImages.length === 0) return null;
+
+        return (
+          <div key={section.id}>
+            <div className="mb-6">
+              <h2
+                className="font-editorial text-[22px] text-stone-900"
+                style={{ color: branding?.primaryColor || undefined }}
+              >
+                {section.name}
+              </h2>
+              {section.description && (
+                <p
+                  className="text-[13px] mt-1"
+                  style={{ color: branding?.secondaryColor || "#a8a29e" }}
+                >
+                  {section.description}
+                </p>
+              )}
+            </div>
+            <GalleryGrid images={sectionImages} {...gridProps} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function GalleryPage({
   params,
 }: {
@@ -903,88 +989,3 @@ export default function GalleryPage({
   );
 }
 
-/* ─────────────────────────────────────────────
- * SectionedGallery — renders images grouped by section
- * ───────────────────────────────────────────── */
-function SectionedGallery({
-  images,
-  sections,
-  allowDownload,
-  allowFavorites,
-  favoriteIds,
-  onFavorite,
-  onImageClick,
-  onDownloadClick,
-  gridStyle,
-  gridColumns,
-  gridGap,
-  branding,
-}: {
-  images: GalleryImage[];
-  sections: GallerySection[];
-  allowDownload: boolean;
-  allowFavorites: boolean;
-  favoriteIds: Set<string>;
-  onFavorite?: (imageId: string) => void;
-  onImageClick: (id: string) => void;
-  onDownloadClick?: (image: GalleryImage) => void;
-  gridStyle?: "masonry" | "uniform";
-  gridColumns?: number;
-  gridGap?: "tight" | "normal" | "loose";
-  branding: GalleryBranding | null;
-}) {
-  const imageMap = new Map(images.map((img) => [img.id, img]));
-  const assignedIds = new Set(sections.flatMap((s) => s.imageIds));
-  const unsectioned = images.filter((img) => !assignedIds.has(img.id));
-
-  const gridProps = {
-    allowDownload,
-    allowFavorites,
-    favoriteIds,
-    onFavorite,
-    onImageClick,
-    onDownloadClick,
-    gridStyle,
-    gridColumns,
-    gridGap,
-  };
-
-  return (
-    <div className="space-y-16">
-      {/* Unsectioned images first */}
-      {unsectioned.length > 0 && (
-        <GalleryGrid images={unsectioned} {...gridProps} />
-      )}
-
-      {/* Each section with a heading */}
-      {sections.map((section) => {
-        const sectionImages = section.imageIds
-          .map((id) => imageMap.get(id))
-          .filter((img): img is GalleryImage => !!img);
-        if (sectionImages.length === 0) return null;
-
-        return (
-          <div key={section.id}>
-            <div className="mb-6">
-              <h2
-                className="font-editorial text-[22px] text-stone-900"
-                style={{ color: branding?.primaryColor || undefined }}
-              >
-                {section.name}
-              </h2>
-              {section.description && (
-                <p
-                  className="text-[13px] mt-1"
-                  style={{ color: branding?.secondaryColor || "#a8a29e" }}
-                >
-                  {section.description}
-                </p>
-              )}
-            </div>
-            <GalleryGrid images={sectionImages} {...gridProps} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
