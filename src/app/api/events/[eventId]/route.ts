@@ -149,6 +149,7 @@ export async function GET(
         event_date: event.event_date,
         description: event.description,
         settings: event.settings || {},
+        created_at: event.created_at,
       },
       images,
       stacks,

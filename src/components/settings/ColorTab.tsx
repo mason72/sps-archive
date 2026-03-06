@@ -53,27 +53,60 @@ export function ColorTab({ colors, onChange }: ColorTabProps) {
       <div className="mt-8">
         <p className="label-caps mb-3">Preview</p>
         <div
-          className="p-6 border border-stone-200"
+          className="border border-stone-200 overflow-hidden"
           style={{ backgroundColor: colors.background }}
         >
-          <h4
-            className="font-serif text-xl mb-2"
-            style={{ color: colors.primary }}
-          >
-            Event Title
-          </h4>
-          <p
-            className="text-[13px] mb-3"
-            style={{ color: colors.secondary }}
-          >
-            A beautiful collection of photos from the event.
-          </p>
-          <span
-            className="text-[12px] font-medium"
-            style={{ color: colors.accent }}
-          >
-            View Gallery →
-          </span>
+          {/* Mini gallery header */}
+          <div className="px-5 pt-5 pb-4">
+            <h4
+              className="font-serif text-lg leading-tight mb-1"
+              style={{ color: colors.primary }}
+            >
+              Sarah & James
+            </h4>
+            <p
+              className="text-[12px] mb-3"
+              style={{ color: colors.secondary }}
+            >
+              A summer wedding in the countryside
+            </p>
+            <div className="flex items-center gap-3">
+              <span
+                className="text-[11px] font-medium uppercase tracking-[0.1em]"
+                style={{ color: colors.accent }}
+              >
+                View Gallery
+              </span>
+              <span
+                className="text-[11px]"
+                style={{ color: colors.secondary, opacity: 0.6 }}
+              >
+                48 photos
+              </span>
+            </div>
+          </div>
+
+          {/* Mini photo grid placeholder */}
+          <div className="px-5 pb-5">
+            <div className="grid grid-cols-4 gap-1">
+              {[0.85, 0.7, 0.75, 0.65, 0.9, 0.6, 0.8, 0.7].map((opacity, i) => (
+                <div
+                  key={i}
+                  className="aspect-square"
+                  style={{
+                    backgroundColor: colors.primary,
+                    opacity: opacity * 0.15,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Accent bar */}
+          <div
+            className="h-1"
+            style={{ backgroundColor: colors.accent }}
+          />
         </div>
       </div>
     </div>

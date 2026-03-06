@@ -14,6 +14,12 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeft,
+  Sparkles,
+  Loader2,
+  MapPin,
+  UserRound,
+  ImageIcon,
+  CalendarDays,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -45,6 +51,9 @@ interface EventSidebarProps {
   eventName: string;
   eventType?: string | null;
   eventDate?: string | null;
+  eventDescription?: string | null;
+  eventCreatedAt?: string;
+  totalImageCount?: number;
   sections: SectionItem[];
   onSectionsChange: (sections: SectionItem[]) => void;
   activeSection: string | null;
@@ -75,6 +84,9 @@ export function EventSidebar({
   eventName,
   eventType,
   eventDate,
+  eventDescription,
+  eventCreatedAt,
+  totalImageCount,
   sections,
   onSectionsChange,
   activeSection,
@@ -206,6 +218,10 @@ export function EventSidebar({
             eventName={eventName}
             eventType={eventType}
             eventDate={eventDate}
+            eventDescription={eventDescription}
+            eventCreatedAt={eventCreatedAt}
+            totalImageCount={totalImageCount}
+            settings={settings}
             onEventUpdate={onEventUpdate}
           />
         )}
@@ -261,7 +277,10 @@ function SectionsPanel({
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const hasAutoSections = sections.some((s) => s.isAuto);
 
   const handleCreate = useCallback(async () => {
     const trimmed = newName.trim();
@@ -276,8 +295,8 @@ function SectionsPanel({
       if (!res.ok) throw new Error("Failed to create section");
       const data = await res.json();
       onSectionsChange([
-        ...sections,
         { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
+        ...sections,
       ]);
       setNewName("");
       toast.success("Section created");
@@ -287,6 +306,27 @@ function SectionsPanel({
       setIsCreating(false);
     }
   }, [eventId, newName, sections, onSectionsChange]);
+
+  const handleGenerateSections = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/auto-sections`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to generate sections");
+      }
+      const data = await res.json();
+      onSectionsChange(data.sections);
+      onSetActiveSection(null);
+      toast.success(`Generated ${data.sections.filter((s: SectionItem) => s.isAuto).length} sections from AI tags`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate sections");
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [eventId, onSectionsChange, onSetActiveSection]);
 
   const handleRename = useCallback(
     async (sectionId: string, name: string) => {
@@ -362,9 +402,30 @@ function SectionsPanel({
         </button>
 
         {sections.length === 0 ? (
-          <div className="px-4 py-8 text-center">
-            <FolderOpen size={24} className="text-stone-200 mx-auto mb-2" />
-            <p className="text-[12px] text-stone-400">No sections yet</p>
+          /* ─── Empty state ─── */
+          <div className="px-5 py-10 text-center">
+            <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-3">
+              <FolderOpen size={18} className="text-stone-400" />
+            </div>
+            <p className="text-[13px] font-medium text-stone-700 mb-1">
+              Organize with sections
+            </p>
+            <p className="text-[11px] text-stone-400 leading-relaxed mb-5">
+              Group images into sections like &quot;Ceremony&quot;, &quot;Portraits&quot;, or &quot;Reception&quot;.
+              Create them manually or let AI generate them from scene tags.
+            </p>
+            <button
+              onClick={handleGenerateSections}
+              disabled={isGenerating}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors disabled:opacity-50"
+            >
+              {isGenerating ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
+              {isGenerating ? "Generating..." : "Generate from AI tags"}
+            </button>
           </div>
         ) : (
           sections.map((section, index) => (
@@ -393,8 +454,9 @@ function SectionsPanel({
         )}
       </div>
 
-      {/* Create new section */}
-      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-3">
+      {/* Footer: create new + generate */}
+      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-3 space-y-2">
+        {/* Create new section */}
         <div className="flex items-center gap-2">
           <Plus size={14} className="text-stone-500 shrink-0" />
           <input
@@ -404,7 +466,7 @@ function SectionsPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCreate();
             }}
-            placeholder="New section…"
+            placeholder="New section..."
             className="flex-1 text-[12px] text-stone-900 placeholder:text-stone-300 bg-transparent border-b border-stone-200 focus:border-stone-900 outline-none py-1 transition-colors"
           />
           <Button
@@ -413,9 +475,29 @@ function SectionsPanel({
             onClick={handleCreate}
             disabled={!newName.trim() || isCreating}
           >
-            {isCreating ? "…" : "Add"}
+            {isCreating ? "..." : "Add"}
           </Button>
         </div>
+
+        {/* Generate sections button (always visible when sections exist) */}
+        {sections.length > 0 && (
+          <button
+            onClick={handleGenerateSections}
+            disabled={isGenerating}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-stone-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <Sparkles size={11} />
+            )}
+            {isGenerating
+              ? "Generating..."
+              : hasAutoSections
+                ? "Regenerate AI sections"
+                : "Generate from AI tags"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -567,18 +649,29 @@ function DetailsPanel({
   eventName,
   eventType,
   eventDate,
+  eventDescription,
+  eventCreatedAt,
+  totalImageCount,
+  settings,
   onEventUpdate,
 }: {
   eventId: string;
   eventName: string;
   eventType?: string | null;
   eventDate?: string | null;
+  eventDescription?: string | null;
+  eventCreatedAt?: string;
+  totalImageCount?: number;
+  settings?: EventSettings;
   onEventUpdate?: (updates: { event_type?: string; event_date?: string }) => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(eventName);
   const [type, setType] = useState(eventType || "");
   const [date, setDate] = useState(eventDate || "");
+  const [description, setDescription] = useState(eventDescription || "");
+  const [location, setLocation] = useState("");
+  const [clientName, setClientName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
@@ -593,6 +686,30 @@ function DetailsPanel({
   useEffect(() => {
     setDate(eventDate || "");
   }, [eventDate]);
+  useEffect(() => {
+    setDescription(eventDescription || "");
+  }, [eventDescription]);
+
+  // Read location and clientName from settings
+  useEffect(() => {
+    if (settings) {
+      const s = settings as EventSettings & { location?: string; clientName?: string };
+      setLocation(s.location || "");
+      setClientName(s.clientName || "");
+    }
+  }, [settings]);
+
+  const formatDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return iso;
+    }
+  };
 
   const handleSaveName = useCallback(async () => {
     if (name.trim() === eventName) return;
@@ -618,13 +735,37 @@ function DetailsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: value || null }),
       });
-      // Map camelCase API fields to snake_case state fields
       const stateKey = field === "eventType" ? "event_type" : "event_date";
       onEventUpdate?.({ [stateKey]: value || undefined });
     } catch {
       toast.error("Failed to update");
     }
   }, [eventId, onEventUpdate]);
+
+  const handleSaveDescription = useCallback(async () => {
+    if (description === (eventDescription || "")) return;
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: description || null }),
+      });
+    } catch {
+      toast.error("Failed to save description");
+    }
+  }, [eventId, description, eventDescription]);
+
+  const handleSaveSettingsField = useCallback(async (field: string, value: string) => {
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { [field]: value || null } }),
+      });
+    } catch {
+      toast.error("Failed to update");
+    }
+  }, [eventId]);
 
   const handleDuplicate = useCallback(async () => {
     try {
@@ -699,6 +840,95 @@ function DetailsPanel({
             }}
           />
         </div>
+      </div>
+
+      <div className="h-px bg-stone-100" />
+
+      {/* Client & location */}
+      <div className="space-y-3">
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+            Client
+          </label>
+          <div className="relative">
+            <UserRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-300" />
+            <input
+              type="text"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              onBlur={() => handleSaveSettingsField("clientName", clientName)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveSettingsField("clientName", clientName);
+              }}
+              placeholder="Client name"
+              className="w-full text-[13px] text-stone-700 border border-stone-200 pl-9 pr-3 py-2 focus:border-stone-900 outline-none transition-colors placeholder:text-stone-300"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+            Location
+          </label>
+          <div className="relative">
+            <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-300" />
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              onBlur={() => handleSaveSettingsField("location", location)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveSettingsField("location", location);
+              }}
+              placeholder="Venue or city"
+              className="w-full text-[13px] text-stone-700 border border-stone-200 pl-9 pr-3 py-2 focus:border-stone-900 outline-none transition-colors placeholder:text-stone-300"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+          Description
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={handleSaveDescription}
+          rows={3}
+          placeholder="Notes about this event..."
+          className="w-full text-[13px] text-stone-700 border border-stone-200 px-3 py-2 focus:border-stone-900 outline-none transition-colors resize-none placeholder:text-stone-300"
+        />
+      </div>
+
+      <div className="h-px bg-stone-100" />
+
+      {/* Read-only info */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2.5">
+          <ImageIcon size={14} className="text-stone-300 shrink-0" />
+          <div>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium block">
+              Total images
+            </span>
+            <span className="text-[13px] text-stone-700">
+              {totalImageCount !== undefined ? totalImageCount.toLocaleString() : "--"}
+            </span>
+          </div>
+        </div>
+        {eventCreatedAt && (
+          <div className="flex items-center gap-2.5">
+            <CalendarDays size={14} className="text-stone-300 shrink-0" />
+            <div>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium block">
+                Created
+              </span>
+              <span className="text-[13px] text-stone-700">
+                {formatDate(eventCreatedAt)}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="h-px bg-stone-100" />

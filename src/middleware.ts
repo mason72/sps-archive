@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+/** 400 days in seconds — max persistent cookie lifetime per RFC 6265bis */
+const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
+
 /**
  * Middleware — Subdomain routing + Route protection + Supabase session management.
  *
@@ -49,6 +52,10 @@ export async function middleware(request: NextRequest) {
   // ─── App domain: Supabase auth + route protection ───
   let supabaseResponse = NextResponse.next({ request });
 
+  // Read "remember me" preference — defaults to persistent sessions
+  const rememberCookie = request.cookies.get("pt-remember-me");
+  const remember = rememberCookie?.value !== "0";
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -63,7 +70,11 @@ export async function middleware(request: NextRequest) {
           );
           supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              // Override maxAge based on remember-me preference
+              ...(remember ? { maxAge: PERSISTENT_MAX_AGE } : {}),
+            })
           );
         },
       },

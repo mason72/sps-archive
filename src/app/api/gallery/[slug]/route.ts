@@ -64,9 +64,15 @@ export async function GET(
 
           if (authProfile) {
             const ab = (authProfile.branding ?? {}) as Record<string, unknown>;
+            // Presign logo URL if it's an R2 key
+            const presignedLogoUrl = authProfile.logo_url
+              ? authProfile.logo_url.startsWith("branding/")
+                ? await getPresignedDownloadUrl(authProfile.logo_url, 86400)
+                : authProfile.logo_url
+              : null;
             authBranding = {
               businessName: authProfile.business_name,
-              logoUrl: authProfile.logo_url,
+              logoUrl: presignedLogoUrl,
               website: authProfile.website,
               primaryColor: (ab.primaryColor as string) || DEFAULT_BRANDING.primaryColor,
               secondaryColor: (ab.secondaryColor as string) || DEFAULT_BRANDING.secondaryColor,
@@ -108,9 +114,15 @@ export async function GET(
 
     if (profile) {
       const b = (profile.branding ?? {}) as Record<string, unknown>;
+      // Presign logo URL if it's an R2 key
+      const presignedLogoUrl = profile.logo_url
+        ? profile.logo_url.startsWith("branding/")
+          ? await getPresignedDownloadUrl(profile.logo_url, 86400)
+          : profile.logo_url
+        : null;
       branding = {
         businessName: profile.business_name,
-        logoUrl: profile.logo_url,
+        logoUrl: presignedLogoUrl,
         website: profile.website,
         primaryColor: (b.primaryColor as string) || DEFAULT_BRANDING.primaryColor,
         secondaryColor: (b.secondaryColor as string) || DEFAULT_BRANDING.secondaryColor,

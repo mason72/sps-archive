@@ -36,6 +36,7 @@ interface EventData {
   event_date: string | null;
   description: string | null;
   settings?: Record<string, unknown>;
+  created_at: string;
 }
 
 interface SectionData {
@@ -596,6 +597,9 @@ export default function EventPage({
           eventName={event.name}
           eventType={event.event_type}
           eventDate={event.event_date}
+          eventDescription={event.description}
+          eventCreatedAt={event.created_at}
+          totalImageCount={allImages.length}
           sections={sections}
           onSectionsChange={handleSectionsChange}
           activeSection={activeSection}
@@ -701,7 +705,7 @@ export default function EventPage({
         {!isLoading && !loadError && (
           <>
             {/* ─── Processing indicator ─── */}
-            {processing.isProcessing && (
+            {(processing.isProcessing || processing.failed > 0) && (
               <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
                 <div className="h-[2px] w-full overflow-hidden rounded-full bg-stone-100">
                   <div
@@ -713,10 +717,47 @@ export default function EventPage({
                     }}
                   />
                 </div>
-                <p className="mt-2 text-[13px] text-stone-400">
-                  Processing {processing.complete + processing.failed} of{" "}
-                  {processing.total} images...
-                </p>
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-[13px] text-stone-400">
+                    {processing.isProcessing ? (
+                      <>
+                        Processing {processing.complete} of {processing.total} images
+                        {processing.processing > 0 && (
+                          <span className="text-stone-300"> · {processing.processing} active</span>
+                        )}
+                        {processing.pending > 0 && (
+                          <span className="text-stone-300"> · {processing.pending} queued</span>
+                        )}
+                        {processing.failed > 0 && (
+                          <span className="text-red-400"> · {processing.failed} failed</span>
+                        )}
+                      </>
+                    ) : processing.failed > 0 ? (
+                      <span className="text-red-400">
+                        {processing.failed} {processing.failed === 1 ? "image" : "images"} failed to process
+                      </span>
+                    ) : null}
+                  </p>
+                  {(processing.failed > 0 || (processing.pending > 0 && !processing.processing)) && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/events/${eventId}/retry-processing`, { method: "POST" });
+                          if (res.ok) {
+                            toast.success("Retrying stuck images...");
+                          } else {
+                            toast.error("Failed to retry");
+                          }
+                        } catch {
+                          toast.error("Failed to retry");
+                        }
+                      }}
+                      className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors underline underline-offset-2"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

@@ -8,6 +8,26 @@ import {
   type BodyFont,
 } from "@/types/event-settings";
 
+/** Map font value to its CSS variable for actual font rendering */
+const HEADING_FONT_CSS: Record<HeadingFont, string> = {
+  playfair: "var(--font-playfair)",
+  inter: "var(--font-inter)",
+  cormorant: "var(--font-cormorant)",
+  "dm-serif": "var(--font-dm-serif)",
+  "space-grotesk": "var(--font-space-grotesk)",
+};
+
+const BODY_FONT_CSS: Record<BodyFont, string> = {
+  inter: "var(--font-inter)",
+  "source-serif": "var(--font-source-serif)",
+  lora: "var(--font-lora)",
+  "dm-sans": "var(--font-dm-sans)",
+};
+
+const HEADING_SAMPLE = "The Quiet Beauty of Light";
+const BODY_SAMPLE =
+  "Every photograph tells a story — a fleeting moment preserved in time.";
+
 interface TypographyTabProps {
   headingFont: HeadingFont;
   bodyFont: BodyFont;
@@ -17,7 +37,7 @@ interface TypographyTabProps {
 
 /**
  * TypographyTab — Font selectors for heading and body text.
- * Each option renders the font name in the actual font for preview.
+ * Each option renders sample text in the actual loaded font.
  */
 export function TypographyTab({
   headingFont,
@@ -36,35 +56,41 @@ export function TypographyTab({
           Used for event titles and section headers.
         </p>
         <div className="space-y-2">
-          {HEADING_FONTS.map((font) => (
-            <button
-              key={font.value}
-              onClick={() => onChangeHeading(font.value)}
-              className={cn(
-                "w-full text-left px-4 py-3 border transition-all duration-200",
-                headingFont === font.value
-                  ? "border-stone-900 bg-stone-50"
-                  : "border-stone-200 hover:border-stone-400"
-              )}
-            >
-              <span
+          {HEADING_FONTS.map((font) => {
+            const isActive = headingFont === font.value;
+            return (
+              <button
+                key={font.value}
+                onClick={() => onChangeHeading(font.value)}
                 className={cn(
-                  "text-[18px] leading-tight",
-                  headingFont === font.value
-                    ? "text-stone-900"
-                    : "text-stone-600",
-                  // Approximate font families for preview
-                  font.value === "playfair" && "font-serif",
-                  font.value === "inter" && "font-sans",
-                  font.value === "cormorant" && "font-serif italic",
-                  font.value === "dm-serif" && "font-serif",
-                  font.value === "space-grotesk" && "font-sans tracking-tight"
+                  "w-full text-left px-4 py-3.5 border transition-all duration-200",
+                  isActive
+                    ? "border-stone-900 bg-stone-50 shadow-sm"
+                    : "border-stone-200 hover:border-stone-400"
                 )}
               >
-                {font.label}
-              </span>
-            </button>
-          ))}
+                <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                  <span
+                    className={cn(
+                      "text-[11px] uppercase tracking-[0.12em] font-medium",
+                      isActive ? "text-stone-900" : "text-stone-400"
+                    )}
+                  >
+                    {font.label}
+                  </span>
+                </div>
+                <p
+                  className={cn(
+                    "text-[22px] leading-tight",
+                    isActive ? "text-stone-900" : "text-stone-600"
+                  )}
+                  style={{ fontFamily: HEADING_FONT_CSS[font.value] }}
+                >
+                  {HEADING_SAMPLE}
+                </p>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -77,33 +103,41 @@ export function TypographyTab({
           Used for descriptions, captions, and metadata.
         </p>
         <div className="space-y-2">
-          {BODY_FONTS.map((font) => (
-            <button
-              key={font.value}
-              onClick={() => onChangeBody(font.value)}
-              className={cn(
-                "w-full text-left px-4 py-3 border transition-all duration-200",
-                bodyFont === font.value
-                  ? "border-stone-900 bg-stone-50"
-                  : "border-stone-200 hover:border-stone-400"
-              )}
-            >
-              <span
+          {BODY_FONTS.map((font) => {
+            const isActive = bodyFont === font.value;
+            return (
+              <button
+                key={font.value}
+                onClick={() => onChangeBody(font.value)}
                 className={cn(
-                  "text-[14px]",
-                  bodyFont === font.value
-                    ? "text-stone-900"
-                    : "text-stone-600",
-                  font.value === "inter" && "font-sans",
-                  font.value === "source-serif" && "font-serif",
-                  font.value === "lora" && "font-serif italic",
-                  font.value === "dm-sans" && "font-sans tracking-tight"
+                  "w-full text-left px-4 py-3.5 border transition-all duration-200",
+                  isActive
+                    ? "border-stone-900 bg-stone-50 shadow-sm"
+                    : "border-stone-200 hover:border-stone-400"
                 )}
               >
-                {font.label}
-              </span>
-            </button>
-          ))}
+                <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                  <span
+                    className={cn(
+                      "text-[11px] uppercase tracking-[0.12em] font-medium",
+                      isActive ? "text-stone-900" : "text-stone-400"
+                    )}
+                  >
+                    {font.label}
+                  </span>
+                </div>
+                <p
+                  className={cn(
+                    "text-[14px] leading-relaxed",
+                    isActive ? "text-stone-900" : "text-stone-600"
+                  )}
+                  style={{ fontFamily: BODY_FONT_CSS[font.value] }}
+                >
+                  {BODY_SAMPLE}
+                </p>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

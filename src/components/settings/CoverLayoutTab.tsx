@@ -198,20 +198,20 @@ export function CoverLayoutTab({
       )}
 
       {/* ─── Layout options grid ─── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         {COVER_LAYOUTS.map((layout) => (
           <button
             key={layout.value}
             onClick={() => onChange(layout.value)}
             className={cn(
-              "group flex flex-col items-center gap-2 p-3 border transition-all duration-200",
+              "group flex flex-col items-center gap-2 p-2 border transition-all duration-200",
               value === layout.value
-                ? "border-stone-900 bg-stone-50"
+                ? "border-stone-900 bg-stone-50 shadow-sm"
                 : "border-stone-200 hover:border-stone-400"
             )}
           >
             {/* Layout thumbnail preview */}
-            <div className="w-full aspect-[4/3] bg-stone-100 relative overflow-hidden">
+            <div className="w-full aspect-[3/4] bg-stone-100 relative overflow-hidden">
               {coverImageUrl ? (
                 <CoverImagePreview
                   layout={layout.value}

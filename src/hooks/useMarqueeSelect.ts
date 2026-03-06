@@ -18,13 +18,17 @@ interface UseMarqueeSelectOptions {
   enabled?: boolean;
 }
 
+/** Minimum drag distance in px before the marquee activates */
+const DRAG_THRESHOLD = 8;
+
 /**
  * useMarqueeSelect — Rubber-band / lasso selection for the image grid.
  *
- * - Mousedown on empty grid space starts drawing
- * - Mousemove expands accent-colored rectangle
+ * - Mousedown anywhere in the grid area starts tracking
+ * - After exceeding DRAG_THRESHOLD px, the accent marquee rectangle appears
  * - Each frame: query `[data-image-id]` elements, check intersection
  * - Mouseup finalizes selection via onSelect(ids)
+ * - Small movements (< threshold) pass through as normal clicks
  * - Disabled on touch devices
  */
 export function useMarqueeSelect({
@@ -34,9 +38,11 @@ export function useMarqueeSelect({
 }: UseMarqueeSelectOptions) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [rect, setRect] = useState<MarqueeRect | null>(null);
-  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const startRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  const trackingRef = useRef(false); // mousedown happened, watching for threshold
   const previewIdsRef = useRef<string[]>([]);
   const rafRef = useRef<number | null>(null);
+  const clickBlockerRef = useRef(false);
 
   // Check intersection between two rects
   const rectsIntersect = useCallback(
@@ -88,13 +94,13 @@ export function useMarqueeSelect({
       // Only start on left mouse button
       if (e.button !== 0) return;
 
-      // Don't start if clicking on interactive elements
+      // Don't start if clicking on non-image interactive elements (links, inputs)
       const target = e.target as HTMLElement;
       if (
-        target.closest("button") ||
         target.closest("a") ||
         target.closest("input") ||
-        target.closest("[data-image-id]")
+        target.closest("select") ||
+        target.closest("[data-no-marquee]")
       ) {
         return;
       }
@@ -109,22 +115,39 @@ export function useMarqueeSelect({
       const x = e.clientX - containerBounds.left;
       const y = e.clientY - containerBounds.top;
 
-      startRef.current = { x, y };
+      // Start tracking, but don't activate marquee until threshold exceeded
+      startRef.current = { x, y, clientX: e.clientX, clientY: e.clientY };
+      trackingRef.current = true;
       previewIdsRef.current = [];
-      setIsDrawing(true);
-      setRect({ x, y, width: 0, height: 0 });
-
-      e.preventDefault();
     },
     [enabled, containerRef]
   );
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
-      if (!isDrawing || !startRef.current) return;
+      if (!startRef.current) return;
 
       const container = containerRef.current;
       if (!container) return;
+
+      // Check if we've exceeded the drag threshold to start drawing
+      if (trackingRef.current && !isDrawing) {
+        const dx = e.clientX - startRef.current.clientX;
+        const dy = e.clientY - startRef.current.clientY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < DRAG_THRESHOLD) return;
+
+        // Threshold exceeded — activate marquee mode
+        trackingRef.current = false;
+        setIsDrawing(true);
+        clickBlockerRef.current = true;
+
+        // Prevent text selection while dragging
+        e.preventDefault();
+      }
+
+      if (!isDrawing && !trackingRef.current) return;
 
       const containerBounds = container.getBoundingClientRect();
       const currentX = e.clientX - containerBounds.left;
@@ -143,15 +166,23 @@ export function useMarqueeSelect({
       rafRef.current = requestAnimationFrame(() => {
         previewIdsRef.current = getIntersectingIds(newRect);
       });
+
+      e.preventDefault();
     },
     [isDrawing, containerRef, getIntersectingIds]
   );
 
   const handleMouseUp = useCallback(() => {
-    if (!isDrawing) return;
+    const wasDrawing = isDrawing;
+    const wasTracking = trackingRef.current;
+
+    // Always clean up tracking state
+    trackingRef.current = false;
+
+    if (!wasDrawing && !wasTracking) return;
 
     // Finalize with whatever IDs are under the marquee
-    if (rect && (rect.width > 5 || rect.height > 5)) {
+    if (wasDrawing && rect && (rect.width > 5 || rect.height > 5)) {
       const ids = getIntersectingIds(rect);
       if (ids.length > 0) {
         onSelect(ids);
@@ -167,11 +198,38 @@ export function useMarqueeSelect({
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+
+    // Block the next click event (from mouseup on a button) if we were drawing
+    if (wasDrawing) {
+      clickBlockerRef.current = true;
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          clickBlockerRef.current = false;
+        }, 0);
+      });
+    }
   }, [isDrawing, rect, getIntersectingIds, onSelect]);
 
-  // Attach global listeners when drawing
+  // Block click events that fire after a marquee drag
   useEffect(() => {
-    if (isDrawing) {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const blockClick = (e: Event) => {
+      if (clickBlockerRef.current) {
+        e.stopPropagation();
+        e.preventDefault();
+        clickBlockerRef.current = false;
+      }
+    };
+
+    container.addEventListener("click", blockClick, true); // capture phase
+    return () => container.removeEventListener("click", blockClick, true);
+  }, [containerRef]);
+
+  // Attach global listeners when tracking or drawing
+  useEffect(() => {
+    if (isDrawing || trackingRef.current) {
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
       return () => {

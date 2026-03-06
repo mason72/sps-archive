@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { X, Image, Type, Palette, Grid3X3, Share2, BookmarkPlus } from "lucide-react";
+import { X, Image, Type, Palette, Grid3X3, Share2, BookmarkPlus, ExternalLink } from "lucide-react";
 import { CoverLayoutTab } from "./CoverLayoutTab";
 import { TypographyTab } from "./TypographyTab";
 import { ColorTab } from "./ColorTab";
@@ -152,6 +152,19 @@ export function EventSettingsPanel({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        {/* Preview Gallery button */}
+        <div className="px-6 py-3 border-b border-stone-100">
+          <a
+            href={`/gallery/preview/${eventId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 text-[12px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-all duration-200"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Preview Gallery
+          </a>
         </div>
 
         {/* Tab icons */}

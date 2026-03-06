@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, setRememberPreference } from "@/lib/supabase/client";
 import { BrandButton } from "@/components/ui/brand-button";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
@@ -22,6 +22,7 @@ function LoginForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -33,6 +34,14 @@ function LoginForm() {
     setError(null);
 
     try {
+      // Store preference so browser client + server can read it
+      setRememberPreference(rememberMe);
+      // Set a cookie for middleware/server (localStorage isn't available server-side)
+      const maxAge = rememberMe ? 60 * 60 * 24 * 400 : 0;
+      document.cookie = rememberMe
+        ? `pt-remember-me=1; path=/; max-age=${maxAge}; samesite=lax`
+        : `pt-remember-me=0; path=/; samesite=lax`; // session cookie (no max-age)
+
       const supabase = createClient();
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -100,7 +109,39 @@ function LoginForm() {
                 required
                 className="w-full border-b border-stone-200 bg-transparent py-3 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
               />
-              <div className="mt-2 text-right">
+              <div className="mt-2 flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-200 ${
+                      rememberMe
+                        ? "bg-stone-900 border-stone-900"
+                        : "border-stone-300 group-hover:border-stone-400"
+                    }`}
+                  >
+                    {rememberMe && (
+                      <svg
+                        className="w-2.5 h-2.5 text-white"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M2 6l3 3 5-5" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="text-[13px] text-stone-400 group-hover:text-stone-600 transition-colors duration-200">
+                    Remember me
+                  </span>
+                </label>
                 <Link
                   href="/forgot-password"
                   className="text-[13px] text-stone-400 hover:text-stone-700 transition-colors duration-300"

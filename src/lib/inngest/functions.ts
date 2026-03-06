@@ -42,7 +42,16 @@ export const processUploadedImage = inngest.createFunction(
       return data;
     });
 
-    // Step 2: Generate thumbnails (3 sizes via sharp)
+    // Step 2: Mark as "processing" so we can distinguish queued vs active
+    await step.run("mark-processing", async () => {
+      const supabase = createServiceClient();
+      await supabase
+        .from("images")
+        .update({ processing_status: "processing" })
+        .eq("id", imageId);
+    });
+
+    // Step 3: Generate thumbnails (3 sizes via sharp)
     await step.run("generate-thumbnails", async () => {
       await generateThumbnails(r2Key, eventId, imageRecord.original_filename);
 
@@ -54,18 +63,18 @@ export const processUploadedImage = inngest.createFunction(
         .eq("id", imageId);
     });
 
-    // Step 3: Run AI processing via Modal (CLIP + ArcFace + aesthetic)
+    // Step 4: Run AI processing via Modal (CLIP + ArcFace + aesthetic)
     const aiResult = await step.run("ai-process", async () => {
       const job = await createProcessingJob(imageId, r2Key, eventId);
       return processImage(job);
     });
 
-    // Step 4: Save AI results to Supabase
+    // Step 5: Save AI results to Supabase
     await step.run("save-results", async () => {
       await saveProcessingResults(aiResult);
     });
 
-    // Step 5: Check if all images for this event are done
+    // Step 6: Check if all images for this event are done
     await step.run("check-event-completion", async () => {
       const supabase = createServiceClient();
 

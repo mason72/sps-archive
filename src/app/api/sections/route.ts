@@ -97,16 +97,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Get max sort_order for this event
-    const { data: maxSort } = await supabase
+    // Bump all existing sections' sort_order up by 1 so the new one goes to the top
+    const { data: existingSections } = await supabase
       .from("sections")
-      .select("sort_order")
+      .select("id, sort_order")
       .eq("event_id", eventId)
-      .order("sort_order", { ascending: false })
-      .limit(1)
-      .single();
+      .order("sort_order", { ascending: true });
 
-    const nextOrder = (maxSort?.sort_order ?? -1) + 1;
+    if (existingSections && existingSections.length > 0) {
+      await Promise.all(
+        existingSections.map((s) =>
+          supabase
+            .from("sections")
+            .update({ sort_order: s.sort_order + 1 })
+            .eq("id", s.id)
+        )
+      );
+    }
 
     const { data: section, error } = await supabase
       .from("sections")
@@ -115,7 +122,7 @@ export async function POST(request: NextRequest) {
         name,
         description: description || null,
         is_auto: false,
-        sort_order: nextOrder,
+        sort_order: 0,
       })
       .select()
       .single();

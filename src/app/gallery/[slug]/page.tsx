@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
-import { Download, ChevronLeft, ChevronRight, X, Heart, Search } from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, X, Heart, Search, ArrowUpDown, Check } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
@@ -281,15 +281,15 @@ function SectionedGallery({
           <div key={section.id}>
             <div className="mb-6">
               <h2
-                className="font-editorial text-[22px] text-stone-900"
+                className="font-editorial text-[22px] text-stone-700"
                 style={{ color: branding?.primaryColor || undefined }}
               >
                 {section.name}
               </h2>
               {section.description && (
                 <p
-                  className="text-[13px] mt-1"
-                  style={{ color: branding?.secondaryColor || "#a8a29e" }}
+                  className="caption-italic mt-1"
+                  style={{ color: branding?.secondaryColor || undefined }}
                 >
                   {section.description}
                 </p>
@@ -340,6 +340,37 @@ export default function GalleryPage({
         img.originalFilename.toLowerCase().includes(q)
     );
   }, [gallery, searchQuery]);
+
+  // Sort state
+  type SortOption = "upload" | "filename-asc" | "filename-desc";
+  const [sortOption, setSortOption] = useState<SortOption>("upload");
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    if (sortOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [sortOpen]);
+
+  // Sorted images — applies sort on top of search filter
+  const sortedImages = useMemo(() => {
+    const imgs = [...filteredImages];
+    if (sortOption === "filename-asc") {
+      imgs.sort((a, b) => a.originalFilename.localeCompare(b.originalFilename));
+    } else if (sortOption === "filename-desc") {
+      imgs.sort((a, b) => b.originalFilename.localeCompare(a.originalFilename));
+    }
+    // "upload" keeps original API order
+    return imgs;
+  }, [filteredImages, sortOption]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -687,45 +718,108 @@ export default function GalleryPage({
         }
       />
 
-      {/* ─── Search + Gallery grid ─── */}
+      {/* ─── Search + Sort + Gallery grid ─── */}
       <main className="px-8 md:px-16 pt-8 pb-24">
-        {/* Search bar — only show when there are enough images to warrant it */}
+        {/* Toolbar: search + sort */}
         {gallery.images.length > 8 && (
-          <div className="relative mb-8 max-w-sm">
-            <Search
-              className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
-              style={{ color: b?.secondaryColor || "#a8a29e" }}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search photos…"
-              className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
-              style={{
-                color: b?.primaryColor || "#1c1917",
-                borderColor: searchQuery
-                  ? (b?.primaryColor || "#1c1917")
-                  : (b?.secondaryColor ? `${b.secondaryColor}40` : "#e7e5e4"),
-              }}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
+          <div className="flex items-end justify-between gap-6 mb-8">
+            {/* Search bar */}
+            <div className="relative max-w-sm flex-1">
+              <Search
+                className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
                 style={{ color: b?.secondaryColor || "#a8a29e" }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search photos…"
+                className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
+                style={{
+                  color: b?.primaryColor || "#1c1917",
+                  borderColor: searchQuery
+                    ? (b?.primaryColor || "#1c1917")
+                    : (b?.secondaryColor ? `${b.secondaryColor}40` : "#e7e5e4"),
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
+                  style={{ color: b?.secondaryColor || "#a8a29e" }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Sort dropdown */}
+            <div ref={sortRef} className="relative flex-shrink-0">
+              <button
+                onClick={() => setSortOpen((v) => !v)}
+                className="flex items-center gap-1.5 py-2 text-[12px] tracking-wide transition-colors duration-200"
+                style={{ color: b?.secondaryColor || "#a8a29e" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = b?.primaryColor || "#1c1917")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = b?.secondaryColor || "#a8a29e")}
               >
-                <X className="h-4 w-4" />
+                <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span>
+                  {sortOption === "upload" && "Upload Order"}
+                  {sortOption === "filename-asc" && "Filename A\u2009\u2192\u2009Z"}
+                  {sortOption === "filename-desc" && "Filename Z\u2009\u2192\u2009A"}
+                </span>
               </button>
-            )}
+
+              {sortOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 w-44 py-1 bg-white border shadow-sm z-30"
+                  style={{
+                    borderColor: b?.secondaryColor ? `${b.secondaryColor}25` : "#e7e5e4",
+                  }}
+                >
+                  {([
+                    { value: "upload" as SortOption, label: "Upload Order" },
+                    { value: "filename-asc" as SortOption, label: "Filename A\u2009\u2192\u2009Z" },
+                    { value: "filename-desc" as SortOption, label: "Filename Z\u2009\u2192\u2009A" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setSortOption(opt.value);
+                        setSortOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[12px] flex items-center justify-between transition-colors duration-150"
+                      style={{
+                        color: sortOption === opt.value
+                          ? (b?.primaryColor || "#1c1917")
+                          : (b?.secondaryColor || "#a8a29e"),
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = b?.secondaryColor
+                          ? `${b.secondaryColor}08`
+                          : "#fafaf9";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                    >
+                      {opt.label}
+                      {sortOption === opt.value && (
+                        <Check className="h-3 w-3" strokeWidth={2} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* When searching, show flat filtered results; otherwise show sections */}
+        {/* When searching or sorting, show flat results; otherwise show sections */}
         {searchQuery.trim() ? (
-          filteredImages.length > 0 ? (
+          sortedImages.length > 0 ? (
             <GalleryGrid
-              images={filteredImages}
+              images={sortedImages}
               allowDownload={gallery.allowDownload}
               allowFavorites={gallery.allowFavorites}
               favoriteIds={favoriteIds}
@@ -744,6 +838,20 @@ export default function GalleryPage({
               No photos match &ldquo;{searchQuery}&rdquo;
             </p>
           )
+        ) : sortOption !== "upload" ? (
+          /* When sort is active, flatten into a single sorted grid (sections lose meaning) */
+          <GalleryGrid
+            images={sortedImages}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={gallery.allowFavorites}
+            favoriteIds={favoriteIds}
+            onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+          />
         ) : gallery.sections && gallery.sections.length > 0 ? (
           <SectionedGallery
             images={gallery.images}

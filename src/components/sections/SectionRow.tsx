@@ -124,7 +124,10 @@ export function SectionRow({
               {name}
             </span>
             {isAuto && (
-              <Sparkles size={12} className="text-stone-300 shrink-0" />
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-medium uppercase tracking-wider text-amber-500/70 shrink-0" title="AI-generated section">
+                <Sparkles size={10} />
+                Auto
+              </span>
             )}
           </div>
         )}
