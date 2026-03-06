@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, use } from "react";
-import { Download, ChevronLeft, ChevronRight, X, Heart } from "lucide-react";
+import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
+import { Download, ChevronLeft, ChevronRight, X, Heart, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
-import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
+import type { GalleryData, GalleryImage, GalleryBranding, GallerySection } from "@/types/gallery";
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -242,6 +242,18 @@ export default function GalleryPage({
   const favoriteThresholdsRef = useRef(new Set<number>());
   const [pinAction, setPinAction] = useState<{ type: "bulk" } | { type: "individual"; image: GalleryImage } | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredImages = useMemo(() => {
+    if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
+    const q = searchQuery.toLowerCase();
+    return gallery.images.filter(
+      (img) =>
+        (img.parsedName && img.parsedName.toLowerCase().includes(q)) ||
+        img.originalFilename.toLowerCase().includes(q)
+    );
+  }, [gallery, searchQuery]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -589,20 +601,92 @@ export default function GalleryPage({
         }
       />
 
-      {/* ─── Gallery grid ─── */}
+      {/* ─── Search + Gallery grid ─── */}
       <main className="px-8 md:px-16 pt-8 pb-24">
-        <GalleryGrid
-          images={gallery.images}
-          allowDownload={gallery.allowDownload}
-          allowFavorites={gallery.allowFavorites}
-          favoriteIds={favoriteIds}
-          onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
-          onImageClick={(id) => setSelectedImageId(id)}
-          onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
-          gridStyle={s?.gridStyle}
-          gridColumns={s?.gridColumns}
-          gridGap={s?.gridGap}
-        />
+        {/* Search bar — only show when there are enough images to warrant it */}
+        {gallery.images.length > 8 && (
+          <div className="relative mb-8 max-w-sm">
+            <Search
+              className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
+              style={{ color: b?.secondaryColor || "#a8a29e" }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search photos…"
+              className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
+              style={{
+                color: b?.primaryColor || "#1c1917",
+                borderColor: searchQuery
+                  ? (b?.primaryColor || "#1c1917")
+                  : (b?.secondaryColor ? `${b.secondaryColor}40` : "#e7e5e4"),
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
+                style={{ color: b?.secondaryColor || "#a8a29e" }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* When searching, show flat filtered results; otherwise show sections */}
+        {searchQuery.trim() ? (
+          filteredImages.length > 0 ? (
+            <GalleryGrid
+              images={filteredImages}
+              allowDownload={gallery.allowDownload}
+              allowFavorites={gallery.allowFavorites}
+              favoriteIds={favoriteIds}
+              onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+              onImageClick={(id) => setSelectedImageId(id)}
+              onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+              gridStyle={s?.gridStyle}
+              gridColumns={s?.gridColumns}
+              gridGap={s?.gridGap}
+            />
+          ) : (
+            <p
+              className="text-center py-16 text-[14px] italic"
+              style={{ color: b?.secondaryColor || "#a8a29e" }}
+            >
+              No photos match &ldquo;{searchQuery}&rdquo;
+            </p>
+          )
+        ) : gallery.sections && gallery.sections.length > 0 ? (
+          <SectionedGallery
+            images={gallery.images}
+            sections={gallery.sections}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={gallery.allowFavorites}
+            favoriteIds={favoriteIds}
+            onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+            branding={b}
+          />
+        ) : (
+          <GalleryGrid
+            images={gallery.images}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={gallery.allowFavorites}
+            favoriteIds={favoriteIds}
+            onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+          />
+        )}
       </main>
 
       {/* ─── Simple gallery lightbox ─── */}
@@ -815,6 +899,92 @@ export default function GalleryPage({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * SectionedGallery — renders images grouped by section
+ * ───────────────────────────────────────────── */
+function SectionedGallery({
+  images,
+  sections,
+  allowDownload,
+  allowFavorites,
+  favoriteIds,
+  onFavorite,
+  onImageClick,
+  onDownloadClick,
+  gridStyle,
+  gridColumns,
+  gridGap,
+  branding,
+}: {
+  images: GalleryImage[];
+  sections: GallerySection[];
+  allowDownload: boolean;
+  allowFavorites: boolean;
+  favoriteIds: Set<string>;
+  onFavorite?: (imageId: string) => void;
+  onImageClick: (id: string) => void;
+  onDownloadClick?: (image: GalleryImage) => void;
+  gridStyle?: "masonry" | "uniform";
+  gridColumns?: number;
+  gridGap?: "tight" | "normal" | "loose";
+  branding: GalleryBranding | null;
+}) {
+  const imageMap = new Map(images.map((img) => [img.id, img]));
+  const assignedIds = new Set(sections.flatMap((s) => s.imageIds));
+  const unsectioned = images.filter((img) => !assignedIds.has(img.id));
+
+  const gridProps = {
+    allowDownload,
+    allowFavorites,
+    favoriteIds,
+    onFavorite,
+    onImageClick,
+    onDownloadClick,
+    gridStyle,
+    gridColumns,
+    gridGap,
+  };
+
+  return (
+    <div className="space-y-16">
+      {/* Unsectioned images first */}
+      {unsectioned.length > 0 && (
+        <GalleryGrid images={unsectioned} {...gridProps} />
+      )}
+
+      {/* Each section with a heading */}
+      {sections.map((section) => {
+        const sectionImages = section.imageIds
+          .map((id) => imageMap.get(id))
+          .filter((img): img is GalleryImage => !!img);
+        if (sectionImages.length === 0) return null;
+
+        return (
+          <div key={section.id}>
+            <div className="mb-6">
+              <h2
+                className="font-editorial text-[22px] text-stone-900"
+                style={{ color: branding?.primaryColor || undefined }}
+              >
+                {section.name}
+              </h2>
+              {section.description && (
+                <p
+                  className="text-[13px] mt-1"
+                  style={{ color: branding?.secondaryColor || "#a8a29e" }}
+                >
+                  {section.description}
+                </p>
+              )}
+            </div>
+            <GalleryGrid images={sectionImages} {...gridProps} />
+          </div>
+        );
+      })}
     </div>
   );
 }

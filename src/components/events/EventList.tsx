@@ -252,6 +252,7 @@ function EventCard({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const imageCount = event.images?.[0]?.count ?? 0;
 
@@ -262,6 +263,7 @@ function EventCard({
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
         setConfirmDelete(false);
+        setConfirmDuplicate(false);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -269,13 +271,19 @@ function EventCard({
   }, [menuOpen]);
 
   const handleDuplicate = async () => {
+    if (!confirmDuplicate) {
+      setConfirmDuplicate(true);
+      return;
+    }
     try {
       const res = await fetch(`/api/events/${event.id}/duplicate`, { method: "POST" });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
       toast.success(`Duplicated as "${data.event.name}"`);
       setMenuOpen(false);
+      setConfirmDuplicate(false);
       onRefresh();
+      window.dispatchEvent(new Event("events-changed"));
     } catch {
       toast.error("Failed to duplicate event");
     }
@@ -293,6 +301,7 @@ function EventCard({
       setMenuOpen(false);
       setConfirmDelete(false);
       onRefresh();
+      window.dispatchEvent(new Event("events-changed"));
     } catch {
       toast.error("Failed to delete event");
     }
@@ -339,6 +348,7 @@ function EventCard({
             e.stopPropagation();
             setMenuOpen((v) => !v);
             setConfirmDelete(false);
+            setConfirmDuplicate(false);
           }}
           className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 opacity-0 group-hover:opacity-100 hover:bg-white transition-all duration-200 z-10"
         >
@@ -371,11 +381,24 @@ function EventCard({
                 setMenuOpen(false);
               }}
             />
-            <MenuButton
-              icon={<Copy size={13} />}
-              label="Duplicate"
-              onClick={handleDuplicate}
-            />
+            {confirmDuplicate ? (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleDuplicate();
+                }}
+                className="w-full text-left px-3 py-2 text-[12px] text-emerald-600 hover:bg-emerald-50 transition-colors font-medium"
+              >
+                Confirm duplicate?
+              </button>
+            ) : (
+              <MenuButton
+                icon={<Copy size={13} />}
+                label="Duplicate"
+                onClick={handleDuplicate}
+              />
+            )}
             <div className="h-px bg-stone-100 my-1" />
             {confirmDelete ? (
               <button

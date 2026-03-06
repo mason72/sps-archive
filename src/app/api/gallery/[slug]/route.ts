@@ -213,7 +213,43 @@ export async function GET(
       }
     }
 
-    // 7. Increment view count + log activity (deferred until after response)
+    // 7. Fetch sections with their image assignments
+    const { data: rawSections } = await supabase
+      .from("sections")
+      .select("id, name, description")
+      .eq("event_id", share.event_id)
+      .order("sort_order", { ascending: true });
+
+    const imageIdSet = new Set((rawImages || []).map((img) => img.id));
+    const sectionIds = (rawSections || []).map((s) => s.id);
+
+    // Batch-fetch all section_images for these sections
+    const { data: sectionImageRows } = sectionIds.length > 0
+      ? await supabase
+          .from("section_images")
+          .select("section_id, image_id")
+          .in("section_id", sectionIds)
+      : { data: [] as { section_id: string; image_id: string }[] };
+
+    // Group image IDs by section, filtering to images in this gallery
+    const sectionImageMap = new Map<string, string[]>();
+    for (const row of sectionImageRows || []) {
+      if (!imageIdSet.has(row.image_id)) continue;
+      const arr = sectionImageMap.get(row.section_id) || [];
+      arr.push(row.image_id);
+      sectionImageMap.set(row.section_id, arr);
+    }
+
+    const sections = (rawSections || [])
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        imageIds: sectionImageMap.get(s.id) || [],
+      }))
+      .filter((s) => s.imageIds.length > 0);
+
+    // 8. Increment view count + log activity (deferred until after response)
     after(async () => {
       const svc = createServiceClient();
       await svc.rpc("increment_share_views", { p_share_id: share.id });
@@ -234,6 +270,7 @@ export async function GET(
       requirePinBulk: share.require_pin_bulk ?? false,
       requirePinIndividual: share.require_pin_individual ?? false,
       images,
+      sections: sections.length > 0 ? sections : undefined,
       shareId: share.id,
       branding,
       settings: gallerySettings,

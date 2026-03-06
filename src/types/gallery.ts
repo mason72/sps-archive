@@ -34,6 +34,13 @@ export interface GallerySettings {
   gridGap?: "tight" | "normal" | "loose";
 }
 
+export interface GallerySection {
+  id: string;
+  name: string;
+  description: string | null;
+  imageIds: string[];
+}
+
 export interface GalleryData {
   eventName: string;
   eventDate: string | null;
@@ -43,6 +50,7 @@ export interface GalleryData {
   requirePinBulk: boolean;
   requirePinIndividual: boolean;
   images: GalleryImage[];
+  sections?: GallerySection[];
   shareId: string;
   branding: GalleryBranding | null;
   settings?: GallerySettings;

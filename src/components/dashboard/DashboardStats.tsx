@@ -17,12 +17,20 @@ export function DashboardStats() {
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
-    fetch("/api/stats")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.totalImages > 0) setStats(data);
-      })
-      .catch(() => {});
+    const loadStats = () => {
+      fetch("/api/stats")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) setStats(data.totalImages > 0 ? data : null);
+        })
+        .catch(() => {});
+    };
+
+    loadStats();
+
+    // Re-fetch when events change (delete, duplicate, etc.)
+    window.addEventListener("events-changed", loadStats);
+    return () => window.removeEventListener("events-changed", loadStats);
   }, []);
 
   // Don't show stats for brand new users with no images

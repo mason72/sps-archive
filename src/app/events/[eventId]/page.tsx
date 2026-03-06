@@ -21,7 +21,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -69,8 +69,11 @@ export default function EventPage({
   const [eventSettings, setEventSettings] = useState<EventSettings>(DEFAULT_EVENT_SETTINGS);
   const [failedUploads, setFailedUploads] = useState<File[]>([]);
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
+  const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
   const [sortBy, setSortBy] = useState<"upload" | "filename" | "date-taken">("upload");
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
   const [hasActiveShare, setHasActiveShare] = useState(false);
   const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
 
@@ -91,6 +94,16 @@ export default function EventPage({
     onSelect: selection.addToSelection,
     enabled: !selectedImageId && !showShareModal,
   });
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    if (!sortOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [sortOpen]);
 
   // Processing status
   const processing = useProcessingStatus(eventId, true);
@@ -233,8 +246,8 @@ export default function EventPage({
       // Clear retry state on successful upload (retry worked)
       setRetryFiles(undefined);
 
-      // Celebrate! Subtle confetti burst for large uploads
-      if (imageIds.length >= 5) {
+      // Celebrate! Subtle confetti burst for large uploads (suppress if errors occurred)
+      if (imageIds.length >= 5 && !hadUploadErrors.current) {
         confetti({
           particleCount: Math.min(imageIds.length * 3, 150),
           spread: 70,
@@ -248,6 +261,7 @@ export default function EventPage({
   );
 
   const handleUploadFailed = useCallback((files: File[]) => {
+    hadUploadErrors.current = true;
     setFailedUploads((prev) => [...prev, ...files]);
     toast.error(
       `${files.length} ${files.length === 1 ? "image" : "images"} failed to upload`
@@ -609,7 +623,10 @@ export default function EventPage({
       <Nav>
         {/* Add Images / Upload */}
         <button
-          onClick={() => setShowUpload((v) => !v)}
+          onClick={() => {
+            setShowUpload((v) => !v);
+            hadUploadErrors.current = false;
+          }}
           className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
         >
           {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
@@ -712,6 +729,8 @@ export default function EventPage({
             >
               <UploadZone
                 eventId={eventId}
+                sectionId={activeSection}
+                sectionName={activeSection ? sections.find((s) => s.id === activeSection)?.name : null}
                 onUploadComplete={handleUploadComplete}
                 onUploadFailed={handleUploadFailed}
                 retryFiles={retryFiles}
@@ -796,17 +815,36 @@ export default function EventPage({
               </span>
               <div className="flex items-center gap-3">
                 {/* Sort dropdown */}
-                <div className="relative flex items-center gap-1.5">
-                  <ArrowUpDown className="h-3.5 w-3.5 text-stone-400" />
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as "upload" | "filename" | "date-taken")}
-                    className="appearance-none bg-transparent text-[12px] text-stone-500 hover:text-stone-700 cursor-pointer pr-4 focus:outline-none transition-colors"
+                <div ref={sortRef} className="relative">
+                  <button
+                    onClick={() => setSortOpen((v) => !v)}
+                    className="flex items-center gap-1.5 text-[12px] text-stone-500 hover:text-stone-700 transition-colors cursor-pointer"
                   >
-                    <option value="upload">Upload Date</option>
-                    <option value="filename">Filename</option>
-                    <option value="date-taken">Date Taken</option>
-                  </select>
+                    <ArrowUpDown className="h-3.5 w-3.5" />
+                    {sortBy === "upload" ? "Upload Date" : sortBy === "filename" ? "Filename" : "Date Taken"}
+                  </button>
+                  {sortOpen && (
+                    <div className="absolute top-full right-0 mt-2 bg-white border border-stone-200 shadow-lg py-1 min-w-[140px] z-30 scale-in">
+                      {([
+                        ["upload", "Upload Date"],
+                        ["filename", "Filename"],
+                        ["date-taken", "Date Taken"],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() => { setSortBy(value); setSortOpen(false); }}
+                          className={`w-full text-left px-3 py-2 text-[12px] flex items-center justify-between gap-3 transition-colors ${
+                            sortBy === value
+                              ? "text-stone-900 bg-stone-50"
+                              : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                          }`}
+                        >
+                          {label}
+                          {sortBy === value && <Check className="h-3.5 w-3.5 text-accent" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="w-px h-4 bg-stone-200" />

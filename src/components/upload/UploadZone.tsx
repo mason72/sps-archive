@@ -38,6 +38,8 @@ interface UploadFile {
 
 interface UploadZoneProps {
   eventId: string;
+  sectionId?: string | null;
+  sectionName?: string | null;
   onUploadComplete?: (imageIds: string[]) => void;
   onUploadFailed?: (files: File[]) => void;
   retryFiles?: File[];
@@ -62,7 +64,7 @@ async function processPool<T>(
   await Promise.all(workers);
 }
 
-export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
+export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [activeUploads, setActiveUploads] = useState(0);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
@@ -127,6 +129,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 eventId,
+                sectionId: sectionId || undefined,
                 files: batchFiles.map((f) => ({
                   name: f.name,
                   type: f.type,
@@ -281,7 +284,7 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
         setActiveUploads((c) => c - 1);
       }
     },
-    [eventId, onUploadComplete, onUploadFailed, updateFile]
+    [eventId, sectionId, onUploadComplete, onUploadFailed, updateFile]
   );
 
   // Handle retry: when retryFiles prop is set with files, trigger upload
@@ -405,6 +408,11 @@ export function UploadZone({ eventId, onUploadComplete, onUploadFailed, retryFil
               or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB
             </p>
           </>
+        )}
+        {sectionName && (
+          <p className="mt-3 text-[11px] uppercase tracking-[0.12em] font-medium text-accent">
+            Uploading to: {sectionName}
+          </p>
         )}
       </div>
 

@@ -46,7 +46,7 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
 
   const p = profile as { display_name?: string; business_name?: string } | null;
   const displayName =
-    p?.display_name ||
+    p?.display_name?.split(" ")[0] ||
     p?.business_name ||
     user.email?.split("@")[0] ||
     null;

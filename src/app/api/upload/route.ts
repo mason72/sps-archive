@@ -19,8 +19,9 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { eventId, files } = body as {
+    const { eventId, sectionId, files } = body as {
       eventId: string;
+      sectionId?: string;
       files: { name: string; type: string; size: number }[];
     };
 
@@ -67,6 +68,16 @@ export async function POST(request: NextRequest) {
     );
 
     if (insertError) throw insertError;
+
+    // If uploading to a section, assign images to it
+    if (sectionId) {
+      const sectionImageRows = records.map((r, i) => ({
+        section_id: sectionId,
+        image_id: r.id,
+        sort_order: i,
+      }));
+      await supabase.from("section_images").insert(sectionImageRows);
+    }
 
     // Generate presigned upload URLs so the browser uploads directly to R2
     // (bypasses the ~4.5MB Vercel request body limit)

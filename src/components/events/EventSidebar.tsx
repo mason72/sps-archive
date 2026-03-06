@@ -581,6 +581,7 @@ function DetailsPanel({
   const [date, setDate] = useState(eventDate || "");
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false);
 
   // Sync with props
   useEffect(() => {
@@ -704,13 +705,23 @@ function DetailsPanel({
 
       {/* Actions */}
       <div className="space-y-2">
-        <button
-          onClick={handleDuplicate}
-          className="w-full flex items-center gap-3 px-3 py-2.5 text-[13px] text-stone-700 hover:bg-stone-50 transition-colors text-left border border-stone-200"
-        >
-          <Copy size={14} />
-          Duplicate event
-        </button>
+        {confirmDuplicate ? (
+          <button
+            onClick={handleDuplicate}
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-[13px] text-emerald-600 hover:bg-emerald-50 transition-colors text-left border border-emerald-200"
+          >
+            <Copy size={14} />
+            Click again to confirm duplicate
+          </button>
+        ) : (
+          <button
+            onClick={() => setConfirmDuplicate(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-[13px] text-stone-700 hover:bg-stone-50 transition-colors text-left border border-stone-200"
+          >
+            <Copy size={14} />
+            Duplicate event
+          </button>
+        )}
 
         {confirmDelete ? (
           <button

@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
-    // Create sections from template if provided
+    // Create sections from template if provided, otherwise create default "Highlights"
     if (sections && sections.length > 0 && data) {
       const sectionInserts = sections.map((s) => ({
         event_id: data.id,
@@ -144,6 +144,13 @@ export async function POST(request: NextRequest) {
       }));
 
       await supabase.from("sections").insert(sectionInserts);
+    } else if (data) {
+      await supabase.from("sections").insert({
+        event_id: data.id,
+        name: "Highlights",
+        sort_order: 0,
+        is_auto: false,
+      });
     }
 
     return NextResponse.json({ event: data }, { status: 201 });
