@@ -722,35 +722,58 @@ export default function EventPage({
             {/* ─── Processing indicator ─── */}
             {(processing.isProcessing || processing.failed > 0) && (
               <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
-                <div className="h-[2px] w-full overflow-hidden rounded-full bg-stone-100">
-                  <div
-                    className="h-full rounded-full processing-bar"
-                    style={{
-                      width: processing.total > 0
-                        ? `${((processing.complete + processing.failed) / processing.total) * 100}%`
-                        : "0%",
-                    }}
-                  />
+                {/* Progress bar with dual colors: emerald for complete, red for failed */}
+                <div className="h-[3px] w-full overflow-hidden rounded-full bg-stone-100">
+                  <div className="h-full flex">
+                    {processing.complete > 0 && (
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${(processing.complete / processing.total) * 100}%` }}
+                      />
+                    )}
+                    {processing.failed > 0 && (
+                      <div
+                        className="h-full bg-red-400 transition-all duration-500"
+                        style={{ width: `${(processing.failed / processing.total) * 100}%` }}
+                      />
+                    )}
+                    {(processing.pending + processing.processing) > 0 && (
+                      <div
+                        className="h-full processing-bar transition-all duration-500"
+                        style={{ width: `${((processing.pending + processing.processing) / processing.total) * 100}%` }}
+                      />
+                    )}
+                  </div>
                 </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-[13px] text-stone-400">
+                <div className="mt-2.5 flex items-center justify-between">
+                  <p className="text-[13px] text-stone-500 tabular-nums">
                     {processing.isProcessing ? (
                       <>
-                        Processing {processing.complete} of {processing.total} images
+                        <span className="text-emerald-600 font-medium">{processing.complete.toLocaleString()}</span>
+                        <span className="text-stone-300"> of </span>
+                        <span className="font-medium">{processing.total.toLocaleString()}</span>
+                        <span className="text-stone-300"> complete</span>
                         {processing.processing > 0 && (
-                          <span className="text-stone-300"> · {processing.processing} active</span>
+                          <span className="text-stone-400"> · {processing.processing} active</span>
                         )}
                         {processing.pending > 0 && (
-                          <span className="text-stone-300"> · {processing.pending} queued</span>
+                          <span className="text-stone-400"> · {processing.pending.toLocaleString()} queued</span>
                         )}
                         {processing.failed > 0 && (
-                          <span className="text-red-400"> · {processing.failed} failed</span>
+                          <span className="text-red-400"> · {processing.failed.toLocaleString()} failed</span>
                         )}
                       </>
                     ) : processing.failed > 0 ? (
-                      <span className="text-red-400">
-                        {processing.failed} {processing.failed === 1 ? "image" : "images"} failed to process
-                      </span>
+                      <>
+                        <span className="text-red-400 font-medium">{processing.failed.toLocaleString()}</span>
+                        <span className="text-stone-300"> {processing.failed === 1 ? "image" : "images"} failed</span>
+                        {processing.complete > 0 && (
+                          <>
+                            <span className="text-stone-300"> · </span>
+                            <span className="text-emerald-600">{processing.complete.toLocaleString()} complete</span>
+                          </>
+                        )}
+                      </>
                     ) : null}
                   </p>
                   {(processing.failed > 0 || (processing.pending > 0 && !processing.processing)) && (
@@ -767,9 +790,9 @@ export default function EventPage({
                           toast.error("Failed to retry");
                         }
                       }}
-                      className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors underline underline-offset-2"
+                      className="text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
                     >
-                      Retry
+                      Retry Processing →
                     </button>
                   )}
                 </div>
@@ -868,19 +891,35 @@ export default function EventPage({
                 {activeSection
                   ? sections.find((s) => s.id === activeSection)?.name || "Section"
                   : "Gallery"}
+                {images.length > 0 && (
+                  <span className="ml-2 text-stone-300 font-normal tabular-nums">{images.length.toLocaleString()}</span>
+                )}
               </span>
               <div className="flex items-center gap-3">
-                {/* Select All */}
+                {/* Select All / Deselect */}
                 <button
                   onClick={() => {
                     const allIds = images.map((img) => img.id);
-                    selection.selectAll(allIds);
+                    if (selection.count === images.length && images.length > 0) {
+                      selection.deselectAll();
+                    } else {
+                      selection.selectAll(allIds);
+                    }
                   }}
-                  className="flex items-center gap-1.5 text-[12px] text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-                  title="Select all images"
+                  className={cn(
+                    "flex items-center gap-1.5 text-[12px] transition-colors cursor-pointer",
+                    selection.count > 0
+                      ? "text-emerald-600 hover:text-emerald-700"
+                      : "text-stone-400 hover:text-stone-700"
+                  )}
+                  title={selection.count === images.length && images.length > 0 ? "Deselect all" : "Select all images"}
                 >
                   <CheckSquare className="h-3.5 w-3.5" />
-                  Select All
+                  {selection.count > 0
+                    ? selection.count === images.length
+                      ? "Deselect All"
+                      : `${selection.count} selected`
+                    : "Select All"}
                 </button>
 
                 <div className="w-px h-4 bg-stone-200" />
