@@ -35,17 +35,30 @@ export async function GET(
       );
     }
 
-    // 2. Fetch all images for this event (complete + processing)
-    const { data: rawImages, error: imagesError } = await supabase
-      .from("images")
-      .select(
-        "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at"
-      )
-      .eq("event_id", eventId)
-      .neq("processing_status", "error")
-      .order("created_at", { ascending: true });
+    // 2. Fetch ALL images for this event (paginated — Supabase defaults to 1000)
+    const IMAGE_FIELDS =
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at";
+    const PAGE_SIZE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = [];
+    let offset = 0;
 
-    if (imagesError) throw imagesError;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error: pageError } = await supabase
+        .from("images")
+        .select(IMAGE_FIELDS)
+        .eq("event_id", eventId)
+        .eq("processing_status", "complete")
+        .order("created_at", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      if (pageError) throw pageError;
+      if (!data || data.length === 0) break;
+      rawImages = rawImages.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
 
     // 3. Generate presigned download URLs for all images (batched)
     // thumbnailUrl = thumb-md (400px) for grid, originalUrl = full-res for lightbox

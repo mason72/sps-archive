@@ -133,23 +133,34 @@ export async function GET(
       };
     }
 
-    // 5. Fetch images — filter to selection if share_type is 'selection'
-    let imagesQuery = supabase
-      .from("images")
-      .select("id, r2_key, original_filename, parsed_name, width, height, aesthetic_score")
-      .eq("event_id", share.event_id)
-      .neq("processing_status", "error");
+    // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
+    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score";
+    const IMG_PAGE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = [];
+    let imgOffset = 0;
 
-    if (share.share_type === "selection" && share.image_ids?.length) {
-      imagesQuery = imagesQuery.in("id", share.image_ids);
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let pageQuery = supabase
+        .from("images")
+        .select(IMG_FIELDS)
+        .eq("event_id", share.event_id)
+        .eq("processing_status", "complete")
+        .order("created_at", { ascending: true })
+        .range(imgOffset, imgOffset + IMG_PAGE - 1);
+
+      if (share.share_type === "selection" && share.image_ids?.length) {
+        pageQuery = pageQuery.in("id", share.image_ids);
+      }
+
+      const { data, error: pageError } = await pageQuery;
+      if (pageError) throw pageError;
+      if (!data || data.length === 0) break;
+      rawImages = rawImages.concat(data);
+      if (data.length < IMG_PAGE) break;
+      imgOffset += IMG_PAGE;
     }
-
-    const { data: rawImages, error: imagesError } = await imagesQuery.order(
-      "created_at",
-      { ascending: true }
-    );
-
-    if (imagesError) throw imagesError;
 
     // 5. Generate presigned URLs (thumbnail for grid, original for lightbox)
     const images = await Promise.all(

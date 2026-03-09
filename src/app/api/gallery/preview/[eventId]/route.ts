@@ -56,15 +56,29 @@ export async function GET(
       };
     }
 
-    // 3. Fetch all images for this event
-    const { data: rawImages, error: imagesError } = await supabase
-      .from("images")
-      .select("id, r2_key, original_filename, parsed_name, width, height, aesthetic_score")
-      .eq("event_id", eventId)
-      .neq("processing_status", "error")
-      .order("created_at", { ascending: true });
+    // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
+    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score";
+    const PREVIEW_PAGE_SIZE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = [];
+    let previewOffset = 0;
 
-    if (imagesError) throw imagesError;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error: pageError } = await supabase
+        .from("images")
+        .select(PREVIEW_IMG_FIELDS)
+        .eq("event_id", eventId)
+        .eq("processing_status", "complete")
+        .order("created_at", { ascending: true })
+        .range(previewOffset, previewOffset + PREVIEW_PAGE_SIZE - 1);
+
+      if (pageError) throw pageError;
+      if (!data || data.length === 0) break;
+      rawImages = rawImages.concat(data);
+      if (data.length < PREVIEW_PAGE_SIZE) break;
+      previewOffset += PREVIEW_PAGE_SIZE;
+    }
 
     // 4. Generate presigned URLs
     const images = await Promise.all(

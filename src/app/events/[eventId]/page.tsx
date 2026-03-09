@@ -21,7 +21,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -109,6 +109,7 @@ export default function EventPage({
   // Processing status
   const processing = useProcessingStatus(eventId, true);
   const wasProcessingRef = useRef(false);
+  const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -157,16 +158,30 @@ export default function EventPage({
     fetchEvent();
   }, [fetchEvent]);
 
-  // Fire celebration toast when processing completes
+  // Fire celebration toast when processing completes (debounced to prevent oscillation)
   useEffect(() => {
     if (processing.isProcessing) {
       wasProcessingRef.current = true;
+      // Cancel any pending celebration — processing resumed
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
     } else if (wasProcessingRef.current && processing.total > 0) {
-      wasProcessingRef.current = false;
-      toast.success(`${processing.total} photos processed`);
-      // Refresh to show newly processed images
-      fetchEvent();
+      // Debounce: wait 5s to confirm processing is truly done
+      processingTimerRef.current = setTimeout(() => {
+        processingTimerRef.current = null;
+        wasProcessingRef.current = false;
+        toast.success(`${processing.total} photos processed`);
+        fetchEvent();
+      }, 5000);
     }
+
+    return () => {
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+      }
+    };
   }, [processing.isProcessing, processing.total, fetchEvent]);
 
   // Escape key clears selection
@@ -855,6 +870,21 @@ export default function EventPage({
                   : "Gallery"}
               </span>
               <div className="flex items-center gap-3">
+                {/* Select All */}
+                <button
+                  onClick={() => {
+                    const allIds = images.map((img) => img.id);
+                    selection.selectAll(allIds);
+                  }}
+                  className="flex items-center gap-1.5 text-[12px] text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+                  title="Select all images"
+                >
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  Select All
+                </button>
+
+                <div className="w-px h-4 bg-stone-200" />
+
                 {/* Sort dropdown */}
                 <div ref={sortRef} className="relative">
                   <button

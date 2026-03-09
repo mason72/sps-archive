@@ -7,7 +7,6 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   Loader2,
-  AlertCircle,
   RotateCcw,
   ShieldAlert,
 } from "lucide-react";
@@ -16,6 +15,8 @@ import { extractExif } from "@/lib/upload/parse-filename";
 
 const BATCH_SIZE = 50;
 const MAX_CONCURRENT_UPLOADS = 12;
+const R2_PUT_RETRIES = 2;
+const R2_RETRY_BASE_MS = 1000;
 
 /**
  * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to fetch")
@@ -187,29 +188,41 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               try {
                 updateFile(task.fileId, { status: "uploading" });
 
-                // Upload directly to R2 via presigned URL (no size limit)
-                let uploadRes: Response;
-                try {
-                  uploadRes = await fetch(task.upload.uploadUrl, {
-                    method: "PUT",
-                    body: task.file,
-                    headers: { "Content-Type": task.file.type },
-                  });
-                } catch (fetchErr) {
-                  // TypeError("Failed to fetch") is the browser's signal for CORS blocks.
-                  // Track consecutive failures — if systematic, it's a CORS config issue.
-                  if (fetchErr instanceof TypeError) {
-                    corsFailureCount.current++;
-                    if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
-                      setCorsError(true);
-                      abortRef.current = true;
+                // Upload directly to R2 via presigned URL (with retry + backoff)
+                let uploadRes: Response | undefined;
+                let lastErr: unknown;
+                for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
+                  try {
+                    uploadRes = await fetch(task.upload.uploadUrl, {
+                      method: "PUT",
+                      body: task.file,
+                      headers: { "Content-Type": task.file.type },
+                    });
+                    if (uploadRes.ok) {
+                      lastErr = undefined;
+                      break;
+                    }
+                    lastErr = new Error(`Upload failed (${uploadRes.status})`);
+                  } catch (fetchErr) {
+                    lastErr = fetchErr;
+                    // TypeError("Failed to fetch") = CORS blocks
+                    if (fetchErr instanceof TypeError) {
+                      corsFailureCount.current++;
+                      if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
+                        setCorsError(true);
+                        abortRef.current = true;
+                        throw fetchErr;
+                      }
                     }
                   }
-                  throw fetchErr;
+                  // Exponential backoff before retry
+                  if (attempt < R2_PUT_RETRIES) {
+                    await new Promise((r) => setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt)));
+                  }
                 }
 
-                if (!uploadRes.ok) {
-                  throw new Error(`Upload failed (${uploadRes.status})`);
+                if (lastErr || !uploadRes?.ok) {
+                  throw lastErr || new Error("Upload failed after retries");
                 }
 
                 // R2 PUT succeeded — reset CORS failure counter
@@ -256,6 +269,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               } catch (err) {
                 updateFile(task.fileId, {
                   status: "error",
+                  imageId: task.upload.imageId,
                   error:
                     err instanceof TypeError
                       ? "Storage connection failed"
@@ -267,16 +281,16 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
           );
         }
 
-        if (completedIds.length > 0) {
-          onUploadComplete?.(completedIds);
-        }
-
-        // Collect failed files and notify parent
+        // Notify parent of failures FIRST so error flag is set before confetti check
         const failedFiles = acceptedFiles.filter(
           (_, index) => !succeededIndices.has(index)
         );
         if (failedFiles.length > 0) {
           onUploadFailed?.(failedFiles);
+        }
+
+        if (completedIds.length > 0) {
+          onUploadComplete?.(completedIds);
         }
       } catch (err) {
         console.error("Upload error:", err);
@@ -339,17 +353,46 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
 
   // ─── Retry helpers ───
   const retryFile = useCallback(
-    (fileEntry: UploadFile) => {
+    async (fileEntry: UploadFile) => {
+      // Delete orphaned DB record before retrying
+      if (fileEntry.imageId) {
+        try {
+          await fetch("/api/images/batch", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageIds: [fileEntry.imageId] }),
+          });
+        } catch {
+          // Non-critical
+        }
+      }
       removeFiles(new Set([fileEntry.id]));
       onDrop([fileEntry.file]);
     },
     [onDrop, removeFiles]
   );
 
-  const retryAllFailed = useCallback(() => {
+  const retryAllFailed = useCallback(async () => {
     const errorFiles = files.filter((f) => f.status === "error");
     const errorIds = new Set(errorFiles.map((f) => f.id));
     const rawFiles = errorFiles.map((f) => f.file);
+
+    // Delete orphaned DB records from failed uploads before retrying
+    const orphanImageIds = errorFiles
+      .map((f) => f.imageId)
+      .filter(Boolean) as string[];
+    if (orphanImageIds.length > 0) {
+      try {
+        await fetch("/api/images/batch", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: orphanImageIds }),
+        });
+      } catch {
+        // Non-critical — orphans will just be unused
+      }
+    }
+
     removeFiles(errorIds);
     onDrop(rawFiles);
   }, [files, onDrop, removeFiles]);
