@@ -119,6 +119,7 @@ export function ImageGrid({
                 image={item.data}
                 hasSelection={hasSelection}
                 isSelected={isSelected}
+                selectedIds={selectedIds}
                 onSelect={() => onToggleSelect?.(item.data.id)}
                 onRangeSelect={() => onRangeSelect?.(item.data.id)}
                 onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
@@ -143,6 +144,7 @@ function GridImage({
   onDoubleClick,
   hasSelection,
   isSelected,
+  selectedIds,
   uniform,
   showFilename,
 }: {
@@ -152,6 +154,7 @@ function GridImage({
   onDoubleClick: () => void;
   hasSelection?: boolean;
   isSelected?: boolean;
+  selectedIds?: Set<string>;
   uniform?: boolean;
   showFilename?: boolean;
 }) {
@@ -193,9 +196,21 @@ function GridImage({
     onDoubleClick();
   }, [onDoubleClick]);
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      // If this image is selected, drag all selected images; otherwise just this one
+      const ids = isSelected && selectedIds?.size ? Array.from(selectedIds) : [image.id];
+      e.dataTransfer.setData("application/x-image-ids", JSON.stringify(ids));
+      e.dataTransfer.effectAllowed = "move";
+    },
+    [image.id, isSelected, selectedIds]
+  );
+
   return (
     <button
       data-image-id={image.id}
+      draggable
+      onDragStart={handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${

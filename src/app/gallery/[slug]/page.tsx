@@ -232,7 +232,7 @@ function SectionedGallery({
   gridStyle,
   gridColumns,
   gridGap,
-  branding,
+  colors,
 }: {
   images: GalleryImage[];
   sections: GallerySection[];
@@ -245,7 +245,7 @@ function SectionedGallery({
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
-  branding: GalleryBranding | null;
+  colors: { primary: string; secondary: string; accent: string; background: string };
 }) {
   const imageMap = new Map(images.map((img) => [img.id, img]));
   const assignedIds = new Set(sections.flatMap((s) => s.imageIds));
@@ -282,14 +282,14 @@ function SectionedGallery({
             <div className="mb-6">
               <h2
                 className="font-editorial text-[22px] text-stone-700"
-                style={{ color: branding?.primaryColor || undefined }}
+                style={{ color: colors.primary }}
               >
                 {section.name}
               </h2>
               {section.description && (
                 <p
                   className="caption-italic mt-1"
-                  style={{ color: branding?.secondaryColor || undefined }}
+                  style={{ color: colors.secondary }}
                 >
                   {section.description}
                 </p>
@@ -610,6 +610,14 @@ export default function GalleryPage({
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
   const bodyClass = BODY_FONT_CLASS[s?.bodyFont || "inter"] || "font-sans";
 
+  // Event-level color settings override branding defaults
+  const colors = {
+    primary: s?.colorPrimary || b?.primaryColor || "#1C1917",
+    secondary: s?.colorSecondary || b?.secondaryColor || "#78716C",
+    accent: s?.colorAccent || b?.accentColor || "#10B981",
+    background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
+  };
+
   // Cover image present? Mosaic uses mosaicImageUrls instead of a single coverImageUrl
   const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
   const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout && s?.coverLayout !== "none");
@@ -617,18 +625,16 @@ export default function GalleryPage({
   // Mosaic does NOT render title inside — excluded from this list
   const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
 
-  // Build CSS custom properties from branding colors
-  const brandStyles = b
-    ? ({
-        "--brand-primary": b.primaryColor,
-        "--brand-secondary": b.secondaryColor,
-        "--brand-accent": b.accentColor,
-        "--brand-bg": b.backgroundColor,
-      } as React.CSSProperties)
-    : {};
+  // Build CSS custom properties from resolved colors
+  const brandStyles = {
+    "--brand-primary": colors.primary,
+    "--brand-secondary": colors.secondary,
+    "--brand-accent": colors.accent,
+    "--brand-bg": colors.background,
+  } as React.CSSProperties;
 
   return (
-    <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: b?.backgroundColor }}>
+    <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: colors.background }}>
       {/* ─── Cover image ─── */}
       {hasCover && (
         <CoverSection
@@ -636,7 +642,7 @@ export default function GalleryPage({
           layout={s!.coverLayout!}
           eventName={gallery.eventName}
           headingClass={headingClass}
-          primaryColor={b?.primaryColor}
+          primaryColor={colors.primary}
           mosaicImageUrls={s?.mosaicImageUrls}
         />
       )}
@@ -661,7 +667,7 @@ export default function GalleryPage({
             {b.businessName && !b.logoUrl && (
               <span
                 className="text-[15px] font-medium tracking-wide uppercase"
-                style={{ color: b.secondaryColor }}
+                style={{ color: colors.secondary }}
               >
                 {b.businessName}
               </span>
@@ -672,13 +678,13 @@ export default function GalleryPage({
         {!coverRendersTitle && (
           <h1
             className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
-            style={{ color: b?.primaryColor }}
+            style={{ color: colors.primary }}
           >
             {gallery.eventName}
           </h1>
         )}
         {gallery.eventDate && (
-          <p className="caption-italic mt-2" style={{ color: b?.secondaryColor }}>
+          <p className="caption-italic mt-2" style={{ color: colors.secondary }}>
             {new Date(gallery.eventDate).toLocaleDateString("en-US", {
               month: "long",
               day: "numeric",
@@ -689,7 +695,7 @@ export default function GalleryPage({
         {gallery.customMessage && (
           <p
             className="text-[14px] mt-4 max-w-2xl"
-            style={{ color: b?.secondaryColor || undefined }}
+            style={{ color: colors.secondary }}
           >
             {gallery.customMessage}
           </p>
@@ -710,12 +716,8 @@ export default function GalleryPage({
       </header>
 
       <div
-        className={`mx-8 md:mx-16 reveal-line ${!b ? "rule" : ""}`}
-        style={
-          b?.secondaryColor
-            ? { height: "1px", backgroundColor: `${b.secondaryColor}30` }
-            : undefined
-        }
+        className="mx-8 md:mx-16 reveal-line"
+        style={{ height: "1px", backgroundColor: `${colors.secondary}30` }}
       />
 
       {/* ─── Search + Sort + Gallery grid ─── */}
@@ -727,7 +729,7 @@ export default function GalleryPage({
             <div className="relative max-w-sm flex-1">
               <Search
                 className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
-                style={{ color: b?.secondaryColor || "#a8a29e" }}
+                style={{ color: colors.secondary }}
               />
               <input
                 type="text"
@@ -736,17 +738,17 @@ export default function GalleryPage({
                 placeholder="Search photos…"
                 className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
                 style={{
-                  color: b?.primaryColor || "#1c1917",
+                  color: colors.primary,
                   borderColor: searchQuery
-                    ? (b?.primaryColor || "#1c1917")
-                    : (b?.secondaryColor ? `${b.secondaryColor}40` : "#e7e5e4"),
+                    ? colors.primary
+                    : `${colors.secondary}40`,
                 }}
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery("")}
                   className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
-                  style={{ color: b?.secondaryColor || "#a8a29e" }}
+                  style={{ color: colors.secondary }}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -758,9 +760,9 @@ export default function GalleryPage({
               <button
                 onClick={() => setSortOpen((v) => !v)}
                 className="flex items-center gap-1.5 py-2 text-[12px] tracking-wide transition-colors duration-200"
-                style={{ color: b?.secondaryColor || "#a8a29e" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = b?.primaryColor || "#1c1917")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = b?.secondaryColor || "#a8a29e")}
+                style={{ color: colors.secondary }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = colors.primary)}
+                onMouseLeave={(e) => (e.currentTarget.style.color = colors.secondary)}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                 <span>
@@ -774,7 +776,7 @@ export default function GalleryPage({
                 <div
                   className="absolute right-0 top-full mt-1.5 w-44 py-1 bg-white border shadow-sm z-30"
                   style={{
-                    borderColor: b?.secondaryColor ? `${b.secondaryColor}25` : "#e7e5e4",
+                    borderColor: `${colors.secondary}25`,
                   }}
                 >
                   {([
@@ -791,13 +793,11 @@ export default function GalleryPage({
                       className="w-full text-left px-3 py-2 text-[12px] flex items-center justify-between transition-colors duration-150"
                       style={{
                         color: sortOption === opt.value
-                          ? (b?.primaryColor || "#1c1917")
-                          : (b?.secondaryColor || "#a8a29e"),
+                          ? colors.primary
+                          : colors.secondary,
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = b?.secondaryColor
-                          ? `${b.secondaryColor}08`
-                          : "#fafaf9";
+                        e.currentTarget.style.backgroundColor = `${colors.secondary}08`;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = "transparent";
@@ -833,7 +833,7 @@ export default function GalleryPage({
           ) : (
             <p
               className="text-center py-16 text-[14px] italic"
-              style={{ color: b?.secondaryColor || "#a8a29e" }}
+              style={{ color: colors.secondary }}
             >
               No photos match &ldquo;{searchQuery}&rdquo;
             </p>
@@ -865,7 +865,7 @@ export default function GalleryPage({
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
-            branding={b}
+            colors={colors}
           />
         ) : (
           <GalleryGrid
@@ -1026,7 +1026,7 @@ export default function GalleryPage({
       <footer className="px-8 md:px-16 pt-4 pb-8">
         <hr
           className="mb-8 border-0 h-px"
-          style={{ backgroundColor: b?.secondaryColor ? `${b.secondaryColor}20` : "rgba(168,162,158,0.2)" }}
+          style={{ backgroundColor: `${colors.secondary}20` }}
         />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1039,7 +1039,7 @@ export default function GalleryPage({
               />
             )}
             {b?.businessName && (
-              <span className="font-editorial italic text-[15px]" style={{ color: b.secondaryColor }}>
+              <span className="font-editorial italic text-[15px]" style={{ color: colors.secondary }}>
                 {b.website ? (
                   <a
                     href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
@@ -1055,7 +1055,7 @@ export default function GalleryPage({
               </span>
             )}
           </div>
-          <p className="text-[11px] flex items-center gap-1.5" style={{ color: b?.secondaryColor || "#a8a29e" }}>
+          <p className="text-[11px] flex items-center gap-1.5" style={{ color: colors.secondary }}>
             Powered by{" "}
             {/* Pixel-mosaic favicon */}
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="opacity-40">
@@ -1076,7 +1076,7 @@ export default function GalleryPage({
               <rect x="8" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.5" />
               <rect x="12" y="12" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.9" />
             </svg>
-            <span className="font-brand text-[13px]" style={{ color: b?.primaryColor || "#1c1917" }}>
+            <span className="font-brand text-[13px]" style={{ color: colors.primary }}>
               pixeltrunk
             </span>
           </p>

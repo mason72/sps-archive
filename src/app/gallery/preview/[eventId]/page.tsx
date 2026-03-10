@@ -180,7 +180,9 @@ export default function PreviewGalleryPage({
 
   const fetchGallery = useCallback(async () => {
     try {
-      const res = await fetch(`/api/gallery/preview/${eventId}`);
+      const res = await fetch(`/api/gallery/preview/${eventId}`, {
+        cache: "no-store",
+      });
 
       if (res.status === 401 || res.status === 403) {
         setError("You don't have permission to preview this gallery.");
@@ -261,21 +263,27 @@ export default function PreviewGalleryPage({
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
   const bodyClass = BODY_FONT_CLASS[s?.bodyFont || "inter"] || "font-sans";
 
+  // Event-level color settings override branding defaults
+  const colors = {
+    primary: s?.colorPrimary || b?.primaryColor || "#1C1917",
+    secondary: s?.colorSecondary || b?.secondaryColor || "#78716C",
+    accent: s?.colorAccent || b?.accentColor || "#10B981",
+    background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
+  };
+
   const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
   const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout && s?.coverLayout !== "none");
   const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
 
-  const brandStyles = b
-    ? ({
-        "--brand-primary": b.primaryColor,
-        "--brand-secondary": b.secondaryColor,
-        "--brand-accent": b.accentColor,
-        "--brand-bg": b.backgroundColor,
-      } as React.CSSProperties)
-    : {};
+  const brandStyles = {
+    "--brand-primary": colors.primary,
+    "--brand-secondary": colors.secondary,
+    "--brand-accent": colors.accent,
+    "--brand-bg": colors.background,
+  } as React.CSSProperties;
 
   return (
-    <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: b?.backgroundColor }}>
+    <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: colors.background }}>
       {/* ─── Preview mode banner ─── */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-amber-400 text-amber-900 text-center py-1.5 px-4 flex items-center justify-center gap-2">
         <Eye size={14} strokeWidth={2} />
@@ -291,7 +299,7 @@ export default function PreviewGalleryPage({
           layout={s!.coverLayout!}
           eventName={gallery.eventName}
           headingClass={headingClass}
-          primaryColor={b?.primaryColor}
+          primaryColor={colors.primary}
           mosaicImageUrls={s?.mosaicImageUrls}
         />
       )}
@@ -326,13 +334,13 @@ export default function PreviewGalleryPage({
         {!coverRendersTitle && (
           <h1
             className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
-            style={{ color: b?.primaryColor }}
+            style={{ color: colors.primary }}
           >
             {gallery.eventName}
           </h1>
         )}
         {gallery.eventDate && (
-          <p className="caption-italic mt-2" style={{ color: b?.secondaryColor }}>
+          <p className="caption-italic mt-2" style={{ color: colors.secondary }}>
             {new Date(gallery.eventDate).toLocaleDateString("en-US", {
               month: "long",
               day: "numeric",
@@ -343,7 +351,7 @@ export default function PreviewGalleryPage({
         {gallery.customMessage && (
           <p
             className="text-[14px] mt-4 max-w-2xl"
-            style={{ color: b?.secondaryColor || undefined }}
+            style={{ color: colors.secondary }}
           >
             {gallery.customMessage}
           </p>
@@ -364,11 +372,7 @@ export default function PreviewGalleryPage({
 
       <div
         className={`mx-8 md:mx-16 reveal-line ${!b ? "rule" : ""}`}
-        style={
-          b?.secondaryColor
-            ? { height: "1px", backgroundColor: `${b.secondaryColor}30` }
-            : undefined
-        }
+        style={{ height: "1px", backgroundColor: `${colors.secondary}30` }}
       />
 
       {/* ─── Gallery grid ─── */}

@@ -29,6 +29,11 @@ export interface GallerySettings {
   mosaicImageUrls?: string[];
   headingFont?: string;
   bodyFont?: string;
+  /** Event-level color overrides (take precedence over branding) */
+  colorPrimary?: string;
+  colorSecondary?: string;
+  colorAccent?: string;
+  colorBackground?: string;
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";

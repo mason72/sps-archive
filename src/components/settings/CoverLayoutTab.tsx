@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ImageIcon, Check, Upload } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ImageIcon, Check, Upload, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { COVER_LAYOUTS, type CoverLayout } from "@/types/event-settings";
@@ -25,6 +25,8 @@ interface CoverLayoutTabProps {
   onCoverImageChange?: (imageId: string) => void;
   /** Event ID for uploading a new cover image */
   eventId?: string;
+  /** Called after a cover image upload completes so parent can refresh its image list */
+  onUploadComplete?: () => void;
 }
 
 /**
@@ -40,9 +42,30 @@ export function CoverLayoutTab({
   images,
   onCoverImageChange,
   eventId,
+  onUploadComplete,
 }: CoverLayoutTabProps) {
-  const [showPicker, setShowPicker] = useState(false);
+  const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  // Temporary local URL for a just-uploaded cover image (before thumbnails are generated)
+  const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null);
+  const [uploadedPreviewId, setUploadedPreviewId] = useState<string | null>(null);
+
+  // Clear local preview once the uploaded image appears in the images array
+  useEffect(() => {
+    if (
+      uploadedPreviewId &&
+      images?.some((img) => img.id === uploadedPreviewId)
+    ) {
+      setUploadedPreviewUrl(null);
+      setUploadedPreviewId(null);
+    }
+  }, [images, uploadedPreviewId]);
+
+  // Resolve cover image URL: prefer images array, fall back to local preview
+  const resolvedCoverUrl =
+    coverImageUrl ||
+    (coverImageId === uploadedPreviewId ? uploadedPreviewUrl : null) ||
+    undefined;
 
   const handleCoverUpload = async (file: File) => {
     if (!eventId || !onCoverImageChange) return;
@@ -52,31 +75,48 @@ export function CoverLayoutTab({
     }
     setIsUploading(true);
     try {
-      // Step 1: Create image record
+      // Step 1: Create image record (must match /api/upload expected format)
       const metaRes = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId,
-          filename: file.name,
-          contentType: file.type,
-          size: file.size,
+          files: [{ name: file.name, type: file.type, size: file.size }],
         }),
       });
       if (!metaRes.ok) throw new Error("Failed to create upload");
-      const { imageId } = await metaRes.json();
+      const { uploads } = await metaRes.json();
+      const { imageId, uploadUrl } = uploads[0];
 
-      // Step 2: Upload binary
-      const uploadRes = await fetch(`/api/upload/${imageId}`, {
+      // Step 2: Upload binary directly to R2 via presigned URL
+      const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type },
         body: file,
       });
       if (!uploadRes.ok) throw new Error("Failed to upload file");
 
-      // Step 3: Set as cover
+      // Step 3: Mark upload complete (API expects singular imageId)
+      await fetch("/api/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageId }),
+      });
+
+      // Step 4: Create a local blob URL for immediate preview
+      const previewUrl = URL.createObjectURL(file);
+      setUploadedPreviewUrl(previewUrl);
+      setUploadedPreviewId(imageId);
+
+      // Step 5: Set as cover
       onCoverImageChange(imageId);
       toast.success("Cover image uploaded");
+
+      // Step 6: Refresh parent's image list after a delay
+      // (thumbnails are generated async, give them a moment)
+      setTimeout(() => {
+        onUploadComplete?.();
+      }, 3000);
     } catch {
       toast.error("Failed to upload cover image");
     } finally {
@@ -86,6 +126,19 @@ export function CoverLayoutTab({
 
   return (
     <div>
+      {/* ─── Full-screen gallery modal ─── */}
+      {showGalleryModal && images && onCoverImageChange && (
+        <CoverImageGalleryModal
+          images={images}
+          currentImageId={coverImageId}
+          onSelect={(imageId) => {
+            onCoverImageChange(imageId);
+            setShowGalleryModal(false);
+          }}
+          onClose={() => setShowGalleryModal(false)}
+        />
+      )}
+
       <h3 className="text-[15px] font-medium text-stone-900 mb-1">Cover</h3>
       <p className="text-[12px] text-stone-400 mb-4">
         Choose how the cover image is displayed on the gallery page.
@@ -133,66 +186,31 @@ export function CoverLayoutTab({
             </label>
           )}
 
-          {images && images.length > 0 && (
-            <>
-              <button
-                onClick={() => setShowPicker((v) => !v)}
-                className="flex items-center gap-3 w-full p-3 border border-stone-200 hover:border-stone-400 transition-colors"
-              >
-                {coverImageUrl ? (
-                  <img
-                    src={coverImageUrl}
-                    alt="Cover"
-                    className="w-12 h-12 object-cover bg-stone-100 shrink-0"
-                  />
-                ) : (
-                  <div className="w-12 h-12 bg-stone-100 flex items-center justify-center shrink-0">
-                    <ImageIcon size={16} className="text-stone-300" />
-                  </div>
-                )}
-                <div className="text-left flex-1 min-w-0">
-                  <p className="text-[12px] font-medium text-stone-700">
-                    {coverImageUrl ? "Change cover image" : "Choose from gallery"}
-                  </p>
-                  <p className="text-[11px] text-stone-400 truncate">
-                    {coverImageUrl ? "Click to select a different photo" : "Select a photo for the gallery cover"}
-                  </p>
-                </div>
-              </button>
-
-              {/* Image picker grid */}
-              {showPicker && (
-                <div className="mt-2 max-h-48 overflow-y-auto border border-stone-200 p-2">
-                  <div className="grid grid-cols-4 gap-1">
-                    {images.map((img) => (
-                      <button
-                        key={img.id}
-                        onClick={() => {
-                          onCoverImageChange(img.id);
-                          setShowPicker(false);
-                        }}
-                        className={cn(
-                          "relative aspect-square overflow-hidden bg-stone-100",
-                          coverImageId === img.id && "ring-2 ring-accent"
-                        )}
-                      >
-                        <img
-                          src={img.thumbnailUrl}
-                          alt={img.originalFilename}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                        {coverImageId === img.id && (
-                          <div className="absolute inset-0 bg-accent/20 flex items-center justify-center">
-                            <Check size={16} className="text-white drop-shadow" />
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+          {typeof onCoverImageChange === "function" && (
+            <button
+              onClick={() => setShowGalleryModal(true)}
+              className="flex items-center gap-3 w-full p-3 border border-stone-200 hover:border-stone-400 transition-colors"
+            >
+              {resolvedCoverUrl ? (
+                <img
+                  src={resolvedCoverUrl}
+                  alt="Cover"
+                  className="w-12 h-12 object-cover bg-stone-100 shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 bg-stone-100 flex items-center justify-center shrink-0">
+                  <ImageIcon size={16} className="text-stone-300" />
                 </div>
               )}
-            </>
+              <div className="text-left flex-1 min-w-0">
+                <p className="text-[12px] font-medium text-stone-700">
+                  {resolvedCoverUrl ? "Change cover image" : "Choose from gallery"}
+                </p>
+                <p className="text-[11px] text-stone-400 truncate">
+                  {resolvedCoverUrl ? "Click to select a different photo" : "Search and select a photo"}
+                </p>
+              </div>
+            </button>
           )}
         </div>
       )}
@@ -212,10 +230,10 @@ export function CoverLayoutTab({
           >
             {/* Layout thumbnail preview */}
             <div className="w-full aspect-[3/4] bg-stone-100 relative overflow-hidden">
-              {coverImageUrl ? (
+              {resolvedCoverUrl ? (
                 <CoverImagePreview
                   layout={layout.value}
-                  imageUrl={coverImageUrl}
+                  imageUrl={resolvedCoverUrl}
                   isActive={value === layout.value}
                 />
               ) : (
@@ -232,6 +250,126 @@ export function CoverLayoutTab({
             </span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Full-screen modal for choosing a cover image from the gallery */
+function CoverImageGalleryModal({
+  images,
+  currentImageId,
+  onSelect,
+  onClose,
+}: {
+  images: CoverImage[];
+  currentImageId?: string;
+  onSelect: (imageId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus search on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const filtered = search.trim()
+    ? images.filter((img) =>
+        img.originalFilename.toLowerCase().includes(search.toLowerCase())
+      )
+    : images;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col" onClick={onClose}>
+      <div
+        className="flex-1 flex flex-col max-w-6xl w-full mx-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="flex-1 relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by filename…"
+              className="w-full pl-10 pr-4 py-2.5 bg-white/10 backdrop-blur text-white text-[14px] placeholder:text-stone-500 border border-white/10 focus:border-white/30 outline-none transition-colors"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-white transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <span className="text-[12px] text-stone-500 tabular-nums shrink-0">
+            {filtered.length.toLocaleString()} {filtered.length === 1 ? "image" : "images"}
+          </span>
+          <button
+            onClick={onClose}
+            className="p-2 text-stone-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Grid */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <p className="text-[14px] text-stone-500">
+                {search ? "No images match your search" : "No images available"}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
+              {filtered.map((img) => (
+                <button
+                  key={img.id}
+                  onClick={() => onSelect(img.id)}
+                  className={cn(
+                    "relative aspect-square overflow-hidden group transition-all",
+                    currentImageId === img.id
+                      ? "ring-2 ring-white ring-offset-2 ring-offset-black"
+                      : "hover:ring-1 hover:ring-white/50"
+                  )}
+                >
+                  <img
+                    src={img.thumbnailUrl}
+                    alt={img.originalFilename}
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                  />
+                  {currentImageId === img.id && (
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                      <Check size={20} className="text-white" />
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-1.5">
+                    <p className="text-[10px] text-white truncate">
+                      {img.originalFilename}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -230,46 +230,8 @@ export function SelectionToolbar({
 
           <div className="w-px h-4 bg-stone-200" />
 
-          {/* Copy to section */}
-          {onAddToSection && sections.length > 0 && (
-            <div className="relative" ref={pickerRef}>
-              <ToolbarButton
-                icon={<FolderPlus className="h-4 w-4" />}
-                label="Copy to…"
-                onClick={() => setShowSectionPicker((v) => !v)}
-                active={showSectionPicker}
-              />
-              {showSectionPicker && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[180px] py-1 scale-in">
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
-                    Copy to section
-                  </p>
-                  {sections.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        onAddToSection(s.id);
-                        setAddedToSection(s.id);
-                        setTimeout(() => {
-                          setAddedToSection(null);
-                          setShowSectionPicker(false);
-                        }, 800);
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
-                    >
-                      <span className="flex-1 truncate">{s.name}</span>
-                      {addedToSection === s.id && (
-                        <Check size={14} className="text-accent shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Move to section (only when a section is active) */}
-          {activeSection && onMoveToSection && sections.length > 0 && (
+          {/* Move to section (always visible as primary action) */}
+          {onMoveToSection && sections.length > 0 && (
             <div className="relative" ref={movePickerRef}>
               <ToolbarButton
                 icon={<ArrowRight className="h-4 w-4" />}
@@ -303,6 +265,44 @@ export function SelectionToolbar({
                         )}
                       </button>
                     ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Copy to section (secondary action) */}
+          {activeSection && onAddToSection && sections.length > 0 && (
+            <div className="relative" ref={pickerRef}>
+              <ToolbarButton
+                icon={<FolderPlus className="h-4 w-4" />}
+                label="Copy to…"
+                onClick={() => setShowSectionPicker((v) => !v)}
+                active={showSectionPicker}
+              />
+              {showSectionPicker && (
+                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[180px] py-1 scale-in">
+                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+                    Copy to section
+                  </p>
+                  {sections.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        onAddToSection(s.id);
+                        setAddedToSection(s.id);
+                        setTimeout(() => {
+                          setAddedToSection(null);
+                          setShowSectionPicker(false);
+                        }, 800);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                    >
+                      <span className="flex-1 truncate">{s.name}</span>
+                      {addedToSection === s.id && (
+                        <Check size={14} className="text-accent shrink-0" />
+                      )}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

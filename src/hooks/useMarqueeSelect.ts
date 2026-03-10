@@ -44,6 +44,15 @@ export function useMarqueeSelect({
   const rafRef = useRef<number | null>(null);
   const clickBlockerRef = useRef(false);
 
+  // Stable refs for latest handler versions (avoids stale closures in global listeners)
+  const handleMouseMoveRef = useRef<(e: MouseEvent) => void>(() => {});
+  const handleMouseUpRef = useRef<() => void>(() => {});
+
+  // Stable wrapper functions that never change identity (safe for add/removeEventListener)
+  // Defined early so they can be referenced by handleMouseDown and handleMouseUp
+  const stableMouseMove = useCallback((e: MouseEvent) => handleMouseMoveRef.current(e), []);
+  const stableMouseUp = useCallback(() => handleMouseUpRef.current(), []);
+
   // Check intersection between two rects
   const rectsIntersect = useCallback(
     (a: DOMRect, b: { left: number; top: number; right: number; bottom: number }) => {
@@ -119,8 +128,12 @@ export function useMarqueeSelect({
       startRef.current = { x, y, clientX: e.clientX, clientY: e.clientY };
       trackingRef.current = true;
       previewIdsRef.current = [];
+
+      // Attach global listeners immediately so mousemove/mouseup are captured
+      window.addEventListener("mousemove", stableMouseMove);
+      window.addEventListener("mouseup", stableMouseUp);
     },
-    [enabled, containerRef]
+    [enabled, containerRef, stableMouseMove, stableMouseUp]
   );
 
   const handleMouseMove = useCallback(
@@ -179,6 +192,10 @@ export function useMarqueeSelect({
     // Always clean up tracking state
     trackingRef.current = false;
 
+    // Always remove global listeners (they were attached in mousedown)
+    window.removeEventListener("mousemove", stableMouseMove);
+    window.removeEventListener("mouseup", stableMouseUp);
+
     if (!wasDrawing && !wasTracking) return;
 
     // Finalize with whatever IDs are under the marquee
@@ -208,7 +225,13 @@ export function useMarqueeSelect({
         }, 0);
       });
     }
-  }, [isDrawing, rect, getIntersectingIds, onSelect]);
+  }, [isDrawing, rect, getIntersectingIds, onSelect, stableMouseMove, stableMouseUp]);
+
+  // Keep handler refs current so stable wrappers always call latest versions
+  useEffect(() => {
+    handleMouseMoveRef.current = handleMouseMove;
+    handleMouseUpRef.current = handleMouseUp;
+  });
 
   // Block click events that fire after a marquee drag
   useEffect(() => {
@@ -226,18 +249,6 @@ export function useMarqueeSelect({
     container.addEventListener("click", blockClick, true); // capture phase
     return () => container.removeEventListener("click", blockClick, true);
   }, [containerRef]);
-
-  // Attach global listeners when tracking or drawing
-  useEffect(() => {
-    if (isDrawing || trackingRef.current) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-      return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
-      };
-    }
-  }, [isDrawing, handleMouseMove, handleMouseUp]);
 
   // Attach mousedown on container
   useEffect(() => {

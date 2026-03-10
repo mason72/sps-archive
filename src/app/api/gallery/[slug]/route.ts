@@ -194,12 +194,17 @@ export async function GET(
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
     const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
+    const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
 
     const gallerySettings: GallerySettings = {
       coverLayout: cover.layout,
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
+      colorPrimary: color.primary,
+      colorSecondary: color.secondary,
+      colorAccent: color.accent,
+      colorBackground: color.background,
       gridStyle: grid.style as "masonry" | "uniform",
       gridColumns: grid.columns,
       gridGap: grid.gap as "tight" | "normal" | "loose",

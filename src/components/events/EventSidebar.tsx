@@ -16,10 +16,13 @@ import {
   PanelLeft,
   Sparkles,
   Loader2,
-  MapPin,
-  UserRound,
   ImageIcon,
   CalendarDays,
+  Lock,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  Download,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -29,7 +32,8 @@ import { GridTab } from "@/components/settings/GridTab";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
-import type { EventSettings } from "@/types/event-settings";
+import type { EventSettings, SharingSettings } from "@/types/event-settings";
+import { DEFAULT_SHARING_SETTINGS } from "@/types/event-settings";
 
 /* ─── Types ─── */
 
@@ -68,9 +72,13 @@ interface EventSidebarProps {
   onEventUpdate?: (updates: { event_type?: string; event_date?: string }) => void;
   /** Notify parent when sidebar opens/closes (for toolbar centering) */
   onOpenChange?: (isOpen: boolean) => void;
+  /** Notify parent when active panel changes (for live preview) */
+  onActivePanelChange?: (panel: Panel | null) => void;
+  /** Callback when images are dropped onto a section row */
+  onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
 }
 
-type Panel = "sections" | "design" | "details" | "activity";
+export type Panel = "sections" | "design" | "details" | "activity";
 
 const STORAGE_KEY = "pixeltrunk-sidebar-open";
 
@@ -97,6 +105,8 @@ export function EventSidebar({
   onRefreshImages,
   onEventUpdate,
   onOpenChange,
+  onActivePanelChange,
+  onDropImagesToSection,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -131,7 +141,9 @@ export function EventSidebar({
   }, []);
 
   const togglePanel = (panel: Panel) => {
-    setActivePanel((prev) => (prev === panel ? null : panel));
+    const next = activePanel === panel ? null : panel;
+    setActivePanel(next);
+    onActivePanelChange?.(next);
   };
 
   if (!isOpen) {
@@ -201,6 +213,7 @@ export function EventSidebar({
             onSectionsChange={onSectionsChange}
             activeSection={activeSection}
             onSetActiveSection={onSetActiveSection}
+            onDropImagesToSection={onDropImagesToSection}
           />
         )}
         {activePanel === "design" && (
@@ -223,6 +236,7 @@ export function EventSidebar({
             totalImageCount={totalImageCount}
             settings={settings}
             onEventUpdate={onEventUpdate}
+            onSettingsChange={onSettingsChange}
           />
         )}
         {activePanel === "activity" && (
@@ -268,12 +282,14 @@ function SectionsPanel({
   onSectionsChange,
   activeSection,
   onSetActiveSection,
+  onDropImagesToSection,
 }: {
   eventId: string;
   sections: SectionItem[];
   onSectionsChange: (s: SectionItem[]) => void;
   activeSection: string | null;
   onSetActiveSection: (id: string | null) => void;
+  onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -295,8 +311,8 @@ function SectionsPanel({
       if (!res.ok) throw new Error("Failed to create section");
       const data = await res.json();
       onSectionsChange([
-        { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
         ...sections,
+        { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
       ]);
       setNewName("");
       toast.success("Section created");
@@ -387,7 +403,7 @@ function SectionsPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* "All" tab + section list */}
+      {/* "All" tab + new section input + section list */}
       <div className="flex-1 overflow-y-auto">
         <button
           onClick={() => onSetActiveSection(null)}
@@ -448,56 +464,56 @@ function SectionsPanel({
                 onDragStart={() => setDragIndex(index)}
                 onDragEnd={handleDragEnd}
                 onDragOver={() => handleDragOver(index)}
+                onDropImages={onDropImagesToSection}
               />
             </div>
           ))
         )}
-      </div>
 
-      {/* Footer: create new + generate */}
-      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-3 space-y-2">
-        {/* Create new section */}
-        <div className="flex items-center gap-2">
-          <Plus size={14} className="text-stone-500 shrink-0" />
+        {/* Create new section — always visible, below sections list */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-t border-stone-50">
+          <Plus size={14} className="text-stone-400 shrink-0" />
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCreate();
+              if (e.key === "Escape") setNewName("");
             }}
             placeholder="New section..."
-            className="flex-1 text-[12px] text-stone-900 placeholder:text-stone-300 bg-transparent border-b border-stone-200 focus:border-stone-900 outline-none py-1 transition-colors"
+            className="flex-1 text-[12px] text-stone-700 placeholder:text-stone-300 bg-transparent outline-none py-0.5 transition-colors"
           />
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleCreate}
-            disabled={!newName.trim() || isCreating}
-          >
-            {isCreating ? "..." : "Add"}
-          </Button>
+          {newName.trim() && (
+            <button
+              onClick={handleCreate}
+              disabled={isCreating}
+              className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              {isCreating ? "..." : "Add"}
+            </button>
+          )}
         </div>
+      </div>
 
-        {/* Generate sections button (always visible when sections exist) */}
-        {sections.length > 0 && (
-          <button
-            onClick={handleGenerateSections}
-            disabled={isGenerating}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-stone-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors disabled:opacity-50"
-          >
-            {isGenerating ? (
-              <Loader2 size={11} className="animate-spin" />
-            ) : (
-              <Sparkles size={11} />
-            )}
-            {isGenerating
-              ? "Generating..."
-              : hasAutoSections
-                ? "Regenerate AI sections"
-                : "Generate from AI tags"}
-          </button>
-        )}
+      {/* Footer: generate AI sections */}
+      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-2.5">
+        <button
+          onClick={handleGenerateSections}
+          disabled={isGenerating}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-stone-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors disabled:opacity-50"
+        >
+          {isGenerating ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : (
+            <Sparkles size={11} />
+          )}
+          {isGenerating
+            ? "Generating..."
+            : hasAutoSections
+              ? "Regenerate AI sections"
+              : "Generate from AI tags"}
+        </button>
       </div>
     </div>
   );
@@ -590,6 +606,7 @@ function DesignPanel({
                 handleChange({ cover: { ...settings.cover, imageId } })
               }
               eventId={eventId}
+              onUploadComplete={onRefreshImages}
             />
           );
         })()}
@@ -654,6 +671,7 @@ function DetailsPanel({
   totalImageCount,
   settings,
   onEventUpdate,
+  onSettingsChange,
 }: {
   eventId: string;
   eventName: string;
@@ -664,17 +682,38 @@ function DetailsPanel({
   totalImageCount?: number;
   settings?: EventSettings;
   onEventUpdate?: (updates: { event_type?: string; event_date?: string }) => void;
+  onSettingsChange?: (settings: EventSettings) => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(eventName);
   const [type, setType] = useState(eventType || "");
   const [date, setDate] = useState(eventDate || "");
-  const [description, setDescription] = useState(eventDescription || "");
-  const [location, setLocation] = useState("");
-  const [clientName, setClientName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+
+  // Sharing settings with defaults
+  const sharing: SharingSettings = settings?.sharing
+    ? { ...DEFAULT_SHARING_SETTINGS, ...settings.sharing }
+    : DEFAULT_SHARING_SETTINGS;
+
+  const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
+
+  const updateSharing = useCallback(
+    (partial: Partial<SharingSettings>) => {
+      if (!settings || !onSettingsChange) return;
+      const updated = { ...settings, sharing: { ...sharing, ...partial } };
+      onSettingsChange(updated);
+      // Debounced save
+      fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: updated }),
+      }).catch(() => toast.error("Failed to save"));
+    },
+    [eventId, settings, sharing, onSettingsChange]
+  );
 
   // Sync with props
   useEffect(() => {
@@ -686,19 +725,6 @@ function DetailsPanel({
   useEffect(() => {
     setDate(eventDate || "");
   }, [eventDate]);
-  useEffect(() => {
-    setDescription(eventDescription || "");
-  }, [eventDescription]);
-
-  // Read location and clientName from settings
-  useEffect(() => {
-    if (settings) {
-      const s = settings as EventSettings & { location?: string; clientName?: string };
-      setLocation(s.location || "");
-      setClientName(s.clientName || "");
-    }
-  }, [settings]);
-
   const formatDate = (iso: string) => {
     try {
       return new Date(iso).toLocaleDateString("en-US", {
@@ -742,30 +768,6 @@ function DetailsPanel({
     }
   }, [eventId, onEventUpdate]);
 
-  const handleSaveDescription = useCallback(async () => {
-    if (description === (eventDescription || "")) return;
-    try {
-      await fetch(`/api/events/${eventId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: description || null }),
-      });
-    } catch {
-      toast.error("Failed to save description");
-    }
-  }, [eventId, description, eventDescription]);
-
-  const handleSaveSettingsField = useCallback(async (field: string, value: string) => {
-    try {
-      await fetch(`/api/events/${eventId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { [field]: value || null } }),
-      });
-    } catch {
-      toast.error("Failed to update");
-    }
-  }, [eventId]);
 
   const handleDuplicate = useCallback(async () => {
     try {
@@ -844,65 +846,6 @@ function DetailsPanel({
 
       <div className="h-px bg-stone-100" />
 
-      {/* Client & location */}
-      <div className="space-y-3">
-        <div>
-          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
-            Client
-          </label>
-          <div className="relative">
-            <UserRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-300" />
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              onBlur={() => handleSaveSettingsField("clientName", clientName)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveSettingsField("clientName", clientName);
-              }}
-              placeholder="Client name"
-              className="w-full text-[13px] text-stone-700 border border-stone-200 pl-9 pr-3 py-2 focus:border-stone-900 outline-none transition-colors placeholder:text-stone-300"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
-            Location
-          </label>
-          <div className="relative">
-            <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-300" />
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              onBlur={() => handleSaveSettingsField("location", location)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveSettingsField("location", location);
-              }}
-              placeholder="Venue or city"
-              className="w-full text-[13px] text-stone-700 border border-stone-200 pl-9 pr-3 py-2 focus:border-stone-900 outline-none transition-colors placeholder:text-stone-300"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Description */}
-      <div>
-        <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
-          Description
-        </label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={handleSaveDescription}
-          rows={3}
-          placeholder="Notes about this event..."
-          className="w-full text-[13px] text-stone-700 border border-stone-200 px-3 py-2 focus:border-stone-900 outline-none transition-colors resize-none placeholder:text-stone-300"
-        />
-      </div>
-
-      <div className="h-px bg-stone-100" />
-
       {/* Read-only info */}
       <div className="space-y-3">
         <div className="flex items-center gap-2.5">
@@ -930,6 +873,117 @@ function DetailsPanel({
           </div>
         )}
       </div>
+
+      <div className="h-px bg-stone-100" />
+
+      {/* Downloads & Protection */}
+      {onSettingsChange && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Download size={13} className="text-stone-400" />
+            <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+              Downloads & Protection
+            </span>
+          </div>
+
+          {/* Allow Downloads */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">Allow downloads</span>
+            <button
+              type="button"
+              onClick={() => updateSharing({ allowDownload: !sharing.allowDownload })}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.allowDownload ? "bg-emerald-500" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.allowDownload ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
+          {/* PIN for bulk download */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">PIN for Download All</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !sharing.requirePinBulk;
+                const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
+                updateSharing({ requirePinBulk: next, downloadPin: pin });
+              }}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.requirePinBulk ? "bg-stone-900" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.requirePinBulk ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
+          {/* PIN for individual downloads */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">PIN for individual</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !sharing.requirePinIndividual;
+                const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
+                updateSharing({ requirePinIndividual: next, downloadPin: pin });
+              }}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.requirePinIndividual ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
+          {/* PIN input */}
+          {(sharing.requirePinBulk || sharing.requirePinIndividual) && (
+            <div className="pt-1">
+              <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
+                PIN Code
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Lock size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-300" />
+                  <input
+                    type={showPin ? "text" : "password"}
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={sharing.downloadPin}
+                    onChange={(e) =>
+                      updateSharing({ downloadPin: e.target.value.replace(/\D/g, "").slice(0, 4) })
+                    }
+                    placeholder="4-digit"
+                    className="w-full border border-stone-200 bg-transparent pl-8 pr-2 py-1.5 text-[12px] text-stone-900 font-mono tracking-[0.3em] placeholder:text-stone-300 placeholder:tracking-normal placeholder:font-sans focus:border-stone-900 outline-none transition-colors"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPin((v) => !v)}
+                  className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+                  title={showPin ? "Hide PIN" : "Show PIN"}
+                >
+                  {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSharing({ downloadPin: generatePin() })}
+                  className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+                  title="Generate new PIN"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="h-px bg-stone-100" />
 

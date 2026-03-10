@@ -12,7 +12,7 @@ import { FilmStrip } from "@/components/gallery/FilmStrip";
 import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
-import { EventSidebar } from "@/components/events/EventSidebar";
+import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useProcessingStatus } from "@/hooks/useProcessingStatus";
@@ -81,6 +81,9 @@ export default function EventPage({
   // Section image IDs (for filtering when a section is active)
   const [sectionImageIds, setSectionImageIds] = useState<Set<string> | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  const previewRefreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Selection state
   const selection = useSelection();
@@ -105,6 +108,25 @@ export default function EventPage({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [sortOpen]);
+
+  // Refresh preview iframe when design settings change
+  const settingsKeyRef = useRef(JSON.stringify(eventSettings));
+  useEffect(() => {
+    const key = JSON.stringify(eventSettings);
+    if (key === settingsKeyRef.current) return;
+    settingsKeyRef.current = key;
+    if (sidebarPanel !== "design") return;
+    // Wait for the debounced save to complete before refreshing
+    clearTimeout(previewRefreshTimer.current);
+    previewRefreshTimer.current = setTimeout(() => {
+      if (previewIframeRef.current) {
+        // Use cache-busting query parameter for reliable reload
+        const base = `/gallery/preview/${eventId}`;
+        previewIframeRef.current.src = `${base}?t=${Date.now()}`;
+      }
+    }, 1200);
+    return () => clearTimeout(previewRefreshTimer.current);
+  }, [eventId, eventSettings, sidebarPanel]);
 
   // Processing status
   const processing = useProcessingStatus(eventId, true);
@@ -256,7 +278,48 @@ export default function EventPage({
   }, [sectionImageIds, allImages, allStacks, isSearching]);
 
   const handleUploadComplete = useCallback(
-    (imageIds: string[]) => {
+    async (imageIds: string[]) => {
+      // Auto-assign uploaded images to a "Highlights" section (create if needed)
+      try {
+        // Check if a Highlights section already exists
+        const sectionsRes = await fetch(`/api/sections?eventId=${eventId}`);
+        if (sectionsRes.ok) {
+          const sectionsData = await sectionsRes.json();
+          let highlightsId: string | null = null;
+
+          const existing = (sectionsData.sections || []).find(
+            (s: { name: string }) => s.name === "Highlights"
+          );
+
+          if (existing) {
+            highlightsId = existing.id;
+          } else {
+            // Create the Highlights section
+            const createRes = await fetch("/api/sections", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ eventId, name: "Highlights" }),
+            });
+            if (createRes.ok) {
+              const createData = await createRes.json();
+              highlightsId = createData.section.id;
+            }
+          }
+
+          // Add the uploaded images to the Highlights section
+          if (highlightsId) {
+            await fetch(`/api/sections/${highlightsId}/images`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageIds }),
+            });
+          }
+        }
+      } catch (err) {
+        // Non-critical — images are still uploaded, just not in a section
+        console.error("Failed to assign images to Highlights section:", err);
+      }
+
       fetchEvent();
       toast.success(`${imageIds.length} images uploaded`);
       // Clear retry state on successful upload (retry worked)
@@ -273,7 +336,7 @@ export default function EventPage({
         });
       }
     },
-    [fetchEvent]
+    [fetchEvent, eventId]
   );
 
   const handleUploadFailed = useCallback((files: File[]) => {
@@ -488,6 +551,35 @@ export default function EventPage({
     }
   }, [activeSection, selectedArray, deselectAll, fetchEvent]);
 
+  const handleDropImagesToSection = useCallback(
+    async (sectionId: string, imageIds: string[]) => {
+      try {
+        // If viewing a specific section, remove from the current section first (move)
+        if (activeSection && activeSection !== sectionId) {
+          await fetch(`/api/sections/${activeSection}/images`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageIds }),
+          });
+        }
+        // Add to the target section
+        await fetch(`/api/sections/${sectionId}/images`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds }),
+        });
+        deselectAll();
+        fetchEvent();
+        const action = activeSection && activeSection !== sectionId ? "Moved" : "Added";
+        toast.success(`${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`);
+      } catch (err) {
+        console.error("Drop to section failed:", err);
+        toast.error("Failed to move images");
+      }
+    },
+    [activeSection, deselectAll, fetchEvent]
+  );
+
   const handleBatchRename = useCallback(
     async (pattern: string) => {
       try {
@@ -633,6 +725,8 @@ export default function EventPage({
             );
           }}
           onOpenChange={setSidebarOpen}
+          onActivePanelChange={setSidebarPanel}
+          onDropImagesToSection={handleDropImagesToSection}
         />
       )}
 
@@ -745,10 +839,17 @@ export default function EventPage({
                     )}
                   </div>
                 </div>
-                <div className="mt-2.5 flex items-center justify-between">
+                {processing.isProcessing && (
+                  <p className="mt-1.5 text-[11px] text-stone-300 tracking-wide">
+                    Generating thumbnails, search embeddings, and scene tags
+                  </p>
+                )}
+                <div className="mt-2 flex items-center justify-between">
                   <p className="text-[13px] text-stone-500 tabular-nums">
                     {processing.isProcessing ? (
                       <>
+                        <span className="text-stone-400">AI processing</span>
+                        <span className="text-stone-300"> — </span>
                         <span className="text-emerald-600 font-medium">{processing.complete.toLocaleString()}</span>
                         <span className="text-stone-300"> of </span>
                         <span className="font-medium">{processing.total.toLocaleString()}</span>
@@ -764,16 +865,18 @@ export default function EventPage({
                         )}
                       </>
                     ) : processing.failed > 0 ? (
-                      <>
+                      <span className="text-stone-400">
+                        AI processing failed for{" "}
                         <span className="text-red-400 font-medium">{processing.failed.toLocaleString()}</span>
-                        <span className="text-stone-300"> {processing.failed === 1 ? "image" : "images"} failed</span>
+                        {" "}{processing.failed === 1 ? "image" : "images"}
                         {processing.complete > 0 && (
-                          <>
-                            <span className="text-stone-300"> · </span>
-                            <span className="text-emerald-600">{processing.complete.toLocaleString()} complete</span>
-                          </>
+                          <> · <span className="text-emerald-600">{processing.complete.toLocaleString()} complete</span></>
                         )}
-                      </>
+                        {" — "}
+                        <span className="text-stone-500">
+                          thumbnails & search won&apos;t work for these until retried
+                        </span>
+                      </span>
                     ) : null}
                   </p>
                   {(processing.failed > 0 || (processing.pending > 0 && !processing.processing)) && (
@@ -792,7 +895,7 @@ export default function EventPage({
                       }}
                       className="text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
                     >
-                      Retry Processing →
+                      {processing.failed > 0 ? "Retry Failed →" : "Retry Processing →"}
                     </button>
                   )}
                 </div>
@@ -871,8 +974,32 @@ export default function EventPage({
               </div>
             )}
 
-            {/* ─── Search + Gallery (only show when images exist) ─── */}
-            {allImages.length > 0 && (
+            {/* ─── Live gallery preview (when Design tab is active) ─── */}
+            {sidebarPanel === "design" && allImages.length > 0 && (
+              <div className="flex-1 flex flex-col reveal" style={{ animationDelay: "0.1s" }}>
+                <div className="flex items-center gap-3 mb-4">
+                  <Eye size={14} className="text-stone-400" />
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+                    Live Preview
+                  </span>
+                  <span className="text-[11px] text-stone-300">
+                    — changes appear after saving
+                  </span>
+                </div>
+                <div className="flex-1 border border-stone-200 bg-stone-50 overflow-hidden" style={{ minHeight: "60vh" }}>
+                  <iframe
+                    ref={previewIframeRef}
+                    src={`/gallery/preview/${eventId}`}
+                    className="w-full h-full border-0"
+                    style={{ minHeight: "60vh" }}
+                    title="Gallery preview"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ─── Search + Gallery (only show when images exist and not in design mode) ─── */}
+            {allImages.length > 0 && sidebarPanel !== "design" && (
             <>
             <div
               className="mb-10 max-w-2xl reveal"
@@ -1062,7 +1189,7 @@ export default function EventPage({
           onCreateShareLink={handleCreateSelectionLink}
           onDownload={handleBatchDownload}
           onAddToSection={handleAddToSection}
-          onMoveToSection={activeSection ? handleMoveToSection : undefined}
+          onMoveToSection={handleMoveToSection}
           onRemoveFromSection={activeSection ? handleRemoveFromSection : undefined}
           onRename={handleBatchRename}
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
