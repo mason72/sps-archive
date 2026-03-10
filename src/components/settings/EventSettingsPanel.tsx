@@ -23,19 +23,11 @@ const TABS: { id: SettingsTab; icon: typeof Image; label: string }[] = [
   { id: "sharing", icon: Share2, label: "Sharing" },
 ];
 
-interface CoverImage {
-  id: string;
-  thumbnailUrl: string;
-  originalFilename: string;
-}
-
 interface EventSettingsPanelProps {
   eventId: string;
   settings: EventSettings;
   onSettingsChange: (settings: EventSettings) => void;
   onClose: () => void;
-  /** Images available for cover image selection */
-  images?: CoverImage[];
   /** Currently selected cover image URL (thumbnail) */
   coverImageUrl?: string;
   /** Currently selected cover image ID */
@@ -56,7 +48,6 @@ export function EventSettingsPanel({
   settings,
   onSettingsChange,
   onClose,
-  images,
   coverImageUrl,
   coverImageId,
   onCoverImageChange,
@@ -217,10 +208,13 @@ export function EventSettingsPanel({
               }
               coverImageUrl={coverImageUrl}
               coverImageId={coverImageId}
-              images={images}
               onCoverImageChange={onCoverImageChange}
               eventId={eventId}
               onUploadComplete={onUploadComplete}
+              mosaicImageCount={localSettings.cover.mosaicImageCount ?? 5}
+              onMosaicImageCountChange={(mosaicImageCount) =>
+                updateSettings({ cover: { ...localSettings.cover, mosaicImageCount } })
+              }
             />
           )}
           {activeTab === "typography" && (

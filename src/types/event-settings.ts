@@ -1,16 +1,8 @@
 export type CoverLayout =
   | "none"
   | "center"
-  | "love"
   | "left"
-  | "novel"
-  | "vintage"
   | "frame"
-  | "stripe"
-  | "divider"
-  | "journal"
-  | "stamp"
-  | "outline"
   | "classic"
   | "mosaic";
 
@@ -41,6 +33,7 @@ export interface EventSettings {
   cover: {
     layout: CoverLayout;
     imageId?: string;
+    mosaicImageCount?: number;
   };
   typography: {
     headingFont: HeadingFont;
@@ -88,16 +81,8 @@ export const DEFAULT_EVENT_SETTINGS: EventSettings = {
 export const COVER_LAYOUTS: { value: CoverLayout; label: string }[] = [
   { value: "none", label: "None" },
   { value: "center", label: "Center" },
-  { value: "love", label: "Love" },
   { value: "left", label: "Left" },
-  { value: "novel", label: "Novel" },
-  { value: "vintage", label: "Vintage" },
   { value: "frame", label: "Frame" },
-  { value: "stripe", label: "Stripe" },
-  { value: "divider", label: "Divider" },
-  { value: "journal", label: "Journal" },
-  { value: "stamp", label: "Stamp" },
-  { value: "outline", label: "Outline" },
   { value: "classic", label: "Classic" },
   { value: "mosaic", label: "Smart Mosaic" },
 ];

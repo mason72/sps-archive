@@ -8,6 +8,7 @@ export interface GalleryImage {
   parsedName: string | null;
   width: number | null;
   height: number | null;
+  takenAt?: string | null;
   downloadUrl?: string;
 }
 

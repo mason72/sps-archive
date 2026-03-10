@@ -1,16 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ImageIcon, Check, Upload, Search, X } from "lucide-react";
+import { useState } from "react";
+import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { COVER_LAYOUTS, type CoverLayout } from "@/types/event-settings";
-
-interface CoverImage {
-  id: string;
-  thumbnailUrl: string;
-  originalFilename: string;
-}
 
 interface CoverLayoutTabProps {
   value: CoverLayout;
@@ -19,14 +13,16 @@ interface CoverLayoutTabProps {
   coverImageUrl?: string;
   /** Selected cover image ID */
   coverImageId?: string;
-  /** Available images for cover selection */
-  images?: CoverImage[];
   /** Called when cover image is selected */
   onCoverImageChange?: (imageId: string) => void;
   /** Event ID for uploading a new cover image */
   eventId?: string;
   /** Called after a cover image upload completes so parent can refresh its image list */
   onUploadComplete?: () => void;
+  /** Number of images in mosaic (5-30) */
+  mosaicImageCount?: number;
+  /** Called when mosaic image count changes */
+  onMosaicImageCountChange?: (count: number) => void;
 }
 
 /**
@@ -39,33 +35,18 @@ export function CoverLayoutTab({
   onChange,
   coverImageUrl,
   coverImageId,
-  images,
   onCoverImageChange,
   eventId,
   onUploadComplete,
+  mosaicImageCount = 5,
+  onMosaicImageCountChange,
 }: CoverLayoutTabProps) {
-  const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   // Temporary local URL for a just-uploaded cover image (before thumbnails are generated)
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null);
-  const [uploadedPreviewId, setUploadedPreviewId] = useState<string | null>(null);
 
-  // Clear local preview once the uploaded image appears in the images array
-  useEffect(() => {
-    if (
-      uploadedPreviewId &&
-      images?.some((img) => img.id === uploadedPreviewId)
-    ) {
-      setUploadedPreviewUrl(null);
-      setUploadedPreviewId(null);
-    }
-  }, [images, uploadedPreviewId]);
-
-  // Resolve cover image URL: prefer images array, fall back to local preview
-  const resolvedCoverUrl =
-    coverImageUrl ||
-    (coverImageId === uploadedPreviewId ? uploadedPreviewUrl : null) ||
-    undefined;
+  // Resolve cover image URL: prefer prop, fall back to local preview
+  const resolvedCoverUrl = coverImageUrl || uploadedPreviewUrl || undefined;
 
   const handleCoverUpload = async (file: File) => {
     if (!eventId || !onCoverImageChange) return;
@@ -106,7 +87,6 @@ export function CoverLayoutTab({
       // Step 4: Create a local blob URL for immediate preview
       const previewUrl = URL.createObjectURL(file);
       setUploadedPreviewUrl(previewUrl);
-      setUploadedPreviewId(imageId);
 
       // Step 5: Set as cover
       onCoverImageChange(imageId);
@@ -126,19 +106,6 @@ export function CoverLayoutTab({
 
   return (
     <div>
-      {/* ─── Full-screen gallery modal ─── */}
-      {showGalleryModal && images && onCoverImageChange && (
-        <CoverImageGalleryModal
-          images={images}
-          currentImageId={coverImageId}
-          onSelect={(imageId) => {
-            onCoverImageChange(imageId);
-            setShowGalleryModal(false);
-          }}
-          onClose={() => setShowGalleryModal(false)}
-        />
-      )}
-
       <h3 className="text-[15px] font-medium text-stone-900 mb-1">Cover</h3>
       <p className="text-[12px] text-stone-400 mb-4">
         Choose how the cover image is displayed on the gallery page.
@@ -154,13 +121,37 @@ export function CoverLayoutTab({
         </div>
       )}
 
-      {/* ─── Mosaic auto-select notice ─── */}
+      {/* ─── Mosaic auto-select notice + image count slider ─── */}
       {value === "mosaic" && (
         <div className="mb-6 p-4 bg-stone-50 border border-stone-200">
           <p className="text-[13px] font-medium text-stone-700 mb-1">AI-powered cover</p>
-          <p className="text-[12px] text-stone-400 leading-relaxed">
+          <p className="text-[12px] text-stone-400 leading-relaxed mb-4">
             Smart Mosaic automatically selects your highest-rated photos and arranges them in a magazine-style grid. No image selection needed.
           </p>
+          {onMosaicImageCountChange && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[12px] font-medium text-stone-600">
+                  Number of images
+                </label>
+                <span className="text-[12px] font-medium text-stone-900 tabular-nums">
+                  {mosaicImageCount}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={30}
+                value={mosaicImageCount}
+                onChange={(e) => onMosaicImageCountChange(Number(e.target.value))}
+                className="w-full h-1 bg-stone-200 rounded-full appearance-none cursor-pointer accent-stone-900 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-stone-900 [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <div className="flex justify-between mt-1">
+                <span className="text-[10px] text-stone-400">5</span>
+                <span className="text-[10px] text-stone-400">30</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -186,31 +177,16 @@ export function CoverLayoutTab({
             </label>
           )}
 
-          {typeof onCoverImageChange === "function" && (
-            <button
-              onClick={() => setShowGalleryModal(true)}
-              className="flex items-center gap-3 w-full p-3 border border-stone-200 hover:border-stone-400 transition-colors"
-            >
-              {resolvedCoverUrl ? (
-                <img
-                  src={resolvedCoverUrl}
-                  alt="Cover"
-                  className="w-12 h-12 object-cover bg-stone-100 shrink-0"
-                />
-              ) : (
-                <div className="w-12 h-12 bg-stone-100 flex items-center justify-center shrink-0">
-                  <ImageIcon size={16} className="text-stone-300" />
-                </div>
-              )}
-              <div className="text-left flex-1 min-w-0">
-                <p className="text-[12px] font-medium text-stone-700">
-                  {resolvedCoverUrl ? "Change cover image" : "Choose from gallery"}
-                </p>
-                <p className="text-[11px] text-stone-400 truncate">
-                  {resolvedCoverUrl ? "Click to select a different photo" : "Search and select a photo"}
-                </p>
-              </div>
-            </button>
+          {/* Cover image preview */}
+          {resolvedCoverUrl && (
+            <div className="flex items-center gap-3 p-3 border border-stone-200">
+              <img
+                src={resolvedCoverUrl}
+                alt="Cover"
+                className="w-12 h-12 object-cover bg-stone-100 shrink-0"
+              />
+              <p className="text-[12px] text-stone-500">Current cover image</p>
+            </div>
           )}
         </div>
       )}
@@ -255,126 +231,6 @@ export function CoverLayoutTab({
   );
 }
 
-/** Full-screen modal for choosing a cover image from the gallery */
-function CoverImageGalleryModal({
-  images,
-  currentImageId,
-  onSelect,
-  onClose,
-}: {
-  images: CoverImage[];
-  currentImageId?: string;
-  onSelect: (imageId: string) => void;
-  onClose: () => void;
-}) {
-  const [search, setSearch] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Focus search on mount
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const filtered = search.trim()
-    ? images.filter((img) =>
-        img.originalFilename.toLowerCase().includes(search.toLowerCase())
-      )
-    : images;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col" onClick={onClose}>
-      <div
-        className="flex-1 flex flex-col max-w-6xl w-full mx-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center gap-4 px-6 py-4">
-          <div className="flex-1 relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by filename…"
-              className="w-full pl-10 pr-4 py-2.5 bg-white/10 backdrop-blur text-white text-[14px] placeholder:text-stone-500 border border-white/10 focus:border-white/30 outline-none transition-colors"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-white transition-colors"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <span className="text-[12px] text-stone-500 tabular-nums shrink-0">
-            {filtered.length.toLocaleString()} {filtered.length === 1 ? "image" : "images"}
-          </span>
-          <button
-            onClick={onClose}
-            className="p-2 text-stone-400 hover:text-white transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Grid */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <p className="text-[14px] text-stone-500">
-                {search ? "No images match your search" : "No images available"}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
-              {filtered.map((img) => (
-                <button
-                  key={img.id}
-                  onClick={() => onSelect(img.id)}
-                  className={cn(
-                    "relative aspect-square overflow-hidden group transition-all",
-                    currentImageId === img.id
-                      ? "ring-2 ring-white ring-offset-2 ring-offset-black"
-                      : "hover:ring-1 hover:ring-white/50"
-                  )}
-                >
-                  <img
-                    src={img.thumbnailUrl}
-                    alt={img.originalFilename}
-                    loading="lazy"
-                    className="w-full h-full object-cover"
-                  />
-                  {currentImageId === img.id && (
-                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                      <Check size={20} className="text-white" />
-                    </div>
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-1.5">
-                    <p className="text-[10px] text-white truncate">
-                      {img.originalFilename}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Preview layout with the actual cover image */
 function CoverImagePreview({
   layout,
@@ -400,13 +256,6 @@ function CoverImagePreview({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-1">
           <img src={imageUrl} alt="" className="w-full h-full object-cover" />
           <div className={`h-0.5 w-8 ${text} shrink-0`} />
-        </div>
-      );
-    case "love":
-      return (
-        <div className="absolute inset-0 flex gap-0.5 p-1">
-          <img src={imageUrl} alt="" className="flex-1 object-cover" />
-          <img src={imageUrl} alt="" className="flex-1 object-cover" style={{ objectPosition: "right" }} />
         </div>
       );
     case "left":
@@ -461,13 +310,6 @@ function LayoutPreview({ layout, isActive }: { layout: CoverLayout; isActive: bo
           <div className={`h-1 w-8 ${text}`} />
         </div>
       );
-    case "love":
-      return (
-        <div className="absolute inset-0 flex gap-1 p-2">
-          <div className={`flex-1 ${bg}`} />
-          <div className={`flex-1 ${bg}`} />
-        </div>
-      );
     case "left":
       return (
         <div className="absolute inset-0 flex gap-1 p-2">
@@ -478,63 +320,10 @@ function LayoutPreview({ layout, isActive }: { layout: CoverLayout; isActive: bo
           </div>
         </div>
       );
-    case "novel":
-      return (
-        <div className="absolute inset-0 flex p-2">
-          <div className="flex-1 flex flex-col items-center justify-center gap-1">
-            <div className={`h-1 w-12 ${text}`} />
-          </div>
-          <div className={`flex-1 ${bg}`} />
-        </div>
-      );
-    case "vintage":
-      return (
-        <div className="absolute inset-0 flex items-center justify-center p-3">
-          <div className={`w-3/4 h-3/4 ${bg} border-2 border-stone-200`} />
-        </div>
-      );
     case "frame":
       return (
         <div className={`absolute inset-0 ${bg} flex items-center justify-center`}>
           <div className={`h-1 w-10 bg-white`} />
-        </div>
-      );
-    case "stripe":
-      return (
-        <div className="absolute inset-0 flex flex-col p-2 gap-1">
-          <div className={`h-0.5 w-full ${text}`} />
-          <div className={`flex-1 ${bg}`} />
-          <div className={`h-0.5 w-full ${text}`} />
-        </div>
-      );
-    case "divider":
-      return (
-        <div className="absolute inset-0 flex gap-0.5 p-2">
-          <div className={`flex-1 ${bg}`} />
-          <div className={`w-0.5 ${text}`} />
-          <div className={`flex-1 ${bg}`} />
-        </div>
-      );
-    case "journal":
-      return (
-        <div className="absolute inset-0 flex flex-col p-2 gap-1">
-          <div className={`flex-[2] ${bg}`} />
-          <div className="flex items-center gap-1">
-            <div className={`h-1 w-8 ${text}`} />
-          </div>
-        </div>
-      );
-    case "stamp":
-      return (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-3 gap-1">
-          <div className={`w-10 h-10 ${bg}`} />
-          <div className={`h-1 w-8 ${text}`} />
-        </div>
-      );
-    case "outline":
-      return (
-        <div className="absolute inset-2 border-2 border-stone-300 flex items-center justify-center">
-          <div className={`h-1 w-8 ${text}`} />
         </div>
       );
     case "classic":

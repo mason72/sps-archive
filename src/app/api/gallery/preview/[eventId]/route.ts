@@ -43,9 +43,15 @@ export async function GET(
 
     if (profile) {
       const b = (profile.branding ?? {}) as Record<string, unknown>;
+      // Presign logo URL if it's an R2 key
+      const presignedLogoUrl = profile.logo_url
+        ? profile.logo_url.startsWith("branding/")
+          ? await getPresignedDownloadUrl(profile.logo_url, 86400)
+          : profile.logo_url
+        : null;
       branding = {
         businessName: profile.business_name,
-        logoUrl: profile.logo_url,
+        logoUrl: presignedLogoUrl,
         website: profile.website,
         primaryColor: (b.primaryColor as string) || DEFAULT_BRANDING.primaryColor,
         secondaryColor: (b.secondaryColor as string) || DEFAULT_BRANDING.secondaryColor,
@@ -57,7 +63,7 @@ export async function GET(
     }
 
     // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
-    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score";
+    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at";
     const PREVIEW_PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -97,13 +103,14 @@ export async function GET(
           parsedName: img.parsed_name,
           width: img.width,
           height: img.height,
+          takenAt: img.taken_at,
         };
       })
     );
 
     // 5. Build gallery settings from event settings
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
-    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string };
+    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string; mosaicImageCount?: number };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
@@ -129,8 +136,9 @@ export async function GET(
       }
     }
 
-    // Smart Mosaic: select top 5 images by aesthetic score
+    // Smart Mosaic: select top N images by aesthetic score (configurable 5-30)
     if (cover.layout === "mosaic") {
+      const mosaicCount = Math.min(30, Math.max(5, cover.mosaicImageCount ?? 5));
       const scored = (rawImages || [])
         .filter((img) => img.aesthetic_score != null)
         .sort(
@@ -138,10 +146,10 @@ export async function GET(
             ((b.aesthetic_score as number) ?? 0) -
             ((a.aesthetic_score as number) ?? 0)
         )
-        .slice(0, 5);
+        .slice(0, mosaicCount);
 
       const mosaicSources =
-        scored.length >= 3 ? scored : (rawImages || []).slice(0, 5);
+        scored.length >= 3 ? scored : (rawImages || []).slice(0, mosaicCount);
 
       if (mosaicSources.length > 0) {
         gallerySettings.mosaicImageUrls = await Promise.all(

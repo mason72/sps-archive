@@ -134,7 +134,7 @@ export async function GET(
     }
 
     // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
-    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score";
+    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at";
     const IMG_PAGE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -180,6 +180,7 @@ export async function GET(
           parsedName: img.parsed_name,
           width: img.width,
           height: img.height,
+          takenAt: img.taken_at,
         };
 
         if (urls[2]) {
@@ -192,7 +193,7 @@ export async function GET(
 
     // 6. Build gallery settings from event settings
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
-    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string };
+    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string; mosaicImageCount?: number };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
@@ -218,8 +219,9 @@ export async function GET(
       }
     }
 
-    // Smart Mosaic: select top 5 images by aesthetic score
+    // Smart Mosaic: select top N images by aesthetic score (configurable 5-30)
     if (cover.layout === "mosaic") {
+      const mosaicCount = Math.min(30, Math.max(5, cover.mosaicImageCount ?? 5));
       const scored = (rawImages || [])
         .filter((img) => img.aesthetic_score != null)
         .sort(
@@ -227,10 +229,10 @@ export async function GET(
             ((b.aesthetic_score as number) ?? 0) -
             ((a.aesthetic_score as number) ?? 0)
         )
-        .slice(0, 5);
+        .slice(0, mosaicCount);
 
       const mosaicSources =
-        scored.length >= 3 ? scored : (rawImages || []).slice(0, 5);
+        scored.length >= 3 ? scored : (rawImages || []).slice(0, mosaicCount);
 
       if (mosaicSources.length > 0) {
         gallerySettings.mosaicImageUrls = await Promise.all(

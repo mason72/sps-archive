@@ -38,66 +38,37 @@ function CoverSection({
   primaryColor?: string;
   mosaicImageUrls?: string[];
 }) {
-  // ─── Mosaic layout ───
+  // ─── Mosaic layout (scalable 5-30 images) ───
   if (layout === "mosaic" && mosaicImageUrls && mosaicImageUrls.length > 0) {
     const urls = mosaicImageUrls;
-
-    if (urls.length >= 5) {
-      return (
-        <div className="h-[50vh] md:h-[65vh] grid grid-cols-4 grid-rows-2 gap-1 overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[0]} alt="" className="col-span-2 row-span-2 w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[1]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[2]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[3]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "240ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[4]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "320ms" }} />
-        </div>
-      );
-    }
-
-    if (urls.length === 4) {
-      return (
-        <div className="h-[50vh] md:h-[65vh] grid grid-cols-3 grid-rows-2 gap-1 overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[0]} alt="" className="col-span-2 row-span-2 w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[1]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[2]} alt="" className="w-full h-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[3]} alt="" className="w-full h-full object-cover mosaic-tile-in hidden md:block" style={{ animationDelay: "240ms" }} />
-        </div>
-      );
-    }
-
-    if (urls.length === 3) {
-      return (
-        <div className="h-[50vh] md:h-[65vh] flex gap-1 overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={urls[0]} alt="" className="w-[60%] h-full object-cover mosaic-tile-in" style={{ animationDelay: "0ms" }} />
-          <div className="w-[40%] flex flex-col gap-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={urls[1]} alt="" className="flex-1 w-full object-cover mosaic-tile-in" style={{ animationDelay: "80ms" }} />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={urls[2]} alt="" className="flex-1 w-full object-cover mosaic-tile-in" style={{ animationDelay: "160ms" }} />
-          </div>
-        </div>
-      );
-    }
+    const tiles = urls.slice(1);
+    const gridCols =
+      tiles.length <= 4
+        ? "grid-cols-2"
+        : tiles.length <= 9
+          ? "grid-cols-3"
+          : "grid-cols-4";
 
     return (
-      <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
+      <div className="flex flex-col md:flex-row h-[50vh] md:h-[65vh] gap-0.5 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={urls[0]} alt="" className="w-full h-full object-cover ken-burns-settle" />
-        <div className="absolute inset-0 bg-black/30" />
-        <div className="absolute inset-0 flex items-center justify-center text-center p-8">
-          <h1 className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}>
-            {eventName}
-          </h1>
+        <img
+          src={urls[0]}
+          alt=""
+          className="w-full md:w-[40%] h-[40%] md:h-full object-cover mosaic-tile-in shrink-0"
+          style={{ animationDelay: "0ms" }}
+        />
+        <div className={`flex-1 grid ${gridCols} gap-0.5 overflow-hidden`}>
+          {tiles.map((url, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={url}
+              alt=""
+              className="w-full h-full object-cover mosaic-tile-in"
+              style={{ animationDelay: `${(i + 1) * 60}ms` }}
+            />
+          ))}
         </div>
       </div>
     );

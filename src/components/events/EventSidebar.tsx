@@ -571,12 +571,15 @@ function DesignPanel({
               }
               coverImageUrl={coverImage?.thumbnailUrl}
               coverImageId={coverImageId}
-              images={images}
               onCoverImageChange={(imageId) =>
                 handleChange({ cover: { ...settings.cover, imageId } })
               }
               eventId={eventId}
               onUploadComplete={onRefreshImages}
+              mosaicImageCount={settings.cover?.mosaicImageCount ?? 5}
+              onMosaicImageCountChange={(mosaicImageCount) =>
+                handleChange({ cover: { ...settings.cover, mosaicImageCount } })
+              }
             />
           );
         })()}
