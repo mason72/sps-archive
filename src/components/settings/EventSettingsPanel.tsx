@@ -30,8 +30,6 @@ interface EventSettingsPanelProps {
   onClose: () => void;
   /** Currently selected cover image URL (thumbnail) */
   coverImageUrl?: string;
-  /** Currently selected cover image ID */
-  coverImageId?: string;
   /** Called when cover image is selected */
   onCoverImageChange?: (imageId: string) => void;
   /** Called after a cover image upload completes so parent can refresh its image list */
@@ -49,7 +47,6 @@ export function EventSettingsPanel({
   onSettingsChange,
   onClose,
   coverImageUrl,
-  coverImageId,
   onCoverImageChange,
   onUploadComplete,
 }: EventSettingsPanelProps) {
@@ -202,19 +199,26 @@ export function EventSettingsPanel({
         <div className="flex-1 overflow-y-auto px-6 py-6">
           {activeTab === "cover" && (
             <CoverLayoutTab
-              value={localSettings.cover.layout}
-              onChange={(layout) =>
-                updateSettings({ cover: { ...localSettings.cover, layout } })
+              enabled={localSettings.cover.enabled}
+              onEnabledChange={(enabled) =>
+                updateSettings({ cover: { ...localSettings.cover, enabled } })
+              }
+              titlePosition={localSettings.cover.titlePosition}
+              onTitlePositionChange={(titlePosition) =>
+                updateSettings({ cover: { ...localSettings.cover, titlePosition } })
+              }
+              titleAlignment={localSettings.cover.titleAlignment}
+              onTitleAlignmentChange={(titleAlignment) =>
+                updateSettings({ cover: { ...localSettings.cover, titleAlignment } })
+              }
+              titlePlacement={localSettings.cover.titlePlacement}
+              onTitlePlacementChange={(titlePlacement) =>
+                updateSettings({ cover: { ...localSettings.cover, titlePlacement } })
               }
               coverImageUrl={coverImageUrl}
-              coverImageId={coverImageId}
               onCoverImageChange={onCoverImageChange}
               eventId={eventId}
               onUploadComplete={onUploadComplete}
-              mosaicImageCount={localSettings.cover.mosaicImageCount ?? 5}
-              onMosaicImageCountChange={(mosaicImageCount) =>
-                updateSettings({ cover: { ...localSettings.cover, mosaicImageCount } })
-              }
             />
           )}
           {activeTab === "typography" && (

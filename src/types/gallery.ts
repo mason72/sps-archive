@@ -25,9 +25,11 @@ export interface GalleryBranding {
 }
 
 export interface GallerySettings {
-  coverLayout?: string;
+  coverEnabled?: boolean;
   coverImageUrl?: string;
-  mosaicImageUrls?: string[];
+  titlePosition?: "above" | "over" | "below";
+  titleAlignment?: "left" | "center" | "right";
+  titlePlacement?: { vertical: string; horizontal: string };
   headingFont?: string;
   bodyFont?: string;
   /** Event-level color overrides (take precedence over branding) */

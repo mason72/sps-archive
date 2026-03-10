@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Download, Heart } from "lucide-react";
 import type { GalleryImage } from "@/types/gallery";
 
@@ -18,21 +18,20 @@ interface GalleryGridProps {
 }
 
 /**
- * GalleryGrid — Public gallery masonry layout.
- * Clean, client-facing design with optional download/favorite overlays.
+ * GalleryGrid — Public gallery layout.
+ *
+ * Masonry mode uses JS-based column distribution (shortest-column-first)
+ * to prevent CSS-columns reflow issues where images jump around on load.
+ * Uniform mode uses CSS Grid for a clean square grid.
  */
-const GALLERY_GAP_MAP = {
+
+/* ─── Gap classes ─── */
+const GAP_PX: Record<string, number> = { tight: 4, normal: 16, loose: 24 };
+
+const UNIFORM_GAP_MAP: Record<string, string> = {
   tight: "gap-1",
   normal: "gap-4",
   loose: "gap-6",
-};
-
-const GALLERY_COLUMNS_MAP: Record<number, string> = {
-  2: "columns-1 sm:columns-2",
-  3: "columns-1 sm:columns-2 lg:columns-3",
-  4: "columns-1 sm:columns-2 lg:columns-3 xl:columns-4",
-  5: "columns-2 sm:columns-3 lg:columns-4 xl:columns-5",
-  6: "columns-2 sm:columns-3 lg:columns-4 xl:columns-6",
 };
 
 const UNIFORM_COLUMNS_MAP: Record<number, string> = {
@@ -43,6 +42,64 @@ const UNIFORM_COLUMNS_MAP: Record<number, string> = {
   6: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
 };
 
+/* ─── Responsive column count (mirrors old Tailwind breakpoints) ─── */
+// [default, sm≥640, lg≥1024, xl≥1280]
+const RESPONSIVE_COLS: Record<number, number[]> = {
+  2: [1, 2, 2, 2],
+  3: [1, 2, 3, 3],
+  4: [1, 2, 3, 4],
+  5: [2, 3, 4, 5],
+  6: [2, 3, 4, 6],
+};
+
+function useResponsiveColumns(target: number): number {
+  const tiers = RESPONSIVE_COLS[target] ?? RESPONSIVE_COLS[4];
+
+  const [cols, setCols] = useState(() => {
+    if (typeof window === "undefined") return tiers[0];
+    const w = window.innerWidth;
+    if (w >= 1280) return tiers[3];
+    if (w >= 1024) return tiers[2];
+    if (w >= 640) return tiers[1];
+    return tiers[0];
+  });
+
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      if (w >= 1280) setCols(tiers[3]);
+      else if (w >= 1024) setCols(tiers[2]);
+      else if (w >= 640) setCols(tiers[1]);
+      else setCols(tiers[0]);
+    };
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [tiers]);
+
+  return cols;
+}
+
+/* ─── Shortest-column-first distribution ─── */
+function distributeIntoColumns(images: GalleryImage[], numCols: number): GalleryImage[][] {
+  const columns: GalleryImage[][] = Array.from({ length: numCols }, () => []);
+  const heights = new Array(numCols).fill(0);
+
+  for (const img of images) {
+    // Find the shortest column
+    let shortest = 0;
+    for (let i = 1; i < numCols; i++) {
+      if (heights[i] < heights[shortest]) shortest = i;
+    }
+    columns[shortest].push(img);
+    // Track normalized height (inverse aspect ratio); fallback 4:3 landscape
+    const ar = img.width && img.height ? img.width / img.height : 4 / 3;
+    heights[shortest] += 1 / ar;
+  }
+
+  return columns;
+}
+
+/* ─── Main component ─── */
 export function GalleryGrid({
   images,
   allowDownload,
@@ -55,10 +112,17 @@ export function GalleryGrid({
   gridColumns = 4,
   gridGap = "normal",
 }: GalleryGridProps) {
+  const colCount = useResponsiveColumns(gridColumns);
+  const isUniform = gridStyle === "uniform";
+
+  const columns = useMemo(
+    () => (isUniform ? [] : distributeIntoColumns(images, colCount)),
+    [images, colCount, isUniform]
+  );
+
   if (images.length === 0) {
     return (
       <div className="py-24 flex flex-col items-center justify-center max-w-xs mx-auto text-center gap-4">
-        {/* D5: Camera outline SVG illustration */}
         <svg
           className="h-16 w-16 text-stone-200"
           viewBox="0 0 64 64"
@@ -84,31 +148,55 @@ export function GalleryGrid({
     );
   }
 
-  const gapClass = GALLERY_GAP_MAP[gridGap];
-  const isUniform = gridStyle === "uniform";
-  const colClass = isUniform
-    ? UNIFORM_COLUMNS_MAP[gridColumns] || UNIFORM_COLUMNS_MAP[4]
-    : GALLERY_COLUMNS_MAP[gridColumns] || GALLERY_COLUMNS_MAP[4];
+  const gap = GAP_PX[gridGap] ?? 16;
 
+  /* ─── Uniform grid (CSS Grid — no reflow issues) ─── */
+  if (isUniform) {
+    const uniformGap = UNIFORM_GAP_MAP[gridGap];
+    const uniformCols = UNIFORM_COLUMNS_MAP[gridColumns] || UNIFORM_COLUMNS_MAP[4];
+    return (
+      <div className={`grid ${uniformCols} ${uniformGap}`}>
+        {images.map((image) => (
+          <GalleryCard
+            key={image.id}
+            image={image}
+            allowDownload={allowDownload}
+            allowFavorites={allowFavorites}
+            isFavorited={favoriteIds.has(image.id)}
+            onFavorite={onFavorite}
+            onClick={() => onImageClick(image.id)}
+            onDownloadClick={onDownloadClick}
+            uniform
+          />
+        ))}
+      </div>
+    );
+  }
+
+  /* ─── Masonry (JS-distributed columns — stable, no jumping) ─── */
   return (
-    <div className={isUniform ? `grid ${colClass} ${gapClass}` : `${colClass} ${gapClass}`}>
-      {images.map((image) => (
-        <GalleryCard
-          key={image.id}
-          image={image}
-          allowDownload={allowDownload}
-          allowFavorites={allowFavorites}
-          isFavorited={favoriteIds.has(image.id)}
-          onFavorite={onFavorite}
-          onClick={() => onImageClick(image.id)}
-          onDownloadClick={onDownloadClick}
-          uniform={isUniform}
-        />
+    <div className="flex items-start" style={{ gap }}>
+      {columns.map((col, ci) => (
+        <div key={ci} className="flex-1 min-w-0 flex flex-col" style={{ gap }}>
+          {col.map((image) => (
+            <GalleryCard
+              key={image.id}
+              image={image}
+              allowDownload={allowDownload}
+              allowFavorites={allowFavorites}
+              isFavorited={favoriteIds.has(image.id)}
+              onFavorite={onFavorite}
+              onClick={() => onImageClick(image.id)}
+              onDownloadClick={onDownloadClick}
+            />
+          ))}
+        </div>
       ))}
     </div>
   );
 }
 
+/* ─── GalleryCard ─── */
 function GalleryCard({
   image,
   allowDownload,
@@ -133,7 +221,6 @@ function GalleryCard({
   const imgRef = useRef<HTMLImageElement>(null);
   const prevFavoritedRef = useRef(isFavorited);
 
-  // D2: Heart celebration — detect false→true transition
   useEffect(() => {
     if (isFavorited && !prevFavoritedRef.current) {
       setHeartPop(true);
@@ -160,9 +247,15 @@ function GalleryCard({
     onFavorite?.(image.id);
   };
 
+  // Lock aspect ratio from real dimensions to prevent layout shift
+  const aspectStyle = !uniform && image.width && image.height
+    ? { aspectRatio: `${image.width} / ${image.height}` }
+    : undefined;
+
   return (
     <div
-      className={`relative group cursor-pointer overflow-hidden bg-stone-100 ${uniform ? "" : "mb-4 break-inside-avoid"}`}
+      className="relative group cursor-pointer overflow-hidden bg-stone-100"
+      style={aspectStyle}
       onClick={onClick}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -170,8 +263,8 @@ function GalleryCard({
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename}
-        className={`w-full object-cover transition-all duration-500 group-hover:scale-[1.03] ${
-          uniform ? "aspect-square" : "h-auto"
+        className={`w-full object-cover transition-[opacity,transform] duration-500 group-hover:scale-[1.03] ${
+          uniform ? "aspect-square" : "h-full"
         } ${isLoaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
         onLoad={() => setIsLoaded(true)}
@@ -181,7 +274,7 @@ function GalleryCard({
           }
         }}
       />
-      {!isLoaded && <div className={`shimmer-placeholder ${uniform ? "aspect-square" : "aspect-[3/4]"}`} />}
+      {!isLoaded && <div className="shimmer-placeholder absolute inset-0" />}
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

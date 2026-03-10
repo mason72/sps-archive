@@ -99,6 +99,19 @@ export async function DELETE(
       return NextResponse.json({ error: "Section not found" }, { status: 404 });
     }
 
+    // Guard: cannot delete the last section
+    const { count } = await supabase
+      .from("sections")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", section.event_id);
+
+    if (count !== null && count <= 1) {
+      return NextResponse.json(
+        { error: "Cannot delete the last section" },
+        { status: 400 }
+      );
+    }
+
     const { error } = await supabase
       .from("sections")
       .delete()

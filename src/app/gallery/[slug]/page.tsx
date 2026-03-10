@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
 import { Download, ChevronLeft, ChevronRight, X, Heart, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
+import { SectionedGallery } from "@/components/gallery/SectionedGallery";
+import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
-import type { GalleryData, GalleryImage, GalleryBranding, GallerySection } from "@/types/gallery";
+import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -62,214 +64,6 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
   );
 }
 
-/** Cover section — displays a hero cover image above the gallery header */
-function CoverSection({
-  imageUrl,
-  layout,
-  eventName,
-  headingClass,
-  primaryColor,
-  mosaicImageUrls,
-}: {
-  imageUrl?: string;
-  layout: string;
-  eventName: string;
-  headingClass: string;
-  primaryColor?: string;
-  mosaicImageUrls?: string[];
-}) {
-  // ─── Mosaic layout (scalable 5-30 images) ───
-  if (layout === "mosaic" && mosaicImageUrls && mosaicImageUrls.length > 0) {
-    const urls = mosaicImageUrls;
-    const tiles = urls.slice(1); // everything after hero
-    // Adaptive grid columns based on tile count
-    const gridCols =
-      tiles.length <= 4
-        ? "grid-cols-2"
-        : tiles.length <= 9
-          ? "grid-cols-3"
-          : "grid-cols-4";
-
-    return (
-      <div className="flex flex-col md:flex-row h-[50vh] md:h-[65vh] gap-0.5 overflow-hidden">
-        {/* Hero image — 40% width on desktop, full width on mobile */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={urls[0]}
-          alt=""
-          className="w-full md:w-[40%] h-[40%] md:h-full object-cover mosaic-tile-in shrink-0"
-          style={{ animationDelay: "0ms" }}
-        />
-        {/* Tile grid — fills remaining space */}
-        <div className={`flex-1 grid ${gridCols} gap-0.5 overflow-hidden`}>
-          {tiles.map((url, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={url}
-              alt=""
-              className="w-full h-full object-cover mosaic-tile-in"
-              style={{ animationDelay: `${(i + 1) * 60}ms` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Non-mosaic layouts require a cover image URL
-  if (!imageUrl) return null;
-
-  if (layout === "left") {
-    return (
-      <div className="flex flex-col md:flex-row min-h-[60vh]">
-        <div className="md:w-1/2 flex items-center justify-center p-12 md:p-16">
-          <h1
-            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95]`}
-            style={{ color: primaryColor }}
-          >
-            {eventName}
-          </h1>
-        </div>
-        <div className="md:w-1/2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-        </div>
-      </div>
-    );
-  }
-
-  if (layout === "frame") {
-    return (
-      <div className="px-8 md:px-16 pt-12">
-        <div className="relative aspect-[16/7] overflow-hidden bg-stone-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-          <div className="absolute inset-0 border-[8px] md:border-[16px] border-white pointer-events-none" />
-        </div>
-      </div>
-    );
-  }
-
-  if (layout === "classic") {
-    return (
-      <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-8 md:p-16">
-          <h1
-            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}
-          >
-            {eventName}
-          </h1>
-        </div>
-      </div>
-    );
-  }
-
-  // Default: "center" layout
-  return (
-    <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-      <div className="absolute inset-0 bg-black/30" />
-      <div className="absolute inset-0 flex items-center justify-center text-center p-8">
-        <h1
-          className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}
-        >
-          {eventName}
-        </h1>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────
- * SectionedGallery — renders images grouped by section
- * ───────────────────────────────────────────── */
-function SectionedGallery({
-  images,
-  sections,
-  allowDownload,
-  allowFavorites,
-  favoriteIds,
-  onFavorite,
-  onImageClick,
-  onDownloadClick,
-  gridStyle,
-  gridColumns,
-  gridGap,
-  colors,
-}: {
-  images: GalleryImage[];
-  sections: GallerySection[];
-  allowDownload: boolean;
-  allowFavorites: boolean;
-  favoriteIds: Set<string>;
-  onFavorite?: (imageId: string) => void;
-  onImageClick: (id: string) => void;
-  onDownloadClick?: (image: GalleryImage) => void;
-  gridStyle?: "masonry" | "uniform";
-  gridColumns?: number;
-  gridGap?: "tight" | "normal" | "loose";
-  colors: { primary: string; secondary: string; accent: string; background: string };
-}) {
-  const imageMap = new Map(images.map((img) => [img.id, img]));
-  const assignedIds = new Set(sections.flatMap((s) => s.imageIds));
-  const unsectioned = images.filter((img) => !assignedIds.has(img.id));
-
-  const gridProps = {
-    allowDownload,
-    allowFavorites,
-    favoriteIds,
-    onFavorite,
-    onImageClick,
-    onDownloadClick,
-    gridStyle,
-    gridColumns,
-    gridGap,
-  };
-
-  return (
-    <div className="space-y-16">
-      {/* Unsectioned images first */}
-      {unsectioned.length > 0 && (
-        <GalleryGrid images={unsectioned} {...gridProps} />
-      )}
-
-      {/* Each section with a heading */}
-      {sections.map((section) => {
-        const sectionImages = section.imageIds
-          .map((id) => imageMap.get(id))
-          .filter((img): img is GalleryImage => !!img);
-        if (sectionImages.length === 0) return null;
-
-        return (
-          <div key={section.id}>
-            <div className="mb-6">
-              <h2
-                className="font-editorial text-[22px] text-stone-700"
-                style={{ color: colors.primary }}
-              >
-                {section.name}
-              </h2>
-              {section.description && (
-                <p
-                  className="caption-italic mt-1"
-                  style={{ color: colors.secondary }}
-                >
-                  {section.description}
-                </p>
-              )}
-            </div>
-            <GalleryGrid images={sectionImages} {...gridProps} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 export default function GalleryPage({
   params,
@@ -555,12 +349,15 @@ export default function GalleryPage({
     background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
   };
 
-  // Cover image present? Mosaic uses mosaicImageUrls instead of a single coverImageUrl
-  const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
-  const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout && s?.coverLayout !== "none");
-  // Some layouts render the title inside the cover — skip it in the header
-  // Mosaic does NOT render title inside — excluded from this list
-  const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
+  // Cover image
+  const hasCover = s?.coverEnabled && !!s?.coverImageUrl;
+  const titlePosition = s?.titlePosition || "over";
+  const titleAlignment = s?.titleAlignment || "center";
+  // When title is "over" the CoverSection renders the title — skip it in the header
+  const coverRendersTitle = hasCover && titlePosition === "over";
+  const titleBelowCover = hasCover && titlePosition === "below";
+  const titleAboveCover = hasCover && titlePosition === "above";
+  const titleAlignClass = titleAlignment === "left" ? "text-left" : titleAlignment === "right" ? "text-right" : "text-center";
 
   // Build CSS custom properties from resolved colors
   const brandStyles = {
@@ -572,53 +369,102 @@ export default function GalleryPage({
 
   return (
     <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: colors.background }}>
+      {/* ─── Logo + Title above cover ─── */}
+      {titleAboveCover && (
+        <div className="px-8 md:px-16 pt-12 pb-6">
+          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+            <h1
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              style={{ color: colors.primary }}
+            >
+              {gallery.eventName}
+            </h1>
+            {b && (b.logoUrl || b.businessName) && (
+              <div className="flex items-center gap-3 shrink-0">
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ─── Cover image ─── */}
       {hasCover && (
         <CoverSection
-          imageUrl={s?.coverImageUrl}
-          layout={s!.coverLayout!}
+          imageUrl={s!.coverImageUrl!}
           eventName={gallery.eventName}
           headingClass={headingClass}
           primaryColor={colors.primary}
-          mosaicImageUrls={s?.mosaicImageUrls}
+          titlePosition={titlePosition}
+          titleAlignment={titleAlignment}
+          titlePlacement={s?.titlePlacement}
         />
       )}
 
       {/* ─── Branded header ─── */}
-      <header className="px-8 md:px-16 pt-12 pb-8">
-        {/* Photographer branding row */}
-        {b && (b.logoUrl || b.businessName) && (
-          <div
-            className={`flex items-center gap-3 mb-8 ${
-              b.logoPlacement === "center" ? "justify-center" : "justify-start"
-            }`}
-          >
-            {b.logoUrl && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={b.logoUrl}
-                alt={b.businessName || "Photographer"}
-                className="h-10 w-auto object-contain"
-              />
-            )}
-            {b.businessName && !b.logoUrl && (
-              <span
-                className="text-[15px] font-medium tracking-wide uppercase"
-                style={{ color: colors.secondary }}
-              >
-                {b.businessName}
-              </span>
+      <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-8`}>
+        {/* When title is below cover: logo + title inline */}
+        {titleBelowCover ? (
+          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+            <h1
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              style={{ color: colors.primary }}
+            >
+              {gallery.eventName}
+            </h1>
+            {b && (b.logoUrl || b.businessName) && (
+              <div className="flex items-center gap-3 shrink-0">
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
+        ) : (
+          <>
+            {/* Logo row — skip when above (already rendered above cover) */}
+            {!titleAboveCover && b && (b.logoUrl || b.businessName) && (
+              <div
+                className={`flex items-center gap-3 mb-8 ${
+                  b.logoPlacement === "center" ? "justify-center" : "justify-start"
+                }`}
+              >
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
+            )}
 
-        {!coverRendersTitle && (
-          <h1
-            className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
-            style={{ color: colors.primary }}
-          >
-            {gallery.eventName}
-          </h1>
+            {/* Title — skip when cover renders it or when above */}
+            {!coverRendersTitle && !titleAboveCover && (
+              <h1
+                className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
+                style={{ color: colors.primary }}
+              >
+                {gallery.eventName}
+              </h1>
+            )}
+          </>
         )}
         {gallery.eventDate && (
           <p className="caption-italic mt-2" style={{ color: colors.secondary }}>

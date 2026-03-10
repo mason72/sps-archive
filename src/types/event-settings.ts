@@ -1,10 +1,11 @@
-export type CoverLayout =
-  | "none"
-  | "center"
-  | "left"
-  | "frame"
-  | "classic"
-  | "mosaic";
+export type TitlePosition = "above" | "over" | "below";
+export type TitleAlignment = "left" | "center" | "right";
+export type TitleVertical = "top" | "center" | "bottom";
+
+export interface TitlePlacement {
+  vertical: TitleVertical;
+  horizontal: TitleAlignment;
+}
 
 export type HeadingFont =
   | "playfair"
@@ -31,9 +32,11 @@ export interface SharingSettings {
 
 export interface EventSettings {
   cover: {
-    layout: CoverLayout;
+    enabled: boolean;
     imageId?: string;
-    mosaicImageCount?: number;
+    titlePosition: TitlePosition;
+    titleAlignment: TitleAlignment;
+    titlePlacement?: TitlePlacement;
   };
   typography: {
     headingFont: HeadingFont;
@@ -66,7 +69,7 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
 };
 
 export const DEFAULT_EVENT_SETTINGS: EventSettings = {
-  cover: { layout: "none" },
+  cover: { enabled: false, titlePosition: "over", titleAlignment: "center" },
   typography: { headingFont: "playfair", bodyFont: "inter" },
   color: {
     primary: "#1C1917",
@@ -77,15 +80,6 @@ export const DEFAULT_EVENT_SETTINGS: EventSettings = {
   grid: { columns: 5, gap: "normal", style: "masonry" },
   sharing: DEFAULT_SHARING_SETTINGS,
 };
-
-export const COVER_LAYOUTS: { value: CoverLayout; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "center", label: "Center" },
-  { value: "left", label: "Left" },
-  { value: "frame", label: "Frame" },
-  { value: "classic", label: "Classic" },
-  { value: "mosaic", label: "Smart Mosaic" },
-];
 
 export const HEADING_FONTS: { value: HeadingFont; label: string }[] = [
   { value: "playfair", label: "Playfair Display" },

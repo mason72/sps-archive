@@ -362,14 +362,28 @@ function SectionsPanel({
 
   const handleDelete = useCallback(
     async (sectionId: string) => {
+      // Guard: can't delete the last section
+      if (sections.length <= 1) {
+        toast.error("Can't delete the last section");
+        return;
+      }
+
+      // Optimistic: remove immediately
+      const prev = sections;
+      onSectionsChange(sections.filter((s) => s.id !== sectionId));
+      if (activeSection === sectionId) onSetActiveSection(null);
+
       try {
         const res = await fetch(`/api/sections/${sectionId}`, { method: "DELETE" });
-        if (!res.ok) throw new Error();
-        onSectionsChange(sections.filter((s) => s.id !== sectionId));
-        if (activeSection === sectionId) onSetActiveSection(null);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to delete section");
+        }
         toast.success("Section deleted");
-      } catch {
-        toast.error("Failed to delete section");
+      } catch (err) {
+        // Rollback on failure
+        onSectionsChange(prev);
+        toast.error(err instanceof Error ? err.message : "Failed to delete section");
       }
     },
     [sections, onSectionsChange, activeSection, onSetActiveSection]
@@ -565,21 +579,28 @@ function DesignPanel({
           const coverImage = images?.find((img) => img.id === coverImageId);
           return (
             <CoverLayoutTab
-              value={settings.cover?.layout || "center"}
-              onChange={(layout) =>
-                handleChange({ cover: { ...settings.cover, layout } })
+              enabled={settings.cover?.enabled ?? false}
+              onEnabledChange={(enabled) =>
+                handleChange({ cover: { ...settings.cover, enabled } })
+              }
+              titlePosition={settings.cover?.titlePosition || "over"}
+              onTitlePositionChange={(titlePosition) =>
+                handleChange({ cover: { ...settings.cover, titlePosition } })
+              }
+              titleAlignment={settings.cover?.titleAlignment || "center"}
+              onTitleAlignmentChange={(titleAlignment) =>
+                handleChange({ cover: { ...settings.cover, titleAlignment } })
+              }
+              titlePlacement={settings.cover?.titlePlacement}
+              onTitlePlacementChange={(titlePlacement) =>
+                handleChange({ cover: { ...settings.cover, titlePlacement } })
               }
               coverImageUrl={coverImage?.thumbnailUrl}
-              coverImageId={coverImageId}
               onCoverImageChange={(imageId) =>
                 handleChange({ cover: { ...settings.cover, imageId } })
               }
               eventId={eventId}
               onUploadComplete={onRefreshImages}
-              mosaicImageCount={settings.cover?.mosaicImageCount ?? 5}
-              onMosaicImageCountChange={(mosaicImageCount) =>
-                handleChange({ cover: { ...settings.cover, mosaicImageCount } })
-              }
             />
           );
         })()}

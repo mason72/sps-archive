@@ -86,6 +86,14 @@ export async function GET(
       previewOffset += PREVIEW_PAGE_SIZE;
     }
 
+    // 3b. Save cover image data before excluding from gallery grid
+    const coverImageId = ((event.settings as Record<string, unknown>)?.cover as Record<string, unknown>)?.imageId as string | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const coverImageRow = coverImageId ? rawImages.find((img: any) => img.id === coverImageId) : null;
+    if (coverImageId) {
+      rawImages = rawImages.filter((img) => img.id !== coverImageId);
+    }
+
     // 4. Generate presigned URLs
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
@@ -110,13 +118,19 @@ export async function GET(
 
     // 5. Build gallery settings from event settings
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
-    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as { layout: string; imageId?: string; mosaicImageCount?: number };
+    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as {
+      enabled: boolean; imageId?: string; titlePosition: string; titleAlignment: string;
+      titlePlacement?: { vertical: string; horizontal: string };
+    };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
 
     const gallerySettings: GallerySettings = {
-      coverLayout: cover.layout,
+      coverEnabled: cover.enabled,
+      titlePosition: cover.titlePosition as "above" | "over" | "below",
+      titleAlignment: cover.titleAlignment as "left" | "center" | "right",
+      titlePlacement: cover.titlePlacement,
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
       colorPrimary: color.primary,
@@ -128,37 +142,44 @@ export async function GET(
       gridGap: grid.gap as "tight" | "normal" | "loose",
     };
 
-    // Generate presigned URL for cover image if set
-    if (cover.imageId) {
-      const coverImage = (rawImages || []).find((img) => img.id === cover.imageId);
-      if (coverImage) {
-        gallerySettings.coverImageUrl = await getPresignedDownloadUrl(coverImage.r2_key, 14400);
-      }
+    // Generate presigned URL for cover image if cover is enabled
+    if (cover.enabled && cover.imageId && coverImageRow) {
+      gallerySettings.coverImageUrl = await getPresignedDownloadUrl(coverImageRow.r2_key, 14400);
     }
 
-    // Smart Mosaic: select top N images by aesthetic score (configurable 5-30)
-    if (cover.layout === "mosaic") {
-      const mosaicCount = Math.min(30, Math.max(5, cover.mosaicImageCount ?? 5));
-      const scored = (rawImages || [])
-        .filter((img) => img.aesthetic_score != null)
-        .sort(
-          (a, b) =>
-            ((b.aesthetic_score as number) ?? 0) -
-            ((a.aesthetic_score as number) ?? 0)
-        )
-        .slice(0, mosaicCount);
+    // 6. Fetch sections with their image assignments
+    const { data: rawSections } = await supabase
+      .from("sections")
+      .select("id, name, description")
+      .eq("event_id", eventId)
+      .order("sort_order", { ascending: true });
 
-      const mosaicSources =
-        scored.length >= 3 ? scored : (rawImages || []).slice(0, mosaicCount);
+    const imageIdSet = new Set((rawImages || []).map((img) => img.id));
+    const sectionIds = (rawSections || []).map((s) => s.id);
 
-      if (mosaicSources.length > 0) {
-        gallerySettings.mosaicImageUrls = await Promise.all(
-          mosaicSources.map((img) =>
-            getPresignedDownloadUrl(img.r2_key, 14400)
-          )
-        );
-      }
+    const { data: sectionImageRows } = sectionIds.length > 0
+      ? await supabase
+          .from("section_images")
+          .select("section_id, image_id")
+          .in("section_id", sectionIds)
+      : { data: [] as { section_id: string; image_id: string }[] };
+
+    const sectionImageMap = new Map<string, string[]>();
+    for (const row of sectionImageRows || []) {
+      if (!imageIdSet.has(row.image_id)) continue;
+      const arr = sectionImageMap.get(row.section_id) || [];
+      arr.push(row.image_id);
+      sectionImageMap.set(row.section_id, arr);
     }
+
+    const sections = (rawSections || [])
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        imageIds: sectionImageMap.get(s.id) || [],
+      }))
+      .filter((s) => s.imageIds.length > 0);
 
     const response = NextResponse.json({
       eventName: event.name,
@@ -169,6 +190,7 @@ export async function GET(
       requirePinBulk: false,
       requirePinIndividual: false,
       images,
+      sections: sections.length > 0 ? sections : undefined,
       shareId: `preview-${eventId}`,
       branding,
       settings: gallerySettings,

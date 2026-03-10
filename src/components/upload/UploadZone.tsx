@@ -346,6 +346,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
       "image/heic": [".heic", ".heif"],
     },
     maxSize: 100 * 1024 * 1024,
+    useFsAccessApi: false, // Use traditional file dialog so CMD+A works in Finder
   });
 
   // ─── Counts ───

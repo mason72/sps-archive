@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, use } from "react";
-import { Download, ChevronLeft, ChevronRight, X, Eye } from "lucide-react";
+import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
+import { Download, ChevronLeft, ChevronRight, X, Eye, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
+import { SectionedGallery } from "@/components/gallery/SectionedGallery";
+import { CoverSection } from "@/components/gallery/CoverSection";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
@@ -22,121 +24,6 @@ const BODY_FONT_CLASS: Record<string, string> = {
   "dm-sans": "font-dm-sans",
 };
 
-/** Cover section — displays a hero cover image above the gallery header */
-function CoverSection({
-  imageUrl,
-  layout,
-  eventName,
-  headingClass,
-  primaryColor,
-  mosaicImageUrls,
-}: {
-  imageUrl?: string;
-  layout: string;
-  eventName: string;
-  headingClass: string;
-  primaryColor?: string;
-  mosaicImageUrls?: string[];
-}) {
-  // ─── Mosaic layout (scalable 5-30 images) ───
-  if (layout === "mosaic" && mosaicImageUrls && mosaicImageUrls.length > 0) {
-    const urls = mosaicImageUrls;
-    const tiles = urls.slice(1);
-    const gridCols =
-      tiles.length <= 4
-        ? "grid-cols-2"
-        : tiles.length <= 9
-          ? "grid-cols-3"
-          : "grid-cols-4";
-
-    return (
-      <div className="flex flex-col md:flex-row h-[50vh] md:h-[65vh] gap-0.5 overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={urls[0]}
-          alt=""
-          className="w-full md:w-[40%] h-[40%] md:h-full object-cover mosaic-tile-in shrink-0"
-          style={{ animationDelay: "0ms" }}
-        />
-        <div className={`flex-1 grid ${gridCols} gap-0.5 overflow-hidden`}>
-          {tiles.map((url, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={url}
-              alt=""
-              className="w-full h-full object-cover mosaic-tile-in"
-              style={{ animationDelay: `${(i + 1) * 60}ms` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!imageUrl) return null;
-
-  if (layout === "left") {
-    return (
-      <div className="flex flex-col md:flex-row min-h-[60vh]">
-        <div className="md:w-1/2 flex items-center justify-center p-12 md:p-16">
-          <h1
-            className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95]`}
-            style={{ color: primaryColor }}
-          >
-            {eventName}
-          </h1>
-        </div>
-        <div className="md:w-1/2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-        </div>
-      </div>
-    );
-  }
-
-  if (layout === "frame") {
-    return (
-      <div className="px-8 md:px-16 pt-12">
-        <div className="relative aspect-[16/7] overflow-hidden bg-stone-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-          <div className="absolute inset-0 border-[8px] md:border-[16px] border-white pointer-events-none" />
-        </div>
-      </div>
-    );
-  }
-
-  if (layout === "classic") {
-    return (
-      <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-8 md:p-16">
-          <h1 className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}>
-            {eventName}
-          </h1>
-        </div>
-      </div>
-    );
-  }
-
-  // Default: "center" layout
-  return (
-    <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={imageUrl} alt="" className="w-full h-full object-cover ken-burns-settle" />
-      <div className="absolute inset-0 bg-black/30" />
-      <div className="absolute inset-0 flex items-center justify-center text-center p-8">
-        <h1 className={`${headingClass} text-[clamp(36px,6vw,72px)] leading-[0.95] text-white`}>
-          {eventName}
-        </h1>
-      </div>
-    </div>
-  );
-}
-
 export default function PreviewGalleryPage({
   params,
 }: {
@@ -148,6 +35,18 @@ export default function PreviewGalleryPage({
   const [error, setError] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredImages = useMemo(() => {
+    if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
+    const q = searchQuery.toLowerCase();
+    return gallery.images.filter(
+      (img) =>
+        (img.parsedName && img.parsedName.toLowerCase().includes(q)) ||
+        img.originalFilename.toLowerCase().includes(q)
+    );
+  }, [gallery, searchQuery]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -242,9 +141,14 @@ export default function PreviewGalleryPage({
     background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
   };
 
-  const hasMosaic = s?.coverLayout === "mosaic" && (s?.mosaicImageUrls?.length ?? 0) > 0;
-  const hasCover = hasMosaic || !!(s?.coverImageUrl && s?.coverLayout && s?.coverLayout !== "none");
-  const coverRendersTitle = hasCover && !hasMosaic && (s?.coverLayout === "center" || s?.coverLayout === "classic" || s?.coverLayout === "left");
+  // Cover image
+  const hasCover = s?.coverEnabled && !!s?.coverImageUrl;
+  const titlePosition = s?.titlePosition || "over";
+  const titleAlignment = s?.titleAlignment || "center";
+  const coverRendersTitle = hasCover && titlePosition === "over";
+  const titleBelowCover = hasCover && titlePosition === "below";
+  const titleAboveCover = hasCover && titlePosition === "above";
+  const titleAlignClass = titleAlignment === "left" ? "text-left" : titleAlignment === "right" ? "text-right" : "text-center";
 
   const brandStyles = {
     "--brand-primary": colors.primary,
@@ -263,52 +167,102 @@ export default function PreviewGalleryPage({
       {/* Spacer for fixed banner */}
       <div className="h-8" />
 
+      {/* ─── Logo + Title above cover ─── */}
+      {titleAboveCover && (
+        <div className="px-8 md:px-16 pt-12 pb-6">
+          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+            <h1
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              style={{ color: colors.primary }}
+            >
+              {gallery.eventName}
+            </h1>
+            {b && (b.logoUrl || b.businessName) && (
+              <div className="flex items-center gap-3 shrink-0">
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ─── Cover image ─── */}
       {hasCover && (
         <CoverSection
-          imageUrl={s?.coverImageUrl}
-          layout={s!.coverLayout!}
+          imageUrl={s!.coverImageUrl!}
           eventName={gallery.eventName}
           headingClass={headingClass}
           primaryColor={colors.primary}
-          mosaicImageUrls={s?.mosaicImageUrls}
+          titlePosition={titlePosition}
+          titleAlignment={titleAlignment}
+          titlePlacement={s?.titlePlacement}
         />
       )}
 
       {/* ─── Branded header ─── */}
-      <header className="px-8 md:px-16 pt-12 pb-8">
-        {b && (b.logoUrl || b.businessName) && (
-          <div
-            className={`flex items-center gap-3 mb-8 ${
-              b.logoPlacement === "center" ? "justify-center" : "justify-start"
-            }`}
-          >
-            {b.logoUrl && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={b.logoUrl}
-                alt={b.businessName || "Photographer"}
-                className="h-10 w-auto object-contain"
-              />
-            )}
-            {b.businessName && !b.logoUrl && (
-              <span
-                className="text-[15px] font-medium tracking-wide uppercase"
-                style={{ color: b.secondaryColor }}
-              >
-                {b.businessName}
-              </span>
+      <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-8`}>
+        {/* When title is below cover: logo + title inline */}
+        {titleBelowCover ? (
+          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+            <h1
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              style={{ color: colors.primary }}
+            >
+              {gallery.eventName}
+            </h1>
+            {b && (b.logoUrl || b.businessName) && (
+              <div className="flex items-center gap-3 shrink-0">
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
+        ) : (
+          <>
+            {/* Logo row — skip when above (already rendered above cover) */}
+            {!titleAboveCover && b && (b.logoUrl || b.businessName) && (
+              <div
+                className={`flex items-center gap-3 mb-8 ${
+                  b.logoPlacement === "center" ? "justify-center" : "justify-start"
+                }`}
+              >
+                {b.logoUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                )}
+                {b.businessName && !b.logoUrl && (
+                  <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
+                    {b.businessName}
+                  </span>
+                )}
+              </div>
+            )}
 
-        {!coverRendersTitle && (
-          <h1
-            className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
-            style={{ color: colors.primary }}
-          >
-            {gallery.eventName}
-          </h1>
+            {/* Title — skip when cover renders it or when above */}
+            {!coverRendersTitle && !titleAboveCover && (
+              <h1
+                className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
+                style={{ color: colors.primary }}
+              >
+                {gallery.eventName}
+              </h1>
+            )}
+          </>
         )}
         {gallery.eventDate && (
           <p className="caption-italic mt-2" style={{ color: colors.secondary }}>
@@ -346,19 +300,92 @@ export default function PreviewGalleryPage({
         style={{ height: "1px", backgroundColor: `${colors.secondary}30` }}
       />
 
-      {/* ─── Gallery grid ─── */}
+      {/* ─── Search + Gallery grid ─── */}
       <main className="px-8 md:px-16 pt-8 pb-24">
-        <GalleryGrid
-          images={gallery.images}
-          allowDownload={gallery.allowDownload}
-          allowFavorites={false}
-          favoriteIds={new Set()}
-          onImageClick={(id) => setSelectedImageId(id)}
-          onDownloadClick={handleIndividualDownload}
-          gridStyle={s?.gridStyle}
-          gridColumns={s?.gridColumns}
-          gridGap={s?.gridGap}
-        />
+        {/* Toolbar: search */}
+        {gallery.images.length > 8 && (
+          <div className="flex items-end justify-between gap-6 mb-8">
+            <div className="relative max-w-sm flex-1">
+              <Search
+                className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
+                style={{ color: colors.secondary }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search photos…"
+                className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
+                style={{
+                  color: colors.primary,
+                  borderColor: searchQuery
+                    ? colors.primary
+                    : `${colors.secondary}40`,
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
+                  style={{ color: colors.secondary }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* When searching, show flat results; otherwise show sections */}
+        {searchQuery.trim() ? (
+          filteredImages.length > 0 ? (
+            <GalleryGrid
+              images={filteredImages}
+              allowDownload={gallery.allowDownload}
+              allowFavorites={false}
+              favoriteIds={new Set()}
+              onImageClick={(id) => setSelectedImageId(id)}
+              onDownloadClick={handleIndividualDownload}
+              gridStyle={s?.gridStyle}
+              gridColumns={s?.gridColumns}
+              gridGap={s?.gridGap}
+            />
+          ) : (
+            <p
+              className="text-center py-16 text-[14px] italic"
+              style={{ color: colors.secondary }}
+            >
+              No photos match &ldquo;{searchQuery}&rdquo;
+            </p>
+          )
+        ) : gallery.sections && gallery.sections.length > 0 ? (
+          <SectionedGallery
+            images={gallery.images}
+            sections={gallery.sections}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={false}
+            favoriteIds={new Set()}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={handleIndividualDownload}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+            colors={colors}
+            showAllTab
+          />
+        ) : (
+          <GalleryGrid
+            images={gallery.images}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={false}
+            favoriteIds={new Set()}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={handleIndividualDownload}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+          />
+        )}
       </main>
 
       {/* ─── Lightbox ─── */}

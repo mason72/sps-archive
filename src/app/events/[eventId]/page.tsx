@@ -21,7 +21,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -279,47 +279,8 @@ export default function EventPage({
 
   const handleUploadComplete = useCallback(
     async (imageIds: string[]) => {
-      // Auto-assign uploaded images to a "Highlights" section (create if needed)
-      try {
-        // Check if a Highlights section already exists
-        const sectionsRes = await fetch(`/api/sections?eventId=${eventId}`);
-        if (sectionsRes.ok) {
-          const sectionsData = await sectionsRes.json();
-          let highlightsId: string | null = null;
-
-          const existing = (sectionsData.sections || []).find(
-            (s: { name: string }) => s.name === "Highlights"
-          );
-
-          if (existing) {
-            highlightsId = existing.id;
-          } else {
-            // Create the Highlights section
-            const createRes = await fetch("/api/sections", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ eventId, name: "Highlights" }),
-            });
-            if (createRes.ok) {
-              const createData = await createRes.json();
-              highlightsId = createData.section.id;
-            }
-          }
-
-          // Add the uploaded images to the Highlights section
-          if (highlightsId) {
-            await fetch(`/api/sections/${highlightsId}/images`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageIds }),
-            });
-          }
-        }
-      } catch (err) {
-        // Non-critical — images are still uploaded, just not in a section
-        console.error("Failed to assign images to Highlights section:", err);
-      }
-
+      // Images are already assigned to the correct section by /api/upload via sectionId.
+      // No auto-assignment needed — just refresh and celebrate.
       fetchEvent();
       toast.success(`${imageIds.length} images uploaded`);
       // Clear retry state on successful upload (retry worked)
@@ -970,6 +931,22 @@ export default function EventPage({
                 </p>
                 <p className="text-[13px] text-stone-400 max-w-xs leading-relaxed">
                   Drop images above or click upload to begin. AI will organize everything automatically.
+                </p>
+              </div>
+            )}
+
+            {/* ─── Empty section state ─── */}
+            {activeSection && allImages.length > 0 && images.length === 0 && sidebarPanel !== "design" && (
+              <div
+                onClick={() => setShowUpload(true)}
+                className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed border-stone-200 hover:border-stone-300 rounded-lg cursor-pointer transition-colors group fade-in"
+              >
+                <Upload className="h-8 w-8 text-stone-300 group-hover:text-stone-400 transition-colors mb-4" />
+                <p className="text-[13px] font-medium text-stone-400 group-hover:text-stone-600 transition-colors">
+                  Drag images here or click to upload
+                </p>
+                <p className="text-[11px] text-stone-300 mt-1">
+                  to {sections.find((s) => s.id === activeSection)?.name || "this section"}
                 </p>
               </div>
             )}
