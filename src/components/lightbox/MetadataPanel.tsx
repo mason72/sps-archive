@@ -192,9 +192,9 @@ export function MetadataPanel({
 
   const hasExif = detail && (detail.cameraMake || detail.cameraModel || detail.lens);
   const hasCapture = detail?.takenAt;
-  const hasQuality =
-    image.aestheticScore != null || image.sharpnessScore != null;
-  const hasTags = detail?.sceneTags && detail.sceneTags.length > 0;
+  // AI_HIDDEN: Quality and scene tag checks disabled — AI backend not configured
+  // const hasQuality = image.aestheticScore != null || image.sharpnessScore != null;
+  // const hasTags = detail?.sceneTags && detail.sceneTags.length > 0;
 
   return (
     <div className="w-[360px] shrink-0 overflow-y-auto border-l border-stone-200 bg-white lightbox-panel-enter">
@@ -311,74 +311,7 @@ export function MetadataPanel({
 
         {hasCapture && <div className="h-px bg-stone-200" />}
 
-        {/* ── Quality — G2: Top Shot glow when aesthetic > 0.85 ── */}
-        {hasQuality && (
-          <>
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 flex items-center">
-                  Quality
-                  <AiTooltip text="AI analyzes composition, lighting, and technical quality to score each image." />
-                </h3>
-                {image.aestheticScore != null && image.aestheticScore > 0.85 && (
-                  <span className="bg-amber-50 text-amber-700 text-[9px] uppercase tracking-wider font-medium px-1.5 py-0.5">
-                    Top Shot
-                  </span>
-                )}
-              </div>
-              <div className="space-y-3">
-                {image.aestheticScore != null && (
-                  <ScoreBar value={image.aestheticScore} label="Overall" glow={image.aestheticScore > 0.85} />
-                )}
-                {image.sharpnessScore != null && (
-                  <ScoreBar value={image.sharpnessScore} label="Sharp" />
-                )}
-                {detail?.isEyesOpen != null && (
-                  <div className="flex items-center gap-2 text-[12px] text-stone-500 mt-2">
-                    {detail.isEyesOpen ? (
-                      <>
-                        <Eye className="h-3.5 w-3.5 text-accent" />
-                        <span>Eyes open</span>
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="h-3.5 w-3.5 text-stone-400" />
-                        <span>Eyes closed</span>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
-            <div className="h-px bg-stone-200" />
-          </>
-        )}
-
-        {/* ── Scene Tags ── */}
-        {isLoading ? (
-          <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3">
-              Scene
-            </h3>
-            <div className="flex gap-2">
-              <Skeleton width="w-16" />
-              <Skeleton width="w-20" />
-              <Skeleton width="w-14" />
-            </div>
-          </section>
-        ) : hasTags ? (
-          <section>
-            <h3 className="text-[11px] font-medium uppercase tracking-[0.25em] text-stone-400 mb-3 flex items-center">
-              Scene
-              <AiTooltip text="AI classifies scenes based on visual content — people, locations, and moments." />
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {detail.sceneTags!.map((tag) => (
-                <SceneTagChip key={tag} tag={tag} />
-              ))}
-            </div>
-          </section>
-        ) : null}
+        {/* AI_HIDDEN: Quality section and Scene Tags section disabled — AI backend not configured */}
       </div>
     </div>
   );

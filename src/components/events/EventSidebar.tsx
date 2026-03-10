@@ -14,8 +14,6 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeft,
-  Sparkles,
-  Loader2,
   ImageIcon,
   CalendarDays,
   Lock,
@@ -296,7 +294,8 @@ function SectionsPanel({
   const [isGenerating, setIsGenerating] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const hasAutoSections = sections.some((s) => s.isAuto);
+  // AI_HIDDEN: hasAutoSections check disabled — AI backend not configured
+  // const hasAutoSections = sections.some((s) => s.isAuto);
 
   const handleCreate = useCallback(async () => {
     const trimmed = newName.trim();
@@ -428,20 +427,9 @@ function SectionsPanel({
             </p>
             <p className="text-[11px] text-stone-400 leading-relaxed mb-5">
               Group images into sections like &quot;Ceremony&quot;, &quot;Portraits&quot;, or &quot;Reception&quot;.
-              Create them manually or let AI generate them from scene tags.
+              Create them manually below.
             </p>
-            <button
-              onClick={handleGenerateSections}
-              disabled={isGenerating}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors disabled:opacity-50"
-            >
-              {isGenerating ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Sparkles size={12} />
-              )}
-              {isGenerating ? "Generating..." : "Generate from AI tags"}
-            </button>
+            {/* AI_HIDDEN: "Generate from AI tags" button disabled — AI backend not configured */}
           </div>
         ) : (
           sections.map((section, index) => (
@@ -496,25 +484,7 @@ function SectionsPanel({
         </div>
       </div>
 
-      {/* Footer: generate AI sections */}
-      <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-2.5">
-        <button
-          onClick={handleGenerateSections}
-          disabled={isGenerating}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-stone-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors disabled:opacity-50"
-        >
-          {isGenerating ? (
-            <Loader2 size={11} className="animate-spin" />
-          ) : (
-            <Sparkles size={11} />
-          )}
-          {isGenerating
-            ? "Generating..."
-            : hasAutoSections
-              ? "Regenerate AI sections"
-              : "Generate from AI tags"}
-        </button>
-      </div>
+      {/* AI_HIDDEN: AI section generation footer disabled — AI backend not configured */}
     </div>
   );
 }

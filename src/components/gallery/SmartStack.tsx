@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Layers, ChevronDown, Star, Check, ArrowLeftRight, Info, CheckCheck } from "lucide-react";
+import { Layers, ChevronDown, Star, Check, ArrowLeftRight, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StackImage {
@@ -94,17 +94,7 @@ export function SmartStack({
               </span>
             </button>
 
-            {/* Q1: AI tooltip explaining smart stacks */}
-            <div className="group/tip relative">
-              <Info className="h-3 w-3 text-stone-300 hover:text-stone-500 transition-colors cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 z-20">
-                <div className="bg-stone-900 text-white text-[10px] leading-relaxed px-3 py-2 rounded-sm shadow-lg">
-                  AI grouped these shots by{" "}
-                  {stackType === "face" ? "face recognition" : stackType === "burst" ? "burst timing" : "visual similarity"}.
-                  The best shot is ranked first.
-                </div>
-              </div>
-            </div>
+            {/* AI_HIDDEN: AI tooltip disabled — AI backend not configured */}
 
             {/* Q5: Select all button */}
             <button
@@ -407,12 +397,7 @@ function ExpandedStackImage({
         </div>
       )}
 
-      {/* Quality score */}
-      {img.aestheticScore != null && (
-        <div className="absolute bottom-1 right-1 bg-black/50 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/80">
-          {Math.round(img.aestheticScore * 100)}
-        </div>
-      )}
+      {/* AI_HIDDEN: Aesthetic score display disabled — AI backend not configured */}
       {showFilename && (img.parsedName || img.originalFilename) && (
         <p className="text-[10px] text-stone-400 truncate px-1 py-0.5 bg-white">
           {img.parsedName || img.originalFilename}

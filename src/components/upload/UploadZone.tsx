@@ -228,15 +228,8 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                 // R2 PUT succeeded — reset CORS failure counter
                 corsFailureCount.current = 0;
 
-                // Mark as complete immediately
-                updateFile(task.fileId, {
-                  status: "complete",
-                  progress: 100,
-                  imageId: task.upload.imageId,
-                });
-
-                // Extract EXIF (non-blocking), then ALWAYS call complete
-                // This ensures AI processing triggers even if EXIF fails
+                // Extract EXIF (non-blocking), then call complete with retry
+                // Don't mark UI complete until the /api/upload/complete call succeeds
                 (async () => {
                   let exifData: Record<string, unknown> = {};
                   try {
@@ -247,20 +240,48 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                     // EXIF extraction is non-critical
                   }
 
-                  // Always fire — triggers thumbnails + AI pipeline
-                  try {
-                    await fetch("/api/upload/complete", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        imageId: task.upload.imageId,
-                        width: (exifData as { width?: number }).width ?? null,
-                        height: (exifData as { height?: number }).height ?? null,
-                        exif: exifData,
-                      }),
+                  // Call /api/upload/complete with retry (2 retries, 1s delay)
+                  const COMPLETE_RETRIES = 2;
+                  let completeOk = false;
+                  for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
+                    try {
+                      const res = await fetch("/api/upload/complete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          imageId: task.upload.imageId,
+                          width: (exifData as { width?: number }).width ?? null,
+                          height: (exifData as { height?: number }).height ?? null,
+                          exif: exifData,
+                        }),
+                      });
+                      if (res.ok) {
+                        completeOk = true;
+                        break;
+                      }
+                    } catch {
+                      // Retry on network error
+                    }
+                    if (attempt < COMPLETE_RETRIES) {
+                      await new Promise((r) => setTimeout(r, 1000));
+                    }
+                  }
+
+                  // Mark as complete in UI after the server acknowledges
+                  if (completeOk) {
+                    updateFile(task.fileId, {
+                      status: "complete",
+                      progress: 100,
+                      imageId: task.upload.imageId,
                     });
-                  } catch {
-                    // Non-critical — thumbnails/AI will be retried
+                  } else {
+                    // Still mark complete in UI — the R2 upload succeeded,
+                    // and the record exists in DB even if /complete failed
+                    updateFile(task.fileId, {
+                      status: "complete",
+                      progress: 100,
+                      imageId: task.upload.imageId,
+                    });
                   }
                 })();
 

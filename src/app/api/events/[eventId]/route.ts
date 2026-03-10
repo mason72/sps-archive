@@ -49,7 +49,7 @@ export async function GET(
         .from("images")
         .select(IMAGE_FIELDS)
         .eq("event_id", eventId)
-        .eq("processing_status", "complete")
+        .in("processing_status", ["complete", "pending", "processing"])
         .order("created_at", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
 

@@ -841,14 +841,14 @@ export default function EventPage({
                 </div>
                 {processing.isProcessing && (
                   <p className="mt-1.5 text-[11px] text-stone-300 tracking-wide">
-                    Generating thumbnails, search embeddings, and scene tags
+                    Generating thumbnails
                   </p>
                 )}
                 <div className="mt-2 flex items-center justify-between">
                   <p className="text-[13px] text-stone-500 tabular-nums">
                     {processing.isProcessing ? (
                       <>
-                        <span className="text-stone-400">AI processing</span>
+                        <span className="text-stone-400">Processing</span>
                         <span className="text-stone-300"> — </span>
                         <span className="text-emerald-600 font-medium">{processing.complete.toLocaleString()}</span>
                         <span className="text-stone-300"> of </span>
@@ -866,7 +866,7 @@ export default function EventPage({
                       </>
                     ) : processing.failed > 0 ? (
                       <span className="text-stone-400">
-                        AI processing failed for{" "}
+                        Processing failed for{" "}
                         <span className="text-red-400 font-medium">{processing.failed.toLocaleString()}</span>
                         {" "}{processing.failed === 1 ? "image" : "images"}
                         {processing.complete > 0 && (

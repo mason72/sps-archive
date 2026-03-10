@@ -230,7 +230,7 @@ export function SectionManager({
             </Button>
           </div>
           <p className="text-[11px] text-stone-300 mt-2">
-            Drag sections to reorder. Auto-generated sections are marked with ✦.
+            Drag sections to reorder.
           </p>
         </div>
       </div>

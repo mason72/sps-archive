@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { GripVertical, Pencil, Trash2, Check, X, Sparkles } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Check, X } from "lucide-react";
 
 interface SectionRowProps {
   id: string;
@@ -154,12 +154,7 @@ export function SectionRow({
             <span className="text-[13px] text-stone-900 font-medium truncate">
               {name}
             </span>
-            {isAuto && (
-              <span className="inline-flex items-center gap-0.5 text-[9px] font-medium uppercase tracking-wider text-amber-500/70 shrink-0" title="AI-generated section">
-                <Sparkles size={10} />
-                Auto
-              </span>
-            )}
+            {/* AI_HIDDEN: Auto badge disabled — AI backend not configured */}
           </div>
         )}
       </div>

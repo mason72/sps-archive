@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, X, Camera } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SearchResult {
@@ -24,7 +24,7 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
-/** Q3: Suggestion chips for search discovery */
+/* AI_HIDDEN: Search suggestions disabled — AI backend not configured
 const SEARCH_SUGGESTIONS = [
   { label: "Portraits", query: "portraits of people" },
   { label: "Outdoors", query: "outdoor nature landscape" },
@@ -32,6 +32,7 @@ const SEARCH_SUGGESTIONS = [
   { label: "Details", query: "detail close up" },
   { label: "Ceremony", query: "ceremony celebration" },
 ];
+*/
 
 export function SearchBar({
   eventId,
@@ -41,8 +42,8 @@ export function SearchBar({
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-  const [searchType, setSearchType] = useState<"auto" | "semantic" | "filename">("auto");
+  // AI_HIDDEN: Force filename search — AI search backend not configured
+  const [searchType] = useState<"auto" | "semantic" | "filename">("filename");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -114,16 +115,7 @@ export function SearchBar({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setTimeout(() => setIsFocused(false), 150)}
-          placeholder={
-            placeholder ||
-            (searchType === "semantic"
-              ? 'Search by description... "first dance", "group photo"'
-              : searchType === "filename"
-                ? "Search by filename..."
-                : 'Search images... try "Smith" or "first dance"')
-          }
+          placeholder={placeholder || "Search by filename..."}
           className="h-12 w-full border-b border-stone-200 bg-transparent pl-7 pr-10 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
         />
         {query && (
@@ -136,60 +128,7 @@ export function SearchBar({
         )}
       </div>
 
-      {/* ─── Q3: Search discovery prompts ─── */}
-      {isFocused && !query && (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-300 mr-1">Try</span>
-          {SEARCH_SUGGESTIONS.map((suggestion, i) => (
-            <button
-              key={suggestion.label}
-              onMouseDown={(e) => {
-                e.preventDefault(); // prevent blur
-                setQuery(suggestion.query);
-                setSearchType("semantic");
-              }}
-              className="stagger-in px-2.5 py-1 text-[11px] bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors duration-200 cursor-pointer"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              {suggestion.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ─── Search type toggles ─── */}
-      <div className="flex items-center gap-3">
-        <span className="label-caps text-[10px]">Search by</span>
-        {(
-          [
-            { key: "auto", label: "Auto" },
-            { key: "semantic", label: "Description" },
-            { key: "filename", label: "Filename" },
-          ] as const
-        ).map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setSearchType(key)}
-            className={cn(
-              "px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border transition-all duration-300",
-              searchType === key
-                ? "border-stone-900 bg-stone-900 text-white"
-                : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={() => {
-            // TODO: Open selfie upload modal for face search
-          }}
-          className="px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-400 hover:border-accent hover:text-accent transition-all duration-300 flex items-center gap-1.5"
-        >
-          <Camera className="h-3 w-3" />
-          Selfie
-        </button>
-      </div>
+      {/* AI_HIDDEN: Search suggestions and type toggles disabled — AI backend not configured */}
     </div>
   );
 }

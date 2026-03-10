@@ -23,11 +23,27 @@ const TABS: { id: SettingsTab; icon: typeof Image; label: string }[] = [
   { id: "sharing", icon: Share2, label: "Sharing" },
 ];
 
+interface CoverImage {
+  id: string;
+  thumbnailUrl: string;
+  originalFilename: string;
+}
+
 interface EventSettingsPanelProps {
   eventId: string;
   settings: EventSettings;
   onSettingsChange: (settings: EventSettings) => void;
   onClose: () => void;
+  /** Images available for cover image selection */
+  images?: CoverImage[];
+  /** Currently selected cover image URL (thumbnail) */
+  coverImageUrl?: string;
+  /** Currently selected cover image ID */
+  coverImageId?: string;
+  /** Called when cover image is selected */
+  onCoverImageChange?: (imageId: string) => void;
+  /** Called after a cover image upload completes so parent can refresh its image list */
+  onUploadComplete?: () => void;
 }
 
 /**
@@ -40,6 +56,11 @@ export function EventSettingsPanel({
   settings,
   onSettingsChange,
   onClose,
+  images,
+  coverImageUrl,
+  coverImageId,
+  onCoverImageChange,
+  onUploadComplete,
 }: EventSettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("cover");
   const [localSettings, setLocalSettings] = useState<EventSettings>(settings);
@@ -192,8 +213,14 @@ export function EventSettingsPanel({
             <CoverLayoutTab
               value={localSettings.cover.layout}
               onChange={(layout) =>
-                updateSettings({ cover: { layout } })
+                updateSettings({ cover: { ...localSettings.cover, layout } })
               }
+              coverImageUrl={coverImageUrl}
+              coverImageId={coverImageId}
+              images={images}
+              onCoverImageChange={onCoverImageChange}
+              eventId={eventId}
+              onUploadComplete={onUploadComplete}
             />
           )}
           {activeTab === "typography" && (
