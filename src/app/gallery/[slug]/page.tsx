@@ -697,10 +697,17 @@ export default function GalleryPage({
             )}
           </div>
 
-          {/* Counter */}
-          <p className="absolute top-4 left-4 text-[12px] text-white/40 tabular-nums">
-            {selectedIndex + 1} / {gallery.images.length}
-          </p>
+          {/* Counter + filename */}
+          <div className="absolute top-4 left-4">
+            <p className="text-[12px] text-white/40 tabular-nums">
+              {selectedIndex + 1} / {gallery.images.length}
+            </p>
+            {selectedImage.originalFilename && (
+              <p className="text-[13px] text-white/60 mt-1 max-w-[280px] truncate">
+                {selectedImage.originalFilename}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

@@ -72,7 +72,7 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
-  const [sortBy, setSortBy] = useState<"upload" | "filename" | "date-taken">("upload");
+  const [sortBy, setSortByState] = useState<"upload" | "filename" | "date-taken">("upload");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const [hasActiveShare, setHasActiveShare] = useState(false);
@@ -80,6 +80,9 @@ export default function EventPage({
 
   // Section image IDs (for filtering when a section is active)
   const [sectionImageIds, setSectionImageIds] = useState<Set<string> | null>(null);
+  // Stable ref for activeSection so UploadZone always has the current value
+  const activeSectionRef = useRef<string | null>(null);
+  activeSectionRef.current = activeSection;
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
@@ -148,7 +151,12 @@ export default function EventPage({
       setShowUpload(data.images.length === 0);
       // Load event settings
       if (data.event.settings && Object.keys(data.event.settings).length > 0) {
-        setEventSettings({ ...DEFAULT_EVENT_SETTINGS, ...data.event.settings });
+        const loaded = { ...DEFAULT_EVENT_SETTINGS, ...data.event.settings };
+        setEventSettings(loaded);
+        // Restore persisted sort preference
+        if (loaded.grid?.sortBy) {
+          setSortByState(loaded.grid.sortBy);
+        }
       }
 
       // Check for active shares (for Publish/Share button + Preview link)
@@ -218,19 +226,20 @@ export default function EventPage({
   }, [hasSelection, deselectAll]);
 
   // ─── Section filtering ───
-  // When a section is activated, fetch its image IDs and filter the grid
+  // Single effect: fetch section image IDs AND filter the grid sequentially
+  // (prevents race condition where filter runs before new IDs arrive)
   useEffect(() => {
+    if (isSearching) return; // Don't override search results
+
     if (!activeSection) {
       // Show all images
       setSectionImageIds(null);
-      if (!isSearching) {
-        setImages(allImages);
-        setStacks(allStacks);
-      }
+      setImages(allImages);
+      setStacks(allStacks);
       return;
     }
 
-    // Fetch section image IDs from the API
+    // Fetch section image IDs from the API, then filter
     let cancelled = false;
     (async () => {
       try {
@@ -240,12 +249,29 @@ export default function EventPage({
         if (!res.ok || cancelled) return;
         const data = await res.json();
         const ids = new Set<string>(data.imageIds || []);
-        if (!cancelled) {
-          setSectionImageIds(ids);
-        }
+        if (cancelled) return;
+
+        setSectionImageIds(ids);
+
+        // Filter images to only those in the section
+        const filtered = allImages.filter((img) => ids.has(img.id));
+        setImages(filtered);
+
+        // Filter stacks
+        const filteredStacks = allStacks
+          .map((stack) => ({
+            ...stack,
+            images: stack.images.filter((img) => ids.has(img.id)),
+          }))
+          .filter((stack) => stack.images.length > 0);
+        setStacks(filteredStacks);
       } catch {
         // If fetch fails, just show all images
-        if (!cancelled) setSectionImageIds(null);
+        if (!cancelled) {
+          setSectionImageIds(null);
+          setImages(allImages);
+          setStacks(allStacks);
+        }
       }
     })();
 
@@ -253,29 +279,6 @@ export default function EventPage({
       cancelled = true;
     };
   }, [activeSection, allImages, allStacks, isSearching]);
-
-  // Apply section filter to images/stacks whenever sectionImageIds changes
-  useEffect(() => {
-    if (isSearching) return; // Don't override search results
-    if (!sectionImageIds) {
-      setImages(allImages);
-      setStacks(allStacks);
-      return;
-    }
-
-    // Filter images to only those in the section
-    const filtered = allImages.filter((img) => sectionImageIds.has(img.id));
-    setImages(filtered);
-
-    // Filter stacks: only include stacks that have at least one image in the section
-    const filteredStacks = allStacks
-      .map((stack) => ({
-        ...stack,
-        images: stack.images.filter((img) => sectionImageIds.has(img.id)),
-      }))
-      .filter((stack) => stack.images.length > 0);
-    setStacks(filteredStacks);
-  }, [sectionImageIds, allImages, allStacks, isSearching]);
 
   const handleUploadComplete = useCallback(
     async (imageIds: string[]) => {
@@ -639,6 +642,22 @@ export default function EventPage({
 
   // Grid settings from event settings
   const gridSettings = eventSettings.grid;
+
+  // Persist sort selection to event settings
+  const setSortBy = useCallback(async (value: "upload" | "filename" | "date-taken") => {
+    setSortByState(value);
+    const newGrid = { ...gridSettings, sortBy: value };
+    setEventSettings((prev) => ({ ...prev, grid: newGrid }));
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { grid: newGrid } }),
+      });
+    } catch {
+      /* non-critical */
+    }
+  }, [gridSettings, eventId]);
 
   // Toggle filename overlay (persists to event settings)
   const toggleFilenames = useCallback(async () => {

@@ -37,7 +37,9 @@ export function useMarqueeSelect({
   enabled = true,
 }: UseMarqueeSelectOptions) {
   const [isDrawing, setIsDrawing] = useState(false);
+  const drawingRef = useRef(false); // synchronous mirror of isDrawing (avoids stale closure)
   const [rect, setRect] = useState<MarqueeRect | null>(null);
+  const rectRef = useRef<MarqueeRect | null>(null); // synchronous mirror of rect
   const startRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   const trackingRef = useRef(false); // mousedown happened, watching for threshold
   const previewIdsRef = useRef<string[]>([]);
@@ -144,7 +146,7 @@ export function useMarqueeSelect({
       if (!container) return;
 
       // Check if we've exceeded the drag threshold to start drawing
-      if (trackingRef.current && !isDrawing) {
+      if (trackingRef.current && !drawingRef.current) {
         const dx = e.clientX - startRef.current.clientX;
         const dy = e.clientY - startRef.current.clientY;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -153,6 +155,7 @@ export function useMarqueeSelect({
 
         // Threshold exceeded — activate marquee mode
         trackingRef.current = false;
+        drawingRef.current = true;
         setIsDrawing(true);
         clickBlockerRef.current = true;
 
@@ -160,7 +163,7 @@ export function useMarqueeSelect({
         e.preventDefault();
       }
 
-      if (!isDrawing && !trackingRef.current) return;
+      if (!drawingRef.current && !trackingRef.current) return;
 
       const containerBounds = container.getBoundingClientRect();
       const currentX = e.clientX - containerBounds.left;
@@ -172,6 +175,7 @@ export function useMarqueeSelect({
       const height = Math.abs(currentY - startRef.current.y);
 
       const newRect = { x, y, width, height };
+      rectRef.current = newRect;
       setRect(newRect);
 
       // Use rAF to avoid computing intersections every mousemove
@@ -182,15 +186,17 @@ export function useMarqueeSelect({
 
       e.preventDefault();
     },
-    [isDrawing, containerRef, getIntersectingIds]
+    [containerRef, getIntersectingIds]
   );
 
   const handleMouseUp = useCallback(() => {
-    const wasDrawing = isDrawing;
+    const wasDrawing = drawingRef.current;
     const wasTracking = trackingRef.current;
+    const currentRect = rectRef.current;
 
     // Always clean up tracking state
     trackingRef.current = false;
+    drawingRef.current = false;
 
     // Always remove global listeners (they were attached in mousedown)
     window.removeEventListener("mousemove", stableMouseMove);
@@ -199,14 +205,15 @@ export function useMarqueeSelect({
     if (!wasDrawing && !wasTracking) return;
 
     // Finalize with whatever IDs are under the marquee
-    if (wasDrawing && rect && (rect.width > 5 || rect.height > 5)) {
-      const ids = getIntersectingIds(rect);
+    if (wasDrawing && currentRect && (currentRect.width > 5 || currentRect.height > 5)) {
+      const ids = getIntersectingIds(currentRect);
       if (ids.length > 0) {
         onSelect(ids);
       }
     }
 
     startRef.current = null;
+    rectRef.current = null;
     previewIdsRef.current = [];
     setIsDrawing(false);
     setRect(null);
@@ -225,7 +232,7 @@ export function useMarqueeSelect({
         }, 0);
       });
     }
-  }, [isDrawing, rect, getIntersectingIds, onSelect, stableMouseMove, stableMouseUp]);
+  }, [getIntersectingIds, onSelect, stableMouseMove, stableMouseUp]);
 
   // Keep handler refs current so stable wrappers always call latest versions
   useEffect(() => {

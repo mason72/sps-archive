@@ -79,23 +79,12 @@ function useResponsiveColumns(target: number): number {
   return cols;
 }
 
-/* ─── Shortest-column-first distribution ─── */
+/* ─── Round-robin distribution (preserves left-to-right reading order) ─── */
 function distributeIntoColumns(images: GalleryImage[], numCols: number): GalleryImage[][] {
   const columns: GalleryImage[][] = Array.from({ length: numCols }, () => []);
-  const heights = new Array(numCols).fill(0);
-
-  for (const img of images) {
-    // Find the shortest column
-    let shortest = 0;
-    for (let i = 1; i < numCols; i++) {
-      if (heights[i] < heights[shortest]) shortest = i;
-    }
-    columns[shortest].push(img);
-    // Track normalized height (inverse aspect ratio); fallback 4:3 landscape
-    const ar = img.width && img.height ? img.width / img.height : 4 / 3;
-    heights[shortest] += 1 / ar;
-  }
-
+  images.forEach((img, i) => {
+    columns[i % numCols].push(img);
+  });
   return columns;
 }
 
@@ -247,9 +236,9 @@ function GalleryCard({
     onFavorite?.(image.id);
   };
 
-  // Lock aspect ratio from real dimensions to prevent layout shift
-  const aspectStyle = !uniform && image.width && image.height
-    ? { aspectRatio: `${image.width} / ${image.height}` }
+  // Lock aspect ratio from real dimensions to prevent layout shift (fallback 4:3)
+  const aspectStyle = !uniform
+    ? { aspectRatio: image.width && image.height ? `${image.width} / ${image.height}` : '4 / 3' }
     : undefined;
 
   return (
@@ -263,10 +252,11 @@ function GalleryCard({
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename}
-        className={`w-full object-cover transition-[opacity,transform] duration-500 group-hover:scale-[1.03] ${
+        className={`w-full object-cover transition-[opacity,transform] duration-300 group-hover:scale-[1.03] ${
           uniform ? "aspect-square" : "h-full"
         } ${isLoaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
+        decoding="async"
         onLoad={() => setIsLoaded(true)}
         onError={() => {
           if (imgRef.current && image.originalUrl && imgRef.current.src !== image.originalUrl) {
@@ -274,7 +264,7 @@ function GalleryCard({
           }
         }}
       />
-      {!isLoaded && <div className="shimmer-placeholder absolute inset-0" />}
+      {!isLoaded && <div className="absolute inset-0 bg-stone-100" />}
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

@@ -73,6 +73,9 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
   const isUploading = activeUploads > 0;
   const abortRef = useRef(false);
   const corsFailureCount = useRef(0);
+  // Capture sectionId at render time so it doesn't go stale during upload
+  const sectionIdRef = useRef(sectionId);
+  sectionIdRef.current = sectionId;
 
   const updateFile = useCallback(
     (id: string, update: Partial<UploadFile>) => {
@@ -130,7 +133,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 eventId,
-                sectionId: sectionId || undefined,
+                sectionId: sectionIdRef.current || undefined,
                 files: batchFiles.map((f) => ({
                   name: f.name,
                   type: f.type,
@@ -319,7 +322,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
         setActiveUploads((c) => c - 1);
       }
     },
-    [eventId, sectionId, onUploadComplete, onUploadFailed, updateFile]
+    [eventId, onUploadComplete, onUploadFailed, updateFile]
   );
 
   // Handle retry: when retryFiles prop is set with files, trigger upload

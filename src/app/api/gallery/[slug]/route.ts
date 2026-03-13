@@ -140,15 +140,27 @@ export async function GET(
     let rawImages: any[] = [];
     let imgOffset = 0;
 
+    // Determine sort order from event settings
+    const gridSort = (((event.settings as Record<string, unknown>)?.grid ?? {}) as Record<string, unknown>).sortBy as string | undefined;
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
       let pageQuery = supabase
         .from("images")
         .select(IMG_FIELDS)
         .eq("event_id", share.event_id)
-        .eq("processing_status", "complete")
-        .order("created_at", { ascending: true })
-        .range(imgOffset, imgOffset + IMG_PAGE - 1);
+        .eq("processing_status", "complete");
+
+      // Apply sort order from event settings
+      if (gridSort === "filename") {
+        pageQuery = pageQuery.order("original_filename", { ascending: true });
+      } else if (gridSort === "date-taken") {
+        pageQuery = pageQuery.order("taken_at", { ascending: true, nullsFirst: false });
+      } else {
+        pageQuery = pageQuery.order("created_at", { ascending: true });
+      }
+
+      pageQuery = pageQuery.range(imgOffset, imgOffset + IMG_PAGE - 1);
 
       if (share.share_type === "selection" && share.image_ids?.length) {
         pageQuery = pageQuery.in("id", share.image_ids);

@@ -69,14 +69,26 @@ export async function GET(
     let rawImages: any[] = [];
     let previewOffset = 0;
 
+    // Determine sort order from event settings
+    const gridSort = ((event.settings as Record<string, unknown>)?.grid as Record<string, unknown>)?.sortBy as string | undefined;
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { data, error: pageError } = await supabase
+      let pageQuery = supabase
         .from("images")
         .select(PREVIEW_IMG_FIELDS)
         .eq("event_id", eventId)
-        .eq("processing_status", "complete")
-        .order("created_at", { ascending: true })
+        .eq("processing_status", "complete");
+
+      if (gridSort === "filename") {
+        pageQuery = pageQuery.order("original_filename", { ascending: true });
+      } else if (gridSort === "date-taken") {
+        pageQuery = pageQuery.order("taken_at", { ascending: true, nullsFirst: false });
+      } else {
+        pageQuery = pageQuery.order("created_at", { ascending: true });
+      }
+
+      const { data, error: pageError } = await pageQuery
         .range(previewOffset, previewOffset + PREVIEW_PAGE_SIZE - 1);
 
       if (pageError) throw pageError;
