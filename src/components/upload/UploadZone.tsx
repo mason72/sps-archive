@@ -65,6 +65,43 @@ async function processPool<T>(
   await Promise.all(workers);
 }
 
+/**
+ * PUT a file to R2 with real upload progress.
+ *
+ * `fetch` has no API for reading upload-progress events from the request
+ * body — the only way is XMLHttpRequest. We wrap it in a promise so the
+ * surrounding code can keep its async/await shape. CORS errors surface as
+ * a synthetic TypeError("Failed to fetch") to match the existing detection
+ * heuristic.
+ */
+function xhrPut(
+  url: string,
+  file: File,
+  onProgress: (pct: number) => void
+): Promise<{ ok: boolean; status: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+    xhr.addEventListener("load", () => {
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
+    });
+    xhr.addEventListener("error", () => {
+      // R2 CORS rejection / network error
+      reject(new TypeError("Failed to fetch"));
+    });
+    xhr.addEventListener("abort", () => {
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+    xhr.send(file);
+  });
+}
+
 export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [activeUploads, setActiveUploads] = useState(0);
@@ -189,18 +226,21 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               if (abortRef.current) return;
 
               try {
-                updateFile(task.fileId, { status: "uploading" });
+                updateFile(task.fileId, { status: "uploading", progress: 0 });
 
-                // Upload directly to R2 via presigned URL (with retry + backoff)
-                let uploadRes: Response | undefined;
+                // Upload directly to R2 via presigned URL (with retry + backoff).
+                // XMLHttpRequest gives us per-file progress events that fetch
+                // can't provide — important for large files on slow connections
+                // where the previous spinner-only UI looked stuck for minutes.
+                let uploadRes: { ok: boolean; status: number } | undefined;
                 let lastErr: unknown;
                 for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
                   try {
-                    uploadRes = await fetch(task.upload.uploadUrl, {
-                      method: "PUT",
-                      body: task.file,
-                      headers: { "Content-Type": task.file.type },
-                    });
+                    uploadRes = await xhrPut(
+                      task.upload.uploadUrl,
+                      task.file,
+                      (pct) => updateFile(task.fileId, { progress: pct })
+                    );
                     if (uploadRes.ok) {
                       lastErr = undefined;
                       break;
@@ -208,8 +248,8 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                     lastErr = new Error(`Upload failed (${uploadRes.status})`);
                   } catch (fetchErr) {
                     lastErr = fetchErr;
-                    // TypeError("Failed to fetch") = CORS blocks
                     if (fetchErr instanceof TypeError) {
+                      // TypeError = CORS / network — bail if it keeps happening
                       corsFailureCount.current++;
                       if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
                         setCorsError(true);
@@ -218,8 +258,9 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                       }
                     }
                   }
-                  // Exponential backoff before retry
+                  // Exponential backoff before retry; reset visible progress.
                   if (attempt < R2_PUT_RETRIES) {
+                    updateFile(task.fileId, { progress: 0 });
                     await new Promise((r) => setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt)));
                   }
                 }
@@ -270,7 +311,6 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                     }
                   }
 
-                  // Mark as complete in UI after the server acknowledges
                   if (completeOk) {
                     updateFile(task.fileId, {
                       status: "complete",
@@ -278,12 +318,16 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                       imageId: task.upload.imageId,
                     });
                   } else {
-                    // Still mark complete in UI — the R2 upload succeeded,
-                    // and the record exists in DB even if /complete failed
+                    // R2 upload succeeded but the server couldn't finish
+                    // — EXIF wasn't saved and processing wasn't kicked off.
+                    // Surface as a retryable error rather than silently
+                    // marking "complete" (the previous code did this and
+                    // hid the failure entirely).
                     updateFile(task.fileId, {
-                      status: "complete",
+                      status: "error",
                       progress: 100,
                       imageId: task.upload.imageId,
+                      error: "Finalize failed — please retry",
                     });
                   }
                 })();
@@ -575,38 +619,54 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
             {filteredFiles.map((f) => (
               <div
                 key={f.id}
-                className="flex items-center gap-3 border-b border-stone-100 px-0 py-2.5 text-[13px]"
+                className="border-b border-stone-100 px-0 py-2.5 text-[13px]"
               >
-                <ImageIcon className="h-3.5 w-3.5 shrink-0 text-stone-300" />
-                <span className="flex-1 truncate text-stone-600">
-                  {f.file.name}
-                </span>
-                <span className="shrink-0 text-[12px] text-stone-300">
-                  {formatFileSize(f.file.size)}
-                </span>
+                <div className="flex items-center gap-3">
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0 text-stone-300" />
+                  <span className="flex-1 truncate text-stone-600">
+                    {f.file.name}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-stone-300 tabular-nums">
+                    {f.status === "uploading" && f.progress > 0 && f.progress < 100
+                      ? `${f.progress}%`
+                      : formatFileSize(f.file.size)}
+                  </span>
 
-                {/* Status indicators */}
-                {(f.status === "pending" || f.status === "uploading") && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-400" />
-                )}
-                {f.status === "processing" && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
-                )}
-                {f.status === "complete" && (
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
-                )}
-                {f.status === "error" && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[11px] text-red-400 truncate max-w-[200px]">
-                      {f.error || "Upload failed"}
-                    </span>
-                    <button
-                      onClick={() => retryFile(f)}
-                      className="flex items-center gap-0.5 text-[11px] text-stone-400 hover:text-stone-700 transition-colors duration-200"
-                    >
-                      <RotateCcw className="h-3 w-3" />
-                      Retry
-                    </button>
+                  {/* Status indicators */}
+                  {(f.status === "pending" || f.status === "uploading") && (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-400" />
+                  )}
+                  {f.status === "processing" && (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
+                  )}
+                  {f.status === "complete" && (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  )}
+                  {f.status === "error" && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-red-400 truncate max-w-[200px]">
+                        {f.error || "Upload failed"}
+                      </span>
+                      <button
+                        onClick={() => retryFile(f)}
+                        className="flex items-center gap-0.5 text-[11px] text-stone-400 hover:text-stone-700 transition-colors duration-200"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Per-file progress bar — visible while the R2 PUT is
+                    actually streaming bytes. Reserves the height so the
+                    row doesn't reflow when it appears/disappears. */}
+                {f.status === "uploading" && (
+                  <div className="mt-1.5 ml-6 h-[2px] w-full max-w-[420px] bg-stone-100 overflow-hidden">
+                    <div
+                      className="h-full bg-accent transition-[width] duration-150 ease-out"
+                      style={{ width: `${f.progress}%` }}
+                    />
                   </div>
                 )}
               </div>
