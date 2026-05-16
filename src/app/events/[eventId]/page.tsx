@@ -22,7 +22,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload, Trash2 } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -1239,6 +1239,34 @@ export default function EventPage({
           images={flatImageList}
           initialImageId={selectedImageId}
           onClose={() => setSelectedImageId(null)}
+          actions={[
+            {
+              id: "delete",
+              label: "Delete image",
+              icon: <Trash2 className="h-[18px] w-[18px]" />,
+              shortcut: "Delete",
+              destructive: true,
+              onAct: async (image) => {
+                if (!confirm(`Delete "${image.originalFilename}"? This can't be undone.`)) {
+                  return;
+                }
+                try {
+                  const res = await fetch("/api/images/batch", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageIds: [image.id] }),
+                  });
+                  if (!res.ok) throw new Error("delete failed");
+                  toast.success("Image deleted");
+                  fetchEvent();
+                  return "close" as const;
+                } catch (err) {
+                  console.error("[lightbox] delete failed:", err);
+                  toast.error("Failed to delete image");
+                }
+              },
+            },
+          ]}
         />
       )}
 

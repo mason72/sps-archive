@@ -1,16 +1,42 @@
 "use client";
 
 import { createPortal } from "react-dom";
+import { useEffect } from "react";
 import { ChevronLeft, ChevronRight, Info, Download, X } from "lucide-react";
 import { useLightbox } from "./useLightbox";
 import { LightboxImage } from "./LightboxImage";
 import { MetadataPanel } from "./MetadataPanel";
 import type { ImageData } from "@/types/image";
 
+/**
+ * A photographer-facing action wired into the lightbox top bar.
+ *
+ * Pass an array of these from the event page (e.g. Delete, Set as cover,
+ * Add to section). Each gets a top-bar button plus an optional keyboard
+ * shortcut. Callbacks receive the currently-viewed image so they can
+ * dispatch a per-image action without the host having to track it.
+ */
+export interface LightboxAction {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  /** Keyboard shortcut character (e.g. "Delete", "f", "s"). Case-sensitive. */
+  shortcut?: string;
+  /**
+   * Called with the currently-viewed image. Return Promise<"close"> to
+   * auto-close the lightbox after the action (e.g. after a delete).
+   */
+  onAct: (image: ImageData) => void | "close" | Promise<void | "close">;
+  /** Highlight in red so destructive actions read as such. */
+  destructive?: boolean;
+}
+
 interface LightboxProps {
   images: ImageData[];
   initialImageId: string;
   onClose: () => void;
+  /** Optional photographer actions rendered in the top bar. */
+  actions?: LightboxAction[];
 }
 
 /**
@@ -18,7 +44,7 @@ interface LightboxProps {
  * zoom/pan, metadata sidebar, and download support. Renders as a portal
  * to avoid z-index issues with the page layout. Light theme design.
  */
-export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
+export function Lightbox({ images, initialImageId, onClose, actions }: LightboxProps) {
   const {
     currentIndex,
     currentImage,
@@ -74,6 +100,31 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* Photographer actions (delete, set-as-cover, etc.) come first
+              so destructive items don't sit right next to the close X. */}
+          {actions?.map((action) => (
+            <button
+              key={action.id}
+              onClick={async () => {
+                const result = await action.onAct(currentImage);
+                if (result === "close") close();
+              }}
+              className={`flex h-10 w-10 items-center justify-center transition-colors duration-300 ${
+                action.destructive
+                  ? "text-stone-400 hover:text-red-600"
+                  : "text-stone-400 hover:text-stone-900"
+              }`}
+              aria-label={action.label}
+              title={
+                action.shortcut
+                  ? `${action.label} (${action.shortcut})`
+                  : action.label
+              }
+            >
+              {action.icon}
+            </button>
+          ))}
+
           <button
             onClick={toggleMetadata}
             className={`flex h-10 w-10 items-center justify-center transition-colors duration-300 ${
@@ -106,6 +157,9 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
           </button>
         </div>
       </div>
+
+      {/* Bind keyboard shortcuts for any provided actions. */}
+      <ActionShortcuts actions={actions} image={currentImage} onClose={close} />
 
       {/* ─── Main content ─── */}
       <div className="flex h-full pt-14 pb-4">
@@ -168,4 +222,54 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
     </div>,
     document.body
   );
+}
+
+/**
+ * Bind keyboard shortcuts for the optional photographer actions.
+ *
+ * Lives as a sibling component so each action's shortcut can be added /
+ * removed independently as the action list changes, without re-running
+ * the lightbox's own keyboard effect.
+ */
+function ActionShortcuts({
+  actions,
+  image,
+  onClose,
+}: {
+  actions: LightboxAction[] | undefined;
+  image: ImageData;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!actions || actions.length === 0) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      // Don't capture when typing in an input.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      // Don't fight modifier-key chords.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const match = actions!.find(
+        (a) => a.shortcut !== undefined && a.shortcut === e.key
+      );
+      if (!match) return;
+      e.preventDefault();
+      void Promise.resolve(match.onAct(image)).then((r) => {
+        if (r === "close") onClose();
+      });
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [actions, image, onClose]);
+
+  return null;
 }
