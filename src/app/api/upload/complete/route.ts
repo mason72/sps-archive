@@ -4,6 +4,7 @@ import {
   createServiceClient,
   type AppSupabaseClient,
 } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 /**
  * POST /api/upload/complete
@@ -116,16 +117,17 @@ export async function POST(request: NextRequest) {
           },
         });
       } catch (err) {
-        console.error(
-          `[upload/complete] inngest.send failed for image ${updated.id}:`,
-          err
-        );
+        log.error("upload/complete", "inngest.send failed", {
+          imageId: updated.id,
+          eventId: updated.event_id,
+          err,
+        });
       }
     }
 
     return NextResponse.json({ success: true, imageId: updated.id });
-  } catch (error) {
-    console.error("Upload complete error:", error);
+  } catch (err) {
+    log.error("upload/complete", "request failed", { err });
     return NextResponse.json(
       { error: "Failed to complete upload" },
       { status: 500 }
@@ -155,7 +157,7 @@ async function generateThumbnailsForImage(imageId: string) {
       .single();
 
     if (!image?.r2_key || !image?.event_id || !image?.filename) {
-      console.error(`[thumbnails] image ${imageId} missing required fields`);
+      log.error("thumbnails", "image row missing required fields", { imageId });
       return;
     }
 
@@ -171,9 +173,7 @@ async function generateThumbnailsForImage(imageId: string) {
       .eq("id", imageId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`Thumbnail generation failed for ${imageId}:`, err);
-    // Surface the failure on the row so the user (and any admin health
-    // check) can see what happened.
+    log.error("thumbnails", "generation failed", { imageId, err });
     await supabase
       .from("images")
       .update({
