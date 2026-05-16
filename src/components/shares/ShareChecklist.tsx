@@ -60,7 +60,7 @@ function buildChecklist(data: ReadinessData, eventId: string): ChecklistItem[] {
       ? "Branding applied"
       : "No branding set",
     action: !data.hasBranding
-      ? { label: "Settings", href: "/dashboard/settings" }
+      ? { label: "Settings", href: "/account?tab=branding" }
       : undefined,
   });
 

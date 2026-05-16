@@ -15,7 +15,7 @@ export const metadata = {
  */
 export default async function AnalyticsPage() {
   const { user, error } = await getAuthUser();
-  if (error || !user) redirect("/sign-in");
+  if (error || !user) redirect("/login");
 
   // Check subscription
   const subscription = await getUserSubscription(user.id);

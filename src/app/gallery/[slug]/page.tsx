@@ -6,8 +6,35 @@ import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
+import { ClientIdentityModal } from "@/components/gallery/ClientIdentityModal";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
+
+interface ClientIdentity {
+  name: string;
+  email: string;
+  /** True once we've prompted (even if the user skipped) so we don't keep nagging. */
+  prompted: boolean;
+}
+
+function identityStorageKey(shareId: string) {
+  return `client_identity_${shareId}`;
+}
+
+function loadStoredIdentity(shareId: string): ClientIdentity | null {
+  try {
+    const raw = localStorage.getItem(identityStorageKey(shareId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ClientIdentity>;
+    return {
+      name: parsed.name ?? "",
+      email: parsed.email ?? "",
+      prompted: !!parsed.prompted,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -91,6 +118,11 @@ export default function GalleryPage({
   const [pinAction, setPinAction] = useState<{ type: "bulk" } | { type: "individual"; image: GalleryImage } | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
 
+  // Client identity (captured on first favorite so photographer can see who picked what)
+  const [identity, setIdentity] = useState<ClientIdentity | null>(null);
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  const pendingFavoriteRef = useRef<string | null>(null);
+
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const filteredImages = useMemo(() => {
@@ -131,8 +163,9 @@ export default function GalleryPage({
       setGallery(data);
       setRequiresAuth(false);
 
-      // Load favorites from localStorage
+      // Load favorites + any stored client identity from localStorage
       loadFavorites(data.shareId);
+      setIdentity(loadStoredIdentity(data.shareId));
     } catch {
       setError("Failed to load gallery.");
     } finally {
@@ -162,51 +195,102 @@ export default function GalleryPage({
     }
   };
 
-  const handleFavorite = async (imageId: string) => {
+  /**
+   * Perform a favorite add/remove. Splits into a separate function so the
+   * identity-modal flow can call back into it after the user submits/skips.
+   */
+  const commitFavorite = useCallback(
+    (imageId: string, withIdentity: ClientIdentity | null) => {
+      if (!gallery) return;
+
+      const newFavorites = new Set(favoriteIds);
+      const isFavorited = newFavorites.has(imageId);
+
+      if (isFavorited) {
+        newFavorites.delete(imageId);
+        fetch(`/api/gallery/${slug}/favorites`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageId, shareId: gallery.shareId }),
+        }).catch((err) =>
+          console.error("[gallery] favorite DELETE failed:", err)
+        );
+      } else {
+        newFavorites.add(imageId);
+        fetch(`/api/gallery/${slug}/favorites`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageId,
+            shareId: gallery.shareId,
+            clientName: withIdentity?.name || undefined,
+            clientEmail: withIdentity?.email || undefined,
+          }),
+        }).catch((err) =>
+          console.error("[gallery] favorite POST failed:", err)
+        );
+      }
+
+      setFavoriteIds(newFavorites);
+
+      // G5: Favorite milestone toasts
+      const count = newFavorites.size;
+      for (const threshold of [5, 10, 20]) {
+        if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+          favoriteThresholdsRef.current.add(threshold);
+          toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+          break;
+        }
+      }
+
+      try {
+        localStorage.setItem(
+          `favorites_${gallery.shareId}`,
+          JSON.stringify([...newFavorites])
+        );
+      } catch {
+        // localStorage not available
+      }
+    },
+    [gallery, slug, favoriteIds]
+  );
+
+  /**
+   * Entry point from UI. If we don't know who the client is yet, prompt
+   * before the first ADD favorite so the photographer's "Activity > Client
+   * Favorites" view shows real names instead of "Anonymous". Subsequent
+   * favorites (and unfavorites) skip the prompt.
+   */
+  const handleFavorite = (imageId: string) => {
     if (!gallery) return;
 
-    const newFavorites = new Set(favoriteIds);
-    const isFavorited = newFavorites.has(imageId);
-
-    if (isFavorited) {
-      newFavorites.delete(imageId);
-      // Remove from server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
-    } else {
-      newFavorites.add(imageId);
-      // Add to server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
+    const willAdd = !favoriteIds.has(imageId);
+    if (willAdd && !identity?.prompted) {
+      pendingFavoriteRef.current = imageId;
+      setShowIdentityModal(true);
+      return;
     }
 
-    setFavoriteIds(newFavorites);
+    commitFavorite(imageId, identity);
+  };
 
-    // G5: Favorite milestone toasts
-    const count = newFavorites.size;
-    for (const threshold of [5, 10, 20]) {
-      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
-        favoriteThresholdsRef.current.add(threshold);
-        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
-        break; // Only one toast per action
+  /** Save identity to state + localStorage and complete the queued favorite. */
+  const handleIdentityResolved = (next: ClientIdentity) => {
+    if (gallery) {
+      try {
+        localStorage.setItem(
+          identityStorageKey(gallery.shareId),
+          JSON.stringify(next)
+        );
+      } catch {
+        // localStorage not available — identity stays in memory only
       }
     }
-
-    // Persist to localStorage
-    try {
-      localStorage.setItem(
-        `favorites_${gallery.shareId}`,
-        JSON.stringify([...newFavorites])
-      );
-    } catch {
-      // localStorage not available
-    }
+    setIdentity(next);
+    setShowIdentityModal(false);
+    const queued = pendingFavoriteRef.current;
+    pendingFavoriteRef.current = null;
+    if (queued) commitFavorite(queued, next);
   };
 
   const handlePasswordSuccess = () => {
@@ -814,6 +898,17 @@ export default function GalleryPage({
           }}
         />
       )}
+
+      {/* ─── First-favorite identity prompt ─── */}
+      <ClientIdentityModal
+        isOpen={showIdentityModal}
+        onSubmit={(name, email) =>
+          handleIdentityResolved({ name, email, prompted: true })
+        }
+        onSkip={() =>
+          handleIdentityResolved({ name: "", email: "", prompted: true })
+        }
+      />
     </div>
   );
 }

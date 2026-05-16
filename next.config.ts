@@ -74,6 +74,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
   },
+  async redirects() {
+    return [
+      // /dashboard and /events both used to render a page that ran
+      // redirect("/") at request time. Static redirects skip rendering.
+      { source: "/dashboard", destination: "/", permanent: false },
+      { source: "/events", destination: "/", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {
