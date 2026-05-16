@@ -21,8 +21,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Only trust the configured app URL — never the request Origin header
+    // (which an attacker can spoof to redirect the reset link to evil.com,
+    // turning forgot-password into account takeover via token capture).
+    const origin = process.env.NEXT_PUBLIC_APP_URL;
+    if (!origin) {
+      console.error(
+        "[forgot-password] NEXT_PUBLIC_APP_URL is not set — refusing to send reset email"
+      );
+      return NextResponse.json({ success: true });
+    }
+
     const supabase = createServiceClient();
-    const origin = process.env.NEXT_PUBLIC_APP_URL || request.headers.get("origin") || "";
 
     // Generate a recovery link (requires service role)
     const { data, error: linkError } = await supabase.auth.admin.generateLink({
@@ -70,9 +80,14 @@ export async function POST(request: NextRequest) {
         const err = await res.json();
         console.error("Resend API error:", err);
       }
-    } else {
-      // No Resend — log for development
+    } else if (process.env.NODE_ENV === "development") {
+      // No Resend — log for local dev only. NEVER log the token in
+      // production where logs may be collected (Vercel/CloudWatch/Datadog).
       console.log("[dev] Password reset link:", resetUrl);
+    } else {
+      console.error(
+        "[forgot-password] RESEND_API_KEY is not set — reset email not delivered"
+      );
     }
 
     // Always return success (don't reveal if email exists)

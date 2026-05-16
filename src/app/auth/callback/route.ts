@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { safeRedirect } from "@/lib/auth/safe-redirect";
 
 /**
  * GET /auth/callback
@@ -7,13 +8,19 @@ import { createServerClient } from "@supabase/ssr";
  * Supabase auth callback — exchanges an auth code from email links
  * (password reset, magic link, email verification) for a session.
  * Redirects to `next` query param or "/" on success.
+ *
+ * `next` is sanitized through safeRedirect to prevent open-redirect attacks
+ * that would let an attacker phish via a legitimate auth URL.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
   const type = searchParams.get("type");
   // Recovery flows always go to /reset-password regardless of `next`
-  const next = type === "recovery" ? "/reset-password" : (searchParams.get("next") || "/");
+  const next =
+    type === "recovery"
+      ? "/reset-password"
+      : safeRedirect(searchParams.get("next"));
 
   if (code) {
     const response = NextResponse.redirect(new URL(next, origin));

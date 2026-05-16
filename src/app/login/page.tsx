@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient, setRememberPreference } from "@/lib/supabase/client";
+import { safeRedirect } from "@/lib/auth/safe-redirect";
 import { BrandButton } from "@/components/ui/brand-button";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
@@ -18,7 +19,9 @@ export default function LoginPage() {
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") || "/";
+  // Sanitize so ?redirect=https://evil.com can't turn login into an open
+  // redirect for phishing.
+  const redirect = safeRedirect(searchParams.get("redirect"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
