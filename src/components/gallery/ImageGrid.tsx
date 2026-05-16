@@ -232,21 +232,22 @@ function GridImage({
         </div>
       </div>
 
-      {/* Selection overlay tint */}
-      {isSelected && (
-        <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
-      )}
+      {/* Selection feedback — dim the UNSELECTED images when any
+          selection is active, rather than tinting the selected ones
+          emerald. Reads more like culling and less like a sea of green. */}
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename || ""}
-        className={`w-full object-cover transition-all duration-500 ${
+        className={`w-full object-cover transition-all duration-300 ${
           uniform ? "aspect-square" : "h-auto"
         } ${
           hasSelection ? "" : "group-hover:scale-[1.03]"
-        } ${loaded ? "opacity-100" : "opacity-0"}`}
+        } ${loaded ? "opacity-100" : "opacity-0"} ${
+          hasSelection && !isSelected ? "opacity-40 hover:opacity-70" : ""
+        }`}
         loading="lazy"
         onLoad={() => setLoaded(true)}
         onError={() => {
