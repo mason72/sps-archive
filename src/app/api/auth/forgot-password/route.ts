@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { resetPasswordEmailHtml } from "@/lib/emails/reset-password-template";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 /**
  * POST /api/auth/forgot-password
@@ -12,6 +13,15 @@ import { resetPasswordEmailHtml } from "@/lib/emails/reset-password-template";
  */
 export async function POST(request: NextRequest) {
   try {
+    // 5 reset requests / hour per IP — defeats email-bombing as well as
+    // brute attempts to enumerate which emails exist via timing.
+    const limit = rateLimit(`forgot:${clientIp(request)}`, 5, 60 * 60 * 1000);
+    if (!limit.success) {
+      // Return success anyway so we don't reveal the limit; the email
+      // won't actually be sent.
+      return NextResponse.json({ success: true });
+    }
+
     const { email } = await request.json();
 
     if (!email || typeof email !== "string") {

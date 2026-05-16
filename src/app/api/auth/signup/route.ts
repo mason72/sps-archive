@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 /** Minimal HTML entity escape for untrusted text in email bodies. */
 function escapeHtml(input: string): string {
@@ -20,6 +21,16 @@ function escapeHtml(input: string): string {
  */
 export async function POST(request: NextRequest) {
   try {
+    // 10 signup attempts / hour per IP — generous enough for legitimate
+    // multi-account testing but enough to slow account farming.
+    const limit = rateLimit(`signup:${clientIp(request)}`, 10, 60 * 60 * 1000);
+    if (!limit.success) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Try again later." },
+        { status: 429 }
+      );
+    }
+
     const { email, password, fullName } = await request.json();
 
     if (!email || !password) {

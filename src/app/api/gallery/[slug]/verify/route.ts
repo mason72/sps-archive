@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifyPassword } from "@/lib/shares/hash";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 /**
  * POST /api/gallery/[slug]/verify
  *
  * Public endpoint — verifies password for a protected gallery.
  * Sets an auth cookie on success.
+ *
+ * Rate-limited to 5 attempts per 15 minutes per IP+slug. Without this the
+ * SHA-256 password hash (fast) plus knowledge of the slug yields easy
+ * brute-force; the limit raises the cost into the human-discouragement
+ * zone until we upgrade to Argon2id (Phase 0 follow-up commit).
  */
 export async function POST(
   request: NextRequest,
@@ -14,6 +20,19 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
+
+    const limit = rateLimit(
+      `verify:${clientIp(request)}:${slug}`,
+      5,
+      15 * 60 * 1000
+    );
+    if (!limit.success) {
+      return NextResponse.json(
+        { error: "Too many attempts. Try again in a few minutes." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((limit.reset - Date.now()) / 1000)) } }
+      );
+    }
+
     const { password } = (await request.json()) as { password: string };
 
     if (!password) {
