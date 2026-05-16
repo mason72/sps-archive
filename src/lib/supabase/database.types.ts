@@ -613,6 +613,25 @@ export type Database = {
         Args: { p_share_id: string };
         Returns: undefined;
       };
+      resolve_share_by_slug: {
+        Args: { p_slug: string };
+        Returns: {
+          id: string;
+          event_id: string;
+          share_type: string;
+          is_active: boolean;
+          allow_download: boolean;
+          allow_favorites: boolean;
+          require_pin_bulk: boolean;
+          require_pin_individual: boolean;
+          has_password: boolean;
+          expires_at: string | null;
+          custom_message: string | null;
+          image_ids: string[] | null;
+          section_id: string | null;
+          person_id: string | null;
+        }[];
+      };
       search_images_by_embedding: {
         Args: {
           query_embedding: string;

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
+import {
+  gallerySessionCookieName,
+  verifyGallerySession,
+} from "@/lib/shares/session";
+import { galleryPinCookieName, verifyGalleryPin } from "@/lib/shares/pin-session";
 import archiver from "archiver";
 import { logActivity } from "@/lib/analytics/log";
 
@@ -36,10 +41,10 @@ export async function GET(
     );
   }
 
-  // Check password protection (via auth cookie)
+  // Password protection — verify HMAC-signed session cookie
   if (share.password_hash) {
-    const authCookie = request.cookies.get(`gallery_auth_${slug}`);
-    if (!authCookie || authCookie.value !== share.id) {
+    const cookie = request.cookies.get(gallerySessionCookieName(slug));
+    if (!verifyGallerySession(cookie?.value, slug, share.id)) {
       return NextResponse.json(
         { error: "Authentication required" },
         { status: 401 }
@@ -47,10 +52,12 @@ export async function GET(
     }
   }
 
-  // Check PIN protection for bulk download
+  // PIN protection for bulk download — read from cookie set by verify-pin.
+  // Previously the PIN arrived as ?pin=1234 in the URL, which leaks into
+  // browser history, server access logs, and the Referer header.
   if (share.require_pin_bulk && share.download_pin) {
-    const pinParam = request.nextUrl.searchParams.get("pin");
-    if (!pinParam || pinParam !== share.download_pin) {
+    const pinCookie = request.cookies.get(galleryPinCookieName(slug));
+    if (!verifyGalleryPin(pinCookie?.value, slug, share.id)) {
       return NextResponse.json(
         { error: "PIN required" },
         { status: 403 }
@@ -58,15 +65,21 @@ export async function GET(
     }
   }
 
-  // 2. Fetch images
+  // 2. Fetch images, scoped to the share type. Previously the download
+  // returned the full event for section/person shares.
+  const allowedImageIds = await resolveAllowedImageIds(supabase, share);
+  if (allowedImageIds !== null && allowedImageIds.length === 0) {
+    return NextResponse.json({ error: "No images available" }, { status: 404 });
+  }
+
   let imagesQuery = supabase
     .from("images")
     .select("id, r2_key, original_filename")
     .eq("event_id", share.event_id)
     .neq("processing_status", "error");
 
-  if (share.share_type === "selection" && share.image_ids?.length) {
-    imagesQuery = imagesQuery.in("id", share.image_ids);
+  if (allowedImageIds !== null) {
+    imagesQuery = imagesQuery.in("id", allowedImageIds);
   }
 
   const { data: images } = await imagesQuery.order("created_at", {
@@ -151,4 +164,45 @@ export async function GET(
       "Content-Disposition": `attachment; filename="${zipFilename}"`,
     },
   });
+}
+
+interface ShareSummary {
+  event_id: string;
+  share_type: string | null;
+  image_ids: string[] | null;
+  section_id: string | null;
+  person_id: string | null;
+}
+
+/** Mirrors the resolver in api/gallery/[slug]/route.ts. Returns null = "all". */
+async function resolveAllowedImageIds(
+  supabase: ReturnType<typeof createServiceClient>,
+  share: ShareSummary
+): Promise<string[] | null> {
+  switch (share.share_type) {
+    case "full":
+    case null:
+    case undefined:
+      return null;
+    case "selection":
+      return share.image_ids ?? [];
+    case "section": {
+      if (!share.section_id) return [];
+      const { data } = await supabase
+        .from("section_images")
+        .select("image_id")
+        .eq("section_id", share.section_id);
+      return (data ?? []).map((r) => r.image_id);
+    }
+    case "person": {
+      if (!share.person_id) return [];
+      const { data } = await supabase
+        .from("faces")
+        .select("image_id")
+        .eq("person_id", share.person_id);
+      return Array.from(new Set((data ?? []).map((r) => r.image_id)));
+    }
+    default:
+      return [];
+  }
 }

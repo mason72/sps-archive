@@ -273,10 +273,12 @@ export default function GalleryPage({
       setPinVerified(true);
       setShowPinModal(false);
 
-      // Execute the pending action
+      // Execute the pending action. The verify-pin endpoint set an
+      // HMAC-signed `pt-pin-<slug>` cookie that the download route
+      // reads — no need (and no safe way) to pass the PIN in the URL.
       if (pinAction?.type === "bulk") {
         toast.success("Preparing download...");
-        window.location.href = `/api/gallery/${slug}/download?pin=${pin}`;
+        window.location.href = `/api/gallery/${slug}/download`;
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");
         link.href = pinAction.image.downloadUrl;
