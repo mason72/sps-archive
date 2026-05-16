@@ -211,7 +211,7 @@ export default function NewEventPage() {
           <div>
             <label className="label-caps mb-2 block">Event type</label>
             <p className="text-[13px] text-stone-400 mb-4">
-              Helps AI choose scene categories and stacking strategy
+              Used to suggest sensible default sections for this shoot
             </p>
             <div className="flex flex-wrap gap-2">
               {EVENT_TYPES.map((type) => (

@@ -61,7 +61,8 @@ export default function GlobalSearchPage() {
             className="text-stone-400 text-[15px] max-w-md leading-[1.8] mb-12 reveal"
             style={{ animationDelay: "0.2s" }}
           >
-            By description, filename, or visual similarity. Every image, every event — instantly searchable.
+            Search by filename or parsed name across every event. Smart
+            visual search is on the way.
           </p>
 
           <div className="reveal" style={{ animationDelay: "0.25s" }}>
@@ -75,7 +76,7 @@ export default function GlobalSearchPage() {
                 setResults([]);
                 setHasSearched(false);
               }}
-              placeholder='Search your entire archive... "Johnson wedding first dance"'
+              placeholder='Search by filename… "SmithJohn" or "IMG_4532"'
             />
           </div>
         </div>

@@ -141,9 +141,9 @@ function LandingView() {
           className="text-stone-400 text-[15px] mt-8 max-w-lg leading-[1.8] reveal"
           style={{ animationDelay: "0.2s" }}
         >
-          Upload thousands of images. AI organizes them into smart stacks,
-          searchable sections, and shareable galleries — so you can focus on what
-          matters.
+          Upload thousands of images. Organize them into sections, build
+          beautiful shareable galleries, and deliver to clients — so you can
+          focus on the work that matters.
         </p>
         <div className="mt-12 reveal" style={{ animationDelay: "0.3s" }}>
           <Link href="/signup">
@@ -166,21 +166,21 @@ function LandingView() {
           {[
             {
               number: "01",
-              title: "Smart Stacks",
+              title: "Sections that fit",
               description:
-                "Twelve headshots of the same person? The best rises to the top. Expand to compare, pick your favourite — or let AI decide.",
+                "Group each shoot the way you actually deliver it — Ceremony, Reception, Portraits. Drag to reorder, drop photos into more than one place.",
             },
             {
               number: "02",
-              title: "Natural Search",
+              title: "Find anything fast",
               description:
-                "Search by what you see, not filenames. \"First dance\", \"speeches at sunset\", or upload a selfie to find every photo of someone.",
+                "Filename search across one event or your whole archive. Smarter visual search coming soon — for now, your camera's naming and your renames are enough.",
             },
             {
               number: "03",
-              title: "Auto Sections",
+              title: "Beautiful sharing",
               description:
-                "AI detects scenes and creates overlapping sections. One photo can live in multiple contexts — ceremony, candids, family portraits.",
+                "Branded galleries with optional passwords and PINs. Clients pick favorites by name and email, and you see exactly who liked what.",
             },
           ].map((feature, i) => (
             <div

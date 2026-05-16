@@ -13,9 +13,9 @@ import {
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
 export const metadata = {
-  title: "Pixeltrunk — AI-Powered Photo Archive for Photographers",
+  title: "Pixeltrunk — A Photo Archive for Photographers",
   description:
-    "Smart Stacks, natural language search, and seamless client delivery. The only photo archive built for professional photographers.",
+    "Upload, organize, and deliver client galleries from one beautiful archive. Built for professional photographers.",
 };
 
 export default function MarketingLandingPage() {
@@ -28,7 +28,7 @@ export default function MarketingLandingPage() {
             className="label-caps mb-6 reveal"
             style={{ animationDelay: "0.1s" }}
           >
-            AI-powered photo archive
+            A photo archive for photographers
           </p>
           <h1
             className="font-editorial text-[clamp(48px,7vw,80px)] leading-[0.92] text-stone-900 reveal"
@@ -45,9 +45,9 @@ export default function MarketingLandingPage() {
             className="text-stone-400 text-[16px] mt-8 max-w-xl leading-[1.8] reveal"
             style={{ animationDelay: "0.2s" }}
           >
-            Upload thousands of images. AI organizes them into smart stacks,
-            searchable sections, and shareable galleries — so you can focus on
-            the creative work that matters.
+            Upload thousands of images. Organize them into sections, build
+            beautiful shareable galleries, and deliver to clients — all from
+            one trunk. Smart search and stacking are on the way.
           </p>
           <div
             className="mt-12 flex items-center gap-5 reveal"
@@ -78,12 +78,12 @@ export default function MarketingLandingPage() {
       <section id="features" className="border-t border-stone-200">
         <div className="px-8 md:px-16 py-24">
           <div className="mx-8 md:mx-0 mb-16">
-            <p className="label-caps mb-4 reveal">Intelligent Organization</p>
+            <p className="label-caps mb-4 reveal">A clean workflow</p>
             <h2
               className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 max-w-2xl reveal"
               style={{ animationDelay: "0.05s" }}
             >
-              AI that understands your images
+              Everything you need to organize and deliver
             </h2>
           </div>
 
@@ -91,21 +91,21 @@ export default function MarketingLandingPage() {
             {[
               {
                 icon: Layers,
-                title: "Smart Stacks",
+                title: "Sections",
                 description:
-                  "AI groups faces, bursts, and similar shots. The best rises to the top — expand to compare or let AI decide.",
+                  "Organize each shoot into sections — Ceremony, Reception, Portraits. Reorder with drag-and-drop; photos can live in more than one.",
               },
               {
                 icon: Search,
-                title: "Natural Search",
+                title: "Fast Filename Search",
                 description:
-                  'Search by what you see, not filenames. "First dance", "speeches at sunset", or upload a selfie to find someone.',
+                  "Find any photo by filename or photographer's parsed names. Per-event or across your entire archive.",
               },
               {
                 icon: LayoutGrid,
-                title: "Auto Sections",
+                title: "Branded Galleries",
                 description:
-                  "AI detects scenes and creates overlapping sections. One photo can live in multiple contexts — ceremony, candids, portraits.",
+                  "Share with clients via password-protected galleries that wear your branding. Track favorites, downloads, and views.",
               },
               {
                 icon: Zap,
@@ -155,9 +155,9 @@ export default function MarketingLandingPage() {
               },
               {
                 step: "02",
-                title: "AI Organizes",
+                title: "Organize",
                 description:
-                  "CLIP embeddings, face recognition, and aesthetic scoring run on every image. Smart Stacks and Sections appear automatically.",
+                  "Sort into sections, set a cover image, and pick the best shots with the keyboard-driven culling view. Reorder anything by drag-and-drop.",
               },
               {
                 step: "03",
@@ -201,8 +201,8 @@ export default function MarketingLandingPage() {
               className="text-stone-400 text-[15px] mt-4 leading-relaxed reveal"
               style={{ animationDelay: "0.1s" }}
             >
-              From solo shooters to multi-photographer studios. All plans
-              include full AI features.
+              From solo shooters to multi-photographer studios. Every plan
+              includes unlimited galleries, branded sharing, and proofing.
             </p>
           </div>
 
@@ -287,9 +287,9 @@ export default function MarketingLandingPage() {
               },
               {
                 icon: Zap,
-                title: "GPU-Powered AI",
+                title: "Fast Uploads",
                 description:
-                  "CLIP, ArcFace, and aesthetic scoring run on serverless GPUs. Results in seconds, not minutes.",
+                  "Direct-to-storage uploads with real progress, automatic thumbnails, and bulk retry — handle a 3,000-photo wedding without breaking a sweat.",
               },
             ].map((item, i) => (
               <div
