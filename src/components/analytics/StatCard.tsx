@@ -21,24 +21,30 @@ interface StatCardProps {
   color?: "emerald" | "blue" | "orange" | "stone";
 }
 
+/**
+ * All stat cards share the stone+emerald palette now. The audit flagged
+ * the original blue/orange variants as "Tailwind starter-kit" defaults
+ * that broke the editorial system. Type is preserved for back-compat;
+ * non-emerald values fall through to stone.
+ */
 const colorMap = {
   emerald: {
-    iconBg: "bg-emerald-50",
+    iconBg: "bg-stone-100",
     iconText: "text-emerald-600",
     fill: "#10b981",
     stroke: "#059669",
   },
   blue: {
-    iconBg: "bg-blue-50",
-    iconText: "text-blue-600",
-    fill: "#3b82f6",
-    stroke: "#2563eb",
+    iconBg: "bg-stone-100",
+    iconText: "text-stone-600",
+    fill: "#78716c",
+    stroke: "#57534e",
   },
   orange: {
-    iconBg: "bg-orange-50",
-    iconText: "text-orange-600",
-    fill: "#f97316",
-    stroke: "#ea580c",
+    iconBg: "bg-stone-100",
+    iconText: "text-stone-600",
+    fill: "#78716c",
+    stroke: "#57534e",
   },
   stone: {
     iconBg: "bg-stone-100",
