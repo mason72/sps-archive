@@ -76,7 +76,7 @@ export async function GET(
     .from("images")
     .select("id, r2_key, original_filename")
     .eq("event_id", share.event_id)
-    .neq("processing_status", "error");
+    .neq("processing_status", "failed");
 
   if (allowedImageIds !== null) {
     imagesQuery = imagesQuery.in("id", allowedImageIds);

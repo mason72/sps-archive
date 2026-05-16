@@ -85,7 +85,7 @@ export default async function OGImage({
       .from("images")
       .select("r2_key")
       .eq("event_id", share.event_id)
-      .neq("processing_status", "error")
+      .neq("processing_status", "failed")
       .order("created_at", { ascending: true })
       .limit(1)
       .single();

@@ -51,19 +51,21 @@ export async function generateThumbnails(
   // Normalize filename to .jpg for thumbnails
   const thumbFilename = filename.replace(/\.[^.]+$/, ".jpg");
 
-  // Generate and upload all three sizes
-  const results = await Promise.all(
-    VARIANTS.map(async (variant) => {
-      const resized = await sharp(originalBuffer)
-        .resize(variant.width, undefined, { withoutEnlargement: true })
-        .jpeg({ quality: variant.quality, mozjpeg: true })
-        .toBuffer();
+  // Generate sizes sequentially to keep peak memory bounded — three
+  // concurrent sharp pipelines on a 50MB original peaks well over 750MB,
+  // which OOMs Vercel serverless containers. Sequential is fine here
+  // because the wall-clock difference is dwarfed by the R2 round-trips.
+  const results: Array<{ variant: typeof VARIANTS[number]["name"]; key: string }> = [];
+  for (const variant of VARIANTS) {
+    const resized = await sharp(originalBuffer)
+      .resize(variant.width, undefined, { withoutEnlargement: true })
+      .jpeg({ quality: variant.quality, mozjpeg: true })
+      .toBuffer();
 
-      const key = buildImageKey(eventId, thumbFilename, variant.name);
-      await uploadToR2(key, resized, "image/jpeg");
-      return { variant: variant.name, key };
-    })
-  );
+    const key = buildImageKey(eventId, thumbFilename, variant.name);
+    await uploadToR2(key, resized, "image/jpeg");
+    results.push({ variant: variant.name, key });
+  }
 
   return {
     sm: results.find((r) => r.variant === "thumb-sm")!.key,

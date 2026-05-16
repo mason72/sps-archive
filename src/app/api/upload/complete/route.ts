@@ -8,14 +8,22 @@ import {
 /**
  * POST /api/upload/complete
  *
- * Called after a file has been uploaded to R2.
- * Updates EXIF data, generates thumbnails, and marks image as "complete".
- * AI processing is triggered separately when Inngest is configured.
+ * Called after a file has been uploaded to R2. Updates EXIF data, kicks off
+ * thumbnail generation, and (optionally) triggers the AI pipeline.
  *
  * Auth: requires a signed-in user. The image's parent event must belong to
  * that user — RLS on the `images` UPDATE enforces this through the
- * event_id → events.user_id chain. Without auth this route was an
- * unauthenticated EXIF-rewrite primitive over arbitrary imageIds.
+ * event_id → events.user_id chain.
+ *
+ * Status transitions:
+ *   - Before this call: `pending` (row created by /api/upload).
+ *   - On success: `processing` (uploaded + EXIF in; waiting on thumbnails).
+ *   - Once the thumbnail job finishes (success): `complete`.
+ *   - On thumbnail failure: `failed` with `last_error` set.
+ *
+ * The previous behavior set `complete` immediately, which produced the
+ * "5 photos processed!" toast firing while the grid was still blank for
+ * 10–60 seconds — and any thumbnail failure was silently swallowed.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -48,11 +56,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update image with EXIF data and mark as complete.
-    // The RLS-bound client only matches images whose parent event the caller
-    // owns — non-owned imageIds silently update zero rows.
+    // Move from `pending` → `processing` while writing EXIF metadata.
+    // The thumbnail job (below) flips to `complete` on success, or
+    // `failed` + last_error on failure — so the user only sees "ready"
+    // when there's something ready to render.
     const updateData: Record<string, unknown> = {
-      processing_status: "complete",
+      processing_status: "processing",
+      // Clear any prior error from a previous failed attempt at this row.
+      last_error: null,
     };
 
     if (width) updateData.width = width;
@@ -71,6 +82,8 @@ export async function POST(request: NextRequest) {
       if (exif.gpsLng) updateData.gps_lng = exif.gpsLng;
     }
 
+    // The RLS-bound client only matches images whose parent event the
+    // caller owns — non-owned imageIds silently update zero rows.
     const { data: updated, error: updateError } = await supabase
       .from("images")
       .update(updateData)
@@ -79,21 +92,18 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (updateError || !updated) {
-      // Either the image doesn't exist or it doesn't belong to this user
-      // (RLS filtered the UPDATE to zero rows). Don't distinguish — both
-      // are 404 from the caller's perspective.
       return NextResponse.json(
         { error: "Image not found" },
         { status: 404 }
       );
     }
 
-    // Generate thumbnails in the background (fire-and-forget).
-    // Uses the service client because the request cookies may be released
-    // once we respond; thumbnails are an internal/service operation anyway.
+    // Fire-and-forget thumbnail generation. Uses the service client so it
+    // can keep running after the request cookie context is released.
     generateThumbnailsForImage(updated.id);
 
-    // Trigger AI pipeline only if Inngest is configured
+    // Trigger AI pipeline only if Inngest is configured. Dispatch errors
+    // are logged loudly — lesson #3.
     if (process.env.INNGEST_EVENT_KEY) {
       try {
         const { inngest } = await import("@/lib/inngest/client");
@@ -106,7 +116,6 @@ export async function POST(request: NextRequest) {
           },
         });
       } catch (err) {
-        // Don't fail the request, but log loudly so the failure isn't silent.
         console.error(
           `[upload/complete] inngest.send failed for image ${updated.id}:`,
           err
@@ -124,7 +133,18 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Fire-and-forget thumbnail generation for a single image. */
+/**
+ * Fire-and-forget thumbnail generation.
+ *
+ * Manages the final transition out of `processing`:
+ *   success → `complete` + thumbnail_generated=true
+ *   failure → `failed` + last_error
+ *
+ * If Inngest is also handling AI for this image, it may write `complete`
+ * again later — that's fine, last-writer-wins. The previous behavior was
+ * to log + return on failure, leaving the row stuck in whatever state it
+ * was in when the request returned.
+ */
 async function generateThumbnailsForImage(imageId: string) {
   const supabase: AppSupabaseClient = createServiceClient();
   try {
@@ -134,19 +154,32 @@ async function generateThumbnailsForImage(imageId: string) {
       .eq("id", imageId)
       .single();
 
-    if (!image?.r2_key || !image?.event_id || !image?.filename) return;
+    if (!image?.r2_key || !image?.event_id || !image?.filename) {
+      console.error(`[thumbnails] image ${imageId} missing required fields`);
+      return;
+    }
 
     const { generateThumbnails } = await import("@/lib/thumbnails/generate");
     await generateThumbnails(image.r2_key, image.event_id, image.filename);
 
-    // Mark thumbnail as generated so batch backfill skips this image
     await supabase
       .from("images")
-      .update({ thumbnail_generated: true })
+      .update({
+        thumbnail_generated: true,
+        processing_status: "complete",
+      })
       .eq("id", imageId);
-
   } catch (err) {
-    // Non-critical — grid will fall back to original URL
+    const message = err instanceof Error ? err.message : String(err);
     console.error(`Thumbnail generation failed for ${imageId}:`, err);
+    // Surface the failure on the row so the user (and any admin health
+    // check) can see what happened.
+    await supabase
+      .from("images")
+      .update({
+        processing_status: "failed",
+        last_error: `thumbnails: ${message}`.slice(0, 500),
+      })
+      .eq("id", imageId);
   }
 }

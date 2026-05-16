@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
           .from("images")
           .select("r2_key")
           .eq("event_id", event.id)
-          .neq("processing_status", "error")
+          .neq("processing_status", "failed")
           .order("created_at", { ascending: true })
           .limit(1)
           .single();

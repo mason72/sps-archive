@@ -82,6 +82,7 @@ export type Database = {
           stack_rank: number | null;
           processing_status: string;
           thumbnail_generated: boolean;
+          last_error: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -115,6 +116,7 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          last_error?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -148,6 +150,7 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          last_error?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -678,6 +681,16 @@ export type Database = {
       increment_share_views: {
         Args: { p_share_id: string };
         Returns: undefined;
+      };
+      event_image_status_counts: {
+        Args: { p_event_id: string };
+        Returns: {
+          total: number;
+          pending: number;
+          processing: number;
+          complete: number;
+          failed: number;
+        }[];
       };
       resolve_share_by_slug: {
         Args: { p_slug: string };
