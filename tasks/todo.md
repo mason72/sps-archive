@@ -30,70 +30,68 @@ Full audit reports live in the PR description.
 
 ---
 
-## Phase 0 — Stop the Bleeding [TODO]
-**Goal:** Close every P0 security gap and the upload/processing race. Single commit. May invalidate active gallery cookies and force one-time password re-entry (acceptable per owner — few real users).
+## Phase 0 — Stop the Bleeding [DONE]
+**Goal:** Close every P0 security gap and harden the auth/state surfaces. 10 commits on this branch (see git log bfbe4b9..HEAD).
 
-### Auth architecture refactor
-- [ ] Refactor `src/lib/auth/helpers.ts` `getAuthUser()` to return `{ user, supabase }` where `supabase` is the **cookie-bound RLS client**. Add a separate named `getServiceClient()` for Stripe webhook, thumbnails, Inngest worker.
-- [ ] Audit every route under `src/app/api/` for service-client usage. Routes that need service-role privilege must use the new named import; everything else gets the RLS-bound client.
+### Auth architecture refactor [DONE]
+- [x] `getAuthUser()` returns the cookie-bound RLS client by default. RLS policies on events / images / stacks / sections / faces / persons / section_images now scope every query to `auth.uid()`. Routes that legitimately need service-role import `createServiceClient` explicitly. Single change fixed ~13 P0 IDORs at once.
 
-### IDOR sweep (add `user_id` filter or join through events)
-- [ ] `GET /api/events/[eventId]/route.ts`
-- [ ] `GET /api/images/[imageId]/route.ts`
-- [ ] `POST /api/images/batch/route.ts`
-- [ ] `GET /api/search/route.ts` (filter by `event_id IN (SELECT id FROM events WHERE user_id = $userId)`; update `search_images_by_embedding` RPC to require event IDs)
-- [ ] `GET/POST /api/shares/route.ts`
-- [ ] `PUT/DELETE /api/shares/[shareId]/route.ts`
-- [ ] `POST /api/stacks/[stackId]/cover/route.ts`
-- [ ] `GET /api/events/[eventId]/favorites/route.ts`
-- [ ] `POST /api/sections/[sectionId]/images/route.ts` (validate every imageId belongs to user)
-- [ ] `POST /api/upload/route.ts` (validate eventId + sectionId ownership)
-- [ ] All `POST /api/events/[eventId]/*` and `GET /api/events/[eventId]/*` companion routes (processing-status, retry-processing, duplicate, share-readiness, emails)
+### IDOR sweep [DONE — via the helper refactor]
+All routes that called `getAuthUser()` (events, images, search, shares, stacks/cover, favorites event side, sections, upload, retry-processing, etc.) now run under the RLS-bound client. Existing explicit `.eq("user_id", user.id)` filters stay in place as belt-and-suspenders. Non-owned UUIDs return 404 instead of leaking.
 
-### Authenticate `/api/upload/complete`
-- [ ] Require auth + verify image's parent event belongs to user
-- [ ] Set status to `pending` (not `complete`) — Inngest owns processing-state transitions
+### Authenticate `/api/upload/complete` [DONE]
+- [x] Require auth + verify image's parent event belongs to user via RLS-scoped UPDATE.
+- [ ] Set status to `pending` (not `complete`) — *deferred to Phase 1 state-machine fix; this commit closes the auth hole without changing user-visible status behavior.*
 
-### Share-system hardening
-- [ ] Drop the `"Anyone can read active shares"` RLS policy. Replace with `SECURITY DEFINER` RPC `resolve_share_by_slug(slug)` that returns only safe columns (id, share_type, event_id, public flags) and never `password_hash` or `download_pin`.
-- [ ] Drop `"Anyone can view favorites"` and `"Anyone can delete own favorites"` RLS policies. Route all favorite reads/deletes through the API.
-- [ ] Replace gallery cookie auth (`gallery_auth_${slug} = share.id`) with HMAC-signed token bound to slug + expiry. Cookie value never exposes the share ID.
-- [ ] Branch `/api/gallery/[slug]` and `/api/gallery/[slug]/download` on `share_type`: `section` joins via `section_images`; `person` joins via faces.
-- [ ] Gate `originalUrl` behind `allow_download` and `require_pin_individual`. Map `download_quality` → thumbnail tier server-side.
-- [ ] Re-hash all existing share passwords with PBKDF2 (≥600k iters) or Argon2id. Migration that nulls old hashes — affected shares get one-time email asking photographer to reset.
-- [ ] `crypto.timingSafeEqual` on PIN and password compares.
-- [ ] Move PIN out of URL query string into POST body / signed cookie.
-- [ ] Rate-limit verify, verify-pin, signup, forgot-password (in-memory LRU; Upstash Redis later).
-- [ ] OG image route: when `share.password_hash` is set, return a generic OG card (no cover, no couple's name).
+### Share-system hardening [DONE]
+- [x] Dropped `"Anyone can read active shares"`, `"Anyone can view favorites"`, and `"Anyone can delete own favorites"` RLS policies (migration 012). Added SECURITY DEFINER RPC `resolve_share_by_slug` returning only safe columns.
+- [x] Gallery cookie auth uses HMAC-signed tokens (`pt-gs-<slug>`) instead of raw share.id, via `lib/shares/session.ts`.
+- [x] `/api/gallery/[slug]` and download route branch on `share_type` — section/person shares no longer leak the whole event.
+- [x] `originalUrl` now only ships when `allow_download` is true (was UI-only restriction before).
+- [x] PBKDF2-SHA256 600k iterations with legacy SHA-256 verify + auto-rehash on next login. No password resets required.
+- [x] `crypto.timingSafeEqual` on PIN, password (byte-level), and SPS API key.
+- [x] PIN moved from URL `?pin=` to HMAC-signed `pt-pin-<slug>` cookie set by verify-pin.
+- [x] Rate limit (in-memory LRU) on verify, verify-pin, signup, forgot-password.
+- [x] OG image route returns generic "Private Gallery" card for password-protected shares.
 
-### SPS integration tightening
-- [ ] `crypto.timingSafeEqual` on API key compare.
-- [ ] `/api/sps/import`: validate every `r2Key` is prefixed with an SPS event the calling user owns; ideally accept SPS image IDs and resolve r2Keys server-side from a trusted SPS reference.
-- [ ] Cap import payload size (≤5000 images per request).
+### SPS integration tightening [DONE]
+- [x] `crypto.timingSafeEqual` on API key compare.
+- [x] r2Key shape check (`events/<uuid>/originals/<filename>`). Full ownership verification still requires an SPS callback (Phase 5+).
+- [x] Payload cap at 5,000 images per import.
 
-### Stripe hardening
-- [ ] New migration `012_subscriptions.sql` with explicit RLS + service-role policy.
-- [ ] New `stripe_events(event_id PK)` table; webhook handler dedupes by event.id.
-- [ ] Allow-list price IDs against env-configured set; refuse unknown (no `|| "pro"` fallback).
-- [ ] Webhook returns 500 on handler error (let Stripe retry).
-- [ ] Resolve user from `customer` → `subscriptions.stripe_customer_id`, not `metadata.supabase_user_id` blind trust.
+### Stripe hardening [DONE]
+- [x] Migration 013 creates the `subscriptions` table with RLS + signup trigger + backfill (code had been writing to a table that didn't exist).
+- [x] Migration 014 creates `stripe_events(event_id PK)` for webhook idempotency.
+- [x] Webhook dedupes via PK insert; rolls back the dedupe row + returns 500 on handler exception so Stripe retries.
+- [x] `isAllowedPriceId()` gates checkout against env price-id allow-list; webhook refuses unknown priceIds instead of defaulting to "pro".
+- [x] Webhook resolves user via `subscriptions.stripe_customer_id` (the server-side binding) rather than trusting `metadata.supabase_user_id`.
 
-### Open-redirect / SSRF fixes
-- [ ] `forgot-password`: use `NEXT_PUBLIC_APP_URL` only, refuse if unset.
-- [ ] `login?redirect=`: only accept paths starting with `/` (reject `//`).
-- [ ] `auth/callback?next=`: same rule.
+### Open-redirect / SSRF fixes [DONE]
+- [x] `safeRedirect()` helper rejects absolute / protocol-relative / backslash-escaped paths.
+- [x] forgot-password uses `NEXT_PUBLIC_APP_URL` only (no Origin-header fallback). Dev-mode reset URL log gated behind `NODE_ENV === "development"`.
+- [x] login `?redirect=` validated through safeRedirect.
+- [x] `/auth/callback` `?next=` validated.
 
-### Misc
-- [ ] Reject SVG logo uploads (or sanitize via DOMPurify + serve with `Content-Disposition: attachment` and strict CSP).
-- [ ] Add CSP header to `next.config.ts`.
-- [ ] HTML-escape `fullName` in admin signup notification email.
-- [ ] Whitelist mime types in `/api/upload` (`image/jpeg|png|webp|heic`).
-- [ ] Lock `Image` remotePatterns to specific R2 hostname, not wildcard.
-- [ ] Restrict `/api/admin/batch-thumbnails` to env-configured admin emails.
-- [ ] Fix `/api/stats` query (`shares.user_id` column doesn't exist — join through events).
-- [ ] Move `/dev`, `/playground`, `/mockups` behind `NODE_ENV === "development"` (currently `/playground` leaks one event's photos to every logged-in user).
+### Misc hardening [DONE]
+- [x] SVG rejected by logo upload (raster only).
+- [x] CSP added to `next.config.ts`; `Image` remotePatterns tightened to configured R2 hostname.
+- [x] HTML-escape `fullName`/email in admin signup notification.
+- [x] `/api/upload` whitelists JPEG/PNG/WebP/HEIC/TIFF and caps at 100MB.
+- [x] `/api/admin/batch-thumbnails` requires user.email ∈ `ADMIN_EMAILS` env list.
+- [x] `/api/stats` queries shares by event_id (the schema FK), not the non-existent `shares.user_id`.
+- [x] `/dev`, `/playground`, `/mockups` return 404 when `NODE_ENV === "production"` (middleware rewrite).
+- [x] Favorites public GET no longer returns `client_email` / `client_name`; POST/DELETE validate `imageId` is in share scope.
 
-**Acceptance:** Run a manual IDOR test from User-B's session against User-A's event/image/share/stack/section UUIDs — every endpoint returns 404 or 403.
+**Acceptance:** Manual IDOR test from a second account against the first's event/image/share/stack/section UUIDs returns 404/403 everywhere.
+
+### Deployment prerequisites
+Before deploying this branch:
+1. Apply migrations 012, 013, 014 to production Supabase (run SQL in order).
+2. Set new env vars in Vercel:
+   - `GALLERY_SESSION_SECRET` — random string ≥32 chars (`openssl rand -base64 48`)
+   - `ADMIN_EMAILS` — comma-separated admin email allow-list
+3. Active share viewers will keep their session cookies but the cookie format changed. Existing `gallery_auth_<slug>` cookies are ignored; viewers re-enter the password once, then get a new `pt-gs-<slug>` cookie. Passwords themselves don't need to be reset — legacy SHA-256 hashes still verify and are auto-upgraded on next successful entry.
+4. Anyone running self-hosted Supabase: confirm RLS policies from migration 012 dropped successfully (some hosted Supabase tiers cache RLS).
 
 ---
 
