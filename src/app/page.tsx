@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
-import { SignOutButton } from "@/components/auth/SignOutButton";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { Greeting } from "@/components/dashboard/Greeting";
 
@@ -55,18 +55,16 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Nav>
-        <Link href="/events/new">
-          <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
-        </Link>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Account
-        </Link>
-        <SignOutButton />
-      </Nav>
+      <AppNav
+        active="events"
+        actions={
+          <Link href="/events/new">
+            <BrandButton color="emerald" celebrate size="sm">
+              New Event
+            </BrandButton>
+          </Link>
+        }
+      />
 
       {/* ─── V3: Personalized greeting ─── */}
       <div className="px-8 md:px-16 pt-16 pb-4">

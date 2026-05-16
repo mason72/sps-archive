@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
@@ -713,38 +713,50 @@ export default function EventPage({
       {/* ─── Main content ─── */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* ─── Nav ─── */}
-      <Nav>
-        {/* Add Images / Upload */}
-        <button
-          onClick={() => {
-            setShowUpload((v) => !v);
-            hadUploadErrors.current = false;
-          }}
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
-        </button>
+      <AppNav
+        active="events"
+        actions={
+          <>
+            {/* Add Images / Upload */}
+            <button
+              onClick={() => {
+                setShowUpload((v) => !v);
+                hadUploadErrors.current = false;
+              }}
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+            >
+              {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
+            </button>
 
-        {/* Preview — opens client gallery in new tab */}
-        <a
-          href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Preview
-        </a>
+            {/* Preview — opens client gallery in new tab */}
+            <a
+              href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+            >
+              Preview
+            </a>
 
-        {/* Publish / Share — both go to email compose page */}
-        <Link href={hasActiveShare
-          ? `/events/${eventId}/share?slug=${activeShareSlug}`
-          : `/events/${eventId}/share`
-        }>
-          <BrandButton size={hasActiveShare ? "sm" : "md"} color={hasActiveShare ? "blue" : "emerald"} celebrate={!hasActiveShare}>
-            {hasActiveShare ? "Share" : "Publish"}
-          </BrandButton>
-        </Link>
-      </Nav>
+            {/* Publish / Share — both go to email compose page */}
+            <Link
+              href={
+                hasActiveShare
+                  ? `/events/${eventId}/share?slug=${activeShareSlug}`
+                  : `/events/${eventId}/share`
+              }
+            >
+              <BrandButton
+                size={hasActiveShare ? "sm" : "md"}
+                color="emerald"
+                celebrate={!hasActiveShare}
+              >
+                {hasActiveShare ? "Share" : "Publish"}
+              </BrandButton>
+            </Link>
+          </>
+        }
+      />
 
       <main className="px-8 md:px-16 pt-12 pb-24">
         {/* ─── Event header ─── */}

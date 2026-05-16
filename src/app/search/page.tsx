@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
-import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 
 interface SearchResult {
@@ -30,14 +30,7 @@ export default function GlobalSearchPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Nav>
-        <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          Archive
-        </Link>
-        <Link href="/search" className="editorial-link font-medium text-stone-900">
-          Search
-        </Link>
-      </Nav>
+      <AppNav active="search" />
 
       <main className="px-8 md:px-16 pt-16 pb-24">
         <div className="max-w-4xl">

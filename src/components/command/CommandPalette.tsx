@@ -13,6 +13,8 @@ import {
   Calendar,
   Command,
   CornerDownLeft,
+  BarChart3,
+  Mail,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────
@@ -118,6 +120,27 @@ export function CommandPalette() {
       icon: <PlusCircle size={15} />,
       shortcut: "N",
       onSelect: () => navigate("/events/new"),
+    },
+    {
+      id: "nav-search",
+      label: "Search Archive",
+      group: "Navigation",
+      icon: <Search size={15} />,
+      onSelect: () => navigate("/search"),
+    },
+    {
+      id: "nav-analytics",
+      label: "Analytics",
+      group: "Navigation",
+      icon: <BarChart3 size={15} />,
+      onSelect: () => navigate("/analytics"),
+    },
+    {
+      id: "nav-templates",
+      label: "Email Templates",
+      group: "Navigation",
+      icon: <Mail size={15} />,
+      onSelect: () => navigate("/settings/emails"),
     },
     {
       id: "nav-account",
