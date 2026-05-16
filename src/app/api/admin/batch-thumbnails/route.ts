@@ -3,6 +3,21 @@ import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 
 /**
+ * Whether the given email is in ADMIN_EMAILS (comma-separated env var).
+ * When ADMIN_EMAILS is unset, defaults to deny (returns false). This route
+ * triggers heavy thumbnail generation work — limit it to operators.
+ */
+function isAdminEmail(email: string | undefined): boolean {
+  if (!email) return false;
+  const list = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (list.length === 0) return false;
+  return list.includes(email.toLowerCase());
+}
+
+/**
  * POST /api/admin/batch-thumbnails
  *
  * Backfill thumbnails for existing images that don't have them yet.
@@ -16,7 +31,9 @@ import { generateThumbnails } from "@/lib/thumbnails/generate";
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify authenticated user
+    // Verify authenticated user AND that they're on the ADMIN_EMAILS list.
+    // Without admin gating, any authenticated user could fan out heavy
+    // sharp+R2 work across their entire archive on demand (cost/DoS surface).
     const userSupabase = await createServerSupabaseClient();
     const {
       data: { user },
@@ -24,6 +41,10 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!isAdminEmail(user.email)) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
@@ -131,6 +152,10 @@ export async function GET() {
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!isAdminEmail(user.email)) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
     const supabase = createServiceClient();

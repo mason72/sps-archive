@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
+/** Minimal HTML entity escape for untrusted text in email bodies. */
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
  * POST /api/auth/signup
  *
@@ -66,6 +76,12 @@ export async function POST(request: NextRequest) {
     const resendKey = process.env.RESEND_API_KEY;
     const notifyEmail = process.env.RESEND_FROM_EMAIL || "info@simplephotoshare.com";
     if (resendKey) {
+      // HTML-escape user-controlled fields so a malicious signup can't
+      // inject phishing markup into the admin inbox.
+      const safeEmail = escapeHtml(trimmedEmail);
+      const safeName = escapeHtml(fullName?.trim() || "(not provided)");
+      const safeTime = escapeHtml(new Date().toISOString());
+
       fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -77,9 +93,9 @@ export async function POST(request: NextRequest) {
           to: [notifyEmail],
           subject: `New signup: ${trimmedEmail}`,
           html: `<p>A new user just signed up for Pixeltrunk.</p>
-<p><strong>Email:</strong> ${trimmedEmail}</p>
-<p><strong>Name:</strong> ${fullName?.trim() || "(not provided)"}</p>
-<p><strong>Time:</strong> ${new Date().toISOString()}</p>`,
+<p><strong>Email:</strong> ${safeEmail}</p>
+<p><strong>Name:</strong> ${safeName}</p>
+<p><strong>Time:</strong> ${safeTime}</p>`,
         }),
       }).catch((e) => console.error("Signup notification email failed:", e));
     }
