@@ -125,7 +125,7 @@ function SearchResultCard({ result }: { result: SearchResult }) {
 
   return (
     <Link
-      href={`/events/${result.eventId}`}
+      href={`/events/${result.eventId}?image=${result.id}`}
       className="group relative block w-full overflow-hidden bg-stone-100 photo-lift"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

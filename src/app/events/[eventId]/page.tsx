@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 
@@ -187,6 +188,20 @@ export default function EventPage({
   useEffect(() => {
     fetchEvent();
   }, [fetchEvent]);
+
+  // Open the lightbox on the deep-linked image once it's loaded. Used by
+  // the global search results page: clicking a thumbnail navigates here
+  // with `?image=<id>` and the user lands on that specific photo instead
+  // of the top of the gallery.
+  const searchParams = useSearchParams();
+  const deepLinkImageId = searchParams.get("image");
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !deepLinkImageId) return;
+    if (!allImages.some((img) => img.id === deepLinkImageId)) return;
+    deepLinkAppliedRef.current = true;
+    setSelectedImageId(deepLinkImageId);
+  }, [deepLinkImageId, allImages]);
 
   // Fire celebration toast when processing completes (debounced to prevent oscillation)
   useEffect(() => {

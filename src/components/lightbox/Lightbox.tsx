@@ -109,13 +109,14 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
 
       {/* ─── Main content ─── */}
       <div className="flex h-full pt-14 pb-4">
-        {/* Image area with navigation */}
-        <div className="relative flex flex-1 items-center justify-center px-16">
-          {/* Left arrow */}
+        {/* Image area with navigation — generous side padding only on
+            md+ so mobile users get the full screen width for the image. */}
+        <div className="relative flex flex-1 items-center justify-center px-12 md:px-16">
+          {/* Left arrow — visible on all sizes; smaller / lower-contrast on mobile */}
           {hasPrev && !zoom.isZoomed && (
             <button
               onClick={goPrev}
-              className="absolute left-4 z-10 flex h-10 w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300 max-md:hidden"
+              className="absolute left-2 md:left-4 z-10 flex h-9 w-9 md:h-10 md:w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300"
               aria-label="Previous image"
             >
               <ChevronLeft className="h-5 w-5" />
@@ -135,11 +136,11 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
             isPanning={isPanning}
           />
 
-          {/* Right arrow */}
+          {/* Right arrow — visible on all sizes */}
           {hasNext && !zoom.isZoomed && (
             <button
               onClick={goNext}
-              className="absolute right-4 z-10 flex h-10 w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300 max-md:hidden"
+              className="absolute right-2 md:right-4 z-10 flex h-9 w-9 md:h-10 md:w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300"
               aria-label="Next image"
             >
               <ChevronRight className="h-5 w-5" />
