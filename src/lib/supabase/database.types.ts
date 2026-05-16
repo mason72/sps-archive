@@ -558,6 +558,72 @@ export type Database = {
         };
         Relationships: [];
       };
+      subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          plan: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval: "monthly" | "annual" | null;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          trial_end: string | null;
+          cancel_at_period_end: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          plan?: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status?: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval?: "monthly" | "annual" | null;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          trial_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          plan?: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status?: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval?: "monthly" | "annual" | null;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          trial_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      stripe_events: {
+        Row: {
+          event_id: string;
+          event_type: string;
+          received_at: string;
+        };
+        Insert: {
+          event_id: string;
+          event_type: string;
+          received_at?: string;
+        };
+        Update: {
+          event_id?: string;
+          event_type?: string;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
       activity_log: {
         Row: {
           id: string;

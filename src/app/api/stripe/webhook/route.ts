@@ -19,20 +19,43 @@ function getSubscriptionPeriod(sub: Stripe.Subscription) {
   };
 }
 
-function subscriptionsTable(supabase: ReturnType<typeof createServiceClient>) {
-  // subscriptions table not in generated types yet — cast through unknown
-  return supabase.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof supabase.from>;
+/**
+ * Look up the local user_id for a Stripe customer.
+ *
+ * Preferred over reading `metadata.supabase_user_id` directly because the
+ * customer ↔ user binding is established server-side at checkout (we
+ * insert stripe_customer_id into subscriptions when we create the
+ * customer). Metadata could be set/changed via the Stripe Dashboard or
+ * any other actor with the secret key.
+ */
+async function resolveUserIdFromCustomer(
+  supabase: ReturnType<typeof createServiceClient>,
+  customerId: string | null
+): Promise<string | null> {
+  if (!customerId) return null;
+  const { data } = await supabase
+    .from("subscriptions")
+    .select("user_id")
+    .eq("stripe_customer_id", customerId)
+    .single();
+  return data?.user_id ?? null;
 }
 
 /**
  * POST /api/stripe/webhook
  *
  * Handles Stripe webhook events to sync subscription state to Supabase.
- * Events handled:
- *   - checkout.session.completed → activate subscription
- *   - customer.subscription.updated → sync plan/status/period
- *   - customer.subscription.deleted → cancel subscription
- *   - invoice.payment_failed → mark as past_due
+ *
+ * Phase 0 hardening:
+ *   - Replays are deduped via a stripe_events PK insert (migration 014).
+ *     The first delivery wins; duplicates are acknowledged with 200 and
+ *     return without re-running handlers.
+ *   - User binding flows customer → subscriptions.stripe_customer_id
+ *     instead of trusting metadata.supabase_user_id blindly.
+ *   - Unknown / typo'd price IDs no longer silently grant `plan: "pro"`
+ *     — they short-circuit the handler so we don't write garbage state.
+ *   - On handler exception we return 500 (Stripe retries) instead of 200
+ *     (silently dropping transient DB blips).
  */
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -63,28 +86,63 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient();
 
+  // Idempotency: insert event.id; if it's already there we've handled it.
+  const { error: dedupeErr } = await supabase
+    .from("stripe_events")
+    .insert({ event_id: event.id, event_type: event.type });
+
+  if (dedupeErr) {
+    // 23505 unique_violation = already processed. Acknowledge and move on.
+    // PostgrestError code lives on the error object.
+    const code = (dedupeErr as { code?: string }).code;
+    if (code === "23505") {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    console.error("Stripe event dedupe insert failed:", dedupeErr);
+    // If we can't even record the event, Stripe should retry.
+    return NextResponse.json({ error: "Dedupe failure" }, { status: 500 });
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const userId = session.metadata?.supabase_user_id;
-        if (!userId || !session.subscription) break;
+        if (!session.subscription || !session.customer) break;
 
-        // Fetch the subscription to get plan details
+        const customerId =
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer.id;
+
+        const userId = await resolveUserIdFromCustomer(supabase, customerId);
+        if (!userId) {
+          console.error(
+            `[stripe-webhook] checkout.session.completed for unknown customer ${customerId}`
+          );
+          break;
+        }
+
         const subscription = await getStripe().subscriptions.retrieve(
           session.subscription as string
         );
         const priceId = subscription.items.data[0]?.price.id;
         const planInfo = priceId ? planFromPriceId(priceId) : null;
+        if (!planInfo) {
+          console.error(
+            `[stripe-webhook] checkout.session.completed: unknown priceId ${priceId} — refusing to flip plan`
+          );
+          break;
+        }
         const period = getSubscriptionPeriod(subscription);
 
-        await subscriptionsTable(supabase)
+        await supabase
+          .from("subscriptions")
           .update({
             stripe_subscription_id: subscription.id,
-            stripe_customer_id: session.customer as string,
-            plan: planInfo?.plan || "pro",
+            stripe_customer_id: customerId,
+            plan: planInfo.plan,
             status: "active",
-            billing_interval: planInfo?.interval || "monthly",
+            billing_interval: planInfo.interval,
             current_period_start: period.start,
             current_period_end: period.end,
             trial_end: null,
@@ -97,14 +155,29 @@ export async function POST(request: NextRequest) {
 
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const userId = subscription.metadata?.supabase_user_id;
-        if (!userId) break;
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer.id;
+        const userId = await resolveUserIdFromCustomer(supabase, customerId);
+        if (!userId) {
+          console.error(
+            `[stripe-webhook] subscription.updated for unknown customer ${customerId}`
+          );
+          break;
+        }
 
         const priceId = subscription.items.data[0]?.price.id;
         const planInfo = priceId ? planFromPriceId(priceId) : null;
+        if (!planInfo) {
+          console.error(
+            `[stripe-webhook] subscription.updated: unknown priceId ${priceId} — refusing to flip plan`
+          );
+          break;
+        }
         const period = getSubscriptionPeriod(subscription);
 
-        const statusMap: Record<string, string> = {
+        const statusMap: Record<string, "trialing" | "active" | "past_due" | "canceled"> = {
           active: "active",
           trialing: "trialing",
           past_due: "past_due",
@@ -115,11 +188,12 @@ export async function POST(request: NextRequest) {
           paused: "canceled",
         };
 
-        await subscriptionsTable(supabase)
+        await supabase
+          .from("subscriptions")
           .update({
-            plan: planInfo?.plan || "pro",
+            plan: planInfo.plan,
             status: statusMap[subscription.status] || "active",
-            billing_interval: planInfo?.interval || "monthly",
+            billing_interval: planInfo.interval,
             current_period_start: period.start,
             current_period_end: period.end,
             cancel_at_period_end: subscription.cancel_at_period_end,
@@ -132,10 +206,15 @@ export async function POST(request: NextRequest) {
 
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        const userId = subscription.metadata?.supabase_user_id;
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer.id;
+        const userId = await resolveUserIdFromCustomer(supabase, customerId);
         if (!userId) break;
 
-        await subscriptionsTable(supabase)
+        await supabase
+          .from("subscriptions")
           .update({
             plan: "free",
             status: "canceled",
@@ -150,29 +229,34 @@ export async function POST(request: NextRequest) {
 
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
-        const customerId = invoice.customer as string;
+        const customerId =
+          typeof invoice.customer === "string"
+            ? invoice.customer
+            : invoice.customer?.id ?? null;
+        const userId = await resolveUserIdFromCustomer(supabase, customerId);
+        if (!userId) break;
 
-        // Find user by customer ID
-        const { data: sub } = await subscriptionsTable(supabase)
-          .select("user_id")
-          .eq("stripe_customer_id", customerId)
-          .single();
-
-        if (sub) {
-          await subscriptionsTable(supabase)
-            .update({
-              status: "past_due",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("user_id", (sub as { user_id: string }).user_id);
-        }
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "past_due",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", userId);
 
         break;
       }
     }
   } catch (err) {
     console.error(`Webhook handler error for ${event.type}:`, err);
-    // Return 200 to prevent Stripe from retrying
+    // Roll back the idempotency record so Stripe's retry can re-run the
+    // handler. Otherwise transient failures (DB blip, network) become
+    // permanent state drift.
+    await supabase.from("stripe_events").delete().eq("event_id", event.id);
+    return NextResponse.json(
+      { error: "Handler failed; will retry" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ received: true });

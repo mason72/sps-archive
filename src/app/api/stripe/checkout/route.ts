@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe/config";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getStripe, isAllowedPriceId } from "@/lib/stripe/config";
+import {
+  createServerSupabaseClient,
+  createServiceClient,
+} from "@/lib/supabase/server";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002";
 
@@ -10,6 +12,14 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002";
  *
  * Creates a Stripe Checkout Session for subscription upgrade.
  * Requires authenticated user.
+ *
+ * Phase 0 hardening:
+ *   - priceId is now validated against the env-configured allow-list
+ *     (isAllowedPriceId). Previously any priceId from the request body
+ *     was passed straight to Stripe — a user could subscribe to a $0
+ *     test price or an arbitrary unlisted plan in the workspace.
+ *   - subscriptions reads/writes use the typed table now that migration
+ *     013 exists; no more `from(... as unknown as ...)` casts.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,38 +32,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { priceId } = await request.json();
+    const { priceId } = (await request.json()) as { priceId?: string };
 
-    if (!priceId) {
+    if (!priceId || typeof priceId !== "string") {
       return NextResponse.json(
         { error: "Price ID is required" },
         { status: 400 }
       );
     }
 
-    // Get or create Stripe customer
-    const service = createServiceClient();
-    // subscriptions table not in generated types yet — cast through unknown
-    const subs = service.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof service.from>;
+    if (!isAllowedPriceId(priceId)) {
+      return NextResponse.json(
+        { error: "Unknown plan" },
+        { status: 400 }
+      );
+    }
 
-    const { data: sub } = await subs
+    // Get or create Stripe customer (writes flow through the service client
+    // so we can store the binding in subscriptions.stripe_customer_id —
+    // the webhook resolves user_id by that column).
+    const service = createServiceClient();
+
+    const { data: sub } = await service
+      .from("subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .single();
 
-    let customerId = (sub as { stripe_customer_id?: string } | null)
-      ?.stripe_customer_id;
+    let customerId = sub?.stripe_customer_id ?? null;
 
     if (!customerId) {
-      // Create Stripe customer
       const customer = await getStripe().customers.create({
         email: user.email,
         metadata: { supabase_user_id: user.id },
       });
       customerId = customer.id;
 
-      // Store customer ID
-      await subs
+      await service
+        .from("subscriptions")
         .update({
           stripe_customer_id: customerId,
           updated_at: new Date().toISOString(),

@@ -70,37 +70,42 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
 };
 
-/** Map Stripe price IDs to plan+interval for webhook processing */
+/**
+ * Build the price-id → plan map from env. Empty / missing env entries are
+ * skipped (we can't accept an empty string as a key — it would let the
+ * default `priceId = ""` match every plan).
+ */
+function buildPriceIdMap(): Record<string, { plan: PlanId; interval: "monthly" | "annual" }> {
+  const entries: Array<[string | undefined, PlanId, "monthly" | "annual"]> = [
+    [process.env.STRIPE_PRICE_SOLO_MONTHLY, "solo", "monthly"],
+    [process.env.STRIPE_PRICE_SOLO_ANNUAL, "solo", "annual"],
+    [process.env.STRIPE_PRICE_PRO_MONTHLY, "pro", "monthly"],
+    [process.env.STRIPE_PRICE_PRO_ANNUAL, "pro", "annual"],
+    [process.env.STRIPE_PRICE_STUDIO_MONTHLY, "studio", "monthly"],
+    [process.env.STRIPE_PRICE_STUDIO_ANNUAL, "studio", "annual"],
+  ];
+  const map: Record<string, { plan: PlanId; interval: "monthly" | "annual" }> = {};
+  for (const [id, plan, interval] of entries) {
+    if (id && id.trim()) {
+      map[id] = { plan, interval };
+    }
+  }
+  return map;
+}
+
+/** Map a Stripe price ID to its plan tier + interval, or null if unknown. */
 export function planFromPriceId(priceId: string): {
   plan: PlanId;
   interval: "monthly" | "annual";
 } | null {
-  const map: Record<string, { plan: PlanId; interval: "monthly" | "annual" }> =
-    {
-      [process.env.STRIPE_PRICE_SOLO_MONTHLY || ""]: {
-        plan: "solo",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_SOLO_ANNUAL || ""]: {
-        plan: "solo",
-        interval: "annual",
-      },
-      [process.env.STRIPE_PRICE_PRO_MONTHLY || ""]: {
-        plan: "pro",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_PRO_ANNUAL || ""]: {
-        plan: "pro",
-        interval: "annual",
-      },
-      [process.env.STRIPE_PRICE_STUDIO_MONTHLY || ""]: {
-        plan: "studio",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_STUDIO_ANNUAL || ""]: {
-        plan: "studio",
-        interval: "annual",
-      },
-    };
-  return map[priceId] || null;
+  return buildPriceIdMap()[priceId] || null;
+}
+
+/**
+ * Returns the full allow-list of price IDs we recognize. Used at checkout
+ * to reject arbitrary client-supplied prices (avoids "subscribe to a $0
+ * test price" abuse / silent upgrade to Pro via unknown priceIds).
+ */
+export function isAllowedPriceId(priceId: string): boolean {
+  return priceId in buildPriceIdMap();
 }

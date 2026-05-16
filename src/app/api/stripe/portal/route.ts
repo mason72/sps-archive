@@ -23,15 +23,13 @@ export async function POST() {
     }
 
     const service = createServiceClient();
-    // subscriptions table not in generated types yet — cast through unknown
-    const { data: sub } = await (service.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof service.from>)
+    const { data: sub } = await service
+      .from("subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .single();
 
-    const customerIdRow = sub as { stripe_customer_id?: string } | null;
-
-    if (!customerIdRow?.stripe_customer_id) {
+    if (!sub?.stripe_customer_id) {
       return NextResponse.json(
         { error: "No billing account found. Subscribe to a plan first." },
         { status: 400 }
@@ -39,7 +37,7 @@ export async function POST() {
     }
 
     const session = await getStripe().billingPortal.sessions.create({
-      customer: customerIdRow.stripe_customer_id,
+      customer: sub.stripe_customer_id,
       return_url: `${APP_URL}/account?tab=billing`,
     });
 
