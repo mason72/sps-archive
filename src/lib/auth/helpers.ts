@@ -1,47 +1,50 @@
 import {
   createServerSupabaseClient,
-  createServiceClient,
+  type AppSupabaseClient,
 } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 
-type TypedSupabaseClient = ReturnType<typeof createServiceClient>;
-
 interface AuthResult {
   user: User | null;
-  supabase: TypedSupabaseClient;
+  supabase: AppSupabaseClient;
   error: NextResponse | null;
 }
 
 /**
- * Get the authenticated user and a typed Supabase client.
- * Returns a 401 error response if not authenticated.
+ * Resolve the authenticated user and return a **cookie-bound** Supabase client.
  *
- * Auth verification uses the cookie-based SSR client.
- * Database queries use the service client for full type safety.
- * Route-level RLS is enforced by middleware + explicit user_id filters.
+ * The returned client uses the user's session cookies and is subject to RLS.
+ * RLS policies on user-owned tables (events, images, stacks, sections, …)
+ * scope every query to `auth.uid() = user_id` automatically, so a route that
+ * forgets an explicit `.eq("user_id", user.id)` filter cannot leak another
+ * user's data — it will just return zero rows / a 404.
  *
- * Usage in API routes:
- * ```
+ * Routes that genuinely need to bypass RLS (Stripe webhook, public gallery
+ * resolution, Inngest workers, admin helpers, Supabase Auth admin calls)
+ * should import `createServiceClient` directly and document why.
+ *
+ * Usage:
+ * ```ts
  * const { user, supabase, error } = await getAuthUser();
  * if (error) return error;
- * // user is guaranteed non-null here
+ * // user is guaranteed non-null here; supabase is RLS-enforced
  * ```
  */
 export async function getAuthUser(): Promise<AuthResult> {
-  const authClient = await createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const {
     data: { user },
     error,
-  } = await authClient.auth.getUser();
+  } = await supabase.auth.getUser();
 
   if (error || !user) {
     return {
       user: null,
-      supabase: createServiceClient(),
+      supabase,
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     };
   }
 
-  return { user, supabase: createServiceClient(), error: null };
+  return { user, supabase, error: null };
 }

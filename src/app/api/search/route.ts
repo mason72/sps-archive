@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
-import { createServiceClient } from "@/lib/supabase/server";
+import type { AppSupabaseClient } from "@/lib/supabase/server";
 
-type SupabaseDB = ReturnType<typeof createServiceClient>;
+type SupabaseDB = AppSupabaseClient;
 
 /**
  * GET /api/search?q=<query>&eventId=<optional>&type=<semantic|filename|person>

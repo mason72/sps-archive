@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import type { AppSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * Helper: verify section ownership through event → user chain.
  */
 async function verifySectionOwnership(
-  supabase: ReturnType<typeof import("@/lib/supabase/server").createServiceClient>,
+  supabase: AppSupabaseClient,
   sectionId: string,
   userId: string
 ) {
