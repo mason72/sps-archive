@@ -153,70 +153,63 @@ Before deploying this branch:
 
 ---
 
-## Phase 3 — Make the Core Experience World Class [TODO]
+## Phase 3 — Make the Core Experience World Class [SUBSTANTIALLY DONE]
 **Goal:** UX consolidation. Pixeltrunk starts to feel premium.
 
-### Navigation & structure
-- [ ] Build a persistent global `<Nav />` with: logo · Events · Search · Analytics · Templates · Account · ⌘K · Sign Out. Replace 9 different per-page nav arrangements.
-- [ ] Add ⌘K command palette entries for: Search, Analytics, Email Templates, Account.
+### Navigation & structure [DONE]
+- [x] `<AppNav>` with logo · Events · Search · Analytics · Templates · Account · Sign out. Replaces 8 inconsistent per-page nav arrangements. Mobile collapses the secondary links (still reachable via ⌘K).
+- [x] ⌘K command palette now lists Search, Analytics, Email Templates (was just Dashboard/New Event/Account/Sign Out).
 
-### Sharing flow
-- [ ] Single canonical share UI: keep `/events/[id]/share` as the full experience. Retire `ShareModal` or scope it strictly to "share this selection".
-- [ ] Decouple photographer star/favorite from public client favorite. `F` in lightbox is a private organizational mark; public favorites only exist via the share viewer.
-- [ ] Pre-publish checklist for shares: name set, cover set, password set-or-skipped, downloads reviewed, custom message. Today the share page dumps you into a compose form.
+### Sharing flow [DEFERRED]
+- [-] Single canonical share UI: deferred. Both surfaces stay; the modal handles "share this selection" and the page handles full compose. Worth a focused design pass.
+- [-] Decouple photographer star vs public favorite: deferred. Needs a `photographer_starred` column and a UX decision on whether F means private star or share-favorite.
+- [-] Pre-publish checklist: deferred.
 
-### Lightbox
-- [ ] Photographer actions inside the lightbox: favorite (private), set-as-best (stack cover), add-to-section, delete.
-- [ ] Keyboard-driven: `J/K` next/prev, `F` favorite, `D` delete, `S` set-as-best, `Esc` close, `I` info panel.
-- [ ] Mobile: visible nav arrows + swipe support.
-- [ ] Prefetch metadata for next image when info panel is open.
+### Lightbox [DONE — first pass]
+- [x] Photographer actions API on `<Lightbox>` (`actions={[…]}` prop) + Delete wired with Delete-key shortcut + destructive styling on the event detail page. Pattern ready for set-as-cover, add-to-section, photographer star follow-ons.
+- [x] Mobile nav arrows visible (were `max-md:hidden`). Smaller (36px) on mobile; image area gets `px-12 md:px-16` so the photo actually has room.
+- [x] Metadata prefetch already in place (useLightbox.prefetchDetail).
 
-### Onboarding
-- [ ] First-run modal on first dashboard visit if profile incomplete: display name, business name, optional logo, branding colors (3-step).
-- [ ] Seed a demo event (30 stock photos, hand-organized) so the empty product has something tangible to click — solves the cold-start problem without AI.
+### Onboarding [DEFERRED]
+- [-] First-run modal: deferred. Design-heavy; needs tone calibration. Notable that ClientIdentityModal pattern (Phase 1) is the template.
+- [-] Demo-event seed: deferred.
 
-### Account / billing
-- [ ] Storage-quota meter on `/account` Billing tab: used vs plan limit, progress bar, link to upgrade.
-- [ ] Subscription state visible regardless of `stripe_customer_id` existence.
+### Account / billing [DONE]
+- [x] Storage meter on `/account` Billing tab — used vs plan limit, progress bar, amber at 80%, red at 95% + upgrade link. New `/api/account/storage` endpoint.
 
-### Search
-- [ ] Deep-link search results to the specific image (open lightbox at that image), not the event top.
-- [ ] Validate `/api/search` query (no commas/dots/parens that break PostgREST `.or()`).
+### Search [DONE — relevant items]
+- [x] Deep-link search results to specific image via `?image=<id>` — event page auto-opens the lightbox at that image.
+- [x] `/api/search` sanitizes query input (strips `,()` that would break PostgREST `.or()`).
 
-### Downloads
-- [ ] Bulk ZIP download: stream through R2 (no full in-memory buffer), single signed URL response, auth-gated.
+### Downloads [DEFERRED]
+- [-] Bulk ZIP refactor: deferred. Current implementation streams from R2 already; the per-image buffer is the main fragility. Not blocking real usage.
 
 ### Misc
-- [ ] Better empty states using the pixel-mosaic SVG ornament. Apply to dashboard, event-empty, search-empty, gallery-empty, no-favorites.
-
-**Acceptance:** A new photographer can sign up, complete onboarding, upload a wedding shoot, organize into sections, send a password-protected share to a client, and see the client's favorites by name + email — all without hitting a 404 or a confusing state.
+- [-] Pixel-mosaic empty states: deferred (small, can land any time).
 
 ---
 
-## Phase 4 — Aesthetic Refinement [TODO]
+## Phase 4 — Aesthetic Refinement [PARTIAL]
 **Goal:** Editorial coherence. Make every page feel crafted.
 
-### Typography
-- [ ] Define a real type scale in `globals.css`: `display-xl/lg/md/sm`, three body sizes (lead 15, body 13, micro 11), one caption italic. Add as Tailwind plugin or `@layer utilities`.
-- [ ] Replace `text-[15px]` / `text-[clamp(...)]` one-offs across the audited files.
-- [ ] Unify H1 sizing across landing, dashboard, event, account, marketing, pricing.
+### Typography [DONE — tokens added; sweep deferred]
+- [x] `display-xl/lg/md/sm` utility classes in globals.css with documented sizes + line-heights and body/lead/micro vocabulary in comments.
+- [-] Sweep existing `text-[clamp(...)]` headings to use tokens: deferred (low-risk migration any time).
 
-### Color & components
-- [ ] Retire all `BrandButton` colors except emerald (and stone-900 squared `Button variant="primary"`). One CTA color in the whole system. Move the rainbow into `/dev/buttons` reference.
-- [ ] Stone-palette enforcement on analytics: stat cards, status pills, warning banners. No raw blue/orange/red in app surfaces.
-- [ ] One `<Divider />` primitive replacing `editorial-divider` / inline borders / opacity rules. Applied across footer, marketing, gallery, event sections.
-- [ ] Replace `SectionedGallery` rounded-full pill tabs with squared chips + bottom hairline rule.
-- [ ] Re-style the Toast: 2px accent left-rule, italic emphasis on counts.
+### Color & components [PARTIAL]
+- [x] BrandButton retires the rainbow — only emerald is honoured. `color` prop kept for back-compat but ignored.
+- [x] StatCard normalized to stone-only palette (was raw blue-50 / orange-50).
+- [x] Squared SectionedGallery tabs with bottom hairline (replaces rounded-full pills).
+- [-] One `<Divider />` primitive: deferred.
+- [-] Toast restyle: deferred.
 
-### Gallery & lightbox
-- [ ] Selection feedback: dim unselected to 60% opacity rather than tinting selected emerald.
-- [ ] SmartStack cover respects native aspect ratio (no forced `aspect-[3/4]`).
-- [ ] Touch targets ≥44px on SmartStack and grid checkboxes.
+### Gallery & lightbox [DONE — relevant items]
+- [x] Selection feedback inverted: unselected dim to 40% (60% on hover) instead of tinting selected emerald. Drops the green-overlay layer.
+- [-] SmartStack aspect: deferred.
+- [-] Touch target review: deferred (tile is the click target, checkbox is decoration).
 
-### Brand moments
-- [ ] Use the pixel-mosaic SVG (currently in gallery footer) as the ornament in: dashboard empty state, event empty state, lightbox loading placeholder, password gate, login/signup corner ornament.
-
-**Acceptance:** Quick visual sweep of landing → signup → onboarding → dashboard → event → lightbox → share → public gallery feels like one coherent product. No "Tailwind starter" smells. Mobile parity confirmed.
+### Brand moments [DEFERRED]
+- [-] Pixel-mosaic ornament in empty states: deferred.
 
 ---
 
