@@ -682,6 +682,10 @@ export type Database = {
         Args: { p_share_id: string };
         Returns: undefined;
       };
+      set_stack_cover: {
+        Args: { p_stack_id: string; p_image_id: string };
+        Returns: undefined;
+      };
       event_image_status_counts: {
         Args: { p_event_id: string };
         Returns: {
