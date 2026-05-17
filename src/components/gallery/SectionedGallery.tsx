@@ -81,19 +81,33 @@ export function SectionedGallery({
     <div>
       {/* ─── Tab bar ───
           Squared editorial chips with a 2px bottom hairline on the active
-          tab — was the only rounded-full element in an otherwise squared
-          gallery, fighting the editorial system. */}
-      <div className="flex gap-6 mb-8 overflow-x-auto pb-2 scrollbar-hide border-b border-stone-200/60">
-        {showAllTab && (
-          <button
-            onClick={() => setActiveTab("all")}
-            className={cn(
-              "relative -mb-px pb-3 text-[12px] font-medium uppercase tracking-[0.18em] transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
-              activeTab === "all" ? "" : "hover:opacity-80"
-            )}
-            style={{
-              color: activeTab === "all" ? colors.primary : colors.secondary,
-              borderBottom:
+          tab. Wrapped in a fade-edge container so when the tab list
+          overflows horizontally (common on mobile / 6+ sections) the
+          edges fade out — quietly hinting that more sections live
+          off-screen instead of cutting them off mid-letter. */}
+      <div
+        className="relative mb-8 border-b border-stone-200/60"
+        style={{
+          // Soft gradient mask on both ends; transparent at the edges,
+          // opaque in the middle. The middle stop being only ~16px in
+          // means a ~24px taper on each side regardless of viewport.
+          WebkitMaskImage:
+            "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+          maskImage:
+            "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+        }}
+      >
+        <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
+          {showAllTab && (
+            <button
+              onClick={() => setActiveTab("all")}
+              className={cn(
+                "relative -mb-px pb-3 text-[12px] font-medium uppercase tracking-[0.18em] transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
+                activeTab === "all" ? "" : "hover:opacity-80"
+              )}
+              style={{
+                color: activeTab === "all" ? colors.primary : colors.secondary,
+                borderBottom:
                 activeTab === "all" ? `2px solid ${colors.primary}` : "2px solid transparent",
             }}
           >
@@ -126,6 +140,7 @@ export function SectionedGallery({
             </button>
           );
         })}
+        </div>
       </div>
 
       {/* ─── Active section description ─── */}

@@ -203,6 +203,25 @@ export default function GalleryPage({
     }
   }, [selectedImageId]);
 
+  // Prefetch the next + previous lightbox images so arrow-keying
+  // through a 200-photo gallery doesn't black-flash between frames.
+  // Uses `new Image()` rather than `<link rel="prefetch">` because R2
+  // presigned URLs are dynamic per request and the browser image cache
+  // handles them more reliably.
+  useEffect(() => {
+    if (!selectedImageId || !gallery) return;
+    const idx = gallery.images.findIndex((img) => img.id === selectedImageId);
+    if (idx === -1) return;
+    const adjacent = [gallery.images[idx + 1], gallery.images[idx - 1]];
+    for (const img of adjacent) {
+      if (!img) continue;
+      const url = img.originalUrl || img.thumbnailUrl;
+      if (!url) continue;
+      const preload = new window.Image();
+      preload.src = url;
+    }
+  }, [selectedImageId, gallery]);
+
   /**
    * Hydrate favorites from BOTH localStorage (fast, offline-friendly)
    * AND the server (canonical, follows the client across devices).
@@ -398,6 +417,16 @@ export default function GalleryPage({
   const [pinError, setPinError] = useState<string | null>(null);
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
 
+  // Heart-pop animation for the lightbox favorite button. Parity with
+  // the grid (where the same keyframe fires on false→true transition).
+  const [heartPopping, setHeartPopping] = useState(false);
+  const heartPopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerHeartPop = () => {
+    setHeartPopping(true);
+    if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
+    heartPopTimerRef.current = setTimeout(() => setHeartPopping(false), 420);
+  };
+
   /** Verify PIN against the server, then execute the pending action */
   const handlePinSubmit = async (pin: string) => {
     setIsVerifyingPin(true);
@@ -453,16 +482,12 @@ export default function GalleryPage({
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
   const selectedIndex = gallery?.images.findIndex((img) => img.id === selectedImageId) ?? -1;
 
-  // Loading state
+  // Loading state — show a masonry skeleton rather than a centered
+  // spinner. On a 200-photo gallery the API takes 2–4s (presigning
+  // every URL); the skeleton makes that wait feel like the gallery
+  // is already arriving instead of "is anything happening?"
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-stone-200 border-t-stone-900 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[13px] text-stone-400">Loading gallery...</p>
-        </div>
-      </div>
-    );
+    return <GallerySkeleton />;
   }
 
   // Error state (gallery missing or expired). We can't surface
@@ -655,6 +680,26 @@ export default function GalleryPage({
           >
             {gallery.customMessage}
           </p>
+        )}
+
+        {/* Live favorites count pill — gives the client a sense of
+            their curated collection. Self-hides at zero; fades in
+            via the standard `reveal` keyframe on first appearance. */}
+        {gallery.allowFavorites && favoriteIds.size > 0 && (
+          <div
+            key={favoriteIds.size}
+            className="inline-flex items-center gap-1.5 mt-5 px-3 py-1 text-[11px] uppercase tracking-[0.15em] font-medium fade-in"
+            style={{
+              color: colors.accent,
+              border: `1px solid ${colors.accent}30`,
+              backgroundColor: `${colors.accent}08`,
+            }}
+            aria-live="polite"
+          >
+            <Heart className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+            {favoriteIds.size}{" "}
+            {favoriteIds.size === 1 ? "favorited" : "favorited"}
+          </div>
         )}
 
         {/* Download All button */}
@@ -851,10 +896,19 @@ export default function GalleryPage({
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
+                  // Pop only on false→true transition, matching the grid
+                  // heart-pop semantics so repeated taps don't oscillate.
+                  if (!favoriteIds.has(selectedImage.id)) triggerHeartPop();
                   handleFavorite(selectedImage.id);
                 }}
+                aria-label={favoriteIds.has(selectedImage.id) ? "Remove from favorites" : "Add to favorites"}
+                aria-pressed={favoriteIds.has(selectedImage.id)}
               >
-                <Heart className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} strokeWidth={1.5} />
+                <Heart
+                  className={`h-5 w-5 ${heartPopping ? "heart-pop" : ""}`}
+                  fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"}
+                  strokeWidth={1.5}
+                />
               </button>
             )}
             {gallery.allowDownload && selectedImage.downloadUrl && (
@@ -1014,6 +1068,44 @@ export default function GalleryPage({
           handleIdentityResolved({ name: "", email: "", prompted: true })
         }
       />
+    </div>
+  );
+}
+
+/**
+ * Skeleton masonry while the gallery API resolves. Renders 12 thumbnails
+ * with varied aspect ratios + a subtle pulse — closer to "your gallery
+ * is arriving" than a spinner-and-prayer.
+ *
+ * The aspect ratios are a fixed sequence (no Math.random) so the layout
+ * is identical across reloads and doesn't flash a different shape on
+ * SSR vs CSR.
+ */
+function GallerySkeleton() {
+  const ratios = [3 / 2, 2 / 3, 1, 4 / 3, 3 / 4, 16 / 9, 1, 2 / 3, 3 / 2, 3 / 4, 1, 4 / 5];
+  return (
+    <div className="min-h-screen bg-stone-50">
+      {/* Faux header */}
+      <div className="px-8 md:px-16 pt-16 pb-8">
+        <div className="h-3 w-20 bg-stone-200/80 animate-pulse mb-6 rounded-sm" />
+        <div className="h-10 w-80 max-w-full bg-stone-200/80 animate-pulse rounded-sm" />
+      </div>
+
+      {/* Faux masonry — three columns on md, two on small */}
+      <div className="px-8 md:px-16 pb-24">
+        <div className="grid gap-1.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {ratios.map((r, i) => (
+            <div
+              key={i}
+              className="bg-stone-200/60 animate-pulse rounded-sm"
+              style={{
+                aspectRatio: `${r}`,
+                animationDelay: `${i * 60}ms`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
