@@ -1389,10 +1389,13 @@ export default function EventPage({
               icon: <Trash2 className="h-[18px] w-[18px]" />,
               shortcut: "Delete",
               destructive: true,
+              // Inline two-stage confirm rather than native confirm() —
+              // the browser dialog felt jarring against the editorial
+              // lightbox. The Trash icon flips to "Confirm" in red for
+              // ~3s; a second press commits.
+              requiresConfirm: true,
+              confirmLabel: "Confirm delete",
               onAct: async (image) => {
-                if (!confirm(`Delete "${image.originalFilename}"? This can't be undone.`)) {
-                  return;
-                }
                 try {
                   const res = await fetch("/api/images/batch", {
                     method: "DELETE",

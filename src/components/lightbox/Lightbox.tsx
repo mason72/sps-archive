@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ChevronLeft, ChevronRight, Info, Download, X } from "lucide-react";
 import { useLightbox } from "./useLightbox";
 import { LightboxImage } from "./LightboxImage";
@@ -29,6 +29,16 @@ export interface LightboxAction {
   onAct: (image: ImageData) => void | "close" | Promise<void | "close">;
   /** Highlight in red so destructive actions read as such. */
   destructive?: boolean;
+  /**
+   * When true, the first press of the button (or keyboard shortcut)
+   * doesn't fire onAct — instead the button enters a "Confirm" state
+   * for ~3s. A second press within that window runs onAct; otherwise
+   * the button reverts. Replaces native `confirm()` dialogs that
+   * felt jarring against the editorial lightbox surface.
+   */
+  requiresConfirm?: boolean;
+  /** Label to display while in confirm state. Defaults to "Confirm". */
+  confirmLabel?: string;
 }
 
 interface LightboxProps {
@@ -44,7 +54,17 @@ interface LightboxProps {
  * zoom/pan, metadata sidebar, and download support. Renders as a portal
  * to avoid z-index issues with the page layout. Light theme design.
  */
+/** ~3 second auto-cancel window for requiresConfirm actions. */
+const CONFIRM_WINDOW_MS = 3000;
+
 export function Lightbox({ images, initialImageId, onClose, actions }: LightboxProps) {
+  // Per-action confirm state. Tracks which action is awaiting a
+  // second press (for requiresConfirm actions like Delete).
+  // CONFIRM_WINDOW_MS gives the user time to commit without re-reading
+  // a modal dialog every time.
+  const [pendingConfirmId, setPendingConfirmId] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const {
     currentIndex,
     currentImage,
@@ -70,6 +90,42 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
     // Download
     handleDownload,
   } = useLightbox({ images, initialImageId, onClose });
+
+  const clearConfirm = () => {
+    setPendingConfirmId(null);
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
+  };
+
+  /**
+   * Single source of truth for "press this action."
+   * Handles the requiresConfirm two-stage flow uniformly for both the
+   * top-bar buttons and the keyboard-shortcut listener.
+   */
+  const dispatchAction = async (action: LightboxAction, image: ImageData) => {
+    if (action.requiresConfirm && pendingConfirmId !== action.id) {
+      // First press — enter confirm state with auto-cancel.
+      setPendingConfirmId(action.id);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(clearConfirm, CONFIRM_WINDOW_MS);
+      return;
+    }
+    clearConfirm();
+    const result = await action.onAct(image);
+    if (result === "close") {
+      close();
+    }
+  };
+
+  // Clear any pending confirm when the user navigates to a different
+  // image — a destructive confirm should never carry over to a photo
+  // the user didn't intend.
+  useEffect(() => {
+    clearConfirm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentImage.id]);
 
   return createPortal(
     <div
@@ -102,28 +158,39 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
         <div className="flex items-center gap-1 shrink-0">
           {/* Photographer actions (delete, set-as-cover, etc.) come first
               so destructive items don't sit right next to the close X. */}
-          {actions?.map((action) => (
-            <button
-              key={action.id}
-              onClick={async () => {
-                const result = await action.onAct(currentImage);
-                if (result === "close") close();
-              }}
-              className={`flex h-10 w-10 items-center justify-center transition-colors duration-300 ${
-                action.destructive
-                  ? "text-stone-400 hover:text-red-600"
-                  : "text-stone-400 hover:text-stone-900"
-              }`}
-              aria-label={action.label}
-              title={
-                action.shortcut
-                  ? `${action.label} (${action.shortcut})`
-                  : action.label
-              }
-            >
-              {action.icon}
-            </button>
-          ))}
+          {actions?.map((action) => {
+            const isPending = pendingConfirmId === action.id;
+            return (
+              <button
+                key={action.id}
+                onClick={() => dispatchAction(action, currentImage)}
+                className={`flex items-center gap-1.5 px-2.5 h-10 transition-colors duration-200 ${
+                  isPending
+                    ? "text-red-600"
+                    : action.destructive
+                      ? "text-stone-400 hover:text-red-600"
+                      : "text-stone-400 hover:text-stone-900"
+                }`}
+                aria-label={
+                  isPending
+                    ? `${action.confirmLabel || "Confirm"} — ${action.label}`
+                    : action.label
+                }
+                title={
+                  action.shortcut
+                    ? `${action.label} (${action.shortcut})`
+                    : action.label
+                }
+              >
+                {action.icon}
+                {isPending && (
+                  <span className="text-[11px] uppercase tracking-[0.15em] font-medium">
+                    {action.confirmLabel || "Confirm"}
+                  </span>
+                )}
+              </button>
+            );
+          })}
 
           <button
             onClick={toggleMetadata}
@@ -158,8 +225,14 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
         </div>
       </div>
 
-      {/* Bind keyboard shortcuts for any provided actions. */}
-      <ActionShortcuts actions={actions} image={currentImage} onClose={close} />
+      {/* Bind keyboard shortcuts for any provided actions. Shortcuts
+          flow through dispatchAction so requiresConfirm gets the same
+          two-stage handling as the button. */}
+      <ActionShortcuts
+        actions={actions}
+        image={currentImage}
+        onDispatch={dispatchAction}
+      />
 
       {/* ─── Main content ─── */}
       <div className="flex h-full pt-14 pb-4">
@@ -234,11 +307,11 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
 function ActionShortcuts({
   actions,
   image,
-  onClose,
+  onDispatch,
 }: {
   actions: LightboxAction[] | undefined;
   image: ImageData;
-  onClose: () => void;
+  onDispatch: (action: LightboxAction, image: ImageData) => void | Promise<void>;
 }) {
   useEffect(() => {
     if (!actions || actions.length === 0) return;
@@ -262,14 +335,12 @@ function ActionShortcuts({
       );
       if (!match) return;
       e.preventDefault();
-      void Promise.resolve(match.onAct(image)).then((r) => {
-        if (r === "close") onClose();
-      });
+      void onDispatch(match, image);
     }
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [actions, image, onClose]);
+  }, [actions, image, onDispatch]);
 
   return null;
 }

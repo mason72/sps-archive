@@ -7,6 +7,7 @@ import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { ClientIdentityModal } from "@/components/gallery/ClientIdentityModal";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
@@ -464,15 +465,28 @@ export default function GalleryPage({
     );
   }
 
-  // Error state
+  // Error state (gallery missing or expired). We can't surface
+  // photographer branding here because the API doesn't return it on
+  // 404/410, but we can at least make this feel warmer than a stone-
+  // only orphan — the pixel-mosaic ornament + a softer voice + a
+  // gentle next-step hint.
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-8">
+      <div className="min-h-screen flex items-center justify-center px-8 bg-stone-50">
         <div className="text-center max-w-sm">
-          <h1 className="font-editorial text-[28px] text-stone-900 mb-2">
+          <div className="text-stone-300 mb-6 flex justify-center">
+            <PixelMosaic size={28} className="opacity-100" />
+          </div>
+          <h1 className="font-editorial text-[28px] text-stone-700 mb-3">
             Gallery <span className="italic font-normal">unavailable</span>
           </h1>
-          <p className="text-[14px] text-stone-400">{error}</p>
+          <p className="text-[14px] text-stone-500 leading-relaxed mb-6">
+            {error}
+          </p>
+          <p className="text-[12px] text-stone-400 leading-relaxed">
+            If you were expecting to see photos here, your photographer
+            can send a fresh link.
+          </p>
         </div>
       </div>
     );
@@ -871,6 +885,11 @@ export default function GalleryPage({
       )}
 
       {/* ─── End-of-gallery moment ─── */}
+      {/* Uses the photographer's branded colors (primary for the name,
+          secondary for the caption-caps) so the closing signature reads
+          as theirs, not Pixeltrunk's. Pre-fix this was hardcoded stone-*
+          which made the *one* place the photographer is named ignore
+          their palette. */}
       {b && (
         <div className="py-16 text-center stagger-in">
           {b.logoUrl && (
@@ -881,10 +900,16 @@ export default function GalleryPage({
               className="h-12 w-auto object-contain mx-auto mb-4 opacity-60"
             />
           )}
-          <p className="text-[13px] text-stone-400 tracking-wide uppercase">
+          <p
+            className="text-[13px] tracking-wide uppercase"
+            style={{ color: colors.secondary, opacity: 0.7 }}
+          >
             Photographed by
           </p>
-          <p className="font-editorial italic text-[22px] text-stone-700 mt-1">
+          <p
+            className="font-editorial italic text-[22px] mt-1"
+            style={{ color: colors.primary }}
+          >
             {b.businessName || "Your Photographer"}
           </p>
           {b.website && (
@@ -892,7 +917,11 @@ export default function GalleryPage({
               href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-3 text-[12px] text-stone-400 hover:text-stone-600 transition-colors duration-300 border-b border-stone-200 hover:border-stone-400 pb-0.5"
+              className="inline-block mt-3 text-[12px] transition-colors duration-300 border-b pb-0.5"
+              style={{
+                color: colors.secondary,
+                borderColor: `${colors.secondary}40`,
+              }}
             >
               View Portfolio →
             </a>

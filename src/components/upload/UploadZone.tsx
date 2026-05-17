@@ -105,6 +105,21 @@ function xhrPut(
 export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [activeUploads, setActiveUploads] = useState(0);
+
+  // Warn before leaving the tab while uploads are in flight. Saves a
+  // photographer at the end of a 1,000-image shoot from closing their
+  // laptop and losing the queue. The browser shows a generic prompt
+  // (the string is ignored by modern browsers but `preventDefault` +
+  // returnValue still triggers the native warning).
+  useEffect(() => {
+    if (activeUploads === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [activeUploads]);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [corsError, setCorsError] = useState(false);
   const isUploading = activeUploads > 0;
