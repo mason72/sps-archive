@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Readable } from "stream";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import {
@@ -8,6 +9,29 @@ import {
 import { galleryPinCookieName, verifyGalleryPin } from "@/lib/shares/pin-session";
 import archiver from "archiver";
 import { logActivity } from "@/lib/analytics/log";
+
+// Force the Node runtime — archiver needs streams + Buffer.
+export const runtime = "nodejs";
+
+/**
+ * Disambiguate duplicate filenames inside a ZIP. Some events have the
+ * same camera file numbers across batches; without this both arrive as
+ * "IMG_4532.jpg" and the second one silently overwrites the first.
+ */
+function uniqueFilename(name: string, seen: Set<string>): string {
+  if (!seen.has(name)) {
+    seen.add(name);
+    return name;
+  }
+  const dot = name.lastIndexOf(".");
+  const stem = dot === -1 ? name : name.slice(0, dot);
+  const ext = dot === -1 ? "" : name.slice(dot);
+  let i = 2;
+  while (seen.has(`${stem} (${i})${ext}`)) i++;
+  const candidate = `${stem} (${i})${ext}`;
+  seen.add(candidate);
+  return candidate;
+}
 
 export async function GET(
   request: NextRequest,
@@ -104,25 +128,27 @@ export async function GET(
     .replace(/[^a-zA-Z0-9-_ ]/g, "")
     .replace(/\s+/g, "-")}.zip`;
 
-  // 4. Stream ZIP
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  // 4. Stream ZIP. We append the raw R2 fetch body as a Node stream so
+  // archiver can drain it without ever buffering a full image in memory
+  // (the previous .arrayBuffer() pattern peaked at the size of the
+  // current photo per iteration and OOM'd on very large originals).
+  const archive = archiver("zip", { zlib: { level: 1 } });
 
-  const archive = archiver("zip", { zlib: { level: 1 } }); // Fast compression for photos
-
-  // Pipe archive output to the writer
-  archive.on("data", (chunk: Buffer) => {
-    writer.write(chunk);
-  });
-  archive.on("end", () => {
-    writer.close();
+  archive.on("warning", (err: Error) => {
+    // ENOENT etc. — log but don't abort. We'd rather ship a partial
+    // archive than hand the client nothing.
+    console.warn("Archive warning:", err);
   });
   archive.on("error", (err: Error) => {
     console.error("Archive error:", err);
-    writer.abort(err);
   });
 
-  // Fetch each image and add to archive (don't await - let it stream)
+  // Disambiguate filename collisions (cameras reset their counter; two
+  // batches in one event can both produce IMG_4532.jpg).
+  const seen = new Set<string>();
+
+  // Fetch + append sequentially. Parallel egress hammers R2 and can
+  // re-order frames in the archive output.
   (async () => {
     try {
       for (const img of images) {
@@ -130,16 +156,19 @@ export async function GET(
         if (!url) continue;
 
         const response = await fetch(url);
-        if (!response.ok || !response.body) continue;
+        if (!response.ok || !response.body) {
+          console.warn(
+            `[zip] skipping ${img.id}: R2 fetch status ${response.status}`
+          );
+          continue;
+        }
 
-        // Use original filename, handle duplicates
-        const filename = img.original_filename;
-
-        // Read the response as an ArrayBuffer and add to archive
-        const buffer = await response.arrayBuffer();
-        archive.append(Buffer.from(buffer), { name: filename });
+        const name = uniqueFilename(img.original_filename, seen);
+        const nodeStream = Readable.fromWeb(
+          response.body as Parameters<typeof Readable.fromWeb>[0]
+        );
+        archive.append(nodeStream, { name });
       }
-
       await archive.finalize();
     } catch (err) {
       console.error("ZIP streaming error:", err);
@@ -158,7 +187,10 @@ export async function GET(
     });
   }
 
-  return new Response(readable, {
+  // archiver is itself a Node Readable; hand it directly to the Response.
+  // Cast is necessary because the Web ReadableStream / Node Readable
+  // duck-typing isn't tight enough for TS but works at runtime.
+  return new Response(archive as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${zipFilename}"`,
