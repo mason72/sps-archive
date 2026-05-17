@@ -12,6 +12,13 @@ import { rateLimit, clientIp } from "@/lib/rate-limit";
  * 3. Send a branded email via Resend
  */
 export async function POST(request: NextRequest) {
+  // Apply a uniform floor latency so the response time doesn't reveal
+  // whether the email exists. Supabase's generateLink returns fast for
+  // unknown emails and slow (full lookup + Resend API call) for known
+  // ones — without this floor, an attacker can time the difference and
+  // enumerate which emails have accounts.
+  const floor = new Promise<void>((resolve) => setTimeout(resolve, 600));
+
   try {
     // 5 reset requests / hour per IP — defeats email-bombing as well as
     // brute attempts to enumerate which emails exist via timing.
@@ -19,6 +26,7 @@ export async function POST(request: NextRequest) {
     if (!limit.success) {
       // Return success anyway so we don't reveal the limit; the email
       // won't actually be sent.
+      await floor;
       return NextResponse.json({ success: true });
     }
 
@@ -53,6 +61,9 @@ export async function POST(request: NextRequest) {
     if (linkError) {
       console.error("Generate recovery link error:", linkError);
       // Don't reveal whether the email exists — always return success
+      // (after the timing floor so the response isn't faster than the
+      // happy-path one).
+      await floor;
       return NextResponse.json({ success: true });
     }
 
@@ -60,6 +71,7 @@ export async function POST(request: NextRequest) {
 
     if (!tokenHash) {
       console.error("No hashed_token returned from generateLink");
+      await floor;
       return NextResponse.json({ success: true });
     }
 
@@ -101,9 +113,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Always return success (don't reveal if email exists)
+    await floor;
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Forgot password error:", error);
+    await floor;
     return NextResponse.json({ success: true });
   }
 }
