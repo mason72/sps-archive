@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventCardSkeleton } from "@/components/ui/Skeleton";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 
 interface Event {
   id: string;
@@ -125,14 +126,18 @@ export function EventList() {
     return (
       <div className="px-8 md:px-16 py-20">
         <div className="flex flex-col items-center justify-center text-center py-16 border border-dashed border-stone-200">
-          <p className="font-editorial text-2xl text-stone-300 italic mb-3">
-            No events yet
+          <div className="text-stone-300 mb-5">
+            <PixelMosaic size={32} className="opacity-100" />
+          </div>
+          <p className="font-editorial text-2xl text-stone-400 italic mb-3">
+            A blank trunk
           </p>
-          <p className="text-[13px] text-stone-400 mb-8">
-            Create your first event to start uploading photos
+          <p className="text-[13px] text-stone-400 mb-8 max-w-xs leading-relaxed">
+            Create your first event — a wedding, a headshot session, a
+            studio shoot. Photos will follow.
           </p>
           <Link href="/events/new">
-            <BrandButton color="emerald" celebrate>Create Event</BrandButton>
+            <BrandButton color="emerald" celebrate>Create event</BrandButton>
           </Link>
         </div>
       </div>
