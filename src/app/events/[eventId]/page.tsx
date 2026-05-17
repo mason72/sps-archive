@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/layout/AppNav";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
@@ -993,19 +994,15 @@ export default function EventPage({
             {/* ─── Empty state ─── */}
             {allImages.length === 0 && !processing.isProcessing && (
               <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
-                <div className="w-16 h-16 mb-6 text-stone-200">
-                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="8" y="12" width="48" height="36" rx="3" stroke="currentColor" strokeWidth="2" />
-                    <circle cx="24" cy="28" r="5" stroke="currentColor" strokeWidth="2" />
-                    <path d="M8 40 L24 30 L36 38 L48 26 L56 32 L56 48 L8 48 Z" fill="currentColor" opacity="0.15" />
-                    <path d="M24 30 L36 38 L48 26" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-                  </svg>
+                <div className="text-stone-300 mb-6">
+                  <PixelMosaic size={36} className="opacity-100" />
                 </div>
-                <p className="font-editorial text-xl text-stone-300 italic mb-2">
+                <p className="font-editorial text-xl text-stone-400 italic mb-2">
                   Your gallery awaits
                 </p>
                 <p className="text-[13px] text-stone-400 max-w-xs leading-relaxed">
-                  Drop images above or click upload to begin. AI will organize everything automatically.
+                  Drop images above or click upload to begin. They&apos;ll
+                  appear here as they finish uploading.
                 </p>
               </div>
             )}
