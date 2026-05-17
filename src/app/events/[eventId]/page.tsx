@@ -560,28 +560,54 @@ export default function EventPage({
 
   const handleDropImagesToSection = useCallback(
     async (sectionId: string, imageIds: string[]) => {
+      // Always add to the target FIRST, then remove from the source.
+      // Pre-fix this was DELETE-then-POST; if the POST failed, the
+      // image landed in zero sections (sections are not exclusive, so
+      // it's safe to be in both briefly mid-move, but it's never safe
+      // to be in neither).
+      const isMove = !!activeSection && activeSection !== sectionId;
       try {
-        // If viewing a specific section, remove from the current section first (move)
-        if (activeSection && activeSection !== sectionId) {
-          await fetch(`/api/sections/${activeSection}/images`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds }),
-          });
-        }
-        // Add to the target section
-        await fetch(`/api/sections/${sectionId}/images`, {
+        const addRes = await fetch(`/api/sections/${sectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds }),
         });
+        if (!addRes.ok) throw new Error("Failed to add to target section");
+
+        if (isMove) {
+          const removeRes = await fetch(
+            `/api/sections/${activeSection}/images`,
+            {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageIds }),
+            }
+          );
+          if (!removeRes.ok) {
+            // The add succeeded but the remove failed — the image is
+            // now in BOTH sections, which is non-destructive (sections
+            // are non-exclusive). Surface so the photographer knows
+            // and can clean up.
+            console.error("Section move: remove-from-source step failed");
+            toast(
+              `Copied ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} — couldn't remove from the original section`,
+              { duration: 5000 }
+            );
+            deselectAll();
+            fetchEvent();
+            return;
+          }
+        }
+
         deselectAll();
         fetchEvent();
-        const action = activeSection && activeSection !== sectionId ? "Moved" : "Added";
-        toast.success(`${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`);
+        const action = isMove ? "Moved" : "Added";
+        toast.success(
+          `${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`
+        );
       } catch (err) {
         console.error("Drop to section failed:", err);
-        toast.error("Failed to move images");
+        toast.error("Couldn't move images to that section");
       }
     },
     [activeSection, deselectAll, fetchEvent]

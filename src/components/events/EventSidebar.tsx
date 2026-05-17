@@ -300,6 +300,16 @@ function SectionsPanel({
   const handleCreate = useCallback(async () => {
     const trimmed = newName.trim();
     if (!trimmed) return;
+
+    // Client-side duplicate guard — case-insensitive, matches the
+    // server-side unique index. Catches the typo before the round-trip
+    // so we don't waste a 409 round-trip on the obvious case.
+    const lower = trimmed.toLowerCase();
+    if (sections.some((s) => s.name.toLowerCase() === lower)) {
+      toast.error(`A section called "${trimmed}" already exists`);
+      return;
+    }
+
     setIsCreating(true);
     try {
       const res = await fetch("/api/sections", {
@@ -307,16 +317,23 @@ function SectionsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId, name: trimmed }),
       });
-      if (!res.ok) throw new Error("Failed to create section");
+      if (!res.ok) {
+        // Surface the actual server message for 409 conflicts so the
+        // photographer knows what happened instead of generic "Failed".
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to create section");
+      }
       const data = await res.json();
+      // New sections go to the top (sort_order = 0 in the RPC), so
+      // mirror that in the local list rather than pushing to the end.
       onSectionsChange([
-        ...sections,
         { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
+        ...sections,
       ]);
       setNewName("");
       toast.success("Section created");
-    } catch {
-      toast.error("Failed to create section");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create section");
     } finally {
       setIsCreating(false);
     }
@@ -362,13 +379,8 @@ function SectionsPanel({
 
   const handleDelete = useCallback(
     async (sectionId: string) => {
-      // Guard: can't delete the last section
-      if (sections.length <= 1) {
-        toast.error("Can't delete the last section");
-        return;
-      }
-
-      // Optimistic: remove immediately
+      // Sections are opt-in — an event can validly have zero of them.
+      // No "last section" guard.
       const prev = sections;
       onSectionsChange(sections.filter((s) => s.id !== sectionId));
       if (activeSection === sectionId) onSetActiveSection(null);
@@ -389,30 +401,46 @@ function SectionsPanel({
     [sections, onSectionsChange, activeSection, onSetActiveSection]
   );
 
+  // Mirror the latest `sections` prop in a ref so the drag callbacks
+  // see the freshest order without rebuilding their closures on every
+  // optimistic update. Pre-fix, rapid dragOver events fired during a
+  // single render captured stale `sections` and clobbered each other,
+  // and dragEnd could persist the wrong order to the server — the
+  // historical "I reordered sections and they came back wrong" bug.
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+
   const handleDragOver = useCallback(
     (targetIndex: number) => {
       if (dragIndex === null || dragIndex === targetIndex) return;
-      const reordered = [...sections];
+      const reordered = [...sectionsRef.current];
       const [moved] = reordered.splice(dragIndex, 1);
       reordered.splice(targetIndex, 0, moved);
+      // Keep the ref in sync immediately so the next dragOver in the
+      // same render tick reads from the just-reordered array, not the
+      // stale prop.
+      sectionsRef.current = reordered;
       onSectionsChange(reordered);
       setDragIndex(targetIndex);
     },
-    [dragIndex, sections, onSectionsChange]
+    [dragIndex, onSectionsChange]
   );
 
   const handleDragEnd = useCallback(async () => {
     setDragIndex(null);
+    const finalOrder = sectionsRef.current.map((s) => s.id);
     try {
-      await fetch("/api/sections/reorder", {
+      const res = await fetch("/api/sections/reorder", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, sectionIds: sections.map((s) => s.id) }),
+        body: JSON.stringify({ eventId, sectionIds: finalOrder }),
       });
-    } catch {
-      toast.error("Failed to reorder");
+      if (!res.ok) throw new Error("Reorder request rejected");
+    } catch (err) {
+      console.error("[sections] reorder failed:", err);
+      toast.error("Couldn't save the new section order");
     }
-  }, [eventId, sections]);
+  }, [eventId]);
 
   return (
     <div className="flex flex-col h-full">

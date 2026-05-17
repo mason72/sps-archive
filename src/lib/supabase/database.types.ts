@@ -689,6 +689,23 @@ export type Database = {
         Args: { p_stack_id: string; p_image_id: string };
         Returns: undefined;
       };
+      reorder_sections: {
+        Args: { p_event_id: string; p_section_ids: string[] };
+        Returns: undefined;
+      };
+      create_section_at_top: {
+        Args: { p_event_id: string; p_name: string; p_description?: string | null };
+        Returns: {
+          id: string;
+          event_id: string;
+          name: string;
+          description: string | null;
+          is_auto: boolean;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+      };
       event_image_status_counts: {
         Args: { p_event_id: string };
         Returns: {

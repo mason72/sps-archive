@@ -135,6 +135,8 @@ export async function POST(request: NextRequest) {
 
     // Create sections from template if provided, otherwise create default "All Photos"
     if (sections && sections.length > 0 && data) {
+      // Template-provided sections (the user explicitly chose this
+      // template, so honor its sections verbatim).
       const sectionInserts = sections.map((s) => ({
         event_id: data.id,
         name: s.name,
@@ -143,15 +145,20 @@ export async function POST(request: NextRequest) {
         is_auto: false,
       }));
 
-      await supabase.from("sections").insert(sectionInserts);
-    } else if (data) {
-      await supabase.from("sections").insert({
-        event_id: data.id,
-        name: "All Photos",
-        sort_order: 0,
-        is_auto: false,
-      });
+      const { error: sectionsError } = await supabase
+        .from("sections")
+        .insert(sectionInserts);
+      if (sectionsError) {
+        console.error("Template section insert failed:", sectionsError);
+        // Don't fail the event create — the event exists and the user
+        // can add sections manually. Just log and continue.
+      }
     }
+    // No-template path: leave the event sectionless. Sections are
+    // opt-in now — the previous default "All Photos" was undeletable
+    // (the per-route guard blocks "last section" removal) and forced
+    // every event to carry a placeholder section it never asked for.
+    // The grid renders fine with zero sections.
 
     return NextResponse.json({ event: data }, { status: 201 });
   } catch (error) {
