@@ -7,6 +7,20 @@ import {
 } from "@/lib/r2/client";
 import { parseFilename } from "@/lib/upload/parse-filename";
 
+/** Photo MIME types we accept for upload. Everything else is rejected. */
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/tiff",
+]);
+
+/** Per-file size cap to match the documented 100MB upload limit. */
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
 /**
  * POST /api/upload
  *
@@ -32,7 +46,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify event exists
+    // Validate every file's declared mime + size before we touch R2 or the
+    // DB. Without this the presigned URL gets signed with whatever
+    // content-type the client claims — we'd be storing arbitrary binaries.
+    for (const file of files) {
+      if (!file?.name || typeof file.name !== "string") {
+        return NextResponse.json(
+          { error: "Each file must have a name" },
+          { status: 400 }
+        );
+      }
+      if (!file.type || !ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
+        return NextResponse.json(
+          {
+            error: `Unsupported file type for ${file.name}. Allowed: JPEG, PNG, WebP, HEIC, TIFF.`,
+          },
+          { status: 400 }
+        );
+      }
+      if (typeof file.size !== "number" || file.size <= 0 || file.size > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          { error: `${file.name} exceeds the 100MB upload limit` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Verify event exists (RLS scopes this to the user's own events —
+    // a non-owned eventId returns 404 here).
     const { data: event, error: eventError } = await supabase
       .from("events")
       .select("id")

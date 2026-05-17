@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
+
+/** Minimal HTML entity escape for untrusted text in email bodies. */
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 /**
  * POST /api/auth/signup
@@ -10,6 +21,16 @@ import { createServiceClient } from "@/lib/supabase/server";
  */
 export async function POST(request: NextRequest) {
   try {
+    // 10 signup attempts / hour per IP — generous enough for legitimate
+    // multi-account testing but enough to slow account farming.
+    const limit = rateLimit(`signup:${clientIp(request)}`, 10, 60 * 60 * 1000);
+    if (!limit.success) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Try again later." },
+        { status: 429 }
+      );
+    }
+
     const { email, password, fullName } = await request.json();
 
     if (!email || !password) {
@@ -66,6 +87,12 @@ export async function POST(request: NextRequest) {
     const resendKey = process.env.RESEND_API_KEY;
     const notifyEmail = process.env.RESEND_FROM_EMAIL || "info@simplephotoshare.com";
     if (resendKey) {
+      // HTML-escape user-controlled fields so a malicious signup can't
+      // inject phishing markup into the admin inbox.
+      const safeEmail = escapeHtml(trimmedEmail);
+      const safeName = escapeHtml(fullName?.trim() || "(not provided)");
+      const safeTime = escapeHtml(new Date().toISOString());
+
       fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -77,9 +104,9 @@ export async function POST(request: NextRequest) {
           to: [notifyEmail],
           subject: `New signup: ${trimmedEmail}`,
           html: `<p>A new user just signed up for Pixeltrunk.</p>
-<p><strong>Email:</strong> ${trimmedEmail}</p>
-<p><strong>Name:</strong> ${fullName?.trim() || "(not provided)"}</p>
-<p><strong>Time:</strong> ${new Date().toISOString()}</p>`,
+<p><strong>Email:</strong> ${safeEmail}</p>
+<p><strong>Name:</strong> ${safeName}</p>
+<p><strong>Time:</strong> ${safeTime}</p>`,
         }),
       }).catch((e) => console.error("Signup notification email failed:", e));
     }

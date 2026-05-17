@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -127,15 +127,7 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen">
-      {/* Nav */}
-      <Nav>
-        <Link
-          href="/"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Dashboard
-        </Link>
-      </Nav>
+      <AppNav active="account" />
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-3xl">
         {/* Header */}
@@ -641,6 +633,9 @@ function BillingSection({
         )}
       </div>
 
+      {/* Storage usage — live meter against the plan's cap. */}
+      <StorageMeter marketingUrl={marketingUrl} />
+
       {/* Actions */}
       <div className="flex flex-wrap gap-3">
         {(plan === "free" || status === "trialing") && (
@@ -672,6 +667,113 @@ function BillingSection({
           Compare all plans →
         </a>
       </p>
+    </div>
+  );
+}
+
+/** Format bytes as GB or MB depending on magnitude. */
+function formatStorage(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+/** Storage usage meter against the plan limit. */
+function StorageMeter({ marketingUrl }: { marketingUrl: string }) {
+  const [data, setData] = useState<{
+    usedBytes: number;
+    planLimitBytes: number | null;
+    planName: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/storage");
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!cancelled) setData(d);
+      } catch {
+        // Non-critical
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="border border-stone-200 p-6">
+        <div className="h-3 w-32 bg-stone-100 mb-3 animate-pulse" />
+        <div className="h-2 w-full bg-stone-100 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const used = data.usedBytes;
+  const cap = data.planLimitBytes;
+  const pct = cap ? Math.min(100, Math.round((used / cap) * 1000) / 10) : null;
+  const remaining = cap ? Math.max(0, cap - used) : null;
+  const warn = pct !== null && pct >= 80;
+  const critical = pct !== null && pct >= 95;
+
+  return (
+    <div className="border border-stone-200 p-6">
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="label-caps">Storage</p>
+        <p className="text-[13px] text-stone-500 tabular-nums">
+          {formatStorage(used)}{" "}
+          <span className="text-stone-300">
+            of {cap ? formatStorage(cap) : "unlimited"}
+          </span>
+        </p>
+      </div>
+
+      {cap !== null && (
+        <>
+          <div className="h-1.5 w-full bg-stone-100 overflow-hidden">
+            <div
+              className={cn(
+                "h-full transition-[width] duration-500 ease-out",
+                critical ? "bg-red-500" : warn ? "bg-amber-500" : "bg-stone-900"
+              )}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex items-baseline justify-between mt-2">
+            <p className="text-[11px] text-stone-400 tabular-nums">
+              {pct}% used
+            </p>
+            {remaining !== null && (
+              <p className="text-[11px] text-stone-400 tabular-nums">
+                {formatStorage(remaining)} free
+              </p>
+            )}
+          </div>
+
+          {warn && (
+            <p className="mt-3 text-[12px] text-stone-500 leading-relaxed">
+              {critical
+                ? "You're at your plan's storage cap. "
+                : "You're approaching your storage cap. "}
+              <a
+                href={`${marketingUrl}/pricing`}
+                className="text-accent hover:text-accent-hover transition-colors"
+              >
+                Upgrade your plan →
+              </a>
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

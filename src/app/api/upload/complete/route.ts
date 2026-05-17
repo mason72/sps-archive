@@ -1,15 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth/helpers";
+import {
+  createServiceClient,
+  type AppSupabaseClient,
+} from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 /**
  * POST /api/upload/complete
  *
- * Called after a file has been uploaded to R2.
- * Updates EXIF data, generates thumbnails, and marks image as "complete".
- * AI processing is triggered separately when Inngest is configured.
+ * Called after a file has been uploaded to R2. Updates EXIF data, kicks off
+ * thumbnail generation, and (optionally) triggers the AI pipeline.
+ *
+ * Auth: requires a signed-in user. The image's parent event must belong to
+ * that user — RLS on the `images` UPDATE enforces this through the
+ * event_id → events.user_id chain.
+ *
+ * Status transitions:
+ *   - Before this call: `pending` (row created by /api/upload).
+ *   - On success: `processing` (uploaded + EXIF in; waiting on thumbnails).
+ *   - Once the thumbnail job finishes (success): `complete`.
+ *   - On thumbnail failure: `failed` with `last_error` set.
+ *
+ * The previous behavior set `complete` immediately, which produced the
+ * "5 photos processed!" toast firing while the grid was still blank for
+ * 10–60 seconds — and any thumbnail failure was silently swallowed.
  */
 export async function POST(request: NextRequest) {
   try {
+    const { supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
+
     const body = await request.json();
     const { imageId, width, height, exif } = body as {
       imageId: string;
@@ -29,18 +50,21 @@ export async function POST(request: NextRequest) {
       };
     };
 
-    if (!imageId) {
+    if (!imageId || typeof imageId !== "string") {
       return NextResponse.json(
         { error: "imageId is required" },
         { status: 400 }
       );
     }
 
-    const supabase = createServiceClient();
-
-    // Update image with EXIF data and mark as complete
+    // Move from `pending` → `processing` while writing EXIF metadata.
+    // The thumbnail job (below) flips to `complete` on success, or
+    // `failed` + last_error on failure — so the user only sees "ready"
+    // when there's something ready to render.
     const updateData: Record<string, unknown> = {
-      processing_status: "complete",
+      processing_status: "processing",
+      // Clear any prior error from a previous failed attempt at this row.
+      last_error: null,
     };
 
     if (width) updateData.width = width;
@@ -59,45 +83,51 @@ export async function POST(request: NextRequest) {
       if (exif.gpsLng) updateData.gps_lng = exif.gpsLng;
     }
 
-    const { error: updateError } = await supabase
+    // The RLS-bound client only matches images whose parent event the
+    // caller owns — non-owned imageIds silently update zero rows.
+    const { data: updated, error: updateError } = await supabase
       .from("images")
       .update(updateData)
-      .eq("id", imageId);
+      .eq("id", imageId)
+      .select("id, event_id, r2_key")
+      .single();
 
-    if (updateError) throw updateError;
+    if (updateError || !updated) {
+      return NextResponse.json(
+        { error: "Image not found" },
+        { status: 404 }
+      );
+    }
 
-    // Generate thumbnails in the background (fire-and-forget)
-    // This downloads the original from R2, resizes with sharp, and re-uploads
-    generateThumbnailsForImage(supabase, imageId);
+    // Fire-and-forget thumbnail generation. Uses the service client so it
+    // can keep running after the request cookie context is released.
+    generateThumbnailsForImage(updated.id);
 
-    // Trigger AI pipeline only if Inngest is configured
+    // Trigger AI pipeline only if Inngest is configured. Dispatch errors
+    // are logged loudly — lesson #3.
     if (process.env.INNGEST_EVENT_KEY) {
       try {
         const { inngest } = await import("@/lib/inngest/client");
-        const { data: image } = await supabase
-          .from("images")
-          .select("r2_key, event_id")
-          .eq("id", imageId)
-          .single();
-
-        if (image) {
-          await inngest.send({
-            name: "image/uploaded",
-            data: {
-              imageId,
-              eventId: image.event_id,
-              r2Key: image.r2_key,
-            },
-          });
-        }
-      } catch {
-        // Inngest not available — skip AI processing silently
+        await inngest.send({
+          name: "image/uploaded",
+          data: {
+            imageId: updated.id,
+            eventId: updated.event_id,
+            r2Key: updated.r2_key,
+          },
+        });
+      } catch (err) {
+        log.error("upload/complete", "inngest.send failed", {
+          imageId: updated.id,
+          eventId: updated.event_id,
+          err,
+        });
       }
     }
 
-    return NextResponse.json({ success: true, imageId });
-  } catch (error) {
-    console.error("Upload complete error:", error);
+    return NextResponse.json({ success: true, imageId: updated.id });
+  } catch (err) {
+    log.error("upload/complete", "request failed", { err });
     return NextResponse.json(
       { error: "Failed to complete upload" },
       { status: 500 }
@@ -105,11 +135,20 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Fire-and-forget thumbnail generation for a single image */
-async function generateThumbnailsForImage(
-  supabase: ReturnType<typeof createServiceClient>,
-  imageId: string
-) {
+/**
+ * Fire-and-forget thumbnail generation.
+ *
+ * Manages the final transition out of `processing`:
+ *   success → `complete` + thumbnail_generated=true
+ *   failure → `failed` + last_error
+ *
+ * If Inngest is also handling AI for this image, it may write `complete`
+ * again later — that's fine, last-writer-wins. The previous behavior was
+ * to log + return on failure, leaving the row stuck in whatever state it
+ * was in when the request returned.
+ */
+async function generateThumbnailsForImage(imageId: string) {
+  const supabase: AppSupabaseClient = createServiceClient();
   try {
     const { data: image } = await supabase
       .from("images")
@@ -117,19 +156,30 @@ async function generateThumbnailsForImage(
       .eq("id", imageId)
       .single();
 
-    if (!image?.r2_key || !image?.event_id || !image?.filename) return;
+    if (!image?.r2_key || !image?.event_id || !image?.filename) {
+      log.error("thumbnails", "image row missing required fields", { imageId });
+      return;
+    }
 
     const { generateThumbnails } = await import("@/lib/thumbnails/generate");
     await generateThumbnails(image.r2_key, image.event_id, image.filename);
 
-    // Mark thumbnail as generated so batch backfill skips this image
     await supabase
       .from("images")
-      .update({ thumbnail_generated: true })
+      .update({
+        thumbnail_generated: true,
+        processing_status: "complete",
+      })
       .eq("id", imageId);
-
   } catch (err) {
-    // Non-critical — grid will fall back to original URL
-    console.error(`Thumbnail generation failed for ${imageId}:`, err);
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("thumbnails", "generation failed", { imageId, err });
+    await supabase
+      .from("images")
+      .update({
+        processing_status: "failed",
+        last_error: `thumbnails: ${message}`.slice(0, 500),
+      })
+      .eq("id", imageId);
   }
 }

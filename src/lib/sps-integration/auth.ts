@@ -1,6 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
+import { timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
 import type { Database } from "@/lib/supabase/database.types";
+
+/**
+ * Constant-time string comparison wrapping `crypto.timingSafeEqual`. Returns
+ * false (without throwing) if either string is missing or lengths differ —
+ * which itself is a tiny timing signal, but vastly better than `===`.
+ */
+function safeEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 /**
  * SPS Integration Authentication
@@ -43,7 +57,7 @@ export async function authenticateSPSRequest(
   const apiKey = request.headers.get("x-sps-key");
   const configuredKey = process.env.SPS_INTEGRATION_KEY;
 
-  if (apiKey && configuredKey && apiKey === configuredKey) {
+  if (apiKey && configuredKey && safeEqual(apiKey, configuredKey)) {
     if (!bodyUserId) {
       return {
         authenticated: false,

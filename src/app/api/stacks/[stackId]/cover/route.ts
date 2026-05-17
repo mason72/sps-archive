@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { log } from "@/lib/log";
 
 /**
  * PUT /api/stacks/[stackId]/cover
  *
- * Change the cover image of a stack.
- * Swaps stack_rank values so the new cover gets rank 1.
+ * Promote `imageId` to the cover of `stackId`. RLS on stacks scopes the
+ * RPC call to stacks the caller owns; non-owned stackIds appear empty to
+ * the SECURITY DEFINER function and raise no_data_found, which we map to
+ * 404 without leaking which stacks exist.
+ *
+ * The actual rank swap runs inside set_stack_cover() (migration 016) as
+ * one transaction — previously this route did read-then-two-writes and
+ * two concurrent requests could leave the stack with duplicate rank=1.
  */
 export async function PUT(
   request: NextRequest,
@@ -16,62 +23,51 @@ export async function PUT(
     if (authError) return authError;
 
     const { stackId } = await params;
-    const { imageId } = (await request.json()) as { imageId: string };
+    const { imageId } = (await request.json()) as { imageId?: string };
 
-    if (!imageId) {
+    if (!imageId || typeof imageId !== "string") {
       return NextResponse.json(
         { error: "imageId is required" },
         { status: 400 }
       );
     }
 
-    // Verify the image belongs to this stack
-    const { data: image, error: imageError } = await supabase
-      .from("images")
-      .select("id, stack_id, stack_rank")
-      .eq("id", imageId)
-      .eq("stack_id", stackId)
-      .single();
-
-    if (imageError || !image) {
-      return NextResponse.json(
-        { error: "Image not found in this stack" },
-        { status: 404 }
-      );
-    }
-
-    // Get the current cover (rank 1)
-    const { data: currentCover } = await supabase
-      .from("images")
-      .select("id, stack_rank")
-      .eq("stack_id", stackId)
-      .eq("stack_rank", 1)
-      .single();
-
-    if (currentCover && currentCover.id !== imageId) {
-      // Swap ranks: new cover gets rank 1, old cover gets the new image's old rank
-      const oldRank = image.stack_rank;
-
-      await supabase
-        .from("images")
-        .update({ stack_rank: 1 })
-        .eq("id", imageId);
-
-      await supabase
-        .from("images")
-        .update({ stack_rank: oldRank })
-        .eq("id", currentCover.id);
-    }
-
-    // Update the stack's cover_image_id
-    await supabase
+    // Ownership check via RLS — non-owned stack rows are invisible here.
+    const { data: stack } = await supabase
       .from("stacks")
-      .update({ cover_image_id: imageId })
-      .eq("id", stackId);
+      .select("id")
+      .eq("id", stackId)
+      .single();
+
+    if (!stack) {
+      return NextResponse.json({ error: "Stack not found" }, { status: 404 });
+    }
+
+    const { error: rpcError } = await supabase.rpc("set_stack_cover", {
+      p_stack_id: stackId,
+      p_image_id: imageId,
+    });
+
+    if (rpcError) {
+      // Code 'P0001' from RAISE EXCEPTION in plpgsql, or 'no_data_found'.
+      const code = (rpcError as { code?: string }).code;
+      if (code === "P0001" || code === "no_data_found") {
+        return NextResponse.json(
+          { error: "Image not found in this stack" },
+          { status: 404 }
+        );
+      }
+      log.error("stacks/cover", "set_stack_cover failed", {
+        stackId,
+        imageId,
+        err: rpcError,
+      });
+      throw rpcError;
+    }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Set cover error:", error);
+  } catch (err) {
+    log.error("stacks/cover", "request failed", { err });
     return NextResponse.json(
       { error: "Failed to set cover" },
       { status: 500 }

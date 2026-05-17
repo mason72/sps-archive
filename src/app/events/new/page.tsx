@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { BrandButton } from "@/components/ui/brand-button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
-import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 
 const EVENT_TYPES = [
@@ -98,12 +99,21 @@ export default function NewEventPage() {
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to create event");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || "Couldn't create event");
+      }
 
       const { event } = await response.json();
       router.push(`/events/${event.id}`);
     } catch (error) {
       console.error("Create event error:", error);
+      // Surface the failure — pre-fix the button just silently snapped
+      // back to "Create event" with no toast and the user often clicked
+      // again, creating duplicates.
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't create event"
+      );
     } finally {
       setIsCreating(false);
     }
@@ -111,14 +121,7 @@ export default function NewEventPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Nav>
-        <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          Archive
-        </Link>
-        <Link href="/events/new" className="editorial-link font-medium text-stone-900">
-          New Event
-        </Link>
-      </Nav>
+      <AppNav active="events" />
 
       <main className="px-8 md:px-16 pt-16 pb-24 max-w-2xl">
         <p
@@ -138,7 +141,7 @@ export default function NewEventPage() {
           className="text-stone-400 text-[15px] max-w-md leading-[1.8] mb-16 reveal"
           style={{ animationDelay: "0.2s" }}
         >
-          Name your event and start uploading. AI handles the rest.
+          Name it, set the date, then upload your photos. Organize and share when you&apos;re ready.
         </p>
 
         {/* ─── Templates ─── */}
@@ -211,7 +214,7 @@ export default function NewEventPage() {
           <div>
             <label className="label-caps mb-2 block">Event type</label>
             <p className="text-[13px] text-stone-400 mb-4">
-              Helps AI choose scene categories and stacking strategy
+              Used to suggest sensible default sections for this shoot
             </p>
             <div className="flex flex-wrap gap-2">
               {EVENT_TYPES.map((type) => (

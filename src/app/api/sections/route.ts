@@ -97,37 +97,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Bump all existing sections' sort_order up by 1 so the new one goes to the top
-    const { data: existingSections } = await supabase
-      .from("sections")
-      .select("id, sort_order")
-      .eq("event_id", eventId)
-      .order("sort_order", { ascending: true });
+    // Atomic bump-and-insert (migration 018). Replaces an N-row
+    // Promise.all + insert that could leave sort_orders ragged on
+    // partial failure or race with concurrent edits.
+    const { data: section, error } = await supabase.rpc("create_section_at_top", {
+      p_event_id: eventId,
+      p_name: name,
+      p_description: description || null,
+    });
 
-    if (existingSections && existingSections.length > 0) {
-      await Promise.all(
-        existingSections.map((s) =>
-          supabase
-            .from("sections")
-            .update({ sort_order: s.sort_order + 1 })
-            .eq("id", s.id)
-        )
-      );
+    if (error) {
+      // Unique-violation on (event_id, lower(name)) per migration 018 →
+      // friendly 409 instead of a generic 500.
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        return NextResponse.json(
+          { error: `A section called "${name}" already exists.` },
+          { status: 409 }
+        );
+      }
+      console.error("create_section_at_top RPC error:", error);
+      return NextResponse.json({ error: "Failed to create section" }, { status: 500 });
     }
 
-    const { data: section, error } = await supabase
-      .from("sections")
-      .insert({
-        event_id: eventId,
-        name,
-        description: description || null,
-        is_auto: false,
-        sort_order: 0,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
+    if (!section) {
+      return NextResponse.json({ error: "Failed to create section" }, { status: 500 });
+    }
 
     return NextResponse.json({
       section: {

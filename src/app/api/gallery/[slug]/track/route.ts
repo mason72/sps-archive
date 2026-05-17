@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { logActivity, type ActivityAction } from "@/lib/analytics/log";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 /** Actions trackable from the client (subset of ActivityAction). */
 const TRACKABLE: ActivityAction[] = ["image_download", "image_view"];
@@ -11,6 +12,13 @@ const TRACKABLE: ActivityAction[] = ["image_download", "image_view"];
  * Used for individual image downloads and image views that happen entirely
  * client-side (presigned R2 URLs). Always returns 204 — never fails.
  *
+ * Hardened:
+ *  - Per-IP+slug rate limit so a hostile client can't flood the
+ *    photographer's activity_log.
+ *  - Validates the supplied imageId actually belongs to the share's
+ *    event before logging — without this, anyone with the slug could
+ *    spam fake image-level rows tied to images they don't own.
+ *
  * Body: { action: string, imageId?: string, shareId?: string }
  */
 export async function POST(
@@ -19,6 +27,19 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
+
+    // 120 events / hour per IP+slug. Generous enough for normal
+    // browsing (download tracking happens once per click) but caps
+    // log-flooding attempts at a tractable number.
+    const limit = rateLimit(
+      `track:${clientIp(request)}:${slug}`,
+      120,
+      60 * 60 * 1000
+    );
+    if (!limit.success) {
+      return new Response(null, { status: 204 });
+    }
+
     const body = await request.json();
     const { action, imageId, shareId } = body as {
       action: string;
@@ -42,6 +63,19 @@ export async function POST(
 
     if (!share) return new Response(null, { status: 204 });
 
+    // Validate imageId actually belongs to the share's event so a viewer
+    // can't spam fake rows tied to cross-event imageIds.
+    let validImageId: string | null = null;
+    if (imageId && typeof imageId === "string") {
+      const { data: img } = await supabase
+        .from("images")
+        .select("id")
+        .eq("id", imageId)
+        .eq("event_id", share.event_id)
+        .single();
+      validImageId = img ? imageId : null;
+    }
+
     const { data: event } = await supabase
       .from("events")
       .select("user_id")
@@ -54,7 +88,7 @@ export async function POST(
         action: action as ActivityAction,
         eventId: share.event_id,
         shareId: shareId || share.id,
-        imageId: imageId || null,
+        imageId: validImageId,
       });
     }
 

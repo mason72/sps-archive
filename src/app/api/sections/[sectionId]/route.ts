@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import type { AppSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * Helper: verify section ownership through event → user chain.
  */
 async function verifySectionOwnership(
-  supabase: ReturnType<typeof import("@/lib/supabase/server").createServiceClient>,
+  supabase: AppSupabaseClient,
   sectionId: string,
   userId: string
 ) {
@@ -99,18 +100,10 @@ export async function DELETE(
       return NextResponse.json({ error: "Section not found" }, { status: 404 });
     }
 
-    // Guard: cannot delete the last section
-    const { count } = await supabase
-      .from("sections")
-      .select("id", { count: "exact", head: true })
-      .eq("event_id", section.event_id);
-
-    if (count !== null && count <= 1) {
-      return NextResponse.json(
-        { error: "Cannot delete the last section" },
-        { status: 400 }
-      );
-    }
+    // Sections are opt-in now — events can have zero of them and the
+    // grid renders fine. The previous "cannot delete the last section"
+    // guard combined with the auto-created "All Photos" default to
+    // trap users with an undeletable section they didn't ask for.
 
     const { error } = await supabase
       .from("sections")

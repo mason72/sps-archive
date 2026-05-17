@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
-import { verifyPassword } from "@/lib/shares/hash";
+import {
+  gallerySessionCookieName,
+  verifyGallerySession,
+} from "@/lib/shares/session";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -11,11 +14,17 @@ import { logActivity } from "@/lib/analytics/log";
 /**
  * GET /api/gallery/[slug]
  *
- * Public endpoint — resolves a share slug to gallery data.
- * Uses service client (bypasses RLS) since this is a public route.
+ * Public endpoint — resolves a share slug to gallery data. Uses the service
+ * client because share data lives behind dropped RLS policies (migration
+ * 012); all share-state checks (active, expiry, password) are explicit here.
  *
- * If share is password-protected and no valid auth cookie exists,
- * returns { requiresAuth: true } without images.
+ * Phase 0 hardening:
+ *   - Gallery cookie verification uses HMAC tokens (lib/shares/session)
+ *     instead of trusting raw share.id.
+ *   - `section` and `person` share types now scope the image set; previously
+ *     they leaked the entire event.
+ *   - `originalUrl` only ships when allow_download is true. Setting
+ *     allow_download=false in the UI now actually prevents downloads.
  */
 export async function GET(
   request: NextRequest,
@@ -44,8 +53,9 @@ export async function GET(
 
     // 2. Check password protection
     if (share.password_hash) {
-      const authCookie = request.cookies.get(`gallery_auth_${slug}`);
-      if (!authCookie || authCookie.value !== share.id) {
+      const cookie = request.cookies.get(gallerySessionCookieName(slug));
+      const authorized = verifyGallerySession(cookie?.value, slug, share.id);
+      if (!authorized) {
         // Return minimal data — client needs to authenticate
         // Include branding so the password gate looks branded
         const { data: authEvent } = await supabase
@@ -64,10 +74,12 @@ export async function GET(
 
           if (authProfile) {
             const ab = (authProfile.branding ?? {}) as Record<string, unknown>;
-            // Presign logo URL if it's an R2 key
+            // Presign logo URL if it's an R2 key. 10 min TTL pre-auth (was
+            // 24 h) so an unauthenticated link preview can't be cached and
+            // replayed for a day.
             const presignedLogoUrl = authProfile.logo_url
               ? authProfile.logo_url.startsWith("branding/")
-                ? await getPresignedDownloadUrl(authProfile.logo_url, 86400)
+                ? await getPresignedDownloadUrl(authProfile.logo_url, 600)
                 : authProfile.logo_url
               : null;
             authBranding = {
@@ -117,7 +129,7 @@ export async function GET(
       // Presign logo URL if it's an R2 key
       const presignedLogoUrl = profile.logo_url
         ? profile.logo_url.startsWith("branding/")
-          ? await getPresignedDownloadUrl(profile.logo_url, 86400)
+          ? await getPresignedDownloadUrl(profile.logo_url, 14400)
           : profile.logo_url
         : null;
       branding = {
@@ -133,7 +145,36 @@ export async function GET(
       };
     }
 
-    // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
+    // 5. Resolve the set of image IDs this share is allowed to expose.
+    // The previous implementation only scoped 'selection' shares — 'section'
+    // and 'person' fell through to the whole event, leaking unrelated photos.
+    const allowedImageIds = await resolveAllowedImageIds(supabase, {
+      shareType: share.share_type,
+      eventId: share.event_id,
+      sectionId: share.section_id,
+      personId: share.person_id,
+      explicitImageIds: share.image_ids ?? null,
+    });
+
+    if (allowedImageIds !== null && allowedImageIds.length === 0) {
+      // Share configured for a section/person/selection that has no images.
+      return NextResponse.json({
+        eventName: event.name,
+        eventDate: event.event_date,
+        customMessage: share.custom_message,
+        allowDownload: share.allow_download,
+        allowFavorites: share.allow_favorites,
+        requirePinBulk: share.require_pin_bulk ?? false,
+        requirePinIndividual: share.require_pin_individual ?? false,
+        images: [],
+        sections: undefined,
+        shareId: share.id,
+        branding,
+        settings: defaultGallerySettings(event.settings),
+      });
+    }
+
+    // 6. Fetch images — paginated to avoid Supabase 1000-row default limit
     const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at";
     const IMG_PAGE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,8 +203,8 @@ export async function GET(
 
       pageQuery = pageQuery.range(imgOffset, imgOffset + IMG_PAGE - 1);
 
-      if (share.share_type === "selection" && share.image_ids?.length) {
-        pageQuery = pageQuery.in("id", share.image_ids);
+      if (allowedImageIds !== null) {
+        pageQuery = pageQuery.in("id", allowedImageIds);
       }
 
       const { data, error: pageError } = await pageQuery;
@@ -182,20 +223,19 @@ export async function GET(
       rawImages = rawImages.filter((img) => img.id !== coverImageId);
     }
 
-    // 5b. Generate presigned URLs (thumbnail for grid, original for lightbox)
+    // 5b. Generate presigned URLs. Downloads are gated by `allow_download`
+    // — and the full-resolution `originalUrl` is too, because it's the same
+    // bytes. Previously originalUrl shipped regardless and made
+    // allow_download=false a UI-only restriction (right-click → save).
+    // When downloads aren't allowed, we only ship the thumbnail.
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
         const thumbKey = getThumbnailKey(img.r2_key);
-        const urls = await Promise.all([
-          getPresignedDownloadUrl(thumbKey, 14400),
-          getPresignedDownloadUrl(img.r2_key, 14400),
-          share.allow_download ? getPresignedDownloadUrl(img.r2_key, 3600) : Promise.resolve(null),
-        ]);
+        const thumbnailUrl = await getPresignedDownloadUrl(thumbKey, 14400);
 
         const result: Record<string, unknown> = {
           id: img.id,
-          thumbnailUrl: urls[0],
-          originalUrl: urls[1],
+          thumbnailUrl,
           originalFilename: img.original_filename,
           parsedName: img.parsed_name,
           width: img.width,
@@ -203,8 +243,12 @@ export async function GET(
           takenAt: img.taken_at,
         };
 
-        if (urls[2]) {
-          result.downloadUrl = urls[2];
+        if (share.allow_download) {
+          result.originalUrl = await getPresignedDownloadUrl(img.r2_key, 14400);
+          result.downloadUrl = await getPresignedDownloadUrl(img.r2_key, 3600);
+        } else {
+          // No high-res leak — the lightbox uses the thumbnail.
+          result.originalUrl = thumbnailUrl;
         }
 
         return result;
@@ -212,29 +256,10 @@ export async function GET(
     );
 
     // 6. Build gallery settings from event settings
+    const gallerySettings = defaultGallerySettings(event.settings);
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
     const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as {
-      enabled: boolean; imageId?: string; titlePosition: string; titleAlignment: string;
-      titlePlacement?: { vertical: string; horizontal: string };
-    };
-    const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
-    const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
-    const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
-
-    const gallerySettings: GallerySettings = {
-      coverEnabled: cover.enabled,
-      titlePosition: cover.titlePosition as "above" | "over" | "below",
-      titleAlignment: cover.titleAlignment as "left" | "center" | "right",
-      titlePlacement: cover.titlePlacement,
-      headingFont: typography.headingFont,
-      bodyFont: typography.bodyFont,
-      colorPrimary: color.primary,
-      colorSecondary: color.secondary,
-      colorAccent: color.accent,
-      colorBackground: color.background,
-      gridStyle: grid.style as "masonry" | "uniform",
-      gridColumns: grid.columns,
-      gridGap: grid.gap as "tight" | "normal" | "loose",
+      enabled: boolean; imageId?: string;
     };
 
     // Generate presigned URL for cover image if cover is enabled
@@ -308,4 +333,75 @@ export async function GET(
     console.error("Gallery error:", error);
     return NextResponse.json({ error: "Failed to load gallery" }, { status: 500 });
   }
+}
+
+/**
+ * Resolve the set of image IDs this share is allowed to expose.
+ *
+ * Returns `null` to mean "everything in the event" (full share).
+ * Returns `[]` to mean "nothing" (misconfigured / empty section etc).
+ */
+async function resolveAllowedImageIds(
+  supabase: ReturnType<typeof createServiceClient>,
+  args: {
+    shareType: string;
+    eventId: string;
+    sectionId: string | null;
+    personId: string | null;
+    explicitImageIds: string[] | null;
+  }
+): Promise<string[] | null> {
+  switch (args.shareType) {
+    case "full":
+      return null;
+    case "selection":
+      return args.explicitImageIds ?? [];
+    case "section": {
+      if (!args.sectionId) return [];
+      const { data } = await supabase
+        .from("section_images")
+        .select("image_id")
+        .eq("section_id", args.sectionId);
+      return (data ?? []).map((r) => r.image_id);
+    }
+    case "person": {
+      if (!args.personId) return [];
+      const { data } = await supabase
+        .from("faces")
+        .select("image_id")
+        .eq("person_id", args.personId);
+      // Dedupe — a person can have multiple face detections per image
+      return Array.from(new Set((data ?? []).map((r) => r.image_id)));
+    }
+    default:
+      return [];
+  }
+}
+
+/** Build a GallerySettings from the event settings JSON. */
+function defaultGallerySettings(eventSettingsJson: unknown): GallerySettings {
+  const eventSettings = (eventSettingsJson ?? {}) as Record<string, unknown>;
+  const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as {
+    enabled: boolean; imageId?: string; titlePosition: string; titleAlignment: string;
+    titlePlacement?: { vertical: string; horizontal: string };
+  };
+  const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
+  const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
+  const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
+
+  return {
+    coverEnabled: cover.enabled,
+    titlePosition: cover.titlePosition as "above" | "over" | "below",
+    titleAlignment: cover.titleAlignment as "left" | "center" | "right",
+    titlePlacement: cover.titlePlacement,
+    headingFont: typography.headingFont,
+    bodyFont: typography.bodyFont,
+    colorPrimary: color.primary,
+    colorSecondary: color.secondary,
+    colorAccent: color.accent,
+    colorBackground: color.background,
+    gridStyle: grid.style as "masonry" | "uniform",
+    gridColumns: grid.columns,
+    gridGap: grid.gap as "tight" | "normal" | "loose",
+  };
 }

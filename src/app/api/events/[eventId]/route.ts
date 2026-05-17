@@ -37,7 +37,7 @@ export async function GET(
 
     // 2. Fetch ALL images for this event (paginated — Supabase defaults to 1000)
     const IMAGE_FIELDS =
-      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at";
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at, starred";
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -85,6 +85,7 @@ export async function GET(
           height: img.height,
           createdAt: img.created_at,
           takenAt: img.taken_at,
+          starred: img.starred,
         };
       })
     );

@@ -49,6 +49,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // ─── Dev-only routes: hide in production ───
+  // `/dev`, `/playground`, and `/mockups` are internal design surfaces.
+  // `/playground` in particular reads from a hardcoded production event via
+  // the service client — leaving it reachable in prod leaks that event's
+  // photos to every authenticated user.
+  if (
+    process.env.NODE_ENV === "production" &&
+    (pathname.startsWith("/dev") ||
+      pathname.startsWith("/playground") ||
+      pathname.startsWith("/mockups"))
+  ) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   // ─── App domain: Supabase auth + route protection ───
   let supabaseResponse = NextResponse.next({ request });
 

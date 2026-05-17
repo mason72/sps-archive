@@ -29,18 +29,19 @@ export async function GET() {
     }
 
     // 2. Run remaining queries in parallel
+    // Note: shares are owned via event_id, not user_id (shares table has no
+    // user_id column). Scoping shares through eventIds matches the schema
+    // and prevents a silent always-zero count.
     const [imagesResult, sharesResult] = await Promise.all([
-      // Total images across all events
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
         .in("event_id", eventIds),
 
-      // All shares (for view count + favorite lookups)
       supabase
         .from("shares")
         .select("id, view_count")
-        .eq("user_id", user!.id),
+        .in("event_id", eventIds),
     ]);
 
     const totalImages = imagesResult.count ?? 0;

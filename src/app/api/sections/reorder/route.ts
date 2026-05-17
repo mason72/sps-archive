@@ -36,16 +36,22 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Update sort_order for each section
-    await Promise.all(
-      sectionIds.map((id, index) =>
-        supabase
-          .from("sections")
-          .update({ sort_order: index })
-          .eq("id", id)
-          .eq("event_id", eventId)
-      )
-    );
+    // Single atomic statement (migration 018). The previous
+    // Promise.all of N individual UPDATEs left sort_orders incoherent
+    // on any partial failure — the historical "sections came back
+    // wrong" bug.
+    const { error: rpcError } = await supabase.rpc("reorder_sections", {
+      p_event_id: eventId,
+      p_section_ids: sectionIds,
+    });
+
+    if (rpcError) {
+      console.error("reorder_sections RPC error:", rpcError);
+      return NextResponse.json(
+        { error: "Failed to reorder sections" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ reordered: true });
   } catch (error) {

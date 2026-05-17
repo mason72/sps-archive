@@ -82,6 +82,8 @@ export type Database = {
           stack_rank: number | null;
           processing_status: string;
           thumbnail_generated: boolean;
+          last_error: string | null;
+          starred: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -115,6 +117,8 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          last_error?: string | null;
+          starred?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -148,6 +152,8 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          last_error?: string | null;
+          starred?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -558,6 +564,72 @@ export type Database = {
         };
         Relationships: [];
       };
+      subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          plan: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval: "monthly" | "annual" | null;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          trial_end: string | null;
+          cancel_at_period_end: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          plan?: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status?: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval?: "monthly" | "annual" | null;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          trial_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          plan?: "free" | "solo" | "pro" | "studio" | "enterprise";
+          status?: "trialing" | "active" | "past_due" | "canceled" | "free";
+          billing_interval?: "monthly" | "annual" | null;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          trial_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      stripe_events: {
+        Row: {
+          event_id: string;
+          event_type: string;
+          received_at: string;
+        };
+        Insert: {
+          event_id: string;
+          event_type: string;
+          received_at?: string;
+        };
+        Update: {
+          event_id?: string;
+          event_type?: string;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
       activity_log: {
         Row: {
           id: string;
@@ -612,6 +684,56 @@ export type Database = {
       increment_share_views: {
         Args: { p_share_id: string };
         Returns: undefined;
+      };
+      set_stack_cover: {
+        Args: { p_stack_id: string; p_image_id: string };
+        Returns: undefined;
+      };
+      reorder_sections: {
+        Args: { p_event_id: string; p_section_ids: string[] };
+        Returns: undefined;
+      };
+      create_section_at_top: {
+        Args: { p_event_id: string; p_name: string; p_description?: string | null };
+        Returns: {
+          id: string;
+          event_id: string;
+          name: string;
+          description: string | null;
+          is_auto: boolean;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+      };
+      event_image_status_counts: {
+        Args: { p_event_id: string };
+        Returns: {
+          total: number;
+          pending: number;
+          processing: number;
+          complete: number;
+          failed: number;
+        }[];
+      };
+      resolve_share_by_slug: {
+        Args: { p_slug: string };
+        Returns: {
+          id: string;
+          event_id: string;
+          share_type: string;
+          is_active: boolean;
+          allow_download: boolean;
+          allow_favorites: boolean;
+          require_pin_bulk: boolean;
+          require_pin_individual: boolean;
+          has_password: boolean;
+          expires_at: string | null;
+          custom_message: string | null;
+          image_ids: string[] | null;
+          section_id: string | null;
+          person_id: string | null;
+        }[];
       };
       search_images_by_embedding: {
         Args: {

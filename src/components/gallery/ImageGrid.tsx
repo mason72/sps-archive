@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Check } from "lucide-react";
+import { Check, Star } from "lucide-react";
 import { SmartStack } from "./SmartStack";
 import { useColumnCount } from "@/hooks/useColumnCount";
 import type { ImageData, StackData } from "@/types/image";
@@ -22,6 +22,10 @@ interface ImageGridProps {
   gap?: "tight" | "normal" | "loose";
   style?: "masonry" | "uniform";
   showFilenames?: boolean;
+  /** Currently-set event cover image id. The matching tile gets a
+   *  subtle "this is the cover" badge so the photographer knows
+   *  what their clients will see on the gallery's hero section. */
+  coverImageId?: string | null;
 }
 
 const GAP_MAP = {
@@ -44,6 +48,7 @@ export function ImageGrid({
   onSetCover,
   hasSelection,
   selectedIds,
+  coverImageId,
   columnCount: settingsColumnCount,
   gap = "normal",
   style = "masonry",
@@ -112,6 +117,7 @@ export function ImageGrid({
             }
 
             const isSelected = selectedIds?.has(item.data.id) ?? false;
+            const isCover = coverImageId === item.data.id;
 
             return (
               <GridImage
@@ -120,6 +126,7 @@ export function ImageGrid({
                 hasSelection={hasSelection}
                 isSelected={isSelected}
                 selectedIds={selectedIds}
+                isCover={isCover}
                 onSelect={() => onToggleSelect?.(item.data.id)}
                 onRangeSelect={() => onRangeSelect?.(item.data.id)}
                 onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
@@ -145,6 +152,7 @@ function GridImage({
   hasSelection,
   isSelected,
   selectedIds,
+  isCover,
   uniform,
   showFilename,
 }: {
@@ -155,6 +163,7 @@ function GridImage({
   hasSelection?: boolean;
   isSelected?: boolean;
   selectedIds?: Set<string>;
+  isCover?: boolean;
   uniform?: boolean;
   showFilename?: boolean;
 }) {
@@ -206,6 +215,10 @@ function GridImage({
     [image.id, isSelected, selectedIds]
   );
 
+  const ariaLabel = isSelected
+    ? `Deselect ${image.parsedName || image.originalFilename || "image"}`
+    : `Select ${image.parsedName || image.originalFilename || "image"}`;
+
   return (
     <button
       data-image-id={image.id}
@@ -213,6 +226,8 @@ function GridImage({
       onDragStart={handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      aria-label={ariaLabel}
+      aria-pressed={isSelected}
       className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
         isSelected ? "ring-2 ring-accent ring-inset" : ""
       }`}
@@ -232,21 +247,22 @@ function GridImage({
         </div>
       </div>
 
-      {/* Selection overlay tint */}
-      {isSelected && (
-        <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
-      )}
+      {/* Selection feedback — dim the UNSELECTED images when any
+          selection is active, rather than tinting the selected ones
+          emerald. Reads more like culling and less like a sea of green. */}
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename || ""}
-        className={`w-full object-cover transition-all duration-500 ${
+        className={`w-full object-cover transition-all duration-300 ${
           uniform ? "aspect-square" : "h-auto"
         } ${
           hasSelection ? "" : "group-hover:scale-[1.03]"
-        } ${loaded ? "opacity-100" : "opacity-0"}`}
+        } ${loaded ? "opacity-100" : "opacity-0"} ${
+          hasSelection && !isSelected ? "opacity-40 hover:opacity-70" : ""
+        }`}
         loading="lazy"
         onLoad={() => setLoaded(true)}
         onError={() => {
@@ -258,6 +274,30 @@ function GridImage({
       />
       {/* Placeholder maintains minimum height while loading */}
       {!loaded && <div className="aspect-square" />}
+
+      {/* Photographer's private star — top-right corner. Small enough to
+          not compete with the image; only visible when starred so the grid
+          stays calm during browsing. */}
+      {image.starred && (
+        <div className="absolute top-2 right-2 z-[2] pointer-events-none">
+          <Star
+            className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+            fill="currentColor"
+          />
+        </div>
+      )}
+
+      {/* "Cover" indicator — bottom-left corner of the image that's set
+          as the gallery's hero. Editorial small-caps pill, just enough
+          presence to read without competing with the photo. */}
+      {isCover && (
+        <div className="absolute bottom-2 left-2 z-[2] pointer-events-none">
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em] font-medium text-white bg-stone-900/85 backdrop-blur-sm">
+            Cover
+          </span>
+        </div>
+      )}
+
       {showFilename && image.originalFilename && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">
           <p className="text-[11px] text-white truncate">

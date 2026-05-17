@@ -6,8 +6,36 @@ import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
+import { ClientIdentityModal } from "@/components/gallery/ClientIdentityModal";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
+
+interface ClientIdentity {
+  name: string;
+  email: string;
+  /** True once we've prompted (even if the user skipped) so we don't keep nagging. */
+  prompted: boolean;
+}
+
+function identityStorageKey(shareId: string) {
+  return `client_identity_${shareId}`;
+}
+
+function loadStoredIdentity(shareId: string): ClientIdentity | null {
+  try {
+    const raw = localStorage.getItem(identityStorageKey(shareId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ClientIdentity>;
+    return {
+      name: parsed.name ?? "",
+      email: parsed.email ?? "",
+      prompted: !!parsed.prompted,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -26,38 +54,56 @@ const BODY_FONT_CLASS: Record<string, string> = {
 };
 
 /** PIN prompt modal for download protection */
-function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void; onClose: () => void }) {
+function PinPromptModal({
+  onSubmit,
+  onClose,
+  error,
+  isSubmitting,
+}: {
+  onSubmit: (pin: string) => void;
+  onClose: () => void;
+  /** Inline error message (e.g. "Incorrect PIN"). Pre-fix the modal
+   *  surfaced errors via toast.error AND closed itself — making the
+   *  internal `error` state dead code. */
+  error: string | null;
+  isSubmitting: boolean;
+}) {
   const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white p-8 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
+      onClick={isSubmitting ? undefined : onClose}
+    >
+      <div className="bg-white p-8 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-editorial text-[20px] text-stone-900 mb-2">Download PIN</h3>
-        <p className="text-[13px] text-stone-400 mb-6">Enter the 4-digit PIN to download</p>
+        <p className="text-[13px] text-stone-400 mb-6">
+          Enter the 4-digit PIN your photographer shared with you.
+        </p>
         <input
           type="text"
           inputMode="numeric"
           maxLength={4}
           value={pin}
-          onChange={e => {
-            setPin(e.target.value.replace(/\D/g, "").slice(0, 4));
-            setError("");
-          }}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
           autoFocus
-          className="w-full text-center text-[24px] tracking-[0.5em] font-mono border-b border-stone-200 bg-transparent py-3 focus:border-stone-900 focus:outline-none transition-colors"
+          disabled={isSubmitting}
+          className="w-full text-center text-[24px] tracking-[0.5em] font-mono border-b border-stone-200 bg-transparent py-3 focus:border-stone-900 focus:outline-none transition-colors disabled:opacity-40"
           placeholder="&#x2022; &#x2022; &#x2022; &#x2022;"
-          onKeyDown={e => {
-            if (e.key === "Enter" && pin.length === 4) onSubmit(pin);
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && pin.length === 4 && !isSubmitting) onSubmit(pin);
           }}
         />
-        {error && <p className="text-[12px] text-red-500 mt-2 text-center">{error}</p>}
+        {error && (
+          <p className="text-[12px] text-red-500 mt-3 text-center" aria-live="polite">
+            {error}
+          </p>
+        )}
         <button
-          onClick={() => pin.length === 4 && onSubmit(pin)}
-          disabled={pin.length !== 4}
+          onClick={() => pin.length === 4 && !isSubmitting && onSubmit(pin)}
+          disabled={pin.length !== 4 || isSubmitting}
           className="mt-6 w-full py-2.5 text-[13px] text-white bg-stone-900 hover:bg-stone-800 transition-colors disabled:opacity-40"
         >
-          Download
+          {isSubmitting ? "Checking…" : "Continue"}
         </button>
       </div>
     </div>
@@ -90,6 +136,11 @@ export default function GalleryPage({
   const favoriteThresholdsRef = useRef(new Set<number>());
   const [pinAction, setPinAction] = useState<{ type: "bulk" } | { type: "individual"; image: GalleryImage } | null>(null);
   const [pinVerified, setPinVerified] = useState(false);
+
+  // Client identity (captured on first favorite so photographer can see who picked what)
+  const [identity, setIdentity] = useState<ClientIdentity | null>(null);
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  const pendingFavoriteRef = useRef<string | null>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -131,8 +182,9 @@ export default function GalleryPage({
       setGallery(data);
       setRequiresAuth(false);
 
-      // Load favorites from localStorage
+      // Load favorites + any stored client identity from localStorage
       loadFavorites(data.shareId);
+      setIdentity(loadStoredIdentity(data.shareId));
     } catch {
       setError("Failed to load gallery.");
     } finally {
@@ -151,7 +203,38 @@ export default function GalleryPage({
     }
   }, [selectedImageId]);
 
-  const loadFavorites = (shareId: string) => {
+  // Prefetch the next + previous lightbox images so arrow-keying
+  // through a 200-photo gallery doesn't black-flash between frames.
+  // Uses `new Image()` rather than `<link rel="prefetch">` because R2
+  // presigned URLs are dynamic per request and the browser image cache
+  // handles them more reliably.
+  useEffect(() => {
+    if (!selectedImageId || !gallery) return;
+    const idx = gallery.images.findIndex((img) => img.id === selectedImageId);
+    if (idx === -1) return;
+    const adjacent = [gallery.images[idx + 1], gallery.images[idx - 1]];
+    for (const img of adjacent) {
+      if (!img) continue;
+      const url = img.originalUrl || img.thumbnailUrl;
+      if (!url) continue;
+      const preload = new window.Image();
+      preload.src = url;
+    }
+  }, [selectedImageId, gallery]);
+
+  /**
+   * Hydrate favorites from BOTH localStorage (fast, offline-friendly)
+   * AND the server (canonical, follows the client across devices).
+   *
+   * Pre-fix this only read localStorage — meaning a client who
+   * favorited on their phone and then opened the gallery on their
+   * laptop saw zero favorites. The DB had them; we just never asked.
+   *
+   * Strategy: paint immediately with localStorage; then fetch the
+   * server set and reconcile (server is authoritative for the IDs but
+   * we keep any local pending writes that haven't synced yet).
+   */
+  const loadFavorites = async (shareId: string) => {
     try {
       const stored = localStorage.getItem(`favorites_${shareId}`);
       if (stored) {
@@ -160,53 +243,127 @@ export default function GalleryPage({
     } catch {
       // localStorage not available
     }
+
+    // Server hydrate — non-blocking but canonical.
+    try {
+      const res = await fetch(
+        `/api/gallery/${slug}/favorites?shareId=${shareId}`
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        favorites: { imageId: string }[];
+      };
+      const serverIds = new Set(data.favorites.map((f) => f.imageId));
+      setFavoriteIds(serverIds);
+      try {
+        localStorage.setItem(
+          `favorites_${shareId}`,
+          JSON.stringify([...serverIds])
+        );
+      } catch {
+        // localStorage not available
+      }
+    } catch {
+      // Non-blocking — keep whatever localStorage gave us.
+    }
   };
 
-  const handleFavorite = async (imageId: string) => {
+  /**
+   * Perform a favorite add/remove. Splits into a separate function so the
+   * identity-modal flow can call back into it after the user submits/skips.
+   */
+  const commitFavorite = useCallback(
+    (imageId: string, withIdentity: ClientIdentity | null) => {
+      if (!gallery) return;
+
+      const newFavorites = new Set(favoriteIds);
+      const isFavorited = newFavorites.has(imageId);
+
+      if (isFavorited) {
+        newFavorites.delete(imageId);
+        fetch(`/api/gallery/${slug}/favorites`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageId, shareId: gallery.shareId }),
+        }).catch((err) =>
+          console.error("[gallery] favorite DELETE failed:", err)
+        );
+      } else {
+        newFavorites.add(imageId);
+        fetch(`/api/gallery/${slug}/favorites`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageId,
+            shareId: gallery.shareId,
+            clientName: withIdentity?.name || undefined,
+            clientEmail: withIdentity?.email || undefined,
+          }),
+        }).catch((err) =>
+          console.error("[gallery] favorite POST failed:", err)
+        );
+      }
+
+      setFavoriteIds(newFavorites);
+
+      // G5: Favorite milestone toasts
+      const count = newFavorites.size;
+      for (const threshold of [5, 10, 20]) {
+        if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+          favoriteThresholdsRef.current.add(threshold);
+          toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+          break;
+        }
+      }
+
+      try {
+        localStorage.setItem(
+          `favorites_${gallery.shareId}`,
+          JSON.stringify([...newFavorites])
+        );
+      } catch {
+        // localStorage not available
+      }
+    },
+    [gallery, slug, favoriteIds]
+  );
+
+  /**
+   * Entry point from UI. If we don't know who the client is yet, prompt
+   * before the first ADD favorite so the photographer's "Activity > Client
+   * Favorites" view shows real names instead of "Anonymous". Subsequent
+   * favorites (and unfavorites) skip the prompt.
+   */
+  const handleFavorite = (imageId: string) => {
     if (!gallery) return;
 
-    const newFavorites = new Set(favoriteIds);
-    const isFavorited = newFavorites.has(imageId);
-
-    if (isFavorited) {
-      newFavorites.delete(imageId);
-      // Remove from server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
-    } else {
-      newFavorites.add(imageId);
-      // Add to server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
+    const willAdd = !favoriteIds.has(imageId);
+    if (willAdd && !identity?.prompted) {
+      pendingFavoriteRef.current = imageId;
+      setShowIdentityModal(true);
+      return;
     }
 
-    setFavoriteIds(newFavorites);
+    commitFavorite(imageId, identity);
+  };
 
-    // G5: Favorite milestone toasts
-    const count = newFavorites.size;
-    for (const threshold of [5, 10, 20]) {
-      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
-        favoriteThresholdsRef.current.add(threshold);
-        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
-        break; // Only one toast per action
+  /** Save identity to state + localStorage and complete the queued favorite. */
+  const handleIdentityResolved = (next: ClientIdentity) => {
+    if (gallery) {
+      try {
+        localStorage.setItem(
+          identityStorageKey(gallery.shareId),
+          JSON.stringify(next)
+        );
+      } catch {
+        // localStorage not available — identity stays in memory only
       }
     }
-
-    // Persist to localStorage
-    try {
-      localStorage.setItem(
-        `favorites_${gallery.shareId}`,
-        JSON.stringify([...newFavorites])
-      );
-    } catch {
-      // localStorage not available
-    }
+    setIdentity(next);
+    setShowIdentityModal(false);
+    const queued = pendingFavoriteRef.current;
+    pendingFavoriteRef.current = null;
+    if (queued) commitFavorite(queued, next);
   };
 
   const handlePasswordSuccess = () => {
@@ -255,8 +412,25 @@ export default function GalleryPage({
     }
   };
 
+  // PIN modal inline error state — replaces the old close-and-toast
+  // pattern that made the modal feel like it had eaten the input.
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+  // Heart-pop animation for the lightbox favorite button. Parity with
+  // the grid (where the same keyframe fires on false→true transition).
+  const [heartPopping, setHeartPopping] = useState(false);
+  const heartPopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerHeartPop = () => {
+    setHeartPopping(true);
+    if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
+    heartPopTimerRef.current = setTimeout(() => setHeartPopping(false), 420);
+  };
+
   /** Verify PIN against the server, then execute the pending action */
   const handlePinSubmit = async (pin: string) => {
+    setIsVerifyingPin(true);
+    setPinError(null);
     try {
       const res = await fetch(`/api/gallery/${slug}/verify-pin`, {
         method: "POST",
@@ -265,18 +439,31 @@ export default function GalleryPage({
       });
 
       if (!res.ok) {
-        toast.error("Incorrect PIN");
+        // Keep the modal open with an inline error rather than the
+        // old close-and-toast pattern that left the user staring at
+        // the page wondering what happened. Surface the rate-limit
+        // case specifically so they know to wait instead of trying
+        // the same PIN again.
+        if (res.status === 429) {
+          setPinError("Too many attempts. Please try again in a few minutes.");
+        } else if (res.status === 401) {
+          setPinError("Incorrect PIN. Try again.");
+        } else {
+          setPinError("Couldn't verify the PIN. Please try again.");
+        }
         return;
       }
 
-      // PIN verified -- remember for this session
+      // PIN verified — remember for this session
       setPinVerified(true);
       setShowPinModal(false);
 
-      // Execute the pending action
+      // Execute the pending action. The verify-pin endpoint set an
+      // HMAC-signed `pt-pin-<slug>` cookie that the download route
+      // reads — no need (and no safe way) to pass the PIN in the URL.
       if (pinAction?.type === "bulk") {
-        toast.success("Preparing download...");
-        window.location.href = `/api/gallery/${slug}/download?pin=${pin}`;
+        toast.success("Preparing download…");
+        window.location.href = `/api/gallery/${slug}/download`;
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");
         link.href = pinAction.image.downloadUrl;
@@ -285,7 +472,9 @@ export default function GalleryPage({
       }
       setPinAction(null);
     } catch {
-      toast.error("Failed to verify PIN");
+      setPinError("Couldn't reach the server. Please try again.");
+    } finally {
+      setIsVerifyingPin(false);
     }
   };
 
@@ -293,27 +482,36 @@ export default function GalleryPage({
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
   const selectedIndex = gallery?.images.findIndex((img) => img.id === selectedImageId) ?? -1;
 
-  // Loading state
+  // Loading state — show a masonry skeleton rather than a centered
+  // spinner. On a 200-photo gallery the API takes 2–4s (presigning
+  // every URL); the skeleton makes that wait feel like the gallery
+  // is already arriving instead of "is anything happening?"
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-stone-200 border-t-stone-900 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[13px] text-stone-400">Loading gallery...</p>
-        </div>
-      </div>
-    );
+    return <GallerySkeleton />;
   }
 
-  // Error state
+  // Error state (gallery missing or expired). We can't surface
+  // photographer branding here because the API doesn't return it on
+  // 404/410, but we can at least make this feel warmer than a stone-
+  // only orphan — the pixel-mosaic ornament + a softer voice + a
+  // gentle next-step hint.
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-8">
+      <div className="min-h-screen flex items-center justify-center px-8 bg-stone-50">
         <div className="text-center max-w-sm">
-          <h1 className="font-editorial text-[28px] text-stone-900 mb-2">
+          <div className="text-stone-300 mb-6 flex justify-center">
+            <PixelMosaic size={28} className="opacity-100" />
+          </div>
+          <h1 className="font-editorial text-[28px] text-stone-700 mb-3">
             Gallery <span className="italic font-normal">unavailable</span>
           </h1>
-          <p className="text-[14px] text-stone-400">{error}</p>
+          <p className="text-[14px] text-stone-500 leading-relaxed mb-6">
+            {error}
+          </p>
+          <p className="text-[12px] text-stone-400 leading-relaxed">
+            If you were expecting to see photos here, your photographer
+            can send a fresh link.
+          </p>
         </div>
       </div>
     );
@@ -484,6 +682,26 @@ export default function GalleryPage({
           </p>
         )}
 
+        {/* Live favorites count pill — gives the client a sense of
+            their curated collection. Self-hides at zero; fades in
+            via the standard `reveal` keyframe on first appearance. */}
+        {gallery.allowFavorites && favoriteIds.size > 0 && (
+          <div
+            key={favoriteIds.size}
+            className="inline-flex items-center gap-1.5 mt-5 px-3 py-1 text-[11px] uppercase tracking-[0.15em] font-medium fade-in"
+            style={{
+              color: colors.accent,
+              border: `1px solid ${colors.accent}30`,
+              backgroundColor: `${colors.accent}08`,
+            }}
+            aria-live="polite"
+          >
+            <Heart className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+            {favoriteIds.size}{" "}
+            {favoriteIds.size === 1 ? "favorited" : "favorited"}
+          </div>
+        )}
+
         {/* Download All button */}
         {gallery.allowDownload && (
           <div className="mt-6 flex justify-end">
@@ -518,7 +736,7 @@ export default function GalleryPage({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search photos…"
+                placeholder="Search by filename…"
                 className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
                 style={{
                   color: colors.primary,
@@ -678,10 +896,19 @@ export default function GalleryPage({
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
+                  // Pop only on false→true transition, matching the grid
+                  // heart-pop semantics so repeated taps don't oscillate.
+                  if (!favoriteIds.has(selectedImage.id)) triggerHeartPop();
                   handleFavorite(selectedImage.id);
                 }}
+                aria-label={favoriteIds.has(selectedImage.id) ? "Remove from favorites" : "Add to favorites"}
+                aria-pressed={favoriteIds.has(selectedImage.id)}
               >
-                <Heart className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} strokeWidth={1.5} />
+                <Heart
+                  className={`h-5 w-5 ${heartPopping ? "heart-pop" : ""}`}
+                  fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"}
+                  strokeWidth={1.5}
+                />
               </button>
             )}
             {gallery.allowDownload && selectedImage.downloadUrl && (
@@ -712,6 +939,11 @@ export default function GalleryPage({
       )}
 
       {/* ─── End-of-gallery moment ─── */}
+      {/* Uses the photographer's branded colors (primary for the name,
+          secondary for the caption-caps) so the closing signature reads
+          as theirs, not Pixeltrunk's. Pre-fix this was hardcoded stone-*
+          which made the *one* place the photographer is named ignore
+          their palette. */}
       {b && (
         <div className="py-16 text-center stagger-in">
           {b.logoUrl && (
@@ -722,10 +954,16 @@ export default function GalleryPage({
               className="h-12 w-auto object-contain mx-auto mb-4 opacity-60"
             />
           )}
-          <p className="text-[13px] text-stone-400 tracking-wide uppercase">
+          <p
+            className="text-[13px] tracking-wide uppercase"
+            style={{ color: colors.secondary, opacity: 0.7 }}
+          >
             Photographed by
           </p>
-          <p className="font-editorial italic text-[22px] text-stone-700 mt-1">
+          <p
+            className="font-editorial italic text-[22px] mt-1"
+            style={{ color: colors.primary }}
+          >
             {b.businessName || "Your Photographer"}
           </p>
           {b.website && (
@@ -733,7 +971,11 @@ export default function GalleryPage({
               href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-3 text-[12px] text-stone-400 hover:text-stone-600 transition-colors duration-300 border-b border-stone-200 hover:border-stone-400 pb-0.5"
+              className="inline-block mt-3 text-[12px] transition-colors duration-300 border-b pb-0.5"
+              style={{
+                color: colors.secondary,
+                borderColor: `${colors.secondary}40`,
+              }}
             >
               View Portfolio →
             </a>
@@ -806,12 +1048,64 @@ export default function GalleryPage({
       {showPinModal && (
         <PinPromptModal
           onSubmit={handlePinSubmit}
+          error={pinError}
+          isSubmitting={isVerifyingPin}
           onClose={() => {
             setShowPinModal(false);
             setPinAction(null);
+            setPinError(null);
           }}
         />
       )}
+
+      {/* ─── First-favorite identity prompt ─── */}
+      <ClientIdentityModal
+        isOpen={showIdentityModal}
+        onSubmit={(name, email) =>
+          handleIdentityResolved({ name, email, prompted: true })
+        }
+        onSkip={() =>
+          handleIdentityResolved({ name: "", email: "", prompted: true })
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Skeleton masonry while the gallery API resolves. Renders 12 thumbnails
+ * with varied aspect ratios + a subtle pulse — closer to "your gallery
+ * is arriving" than a spinner-and-prayer.
+ *
+ * The aspect ratios are a fixed sequence (no Math.random) so the layout
+ * is identical across reloads and doesn't flash a different shape on
+ * SSR vs CSR.
+ */
+function GallerySkeleton() {
+  const ratios = [3 / 2, 2 / 3, 1, 4 / 3, 3 / 4, 16 / 9, 1, 2 / 3, 3 / 2, 3 / 4, 1, 4 / 5];
+  return (
+    <div className="min-h-screen bg-stone-50">
+      {/* Faux header */}
+      <div className="px-8 md:px-16 pt-16 pb-8">
+        <div className="h-3 w-20 bg-stone-200/80 animate-pulse mb-6 rounded-sm" />
+        <div className="h-10 w-80 max-w-full bg-stone-200/80 animate-pulse rounded-sm" />
+      </div>
+
+      {/* Faux masonry — three columns on md, two on small */}
+      <div className="px-8 md:px-16 pb-24">
+        <div className="grid gap-1.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {ratios.map((r, i) => (
+            <div
+              key={i}
+              className="bg-stone-200/60 animate-pulse rounded-sm"
+              style={{
+                aspectRatio: `${r}`,
+                animationDelay: `${i * 60}ms`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

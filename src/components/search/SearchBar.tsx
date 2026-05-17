@@ -24,16 +24,12 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
-/* AI_HIDDEN: Search suggestions disabled — AI backend not configured
-const SEARCH_SUGGESTIONS = [
-  { label: "Portraits", query: "portraits of people" },
-  { label: "Outdoors", query: "outdoor nature landscape" },
-  { label: "Golden Hour", query: "golden hour warm light" },
-  { label: "Details", query: "detail close up" },
-  { label: "Ceremony", query: "ceremony celebration" },
-];
-*/
-
+/**
+ * SearchBar — filename + parsed-name search across an event or the whole
+ * archive. Smarter visual/semantic search is wired in the AI pipeline
+ * (lib/ai) but currently disabled at the boundary; this component stays
+ * filename-only until that ships.
+ */
 export function SearchBar({
   eventId,
   onResults,
@@ -42,8 +38,6 @@ export function SearchBar({
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  // AI_HIDDEN: Force filename search — AI search backend not configured
-  const [searchType] = useState<"auto" | "semantic" | "filename">("filename");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -58,7 +52,7 @@ export function SearchBar({
       try {
         const params = new URLSearchParams({
           q: searchQuery,
-          type: searchType,
+          type: "filename",
           limit: "50",
         });
         if (eventId) params.set("eventId", eventId);
@@ -74,17 +68,16 @@ export function SearchBar({
         setIsSearching(false);
       }
     },
-    [eventId, searchType, onResults, onClear]
+    [eventId, onResults, onClear]
   );
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (query.trim()) {
-      // Filename search is fast (DB only) — near-instant
-      // Semantic search hits AI endpoint — debounce more
-      const delay = searchType === "semantic" ? 400 : 100;
-      debounceRef.current = setTimeout(() => performSearch(query), delay);
+      // Filename search hits the DB only — debounce just enough to skip
+      // intermediate keystrokes.
+      debounceRef.current = setTimeout(() => performSearch(query), 120);
     } else {
       onClear?.();
     }
@@ -92,7 +85,7 @@ export function SearchBar({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, performSearch, onClear, searchType]);
+  }, [query, performSearch, onClear]);
 
   const handleClear = () => {
     setQuery("");
@@ -102,7 +95,6 @@ export function SearchBar({
 
   return (
     <div className="space-y-4">
-      {/* ─── Search input ─── */}
       <div className="relative">
         <Search
           className={cn(
@@ -115,7 +107,7 @@ export function SearchBar({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={placeholder || "Search by filename..."}
+          placeholder={placeholder || "Search by filename…"}
           className="h-12 w-full border-b border-stone-200 bg-transparent pl-7 pr-10 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
         />
         {query && (
@@ -127,8 +119,6 @@ export function SearchBar({
           </button>
         )}
       </div>
-
-      {/* AI_HIDDEN: Search suggestions and type toggles disabled — AI backend not configured */}
     </div>
   );
 }

@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { uploadToR2, deleteFromR2 } from "@/lib/r2/client";
 
+/**
+ * SVG is intentionally excluded — SVG files can carry inline <script>
+ * payloads that execute when opened directly in a browser tab. Even if we
+ * render them inside <img> (which doesn't execute scripts), an attacker can
+ * trick a victim into right-click → "Open image in new tab" and pop XSS in
+ * the R2 origin's context. Raster only.
+ */
 const ALLOWED_TYPES: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/jpg": "jpg",
-  "image/svg+xml": "svg",
   "image/webp": "webp",
 };
 
@@ -27,7 +33,7 @@ export async function PUT(request: NextRequest) {
     const ext = ALLOWED_TYPES[contentType];
     if (!ext) {
       return NextResponse.json(
-        { error: "Invalid file type. Allowed: PNG, JPEG, SVG, WebP." },
+        { error: "Invalid file type. Allowed: PNG, JPEG, WebP." },
         { status: 400 }
       );
     }

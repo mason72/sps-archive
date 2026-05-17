@@ -79,23 +79,39 @@ export function SectionedGallery({
 
   return (
     <div>
-      {/* ─── Tab bar ─── */}
-      <div className="flex gap-1 mb-8 overflow-x-auto pb-px scrollbar-hide">
-        {showAllTab && (
-          <button
-            onClick={() => setActiveTab("all")}
-            className={cn(
-              "px-4 py-2 text-[13px] font-medium rounded-full transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
-              activeTab === "all"
-                ? "text-white"
-                : "hover:opacity-80"
-            )}
-            style={{
-              backgroundColor: activeTab === "all" ? colors.primary : `${colors.secondary}15`,
-              color: activeTab === "all" ? colors.background : colors.secondary,
+      {/* ─── Tab bar ───
+          Squared editorial chips with a 2px bottom hairline on the active
+          tab. Wrapped in a fade-edge container so when the tab list
+          overflows horizontally (common on mobile / 6+ sections) the
+          edges fade out — quietly hinting that more sections live
+          off-screen instead of cutting them off mid-letter. */}
+      <div
+        className="relative mb-8 border-b border-stone-200/60"
+        style={{
+          // Soft gradient mask on both ends; transparent at the edges,
+          // opaque in the middle. The middle stop being only ~16px in
+          // means a ~24px taper on each side regardless of viewport.
+          WebkitMaskImage:
+            "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+          maskImage:
+            "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+        }}
+      >
+        <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
+          {showAllTab && (
+            <button
+              onClick={() => setActiveTab("all")}
+              className={cn(
+                "relative -mb-px pb-3 text-[12px] font-medium uppercase tracking-[0.18em] transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
+                activeTab === "all" ? "" : "hover:opacity-80"
+              )}
+              style={{
+                color: activeTab === "all" ? colors.primary : colors.secondary,
+                borderBottom:
+                activeTab === "all" ? `2px solid ${colors.primary}` : "2px solid transparent",
             }}
           >
-            All ({images.length})
+            All <span className="opacity-50 ml-1 normal-case tracking-normal">({images.length})</span>
           </button>
         )}
         {sections.map((section) => {
@@ -106,20 +122,25 @@ export function SectionedGallery({
               key={section.id}
               onClick={() => setActiveTab(section.id)}
               className={cn(
-                "px-4 py-2 text-[13px] font-medium rounded-full transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
-                activeTab === section.id
-                  ? "text-white"
-                  : "hover:opacity-80"
+                "relative -mb-px pb-3 text-[12px] font-medium uppercase tracking-[0.18em] transition-colors duration-200 cursor-pointer whitespace-nowrap shrink-0",
+                activeTab === section.id ? "" : "hover:opacity-80"
               )}
               style={{
-                backgroundColor: activeTab === section.id ? colors.primary : `${colors.secondary}15`,
-                color: activeTab === section.id ? colors.background : colors.secondary,
+                color: activeTab === section.id ? colors.primary : colors.secondary,
+                borderBottom:
+                  activeTab === section.id
+                    ? `2px solid ${colors.primary}`
+                    : "2px solid transparent",
               }}
             >
-              {section.name} ({count})
+              {section.name}{" "}
+              <span className="opacity-50 ml-1 normal-case tracking-normal">
+                ({count})
+              </span>
             </button>
           );
         })}
+        </div>
       </div>
 
       {/* ─── Active section description ─── */}

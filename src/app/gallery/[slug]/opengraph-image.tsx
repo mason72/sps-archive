@@ -17,16 +17,24 @@ export default async function OGImage({
   const { slug } = await params;
   const supabase = createServiceClient();
 
-  // 1. Resolve slug → share
+  // 1. Resolve slug → share. Also fetch password_hash so we can suppress
+  // event-specific previews for password-protected shares (otherwise the
+  // OG image leaks the couple's name + cover photo to any link-preview
+  // bot that hits the slug — pre-auth).
   const { data: share } = await supabase
     .from("shares")
-    .select("event_id, is_active")
+    .select("event_id, is_active, password_hash")
     .eq("slug", slug)
     .eq("is_active", true)
     .single();
 
   if (!share) {
     return fallbackImage("Gallery");
+  }
+
+  // Password-protected share → don't reveal anything before the gate.
+  if (share.password_hash) {
+    return fallbackImage("Private Gallery");
   }
 
   // 2. Fetch event + settings
@@ -77,7 +85,7 @@ export default async function OGImage({
       .from("images")
       .select("r2_key")
       .eq("event_id", share.event_id)
-      .neq("processing_status", "error")
+      .neq("processing_status", "failed")
       .order("created_at", { ascending: true })
       .limit(1)
       .single();

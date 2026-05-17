@@ -18,24 +18,16 @@ export interface Subscription {
 }
 
 /**
- * Helper to query the subscriptions table with proper typing.
- * The `subscriptions` table isn't in the generated Supabase types yet
- * (needs SQL migration), so we cast through `unknown`.
- */
-function subscriptionsTable(supabase: ReturnType<typeof createServiceClient>) {
-  // subscriptions table not in generated types yet — cast through unknown
-  return supabase.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof supabase.from>;
-}
-
-/**
  * Get user's subscription from Supabase.
- * Returns null if no subscription exists (shouldn't happen after trigger setup).
+ * Returns null if no subscription exists (shouldn't happen post-013 —
+ * the migration backfills + adds a trigger so every user has a row).
  */
 export async function getUserSubscription(
   userId: string
 ): Promise<Subscription | null> {
   const supabase = createServiceClient();
-  const { data, error } = await subscriptionsTable(supabase)
+  const { data, error } = await supabase
+    .from("subscriptions")
     .select("*")
     .eq("user_id", userId)
     .single();
@@ -49,7 +41,8 @@ export async function getUserSubscription(
     const trialEnd = new Date(row.trial_end);
     if (trialEnd < new Date()) {
       // Trial expired — downgrade to free
-      await subscriptionsTable(supabase)
+      await supabase
+        .from("subscriptions")
         .update({
           plan: "free",
           status: "free",

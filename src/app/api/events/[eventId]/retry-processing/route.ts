@@ -46,11 +46,12 @@ export async function POST(
       return NextResponse.json({ retried: 0, message: "No stuck images found" });
     }
 
-    // Reset all to "pending"
+    // Reset all to "pending" and clear any prior error so the UI doesn't
+    // show "failed: <last error>" while the retry is in flight.
     const imageIds = stuckImages.map((img) => img.id);
     await supabase
       .from("images")
-      .update({ processing_status: "pending" })
+      .update({ processing_status: "pending", last_error: null })
       .in("id", imageIds);
 
     // Re-send Inngest events

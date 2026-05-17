@@ -81,7 +81,7 @@ export async function PATCH(request: NextRequest) {
 
     const body = (await request.json()) as {
       imageIds: string[];
-      action: "add_to_section" | "remove_from_section" | "favorite" | "rename";
+      action: "add_to_section" | "remove_from_section" | "favorite" | "star" | "unstar" | "rename";
       sectionId?: string;
       shareId?: string;
       pattern?: string;
@@ -199,6 +199,25 @@ export async function PATCH(request: NextRequest) {
 
         if (favError) {
           return NextResponse.json({ error: favError.message }, { status: 500 });
+        }
+
+        return NextResponse.json({ updated: ownedIds.length, action });
+      }
+
+      case "star":
+      case "unstar": {
+        // Photographer-private star toggle on a batch. Single UPDATE
+        // because RLS already scopes to owned images (we still passed
+        // ownedIds through the explicit ownership filter above, so this
+        // is belt-and-suspenders).
+        const next = action === "star";
+        const { error: starError } = await supabase
+          .from("images")
+          .update({ starred: next })
+          .in("id", ownedIds);
+
+        if (starError) {
+          return NextResponse.json({ error: starError.message }, { status: 500 });
         }
 
         return NextResponse.json({ updated: ownedIds.length, action });

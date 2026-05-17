@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/layout/Nav";
+import { useSearchParams } from "next/navigation";
+import { AppNav } from "@/components/layout/AppNav";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
@@ -21,7 +23,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload, Trash2, Star, ImageIcon } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -72,6 +74,8 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
+  /** Filter the grid to photographer-starred images only (toolbar toggle). */
+  const [starredOnly, setStarredOnly] = useState(false);
   const [sortBy, setSortByState] = useState<"upload" | "filename" | "date-taken">("upload");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -187,6 +191,20 @@ export default function EventPage({
   useEffect(() => {
     fetchEvent();
   }, [fetchEvent]);
+
+  // Open the lightbox on the deep-linked image once it's loaded. Used by
+  // the global search results page: clicking a thumbnail navigates here
+  // with `?image=<id>` and the user lands on that specific photo instead
+  // of the top of the gallery.
+  const searchParams = useSearchParams();
+  const deepLinkImageId = searchParams.get("image");
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !deepLinkImageId) return;
+    if (!allImages.some((img) => img.id === deepLinkImageId)) return;
+    deepLinkAppliedRef.current = true;
+    setSelectedImageId(deepLinkImageId);
+  }, [deepLinkImageId, allImages]);
 
   // Fire celebration toast when processing completes (debounced to prevent oscillation)
   useEffect(() => {
@@ -382,54 +400,79 @@ export default function EventPage({
   }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
 
   const handleBatchFavorite = useCallback(async () => {
-    try {
-      // Find the first active share for this event to attach favorites to
-      const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
-      if (!sharesRes.ok) throw new Error("Failed to load shares");
-      const sharesData = await sharesRes.json();
-      let activeShare = sharesData.shares?.find(
-        (s: { isActive: boolean }) => s.isActive
+    // F-key + bulk-star button now toggles the photographer-private
+    // `starred` flag on the selected images. Pre-Phase-3 this auto-
+    // created a public share and inserted rows into the favorites
+    // table — terrifying for organizational use, since the
+    // photographer's culling marks would leak as if a client had
+    // picked them.
+    //
+    // If any of the selected images are unstarred we star them all;
+    // if they're all already starred we unstar them all.
+    if (selectedArray.length === 0) return;
+    const anyUnstarred = selectedArray.some(
+      (id) => !allImages.find((img) => img.id === id)?.starred
+    );
+    const action = anyUnstarred ? "star" : "unstar";
+    const nextValue = anyUnstarred;
+
+    // Optimistic local update so the grid + lightbox reflect the new
+    // state immediately. Roll back on failure.
+    const previousStarred = new Map(
+      selectedArray.map((id) => [
+        id,
+        allImages.find((img) => img.id === id)?.starred ?? false,
+      ])
+    );
+    const apply = (next: boolean) => {
+      setAllImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id) ? { ...i, starred: next } : i
+        )
       );
+      setImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id) ? { ...i, starred: next } : i
+        )
+      );
+    };
+    apply(nextValue);
 
-      // Auto-create share if none exists
-      if (!activeShare) {
-        const createRes = await fetch("/api/shares", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventId,
-            shareType: "full",
-            allowDownload: true,
-            allowFavorites: true,
-          }),
-        });
-        if (!createRes.ok) throw new Error("Failed to create share");
-        const createData = await createRes.json();
-        activeShare = createData.share;
-        setHasActiveShare(true);
-        setActiveShareSlug(activeShare.slug);
-      }
-
+    try {
       const res = await fetch("/api/images/batch", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageIds: selectedArray,
-          action: "favorite",
-          shareId: activeShare.id,
+          action,
         }),
       });
-      if (!res.ok) throw new Error("Favorite failed");
+      if (!res.ok) throw new Error("Star failed");
+      const cnt = selectionCount;
       deselectAll();
-      const msg = !hasActiveShare
-        ? `Share link created. ${selectionCount} images starred.`
-        : `Starred ${selectionCount} images`;
-      toast.success(msg);
+      toast.success(
+        nextValue ? `Starred ${cnt} ${cnt === 1 ? "image" : "images"}` : `Unstarred ${cnt} ${cnt === 1 ? "image" : "images"}`
+      );
     } catch (err) {
-      console.error("Batch favorite failed:", err);
-      toast.error("Failed to star images");
+      console.error("Batch star failed:", err);
+      // Roll back to the per-image previous state.
+      setAllImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id)
+            ? { ...i, starred: previousStarred.get(i.id)! }
+            : i
+        )
+      );
+      setImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id)
+            ? { ...i, starred: previousStarred.get(i.id)! }
+            : i
+        )
+      );
+      toast.error("Failed to update stars");
     }
-  }, [eventId, selectedArray, selectionCount, deselectAll, hasActiveShare]);
+  }, [allImages, selectedArray, selectionCount, deselectAll]);
 
   const handleCreateSelectionLink = useCallback(() => {
     setShareModalImageIds([...selectedArray]);
@@ -517,28 +560,54 @@ export default function EventPage({
 
   const handleDropImagesToSection = useCallback(
     async (sectionId: string, imageIds: string[]) => {
+      // Always add to the target FIRST, then remove from the source.
+      // Pre-fix this was DELETE-then-POST; if the POST failed, the
+      // image landed in zero sections (sections are not exclusive, so
+      // it's safe to be in both briefly mid-move, but it's never safe
+      // to be in neither).
+      const isMove = !!activeSection && activeSection !== sectionId;
       try {
-        // If viewing a specific section, remove from the current section first (move)
-        if (activeSection && activeSection !== sectionId) {
-          await fetch(`/api/sections/${activeSection}/images`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds }),
-          });
-        }
-        // Add to the target section
-        await fetch(`/api/sections/${sectionId}/images`, {
+        const addRes = await fetch(`/api/sections/${sectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds }),
         });
+        if (!addRes.ok) throw new Error("Failed to add to target section");
+
+        if (isMove) {
+          const removeRes = await fetch(
+            `/api/sections/${activeSection}/images`,
+            {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageIds }),
+            }
+          );
+          if (!removeRes.ok) {
+            // The add succeeded but the remove failed — the image is
+            // now in BOTH sections, which is non-destructive (sections
+            // are non-exclusive). Surface so the photographer knows
+            // and can clean up.
+            console.error("Section move: remove-from-source step failed");
+            toast(
+              `Copied ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} — couldn't remove from the original section`,
+              { duration: 5000 }
+            );
+            deselectAll();
+            fetchEvent();
+            return;
+          }
+        }
+
         deselectAll();
         fetchEvent();
-        const action = activeSection && activeSection !== sectionId ? "Moved" : "Added";
-        toast.success(`${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`);
+        const action = isMove ? "Moved" : "Added";
+        toast.success(
+          `${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`
+        );
       } catch (err) {
         console.error("Drop to section failed:", err);
-        toast.error("Failed to move images");
+        toast.error("Couldn't move images to that section");
       }
     },
     [activeSection, deselectAll, fetchEvent]
@@ -574,7 +643,9 @@ export default function EventPage({
 
   // Sort images based on user selection (stacks keep internal rank order)
   const sortedImages = useMemo(() => {
-    const sorted = [...images];
+    let working = images;
+    if (starredOnly) working = working.filter((img) => img.starred);
+    const sorted = [...working];
     switch (sortBy) {
       case "filename":
         sorted.sort((a, b) =>
@@ -595,7 +666,7 @@ export default function EventPage({
         break; // "upload" — keep API order (created_at asc)
     }
     return sorted;
-  }, [images, sortBy]);
+  }, [images, sortBy, starredOnly]);
 
   const standalone = sortedImages.filter((img) => !img.stackId);
 
@@ -713,38 +784,54 @@ export default function EventPage({
       {/* ─── Main content ─── */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* ─── Nav ─── */}
-      <Nav>
-        {/* Add Images / Upload */}
-        <button
-          onClick={() => {
-            setShowUpload((v) => !v);
-            hadUploadErrors.current = false;
-          }}
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
-        </button>
+      <AppNav
+        active="events"
+        actions={
+          <>
+            {/* Add Images / Upload */}
+            <button
+              onClick={() => {
+                setShowUpload((v) => !v);
+                hadUploadErrors.current = false;
+              }}
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+            >
+              {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
+            </button>
 
-        {/* Preview — opens client gallery in new tab */}
-        <a
-          href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Preview
-        </a>
+            {/* Preview — opens the client-facing gallery in a new tab so
+                the photographer can see exactly what their client will. */}
+            <a
+              href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+              title="Open the gallery the way your client sees it"
+            >
+              Preview as client
+            </a>
 
-        {/* Publish / Share — both go to email compose page */}
-        <Link href={hasActiveShare
-          ? `/events/${eventId}/share?slug=${activeShareSlug}`
-          : `/events/${eventId}/share`
-        }>
-          <BrandButton size={hasActiveShare ? "sm" : "md"} color={hasActiveShare ? "blue" : "emerald"} celebrate={!hasActiveShare}>
-            {hasActiveShare ? "Share" : "Publish"}
-          </BrandButton>
-        </Link>
-      </Nav>
+            {/* Send to client — single canonical CTA. Compose page handles
+                share creation if none exists; share-link copy if just
+                wanting a URL. */}
+            <Link
+              href={
+                hasActiveShare
+                  ? `/events/${eventId}/share?slug=${activeShareSlug}`
+                  : `/events/${eventId}/share`
+              }
+            >
+              <BrandButton
+                size={hasActiveShare ? "sm" : "md"}
+                color="emerald"
+                celebrate={!hasActiveShare}
+              >
+                Send to client
+              </BrandButton>
+            </Link>
+          </>
+        }
+      />
 
       <main className="px-8 md:px-16 pt-12 pb-24">
         {/* ─── Event header ─── */}
@@ -937,19 +1024,15 @@ export default function EventPage({
             {/* ─── Empty state ─── */}
             {allImages.length === 0 && !processing.isProcessing && (
               <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
-                <div className="w-16 h-16 mb-6 text-stone-200">
-                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="8" y="12" width="48" height="36" rx="3" stroke="currentColor" strokeWidth="2" />
-                    <circle cx="24" cy="28" r="5" stroke="currentColor" strokeWidth="2" />
-                    <path d="M8 40 L24 30 L36 38 L48 26 L56 32 L56 48 L8 48 Z" fill="currentColor" opacity="0.15" />
-                    <path d="M24 30 L36 38 L48 26" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-                  </svg>
+                <div className="text-stone-300 mb-6">
+                  <PixelMosaic size={36} className="opacity-100" />
                 </div>
-                <p className="font-editorial text-xl text-stone-300 italic mb-2">
+                <p className="font-editorial text-xl text-stone-400 italic mb-2">
                   Your gallery awaits
                 </p>
                 <p className="text-[13px] text-stone-400 max-w-xs leading-relaxed">
-                  Drop images above or click upload to begin. AI will organize everything automatically.
+                  Drop images above or click upload to begin. They&apos;ll
+                  appear here as they finish uploading.
                 </p>
               </div>
             )}
@@ -1082,6 +1165,26 @@ export default function EventPage({
 
                 <div className="w-px h-4 bg-stone-200" />
 
+                {/* Starred-only filter */}
+                <button
+                  onClick={() => setStarredOnly((v) => !v)}
+                  className={`p-1.5 transition-colors ${
+                    starredOnly
+                      ? "text-amber-500"
+                      : "text-stone-300 hover:text-stone-500"
+                  }`}
+                  aria-label="Show only starred"
+                  aria-pressed={starredOnly}
+                  title={starredOnly ? "Show all" : "Show only starred"}
+                >
+                  <Star
+                    className="h-4 w-4"
+                    fill={starredOnly ? "currentColor" : "none"}
+                  />
+                </button>
+
+                <div className="w-px h-4 bg-stone-200" />
+
                 {/* Filename overlay toggle */}
                 <button
                   onClick={toggleFilenames}
@@ -1136,6 +1239,7 @@ export default function EventPage({
                   }}
                   hasSelection={selection.hasSelection}
                   selectedIds={selection.selectedIds}
+                  coverImageId={eventSettings.cover?.imageId ?? null}
                   columnCount={gridSettings?.columns}
                   gap={gridSettings?.gap}
                   style={gridSettings?.style}
@@ -1212,6 +1316,104 @@ export default function EventPage({
           images={flatImageList}
           initialImageId={selectedImageId}
           onClose={() => setSelectedImageId(null)}
+          actions={[
+            {
+              id: "star",
+              label: "Star this image",
+              // Filled-in when currently starred; outline otherwise. Resolved
+              // by looking up the latest state of the image in allImages so
+              // the icon updates as you press F repeatedly.
+              icon: (
+                <Star
+                  className="h-[18px] w-[18px]"
+                  fill={allImages.find((i) => i.id === selectedImageId)?.starred ? "currentColor" : "none"}
+                />
+              ),
+              shortcut: "f",
+              onAct: async (image) => {
+                const willStar = !image.starred;
+                // Optimistic update — flip the local state so the next
+                // press of F (and the badge in the grid) reads correctly.
+                setAllImages((prev) =>
+                  prev.map((i) => (i.id === image.id ? { ...i, starred: willStar } : i))
+                );
+                setImages((prev) =>
+                  prev.map((i) => (i.id === image.id ? { ...i, starred: willStar } : i))
+                );
+                try {
+                  const res = await fetch(`/api/images/${image.id}/star`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ starred: willStar }),
+                  });
+                  if (!res.ok) throw new Error("star failed");
+                  toast(willStar ? "Starred" : "Unstarred", { duration: 1200 });
+                } catch (err) {
+                  console.error("[lightbox] star failed:", err);
+                  // Roll back.
+                  setAllImages((prev) =>
+                    prev.map((i) => (i.id === image.id ? { ...i, starred: !willStar } : i))
+                  );
+                  setImages((prev) =>
+                    prev.map((i) => (i.id === image.id ? { ...i, starred: !willStar } : i))
+                  );
+                  toast.error("Failed to update star");
+                }
+              },
+            },
+            {
+              id: "set-as-cover",
+              label: "Set as event cover",
+              icon: <ImageIcon className="h-[18px] w-[18px]" />,
+              shortcut: "c",
+              onAct: async (image) => {
+                try {
+                  const res = await fetch(`/api/events/${eventId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      settings: { cover: { enabled: true, imageId: image.id } },
+                    }),
+                  });
+                  if (!res.ok) throw new Error("set cover failed");
+                  toast.success("Cover image set");
+                  fetchEvent();
+                } catch (err) {
+                  console.error("[lightbox] set cover failed:", err);
+                  toast.error("Failed to set cover");
+                }
+              },
+            },
+            {
+              id: "delete",
+              label: "Delete image",
+              icon: <Trash2 className="h-[18px] w-[18px]" />,
+              shortcut: "Delete",
+              destructive: true,
+              // Inline two-stage confirm rather than native confirm() —
+              // the browser dialog felt jarring against the editorial
+              // lightbox. The Trash icon flips to "Confirm" in red for
+              // ~3s; a second press commits.
+              requiresConfirm: true,
+              confirmLabel: "Confirm delete",
+              onAct: async (image) => {
+                try {
+                  const res = await fetch("/api/images/batch", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageIds: [image.id] }),
+                  });
+                  if (!res.ok) throw new Error("delete failed");
+                  toast.success("Image deleted");
+                  fetchEvent();
+                  return "close" as const;
+                } catch (err) {
+                  console.error("[lightbox] delete failed:", err);
+                  toast.error("Failed to delete image");
+                }
+              },
+            },
+          ]}
         />
       )}
 

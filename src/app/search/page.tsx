@@ -4,8 +4,9 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
-import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
+import { PixelMosaic } from "@/components/ui/PixelMosaic";
 
 interface SearchResult {
   id: string;
@@ -30,14 +31,7 @@ export default function GlobalSearchPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Nav>
-        <Link href="/" className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300">
-          Archive
-        </Link>
-        <Link href="/search" className="editorial-link font-medium text-stone-900">
-          Search
-        </Link>
-      </Nav>
+      <AppNav active="search" />
 
       <main className="px-8 md:px-16 pt-16 pb-24">
         <div className="max-w-4xl">
@@ -61,7 +55,8 @@ export default function GlobalSearchPage() {
             className="text-stone-400 text-[15px] max-w-md leading-[1.8] mb-12 reveal"
             style={{ animationDelay: "0.2s" }}
           >
-            By description, filename, or visual similarity. Every image, every event — instantly searchable.
+            Search by filename or parsed name across every event. Smart
+            visual search is on the way.
           </p>
 
           <div className="reveal" style={{ animationDelay: "0.25s" }}>
@@ -75,7 +70,7 @@ export default function GlobalSearchPage() {
                 setResults([]);
                 setHasSearched(false);
               }}
-              placeholder='Search your entire archive... "Johnson wedding first dance"'
+              placeholder='Search by filename… "SmithJohn" or "IMG_4532"'
             />
           </div>
         </div>
@@ -83,9 +78,16 @@ export default function GlobalSearchPage() {
         {/* ─── Results ─── */}
         <div className="mt-12">
           {hasSearched && results.length === 0 && (
-            <div className="text-center py-16">
-              <p className="caption-italic">
-                No images found. Try a different search term.
+            <div className="flex flex-col items-center justify-center text-center py-20">
+              <div className="text-stone-300 mb-5">
+                <PixelMosaic size={28} className="opacity-100" />
+              </div>
+              <p className="font-editorial text-[22px] text-stone-400 italic mb-2">
+                Nothing matched
+              </p>
+              <p className="text-[13px] text-stone-400 max-w-xs leading-relaxed">
+                Try a different filename or part of a parsed name. Search
+                runs across every event in your archive.
               </p>
             </div>
           )}
@@ -131,7 +133,7 @@ function SearchResultCard({ result }: { result: SearchResult }) {
 
   return (
     <Link
-      href={`/events/${result.eventId}`}
+      href={`/events/${result.eventId}?image=${result.id}`}
       className="group relative block w-full overflow-hidden bg-stone-100 photo-lift"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

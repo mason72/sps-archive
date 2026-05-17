@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
-import { SignOutButton } from "@/components/auth/SignOutButton";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { OnboardingPrompt } from "@/components/dashboard/OnboardingPrompt";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { Greeting } from "@/components/dashboard/Greeting";
 
@@ -55,18 +57,16 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Nav>
-        <Link href="/events/new">
-          <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
-        </Link>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Account
-        </Link>
-        <SignOutButton />
-      </Nav>
+      <AppNav
+        active="events"
+        actions={
+          <Link href="/events/new">
+            <BrandButton color="emerald" celebrate size="sm">
+              New Event
+            </BrandButton>
+          </Link>
+        }
+      />
 
       {/* ─── V3: Personalized greeting ─── */}
       <div className="px-8 md:px-16 pt-16 pb-4">
@@ -87,8 +87,8 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
       {/* ─── Stats row ─── */}
       <DashboardStats />
 
-      {/* ─── Spacer ─── */}
-      <div className="h-8" />
+      {/* ─── Recent activity strip (self-hides when empty) ─── */}
+      <RecentActivity />
 
       {/* ─── Event list ─── */}
       <EventList />
@@ -96,6 +96,9 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
       {/* ─── Empty state CTA (shown inside EventList when no events) ─── */}
 
       <Footer />
+
+      {/* First-run welcome — self-mounts only when profile is empty */}
+      <OnboardingPrompt />
     </div>
   );
 }
@@ -141,9 +144,9 @@ function LandingView() {
           className="text-stone-400 text-[15px] mt-8 max-w-lg leading-[1.8] reveal"
           style={{ animationDelay: "0.2s" }}
         >
-          Upload thousands of images. AI organizes them into smart stacks,
-          searchable sections, and shareable galleries — so you can focus on what
-          matters.
+          Upload thousands of images. Organize them into sections, build
+          beautiful shareable galleries, and deliver to clients — so you can
+          focus on the work that matters.
         </p>
         <div className="mt-12 reveal" style={{ animationDelay: "0.3s" }}>
           <Link href="/signup">
@@ -166,21 +169,21 @@ function LandingView() {
           {[
             {
               number: "01",
-              title: "Smart Stacks",
+              title: "Sections that fit",
               description:
-                "Twelve headshots of the same person? The best rises to the top. Expand to compare, pick your favourite — or let AI decide.",
+                "Group each shoot the way you actually deliver it — Ceremony, Reception, Portraits. Drag to reorder, drop photos into more than one place.",
             },
             {
               number: "02",
-              title: "Natural Search",
+              title: "Find anything fast",
               description:
-                "Search by what you see, not filenames. \"First dance\", \"speeches at sunset\", or upload a selfie to find every photo of someone.",
+                "Filename search across one event or your whole archive. Smarter visual search coming soon — for now, your camera's naming and your renames are enough.",
             },
             {
               number: "03",
-              title: "Auto Sections",
+              title: "Beautiful sharing",
               description:
-                "AI detects scenes and creates overlapping sections. One photo can live in multiple contexts — ceremony, candids, family portraits.",
+                "Branded galleries with optional passwords and PINs. Clients pick favorites by name and email, and you see exactly who liked what.",
             },
           ].map((feature, i) => (
             <div
