@@ -153,6 +153,61 @@ Before deploying this branch:
 
 ---
 
+## Phase 3+ — Deferred items knocked out [DONE]
+Session 2 picked up the items deliberately deferred during the
+original Phase 3 + Phase 4 pass.
+
+### Photographer star (migration 017)
+- [x] `images.starred` boolean column + partial index on `event_id` WHERE starred = true.
+- [x] PUT `/api/images/[imageId]/star` (toggle or set), `PATCH /api/images/batch` adds `"star"` / `"unstar"` actions.
+- [x] Lightbox `Star` action with F shortcut + filled/outline state.
+- [x] `Set as event cover` action with C shortcut on the lightbox.
+- [x] Grid corner indicator (amber star, top-right).
+- [x] Toolbar toggle on event page filters the grid to starred only.
+- [x] F-key on grid selection now toggles `starred` instead of auto-creating a public share (closes the audit's loudest UX hazard).
+
+### Dashboard recent activity
+- [x] New `<RecentActivity>` strip on the dashboard (top 5 client events with friendly summaries + relative time). Self-hides on empty.
+- [x] New lightweight `/api/dashboard/recent-activity` endpoint that batches the event-name join.
+
+### First-run onboarding
+- [x] `<OnboardingPrompt>` modal triggers on dashboard mount when `display_name` and `business_name` are both empty. Stores dismissal in localStorage. Skip-friendly.
+
+### Pre-flight share checklist
+- [x] `<ShareChecklist>` (already existed in ShareModal) now also rendered above the email compose on `/events/[eventId]/share`.
+
+### Janitor
+- [x] `POST /api/admin/janitor` (ADMIN_EMAILS-gated). Sweeps orphan `pending` images older than N hours. Best-effort R2 delete + DB delete. Supports `dryRun: true`. Caps to 500/run with `hadMore` flag.
+
+### Bulk ZIP streaming refactor
+- [x] Switched from `response.arrayBuffer()` → `Readable.fromWeb()` so archiver drains R2 incrementally. Memory peak bounded to a single chunk regardless of file size.
+- [x] Dedupes filename collisions ("IMG_4532.jpg" twice → "IMG_4532 (2).jpg").
+- [x] archiver warnings logged but no longer abort the whole download.
+
+### Aesthetic finishes
+- [x] `<PixelMosaic>` component extracted from the gallery-footer signature. Applied to dashboard / search / event empty states — the elephant-pattern thread now runs through every empty surface.
+- [x] `<Divider>` primitive (replaces three ad-hoc patterns going forward).
+- [x] Toast restyle: 2px emerald accent rail (red for errors), squared corners, editorial typography.
+- [x] Squared SectionedGallery tabs already done in Phase 4.
+- [x] Selection feedback (dim unselected) already done in Phase 4.
+
+### Misc polish + security finishes
+- [x] Forgot-password 600ms response-time floor — closes the email-enumeration timing oracle.
+- [x] `/api/gallery/[slug]/track` validates that `imageId` belongs to the share's event (was a fake-imageId log-spam vector); rate-limited to 120/hour per IP+slug.
+- [x] Event tab title now uses RLS-bound client (no event-name leak via document.title for non-owners).
+- [x] Gallery `<slug>` layout sets meaningful `<title>` + OG title; password-protected shares fall back to "Private Gallery" matching the OG image gate.
+- [x] ImageGrid tile button gains descriptive `aria-label` + `aria-pressed`.
+- [x] Marketing pricing copy: drops "All AI Features" / "Natural Language Search" / RAW+AI storage caveats to match the truthful Phase 2 voice.
+- [x] ShortcutsHelp overlay reflects new lightbox shortcuts (F star, C cover, ⌫ delete).
+
+### Still deferred (good follow-ups)
+- [-] Lightbox "Add to section" action (needs a section-picker popover; out of scope here).
+- [-] Truly canonical share UI — ShareModal + share page still coexist. Worth a design pass.
+- [-] Demo-event seed for first-run.
+- [-] Sweep `text-[clamp(…)]` usage to the new display-xl/lg/md/sm tokens (low-risk migration any time).
+
+---
+
 ## Phase 3 — Make the Core Experience World Class [SUBSTANTIALLY DONE]
 **Goal:** UX consolidation. Pixeltrunk starts to feel premium.
 
