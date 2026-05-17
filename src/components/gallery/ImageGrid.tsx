@@ -22,6 +22,10 @@ interface ImageGridProps {
   gap?: "tight" | "normal" | "loose";
   style?: "masonry" | "uniform";
   showFilenames?: boolean;
+  /** Currently-set event cover image id. The matching tile gets a
+   *  subtle "this is the cover" badge so the photographer knows
+   *  what their clients will see on the gallery's hero section. */
+  coverImageId?: string | null;
 }
 
 const GAP_MAP = {
@@ -44,6 +48,7 @@ export function ImageGrid({
   onSetCover,
   hasSelection,
   selectedIds,
+  coverImageId,
   columnCount: settingsColumnCount,
   gap = "normal",
   style = "masonry",
@@ -112,6 +117,7 @@ export function ImageGrid({
             }
 
             const isSelected = selectedIds?.has(item.data.id) ?? false;
+            const isCover = coverImageId === item.data.id;
 
             return (
               <GridImage
@@ -120,6 +126,7 @@ export function ImageGrid({
                 hasSelection={hasSelection}
                 isSelected={isSelected}
                 selectedIds={selectedIds}
+                isCover={isCover}
                 onSelect={() => onToggleSelect?.(item.data.id)}
                 onRangeSelect={() => onRangeSelect?.(item.data.id)}
                 onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
@@ -145,6 +152,7 @@ function GridImage({
   hasSelection,
   isSelected,
   selectedIds,
+  isCover,
   uniform,
   showFilename,
 }: {
@@ -155,6 +163,7 @@ function GridImage({
   hasSelection?: boolean;
   isSelected?: boolean;
   selectedIds?: Set<string>;
+  isCover?: boolean;
   uniform?: boolean;
   showFilename?: boolean;
 }) {
@@ -275,6 +284,17 @@ function GridImage({
             className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
             fill="currentColor"
           />
+        </div>
+      )}
+
+      {/* "Cover" indicator — bottom-left corner of the image that's set
+          as the gallery's hero. Editorial small-caps pill, just enough
+          presence to read without competing with the photo. */}
+      {isCover && (
+        <div className="absolute bottom-2 left-2 z-[2] pointer-events-none">
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em] font-medium text-white bg-stone-900/85 backdrop-blur-sm">
+            Cover
+          </span>
         </div>
       )}
 

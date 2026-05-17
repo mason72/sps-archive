@@ -379,6 +379,15 @@
     animation: heart-pop 0.4s ease-out;
   }
 
+  /* Share page copy-link celebration. The emerald underline sweeps
+     left-to-right across the URL row when the photographer copies the
+     link, then fades out at the end. Paired with a Copy → Check icon
+     rotation in the button. */
+  .share-copy-sweep {
+    width: 0;
+    animation: share-copy-sweep 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
   .shimmer-placeholder {
     background: linear-gradient(
       90deg,
@@ -482,6 +491,12 @@
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes share-copy-sweep {
+  0% { width: 0; opacity: 1; }
+  60% { width: 100%; opacity: 1; }
+  100% { width: 100%; opacity: 0; }
 }
 
 @keyframes stagger-in {

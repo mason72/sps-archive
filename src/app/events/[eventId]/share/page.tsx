@@ -375,8 +375,30 @@ function ShareComposePage() {
               <div className="editorial-divider mb-6">
                 <span className="label-caps shrink-0">Gallery Link</span>
               </div>
-              <div className="flex items-center gap-3 p-4 border border-stone-200 bg-stone-50">
-                <Link2 size={16} className="text-stone-400 shrink-0" />
+              {/* The row gets a brief celebration on copy: an emerald
+                  underline sweeps across the URL field while the Copy
+                  icon rotates into a Check. Small, but it makes the
+                  act of copying feel like something happened — a
+                  photographer copying six times in a row should feel
+                  each one register. */}
+              <div
+                className={`relative flex items-center gap-3 p-4 border border-stone-200 bg-stone-50 overflow-hidden transition-colors duration-300 ${
+                  copied ? "border-accent/40" : ""
+                }`}
+              >
+                {/* Emerald underline sweep — keyframe defined in globals.css */}
+                {copied && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute bottom-0 left-0 h-[2px] bg-accent share-copy-sweep"
+                  />
+                )}
+                <Link2
+                  size={16}
+                  className={`shrink-0 transition-colors duration-300 ${
+                    copied ? "text-accent" : "text-stone-400"
+                  }`}
+                />
                 <span className="text-[13px] text-stone-600 truncate flex-1 font-mono">
                   {galleryUrl || "Creating link…"}
                 </span>
@@ -385,7 +407,17 @@ function ShareComposePage() {
                   disabled={!galleryUrl}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-all shrink-0"
                 >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  <span
+                    className={`inline-flex transition-transform duration-300 ${
+                      copied ? "rotate-180" : ""
+                    }`}
+                  >
+                    {copied ? (
+                      <Check size={12} className="text-accent" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                  </span>
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>

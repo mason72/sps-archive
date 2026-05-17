@@ -1239,6 +1239,7 @@ export default function EventPage({
                   }}
                   hasSelection={selection.hasSelection}
                   selectedIds={selection.selectedIds}
+                  coverImageId={eventSettings.cover?.imageId ?? null}
                   columnCount={gridSettings?.columns}
                   gap={gridSettings?.gap}
                   style={gridSettings?.style}
