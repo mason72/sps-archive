@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 interface Props {
   params: Promise<{ eventId: string }>;
@@ -10,7 +10,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { eventId } = await params;
 
   try {
-    const supabase = createServiceClient();
+    // Use the cookie-bound RLS client so the title isn't generated from
+    // events the viewer doesn't own — would otherwise be a tiny info
+    // leak ("you don't own this event but the tab title still shows
+    // the wedding's name").
+    const supabase = await createServerSupabaseClient();
     const { data } = await supabase
       .from("events")
       .select("name")

@@ -206,6 +206,10 @@ function GridImage({
     [image.id, isSelected, selectedIds]
   );
 
+  const ariaLabel = isSelected
+    ? `Deselect ${image.parsedName || image.originalFilename || "image"}`
+    : `Select ${image.parsedName || image.originalFilename || "image"}`;
+
   return (
     <button
       data-image-id={image.id}
@@ -213,6 +217,8 @@ function GridImage({
       onDragStart={handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      aria-label={ariaLabel}
+      aria-pressed={isSelected}
       className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
         isSelected ? "ring-2 ring-accent ring-inset" : ""
       }`}
