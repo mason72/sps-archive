@@ -53,38 +53,56 @@ const BODY_FONT_CLASS: Record<string, string> = {
 };
 
 /** PIN prompt modal for download protection */
-function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void; onClose: () => void }) {
+function PinPromptModal({
+  onSubmit,
+  onClose,
+  error,
+  isSubmitting,
+}: {
+  onSubmit: (pin: string) => void;
+  onClose: () => void;
+  /** Inline error message (e.g. "Incorrect PIN"). Pre-fix the modal
+   *  surfaced errors via toast.error AND closed itself — making the
+   *  internal `error` state dead code. */
+  error: string | null;
+  isSubmitting: boolean;
+}) {
   const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white p-8 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
+      onClick={isSubmitting ? undefined : onClose}
+    >
+      <div className="bg-white p-8 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-editorial text-[20px] text-stone-900 mb-2">Download PIN</h3>
-        <p className="text-[13px] text-stone-400 mb-6">Enter the 4-digit PIN to download</p>
+        <p className="text-[13px] text-stone-400 mb-6">
+          Enter the 4-digit PIN your photographer shared with you.
+        </p>
         <input
           type="text"
           inputMode="numeric"
           maxLength={4}
           value={pin}
-          onChange={e => {
-            setPin(e.target.value.replace(/\D/g, "").slice(0, 4));
-            setError("");
-          }}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
           autoFocus
-          className="w-full text-center text-[24px] tracking-[0.5em] font-mono border-b border-stone-200 bg-transparent py-3 focus:border-stone-900 focus:outline-none transition-colors"
+          disabled={isSubmitting}
+          className="w-full text-center text-[24px] tracking-[0.5em] font-mono border-b border-stone-200 bg-transparent py-3 focus:border-stone-900 focus:outline-none transition-colors disabled:opacity-40"
           placeholder="&#x2022; &#x2022; &#x2022; &#x2022;"
-          onKeyDown={e => {
-            if (e.key === "Enter" && pin.length === 4) onSubmit(pin);
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && pin.length === 4 && !isSubmitting) onSubmit(pin);
           }}
         />
-        {error && <p className="text-[12px] text-red-500 mt-2 text-center">{error}</p>}
+        {error && (
+          <p className="text-[12px] text-red-500 mt-3 text-center" aria-live="polite">
+            {error}
+          </p>
+        )}
         <button
-          onClick={() => pin.length === 4 && onSubmit(pin)}
-          disabled={pin.length !== 4}
+          onClick={() => pin.length === 4 && !isSubmitting && onSubmit(pin)}
+          disabled={pin.length !== 4 || isSubmitting}
           className="mt-6 w-full py-2.5 text-[13px] text-white bg-stone-900 hover:bg-stone-800 transition-colors disabled:opacity-40"
         >
-          Download
+          {isSubmitting ? "Checking…" : "Continue"}
         </button>
       </div>
     </div>
@@ -184,7 +202,19 @@ export default function GalleryPage({
     }
   }, [selectedImageId]);
 
-  const loadFavorites = (shareId: string) => {
+  /**
+   * Hydrate favorites from BOTH localStorage (fast, offline-friendly)
+   * AND the server (canonical, follows the client across devices).
+   *
+   * Pre-fix this only read localStorage — meaning a client who
+   * favorited on their phone and then opened the gallery on their
+   * laptop saw zero favorites. The DB had them; we just never asked.
+   *
+   * Strategy: paint immediately with localStorage; then fetch the
+   * server set and reconcile (server is authoritative for the IDs but
+   * we keep any local pending writes that haven't synced yet).
+   */
+  const loadFavorites = async (shareId: string) => {
     try {
       const stored = localStorage.getItem(`favorites_${shareId}`);
       if (stored) {
@@ -192,6 +222,29 @@ export default function GalleryPage({
       }
     } catch {
       // localStorage not available
+    }
+
+    // Server hydrate — non-blocking but canonical.
+    try {
+      const res = await fetch(
+        `/api/gallery/${slug}/favorites?shareId=${shareId}`
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        favorites: { imageId: string }[];
+      };
+      const serverIds = new Set(data.favorites.map((f) => f.imageId));
+      setFavoriteIds(serverIds);
+      try {
+        localStorage.setItem(
+          `favorites_${shareId}`,
+          JSON.stringify([...serverIds])
+        );
+      } catch {
+        // localStorage not available
+      }
+    } catch {
+      // Non-blocking — keep whatever localStorage gave us.
     }
   };
 
@@ -339,8 +392,15 @@ export default function GalleryPage({
     }
   };
 
+  // PIN modal inline error state — replaces the old close-and-toast
+  // pattern that made the modal feel like it had eaten the input.
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
   /** Verify PIN against the server, then execute the pending action */
   const handlePinSubmit = async (pin: string) => {
+    setIsVerifyingPin(true);
+    setPinError(null);
     try {
       const res = await fetch(`/api/gallery/${slug}/verify-pin`, {
         method: "POST",
@@ -349,11 +409,22 @@ export default function GalleryPage({
       });
 
       if (!res.ok) {
-        toast.error("Incorrect PIN");
+        // Keep the modal open with an inline error rather than the
+        // old close-and-toast pattern that left the user staring at
+        // the page wondering what happened. Surface the rate-limit
+        // case specifically so they know to wait instead of trying
+        // the same PIN again.
+        if (res.status === 429) {
+          setPinError("Too many attempts. Please try again in a few minutes.");
+        } else if (res.status === 401) {
+          setPinError("Incorrect PIN. Try again.");
+        } else {
+          setPinError("Couldn't verify the PIN. Please try again.");
+        }
         return;
       }
 
-      // PIN verified -- remember for this session
+      // PIN verified — remember for this session
       setPinVerified(true);
       setShowPinModal(false);
 
@@ -361,7 +432,7 @@ export default function GalleryPage({
       // HMAC-signed `pt-pin-<slug>` cookie that the download route
       // reads — no need (and no safe way) to pass the PIN in the URL.
       if (pinAction?.type === "bulk") {
-        toast.success("Preparing download...");
+        toast.success("Preparing download…");
         window.location.href = `/api/gallery/${slug}/download`;
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");
@@ -371,7 +442,9 @@ export default function GalleryPage({
       }
       setPinAction(null);
     } catch {
-      toast.error("Failed to verify PIN");
+      setPinError("Couldn't reach the server. Please try again.");
+    } finally {
+      setIsVerifyingPin(false);
     }
   };
 
@@ -604,7 +677,7 @@ export default function GalleryPage({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search photos…"
+                placeholder="Search by filename…"
                 className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
                 style={{
                   color: colors.primary,
@@ -892,9 +965,12 @@ export default function GalleryPage({
       {showPinModal && (
         <PinPromptModal
           onSubmit={handlePinSubmit}
+          error={pinError}
+          isSubmitting={isVerifyingPin}
           onClose={() => {
             setShowPinModal(false);
             setPinAction(null);
+            setPinError(null);
           }}
         />
       )}

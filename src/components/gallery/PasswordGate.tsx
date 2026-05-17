@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GalleryBranding } from "@/types/gallery";
 
@@ -10,6 +11,19 @@ interface PasswordGateProps {
   customMessage: string | null;
   branding?: GalleryBranding | null;
   onSuccess: () => void;
+}
+
+/** Format a Retry-After value (seconds string, or HTTP-date) as a human
+ *  "X minutes" line. Rounds up so we never tell the user "0 minutes". */
+function formatRetryAfter(value: string | null): string | null {
+  if (!value) return null;
+  const seconds = Number.parseInt(value, 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  if (minutes === 1) return "Try again in about a minute.";
+  if (minutes < 60) return `Try again in about ${minutes} minutes.`;
+  const hours = Math.round(minutes / 60);
+  return `Try again in about ${hours} hour${hours === 1 ? "" : "s"}.`;
 }
 
 /**
@@ -24,7 +38,9 @@ export function PasswordGate({
   onSuccess,
 }: PasswordGateProps) {
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryHint, setRetryHint] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,6 +49,7 @@ export function PasswordGate({
 
     setIsVerifying(true);
     setError(null);
+    setRetryHint(null);
 
     try {
       const res = await fetch(`/api/gallery/${slug}/verify`, {
@@ -42,8 +59,16 @@ export function PasswordGate({
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Incorrect password");
+        // Honor the Retry-After header on 429s so the user gets a
+        // concrete "try again in N minutes" instead of just a vague
+        // scary "too many attempts."
+        if (res.status === 429) {
+          setError("Too many attempts.");
+          setRetryHint(formatRetryAfter(res.headers.get("Retry-After")));
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error || "Incorrect password");
+        }
         return;
       }
 
@@ -89,23 +114,39 @@ export function PasswordGate({
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
+          <div className="relative">
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
               autoFocus
-              className="w-full border-b bg-transparent py-3 text-center text-[16px] placeholder:text-stone-300 focus:outline-none transition-colors duration-300"
+              autoComplete="current-password"
+              className="w-full border-b bg-transparent py-3 pr-9 text-center text-[16px] placeholder:text-stone-300 focus:outline-none transition-colors duration-300"
               style={{
                 borderColor: b?.secondaryColor ? `${b.secondaryColor}40` : undefined,
                 color: b?.primaryColor,
               }}
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              tabIndex={-1}
+              className="absolute right-0 top-1/2 -translate-y-1/2 p-1.5 opacity-50 hover:opacity-100 transition-opacity"
+              style={{ color: b?.secondaryColor }}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
           </div>
 
           {error && (
-            <p className="text-[13px] text-red-600 fade-in">{error}</p>
+            <div className="space-y-1 fade-in">
+              <p className="text-[13px] text-red-600">{error}</p>
+              {retryHint && (
+                <p className="text-[12px] text-stone-500">{retryHint}</p>
+              )}
+            </div>
           )}
 
           <Button
@@ -122,13 +163,24 @@ export function PasswordGate({
                 : undefined
             }
           >
-            {isVerifying ? "Verifying..." : "View gallery"}
+            {isVerifying ? "Verifying…" : "View gallery"}
           </Button>
         </form>
 
+        <p
+          className="mt-10 text-[11px] opacity-60 leading-relaxed"
+          style={{ color: b?.secondaryColor }}
+        >
+          If you&apos;ve lost the password, ask your photographer to
+          resend the link.
+        </p>
+
         {/* Photographer business name */}
         {b?.businessName && !b.logoUrl && (
-          <p className="mt-12 text-[12px]" style={{ color: b.secondaryColor }}>
+          <p
+            className="mt-6 text-[12px]"
+            style={{ color: b.secondaryColor }}
+          >
             {b.businessName}
           </p>
         )}
