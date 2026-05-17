@@ -118,8 +118,8 @@ const PLANS = [
 ];
 
 const FEATURE_LABELS: Record<string, string> = {
-  ai: "All AI Features",
-  search: "Natural Language Search",
+  ai: "Smart Stacks & Search (coming soon)",
+  search: "Fast Filename Search",
   sharing: "Unlimited Sharing Links",
   branding: "Custom Branding",
   sps: "SPS Integration",
@@ -139,7 +139,7 @@ const FAQS = [
   },
   {
     q: "What counts toward my storage?",
-    a: "Original images, thumbnails, and any RAW files. AI processing data (embeddings, scores) doesn't count against your storage.",
+    a: "Original images, thumbnails, and any RAW files you upload. Generated derivatives don't count.",
   },
   {
     q: "Can I change plans later?",
@@ -173,8 +173,8 @@ export default function PricingPage() {
           className="text-stone-400 text-[15px] mt-4 leading-relaxed reveal"
           style={{ animationDelay: "0.1s" }}
         >
-          All plans include the full AI suite. No feature restrictions on
-          Smart Stacks, search, or sharing.
+          Every plan includes unlimited galleries, branded sharing, and
+          client proofing. Pick a tier based on how much storage you need.
         </p>
 
         {/* Billing toggle */}

@@ -28,7 +28,6 @@ const SHORTCUT_GROUPS = [
   {
     title: "Actions",
     shortcuts: [
-      { keys: ["F"], label: "Favorite selected" },
       { keys: ["⌫"], label: "Delete selected" },
       { keys: ["U"], label: "Toggle upload" },
       { keys: ["S"], label: "Share gallery" },
@@ -39,6 +38,9 @@ const SHORTCUT_GROUPS = [
     shortcuts: [
       { keys: ["←", "→"], label: "Navigate images" },
       { keys: ["I"], label: "Toggle image info" },
+      { keys: ["F"], label: "Star (your private pick)" },
+      { keys: ["C"], label: "Set as event cover" },
+      { keys: ["⌫"], label: "Delete image" },
       { keys: ["+", "−"], label: "Zoom in / out" },
       { keys: ["0"], label: "Reset zoom" },
       { keys: ["D"], label: "Download image" },

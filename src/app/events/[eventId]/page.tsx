@@ -399,54 +399,79 @@ export default function EventPage({
   }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
 
   const handleBatchFavorite = useCallback(async () => {
-    try {
-      // Find the first active share for this event to attach favorites to
-      const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
-      if (!sharesRes.ok) throw new Error("Failed to load shares");
-      const sharesData = await sharesRes.json();
-      let activeShare = sharesData.shares?.find(
-        (s: { isActive: boolean }) => s.isActive
+    // F-key + bulk-star button now toggles the photographer-private
+    // `starred` flag on the selected images. Pre-Phase-3 this auto-
+    // created a public share and inserted rows into the favorites
+    // table — terrifying for organizational use, since the
+    // photographer's culling marks would leak as if a client had
+    // picked them.
+    //
+    // If any of the selected images are unstarred we star them all;
+    // if they're all already starred we unstar them all.
+    if (selectedArray.length === 0) return;
+    const anyUnstarred = selectedArray.some(
+      (id) => !allImages.find((img) => img.id === id)?.starred
+    );
+    const action = anyUnstarred ? "star" : "unstar";
+    const nextValue = anyUnstarred;
+
+    // Optimistic local update so the grid + lightbox reflect the new
+    // state immediately. Roll back on failure.
+    const previousStarred = new Map(
+      selectedArray.map((id) => [
+        id,
+        allImages.find((img) => img.id === id)?.starred ?? false,
+      ])
+    );
+    const apply = (next: boolean) => {
+      setAllImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id) ? { ...i, starred: next } : i
+        )
       );
+      setImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id) ? { ...i, starred: next } : i
+        )
+      );
+    };
+    apply(nextValue);
 
-      // Auto-create share if none exists
-      if (!activeShare) {
-        const createRes = await fetch("/api/shares", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventId,
-            shareType: "full",
-            allowDownload: true,
-            allowFavorites: true,
-          }),
-        });
-        if (!createRes.ok) throw new Error("Failed to create share");
-        const createData = await createRes.json();
-        activeShare = createData.share;
-        setHasActiveShare(true);
-        setActiveShareSlug(activeShare.slug);
-      }
-
+    try {
       const res = await fetch("/api/images/batch", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageIds: selectedArray,
-          action: "favorite",
-          shareId: activeShare.id,
+          action,
         }),
       });
-      if (!res.ok) throw new Error("Favorite failed");
+      if (!res.ok) throw new Error("Star failed");
+      const cnt = selectionCount;
       deselectAll();
-      const msg = !hasActiveShare
-        ? `Share link created. ${selectionCount} images starred.`
-        : `Starred ${selectionCount} images`;
-      toast.success(msg);
+      toast.success(
+        nextValue ? `Starred ${cnt} ${cnt === 1 ? "image" : "images"}` : `Unstarred ${cnt} ${cnt === 1 ? "image" : "images"}`
+      );
     } catch (err) {
-      console.error("Batch favorite failed:", err);
-      toast.error("Failed to star images");
+      console.error("Batch star failed:", err);
+      // Roll back to the per-image previous state.
+      setAllImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id)
+            ? { ...i, starred: previousStarred.get(i.id)! }
+            : i
+        )
+      );
+      setImages((prev) =>
+        prev.map((i) =>
+          previousStarred.has(i.id)
+            ? { ...i, starred: previousStarred.get(i.id)! }
+            : i
+        )
+      );
+      toast.error("Failed to update stars");
     }
-  }, [eventId, selectedArray, selectionCount, deselectAll, hasActiveShare]);
+  }, [allImages, selectedArray, selectionCount, deselectAll]);
 
   const handleCreateSelectionLink = useCallback(() => {
     setShareModalImageIds([...selectedArray]);
