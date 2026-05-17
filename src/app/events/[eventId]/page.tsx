@@ -22,7 +22,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload, Trash2 } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload, Trash2, Star, ImageIcon } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
@@ -1240,6 +1240,73 @@ export default function EventPage({
           initialImageId={selectedImageId}
           onClose={() => setSelectedImageId(null)}
           actions={[
+            {
+              id: "star",
+              label: "Star this image",
+              // Filled-in when currently starred; outline otherwise. Resolved
+              // by looking up the latest state of the image in allImages so
+              // the icon updates as you press F repeatedly.
+              icon: (
+                <Star
+                  className="h-[18px] w-[18px]"
+                  fill={allImages.find((i) => i.id === selectedImageId)?.starred ? "currentColor" : "none"}
+                />
+              ),
+              shortcut: "f",
+              onAct: async (image) => {
+                const willStar = !image.starred;
+                // Optimistic update — flip the local state so the next
+                // press of F (and the badge in the grid) reads correctly.
+                setAllImages((prev) =>
+                  prev.map((i) => (i.id === image.id ? { ...i, starred: willStar } : i))
+                );
+                setImages((prev) =>
+                  prev.map((i) => (i.id === image.id ? { ...i, starred: willStar } : i))
+                );
+                try {
+                  const res = await fetch(`/api/images/${image.id}/star`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ starred: willStar }),
+                  });
+                  if (!res.ok) throw new Error("star failed");
+                  toast(willStar ? "Starred" : "Unstarred", { duration: 1200 });
+                } catch (err) {
+                  console.error("[lightbox] star failed:", err);
+                  // Roll back.
+                  setAllImages((prev) =>
+                    prev.map((i) => (i.id === image.id ? { ...i, starred: !willStar } : i))
+                  );
+                  setImages((prev) =>
+                    prev.map((i) => (i.id === image.id ? { ...i, starred: !willStar } : i))
+                  );
+                  toast.error("Failed to update star");
+                }
+              },
+            },
+            {
+              id: "set-as-cover",
+              label: "Set as event cover",
+              icon: <ImageIcon className="h-[18px] w-[18px]" />,
+              shortcut: "c",
+              onAct: async (image) => {
+                try {
+                  const res = await fetch(`/api/events/${eventId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      settings: { cover: { enabled: true, imageId: image.id } },
+                    }),
+                  });
+                  if (!res.ok) throw new Error("set cover failed");
+                  toast.success("Cover image set");
+                  fetchEvent();
+                } catch (err) {
+                  console.error("[lightbox] set cover failed:", err);
+                  toast.error("Failed to set cover");
+                }
+              },
+            },
             {
               id: "delete",
               label: "Delete image",

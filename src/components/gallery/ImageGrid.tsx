@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Check } from "lucide-react";
+import { Check, Star } from "lucide-react";
 import { SmartStack } from "./SmartStack";
 import { useColumnCount } from "@/hooks/useColumnCount";
 import type { ImageData, StackData } from "@/types/image";
@@ -259,6 +259,19 @@ function GridImage({
       />
       {/* Placeholder maintains minimum height while loading */}
       {!loaded && <div className="aspect-square" />}
+
+      {/* Photographer's private star — top-right corner. Small enough to
+          not compete with the image; only visible when starred so the grid
+          stays calm during browsing. */}
+      {image.starred && (
+        <div className="absolute top-2 right-2 z-[2] pointer-events-none">
+          <Star
+            className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+            fill="currentColor"
+          />
+        </div>
+      )}
+
       {showFilename && image.originalFilename && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">
           <p className="text-[11px] text-white truncate">

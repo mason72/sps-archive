@@ -23,6 +23,8 @@ export interface ImageData {
   height: number | null;
   createdAt: string;
   takenAt: string | null;
+  /** Photographer-private star. Visible only to the event owner. */
+  starred?: boolean;
 }
 
 /** Full image detail returned by GET /api/images/[imageId] */

@@ -83,6 +83,7 @@ export type Database = {
           processing_status: string;
           thumbnail_generated: boolean;
           last_error: string | null;
+          starred: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -117,6 +118,7 @@ export type Database = {
           processing_status?: string;
           thumbnail_generated?: boolean;
           last_error?: string | null;
+          starred?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -151,6 +153,7 @@ export type Database = {
           processing_status?: string;
           thumbnail_generated?: boolean;
           last_error?: string | null;
+          starred?: boolean;
           created_at?: string;
           updated_at?: string;
         };
