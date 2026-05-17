@@ -8,7 +8,7 @@ interface EmailPreviewProps {
   bodyHtml: string;
   branding?: Branding;
   businessName?: string;
-  logoUrl?: string;
+  logoUrl?: string | null;
 }
 
 /**

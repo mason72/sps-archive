@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { BrandButton } from "@/components/ui/brand-button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
@@ -98,12 +99,21 @@ export default function NewEventPage() {
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to create event");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || "Couldn't create event");
+      }
 
       const { event } = await response.json();
       router.push(`/events/${event.id}`);
     } catch (error) {
       console.error("Create event error:", error);
+      // Surface the failure — pre-fix the button just silently snapped
+      // back to "Create event" with no toast and the user often clicked
+      // again, creating duplicates.
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't create event"
+      );
     } finally {
       setIsCreating(false);
     }
@@ -131,7 +141,7 @@ export default function NewEventPage() {
           className="text-stone-400 text-[15px] max-w-md leading-[1.8] mb-16 reveal"
           style={{ animationDelay: "0.2s" }}
         >
-          Name your event and start uploading. AI handles the rest.
+          Name it, set the date, then upload your photos. Organize and share when you&apos;re ready.
         </p>
 
         {/* ─── Templates ─── */}

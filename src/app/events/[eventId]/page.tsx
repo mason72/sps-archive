@@ -773,17 +773,21 @@ export default function EventPage({
               {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
             </button>
 
-            {/* Preview — opens client gallery in new tab */}
+            {/* Preview — opens the client-facing gallery in a new tab so
+                the photographer can see exactly what their client will. */}
             <a
               href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
               target="_blank"
               rel="noopener noreferrer"
               className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+              title="Open the gallery the way your client sees it"
             >
-              Preview
+              Preview as client
             </a>
 
-            {/* Publish / Share — both go to email compose page */}
+            {/* Send to client — single canonical CTA. Compose page handles
+                share creation if none exists; share-link copy if just
+                wanting a URL. */}
             <Link
               href={
                 hasActiveShare
@@ -796,7 +800,7 @@ export default function EventPage({
                 color="emerald"
                 celebrate={!hasActiveShare}
               >
-                {hasActiveShare ? "Share" : "Publish"}
+                Send to client
               </BrandButton>
             </Link>
           </>
