@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
@@ -85,8 +86,8 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
       {/* ─── Stats row ─── */}
       <DashboardStats />
 
-      {/* ─── Spacer ─── */}
-      <div className="h-8" />
+      {/* ─── Recent activity strip (self-hides when empty) ─── */}
+      <RecentActivity />
 
       {/* ─── Event list ─── */}
       <EventList />
