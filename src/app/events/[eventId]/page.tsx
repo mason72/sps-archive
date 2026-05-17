@@ -73,6 +73,8 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
+  /** Filter the grid to photographer-starred images only (toolbar toggle). */
+  const [starredOnly, setStarredOnly] = useState(false);
   const [sortBy, setSortByState] = useState<"upload" | "filename" | "date-taken">("upload");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -589,7 +591,9 @@ export default function EventPage({
 
   // Sort images based on user selection (stacks keep internal rank order)
   const sortedImages = useMemo(() => {
-    const sorted = [...images];
+    let working = images;
+    if (starredOnly) working = working.filter((img) => img.starred);
+    const sorted = [...working];
     switch (sortBy) {
       case "filename":
         sorted.sort((a, b) =>
@@ -610,7 +614,7 @@ export default function EventPage({
         break; // "upload" — keep API order (created_at asc)
     }
     return sorted;
-  }, [images, sortBy]);
+  }, [images, sortBy, starredOnly]);
 
   const standalone = sortedImages.filter((img) => !img.stackId);
 
@@ -1106,6 +1110,26 @@ export default function EventPage({
                     </div>
                   )}
                 </div>
+
+                <div className="w-px h-4 bg-stone-200" />
+
+                {/* Starred-only filter */}
+                <button
+                  onClick={() => setStarredOnly((v) => !v)}
+                  className={`p-1.5 transition-colors ${
+                    starredOnly
+                      ? "text-amber-500"
+                      : "text-stone-300 hover:text-stone-500"
+                  }`}
+                  aria-label="Show only starred"
+                  aria-pressed={starredOnly}
+                  title={starredOnly ? "Show all" : "Show only starred"}
+                >
+                  <Star
+                    className="h-4 w-4"
+                    fill={starredOnly ? "currentColor" : "none"}
+                  />
+                </button>
 
                 <div className="w-px h-4 bg-stone-200" />
 
