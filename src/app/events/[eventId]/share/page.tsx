@@ -7,6 +7,7 @@ import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
+import { ShareChecklist } from "@/components/shares/ShareChecklist";
 import { EmailPreview } from "@/components/email/EmailPreview";
 import { EmailEditor, type EmailEditorHandle } from "@/components/email/EmailEditor";
 import { interpolateTemplate } from "@/lib/email/interpolate";
@@ -246,6 +247,11 @@ function ShareComposePage() {
           </div>
         ) : (
           <div className="reveal space-y-10">
+            {/* ─── Pre-flight checklist — quietly confirms the gallery is
+                ready before the photographer hits send (photos uploaded,
+                processing done, branding set, password decided). */}
+            <ShareChecklist eventId={eventId} />
+
             {/* ─── Copy Link Section ─── */}
             <section>
               <div className="editorial-divider mb-6">

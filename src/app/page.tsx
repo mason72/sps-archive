@@ -4,6 +4,7 @@ import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { OnboardingPrompt } from "@/components/dashboard/OnboardingPrompt";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
@@ -95,6 +96,9 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
       {/* ─── Empty state CTA (shown inside EventList when no events) ─── */}
 
       <Footer />
+
+      {/* First-run welcome — self-mounts only when profile is empty */}
+      <OnboardingPrompt />
     </div>
   );
 }
