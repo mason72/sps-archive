@@ -43,6 +43,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // INVARIANT: every image must belong to a real section — no orphans, ever.
+    // "All Photos" is a derived view, not an upload target. When no section is
+    // specified, resolve the event's default (first) section, creating an
+    // "Unsorted" section if the event somehow has none.
+    let targetSectionId = sectionId;
+    if (!targetSectionId) {
+      const { data: firstSection } = await supabase
+        .from("sections")
+        .select("id")
+        .eq("event_id", eventId)
+        .order("sort_order", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (firstSection) {
+        targetSectionId = firstSection.id;
+      } else {
+        const { data: created, error: createErr } = await supabase
+          .from("sections")
+          .insert({
+            event_id: eventId,
+            name: "Unsorted",
+            sort_order: 0,
+            is_auto: false,
+          })
+          .select("id")
+          .single();
+        if (createErr || !created) {
+          throw createErr || new Error("Failed to create default section");
+        }
+        targetSectionId = created.id;
+      }
+    }
+
+    if (!targetSectionId) {
+      throw new Error("Could not resolve a target section for upload");
+    }
+
     // Build all records
     const records = files.map((file) => {
       const id = randomUUID();
@@ -69,14 +107,24 @@ export async function POST(request: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // If uploading to a section, assign images to it
-    if (sectionId) {
-      const sectionImageRows = records.map((r, i) => ({
-        section_id: sectionId,
+    // Link every image to the resolved section. If this fails, roll back the
+    // image rows we just inserted so we never leave orphaned images behind.
+    const { error: linkError } = await supabase.from("section_images").insert(
+      records.map((r, i) => ({
+        section_id: targetSectionId,
         image_id: r.id,
         sort_order: i,
-      }));
-      await supabase.from("section_images").insert(sectionImageRows);
+      }))
+    );
+    if (linkError) {
+      await supabase
+        .from("images")
+        .delete()
+        .in(
+          "id",
+          records.map((r) => r.id)
+        );
+      throw linkError;
     }
 
     // Generate presigned upload URLs so the browser uploads directly to R2
@@ -91,7 +139,7 @@ export async function POST(request: NextRequest) {
       }))
     );
 
-    return NextResponse.json({ uploads });
+    return NextResponse.json({ uploads, sectionId: targetSectionId });
   } catch (error) {
     console.error("Upload error:", error);
     return NextResponse.json(

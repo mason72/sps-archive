@@ -112,6 +112,49 @@ export async function DELETE(
       );
     }
 
+    // Before deleting, rescue any photo that lives ONLY in this section by
+    // reassigning it to a fallback section. Deleting a section must never
+    // orphan its photos (the FK cascade would otherwise just drop the links).
+    const { data: fallback } = await supabase
+      .from("sections")
+      .select("id")
+      .eq("event_id", section.event_id)
+      .neq("id", sectionId)
+      .order("sort_order", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (fallback) {
+      const { data: links } = await supabase
+        .from("section_images")
+        .select("image_id")
+        .eq("section_id", sectionId);
+      const imageIds = (links ?? []).map((l) => l.image_id);
+
+      if (imageIds.length > 0) {
+        const { data: otherLinks } = await supabase
+          .from("section_images")
+          .select("image_id")
+          .in("image_id", imageIds)
+          .neq("section_id", sectionId);
+        const safe = new Set((otherLinks ?? []).map((l) => l.image_id));
+        const orphaning = imageIds.filter((id) => !safe.has(id));
+
+        if (orphaning.length > 0) {
+          const { error: rescueError } = await supabase
+            .from("section_images")
+            .insert(
+              orphaning.map((image_id, i) => ({
+                section_id: fallback.id,
+                image_id,
+                sort_order: i,
+              }))
+            );
+          if (rescueError) throw rescueError;
+        }
+      }
+    }
+
     const { error } = await supabase
       .from("sections")
       .delete()

@@ -17,6 +17,8 @@ const BATCH_SIZE = 50;
 const MAX_CONCURRENT_UPLOADS = 12;
 const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
+/** Hard ceiling on a single R2 PUT so a hung connection can't spin forever. */
+const R2_PUT_TIMEOUT_MS = 120_000;
 
 /**
  * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to fetch")
@@ -165,6 +167,17 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
 
           const { uploads } = await response.json();
 
+          // Defend against a short/misaligned presign response: any file with no
+          // matching upload URL must be failed, never left spinning forever.
+          if (!Array.isArray(uploads) || uploads.length < batchNewFiles.length) {
+            for (let i = uploads?.length ?? 0; i < batchNewFiles.length; i++) {
+              updateFile(batchNewFiles[i].id, {
+                status: "error",
+                error: "Server returned no upload URL",
+              });
+            }
+          }
+
           // 2. Upload files directly to R2 via presigned URLs
           const uploadTasks = uploads.map(
             (
@@ -195,11 +208,17 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                 let uploadRes: Response | undefined;
                 let lastErr: unknown;
                 for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(
+                    () => controller.abort(),
+                    R2_PUT_TIMEOUT_MS
+                  );
                   try {
                     uploadRes = await fetch(task.upload.uploadUrl, {
                       method: "PUT",
                       body: task.file,
                       headers: { "Content-Type": task.file.type },
+                      signal: controller.signal,
                     });
                     if (uploadRes.ok) {
                       lastErr = undefined;
@@ -217,6 +236,8 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                         throw fetchErr;
                       }
                     }
+                  } finally {
+                    clearTimeout(timeoutId);
                   }
                   // Exponential backoff before retry
                   if (attempt < R2_PUT_RETRIES) {
@@ -304,6 +325,16 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
             MAX_CONCURRENT_UPLOADS
           );
         }
+
+        // Final sweep: nothing should remain in 'pending' (never-started). If it
+        // does, fail it rather than leave an infinite spinner.
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.status === "pending"
+              ? { ...f, status: "error", error: f.error || "Upload did not start" }
+              : f
+          )
+        );
 
         // Notify parent of failures FIRST so error flag is set before confetti check
         const failedFiles = acceptedFiles.filter(
