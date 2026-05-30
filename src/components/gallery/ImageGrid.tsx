@@ -31,9 +31,13 @@ const GAP_MAP = {
 };
 
 /**
- * ImageGrid — Masonry layout with left-to-right chronological reading order.
- * Uses round-robin column distribution: image 1 → col 1, image 2 → col 2, etc.
- * Selection-first: checkboxes always visible, single click selects, double-click opens lightbox.
+ * ImageGrid — Balanced masonry layout.
+ * Places each item into the currently-shortest column (greedy bin-packing by
+ * estimated height), so columns stay even regardless of sort order. A pure
+ * round-robin (item i → col i % n) looked fine when tall/short images were
+ * scattered but produced one runaway column when portraits clustered together
+ * (e.g. sorting by capture date). Estimated height uses each image's real
+ * aspect ratio; unknown dimensions fall back to a neutral 1:1.
  */
 export function ImageGrid({
   stacks,
@@ -74,13 +78,31 @@ export function ImageGrid({
     );
   }
 
-  // Distribute items into columns round-robin for left-to-right reading order
+  // Distribute items into the shortest column so heights stay balanced.
+  // Height is relative (per unit column width): a 2:3 portrait ≈ 1.5, a 3:2
+  // landscape ≈ 0.67. Stacks get a small extra allowance for their UI chrome.
   const columns: Array<typeof gridItems> = Array.from(
     { length: colCount },
     () => []
   );
-  gridItems.forEach((item, i) => {
-    columns[i % colCount].push(item);
+  const colHeights = new Array(colCount).fill(0);
+  const estimateHeight = (
+    item: { type: "stack" | "image"; data: StackData | ImageData }
+  ): number => {
+    const data = item.data as { width?: number | null; height?: number | null };
+    const w = data.width ?? 0;
+    const h = data.height ?? 0;
+    const ratio = w > 0 && h > 0 ? h / w : 1; // fall back to square
+    return item.type === "stack" ? ratio + 0.15 : ratio;
+  };
+  gridItems.forEach((item) => {
+    // Pick the shortest column; ties go to the left-most for reading order.
+    let target = 0;
+    for (let c = 1; c < colCount; c++) {
+      if (colHeights[c] < colHeights[target] - 1e-9) target = c;
+    }
+    columns[target].push(item);
+    colHeights[target] += estimateHeight(item);
   });
 
   return (
