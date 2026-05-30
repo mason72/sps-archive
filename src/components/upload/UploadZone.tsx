@@ -19,6 +19,13 @@ const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
 /** Hard ceiling on a single R2 PUT so a hung connection can't spin forever. */
 const R2_PUT_TIMEOUT_MS = 120_000;
+/**
+ * Files at or below this size upload through our server proxy
+ * (PUT /api/upload/[imageId]), which needs no R2 CORS and always works.
+ * Larger files must go browser→R2 directly to bypass Vercel's ~4.5MB request
+ * body limit (that path needs the R2 bucket's CORS policy configured).
+ */
+const PROXY_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
  * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to fetch")
@@ -178,7 +185,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
             }
           }
 
-          // 2. Upload files directly to R2 via presigned URLs
+          // 2. Upload each file (proxy for small, direct-to-R2 for large)
           const uploadTasks = uploads.map(
             (
               upload: { imageId: string; r2Key: string; uploadUrl: string },
@@ -204,7 +211,14 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               try {
                 updateFile(task.fileId, { status: "uploading" });
 
-                // Upload directly to R2 via presigned URL (with retry + backoff)
+                // Small files go through the server proxy (no CORS needed);
+                // large files go browser→R2 directly to beat Vercel's body
+                // limit. Retry with backoff either way.
+                const useProxy = task.file.size <= PROXY_MAX_BYTES;
+                const target = useProxy
+                  ? `/api/upload/${task.upload.imageId}`
+                  : task.upload.uploadUrl;
+
                 let uploadRes: Response | undefined;
                 let lastErr: unknown;
                 for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
@@ -214,7 +228,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                     R2_PUT_TIMEOUT_MS
                   );
                   try {
-                    uploadRes = await fetch(task.upload.uploadUrl, {
+                    uploadRes = await fetch(target, {
                       method: "PUT",
                       body: task.file,
                       headers: { "Content-Type": task.file.type },
@@ -227,8 +241,10 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                     lastErr = new Error(`Upload failed (${uploadRes.status})`);
                   } catch (fetchErr) {
                     lastErr = fetchErr;
-                    // TypeError("Failed to fetch") = CORS blocks
-                    if (fetchErr instanceof TypeError) {
+                    // TypeError("Failed to fetch") on the DIRECT path means R2
+                    // CORS isn't configured. The proxy path doesn't depend on
+                    // CORS, so never blame CORS for a proxy failure.
+                    if (!useProxy && fetchErr instanceof TypeError) {
                       corsFailureCount.current++;
                       if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
                         setCorsError(true);
@@ -249,7 +265,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                   throw lastErr || new Error("Upload failed after retries");
                 }
 
-                // R2 PUT succeeded — reset CORS failure counter
+                // Upload succeeded — reset CORS failure counter
                 corsFailureCount.current = 0;
 
                 // Extract EXIF (non-blocking), then call complete with retry
