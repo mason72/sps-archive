@@ -21,6 +21,7 @@ import {
   EyeOff,
   RefreshCw,
   Download,
+  Upload,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -294,6 +295,10 @@ function SectionsPanel({
   const [isGenerating, setIsGenerating] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
+  // New uploads always land in a real section: the selected one, or — when
+  // "All Images" is the view — the first section. Surfaced as a "Target" badge.
+  const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
+
   // AI_HIDDEN: hasAutoSections check disabled — AI backend not configured
   // const hasAutoSections = sections.some((s) => s.isAuto);
 
@@ -313,6 +318,8 @@ function SectionsPanel({
         ...sections,
         { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
       ]);
+      // Auto-select the freshly created section so uploads target it immediately.
+      onSetActiveSection(data.section.id);
       setNewName("");
       toast.success("Section created");
     } catch {
@@ -428,6 +435,13 @@ function SectionsPanel({
           )}
         >
           All Images
+          {/* All Images is a view, not a target — tell the user where uploads go */}
+          {!activeSection && uploadTargetId && (
+            <span className="mt-0.5 flex items-center gap-1 text-[10px] font-normal text-stone-400">
+              <Upload size={9} />
+              New uploads → {sections.find((s) => s.id === uploadTargetId)?.name}
+            </span>
+          )}
         </button>
 
         {sections.length === 0 ? (
@@ -467,6 +481,8 @@ function SectionsPanel({
                 onDragEnd={handleDragEnd}
                 onDragOver={() => handleDragOver(index)}
                 onDropImages={onDropImagesToSection}
+                isUploadTarget={section.id === uploadTargetId}
+                canDelete={sections.length > 1}
               />
             </div>
           ))

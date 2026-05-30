@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { GripVertical, Pencil, Trash2, Check, X } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Check, X, Upload } from "lucide-react";
 
 interface SectionRowProps {
   id: string;
@@ -16,6 +16,10 @@ interface SectionRowProps {
   onDragOver?: () => void;
   /** Called when images are dropped onto this section row */
   onDropImages?: (sectionId: string, imageIds: string[]) => void;
+  /** True when new uploads will land in this section — shows a target badge */
+  isUploadTarget?: boolean;
+  /** When false, the delete control is hidden (e.g. the last remaining section) */
+  canDelete?: boolean;
 }
 
 export function SectionRow({
@@ -30,6 +34,8 @@ export function SectionRow({
   onDragEnd,
   onDragOver,
   onDropImages,
+  isUploadTarget = false,
+  canDelete = true,
 }: SectionRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -154,6 +160,15 @@ export function SectionRow({
             <span className="text-[13px] text-stone-900 font-medium truncate">
               {name}
             </span>
+            {isUploadTarget && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.1em] text-accent shrink-0"
+                title="New uploads land here"
+              >
+                <Upload size={9} />
+                Target
+              </span>
+            )}
             {/* AI_HIDDEN: Auto badge disabled — AI backend not configured */}
           </div>
         )}
@@ -173,17 +188,19 @@ export function SectionRow({
         >
           <Pencil size={13} />
         </button>
-        <button
-          onClick={handleDelete}
-          className={`p-1 transition-colors ${
-            confirmDelete
-              ? "text-red-500 hover:text-red-700"
-              : "text-stone-400 hover:text-red-500"
-          }`}
-          title={confirmDelete ? "Click again to confirm" : "Delete section"}
-        >
-          <Trash2 size={13} />
-        </button>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            className={`p-1 transition-colors ${
+              confirmDelete
+                ? "text-red-500 hover:text-red-700"
+                : "text-stone-400 hover:text-red-500"
+            }`}
+            title={confirmDelete ? "Click again to confirm" : "Delete section"}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     </div>
   );

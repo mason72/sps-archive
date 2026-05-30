@@ -83,6 +83,8 @@ export default function EventPage({
   // Stable ref for activeSection so UploadZone always has the current value
   const activeSectionRef = useRef<string | null>(null);
   activeSectionRef.current = activeSection;
+  // Ensures we only auto-select the default section once, on initial load.
+  const didInitSectionRef = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
@@ -149,6 +151,14 @@ export default function EventPage({
       setAllStacks(data.stacks);
       setSections(data.sections);
       setShowUpload(data.images.length === 0);
+
+      // On first load, default-select the first section (e.g. "Highlights")
+      // rather than "All Images" — reinforces that uploads land in a section.
+      // Guarded so re-fetches during uploads never override the user's choice.
+      if (!didInitSectionRef.current && data.sections.length > 0) {
+        didInitSectionRef.current = true;
+        setActiveSection(data.sections[0].id);
+      }
       // Load event settings
       if (data.event.settings && Object.keys(data.event.settings).length > 0) {
         const loaded = { ...DEFAULT_EVENT_SETTINGS, ...data.event.settings };
