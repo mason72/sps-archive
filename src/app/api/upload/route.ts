@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
 
     // INVARIANT: every image must belong to a real section — no orphans, ever.
     // "All Photos" is a derived view, not an upload target. When no section is
-    // specified, resolve the event's default (first) section, creating an
-    // "Unsorted" section if the event somehow has none.
+    // specified, resolve the event's default (first) section, creating a
+    // "Highlights" section if the event somehow has none.
     let targetSectionId = sectionId;
     if (!targetSectionId) {
       const { data: firstSection } = await supabase
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
           .from("sections")
           .insert({
             event_id: eventId,
-            name: "Unsorted",
+            name: "Highlights",
             sort_order: 0,
             is_auto: false,
           })

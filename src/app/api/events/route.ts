@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     // Create sections from template if provided, otherwise seed a default
-    // "Unsorted" section. NOTE: never name a real section "All Photos" —
+    // "Highlights" section. NOTE: never name a real section "All Photos" —
     // "All Photos" is a derived view (the union of all sections), not a row.
     if (sections && sections.length > 0 && data) {
       const sectionInserts = sections.map((s) => ({
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     } else if (data) {
       await supabase.from("sections").insert({
         event_id: data.id,
-        name: "Unsorted",
+        name: "Highlights",
         sort_order: 0,
         is_auto: false,
       });
