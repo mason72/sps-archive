@@ -49,7 +49,12 @@ export async function GET(
         .from("images")
         .select(IMAGE_FIELDS)
         .eq("event_id", eventId)
-        .in("processing_status", ["complete", "pending", "processing"])
+        // Show every image that exists. processing_status only reflects the
+        // (now decoupled) thumbnail/AI step — an image with a successful R2
+        // upload must appear in the grid regardless, falling back to the
+        // original if no thumbnail yet. Filtering by status here is what hid
+        // hundreds of perfectly-good uploads marked 'failed' by the old
+        // pipeline.
         .order("created_at", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
 

@@ -367,17 +367,16 @@ export default function EventPage({
         createdAt: new Date().toISOString(),
         takenAt: null,
       }));
-      setImages(searchImages);
-      setStacks([]);
+      setSearchResults(searchImages);
     },
     []
   );
 
   const handleSearchClear = useCallback(() => {
     setIsSearching(false);
-    setImages(allImages);
-    setStacks(allStacks);
-  }, [allImages, allStacks]);
+    setSearchResults(null);
+    // The derived images/stacks fall back to the active section (or all).
+  }, []);
 
   // ─── Selection actions ───
   const handleBatchDelete = useCallback(async () => {
