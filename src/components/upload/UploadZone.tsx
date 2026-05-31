@@ -4,7 +4,6 @@ import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Upload,
-  CheckCircle2,
   Loader2,
   RotateCcw,
   ShieldAlert,
@@ -34,7 +33,6 @@ const PROXY_MAX_BYTES = 4 * 1024 * 1024;
 const CORS_FAILURE_THRESHOLD = 3;
 
 type FileStatus = "pending" | "uploading" | "complete" | "error";
-type FilterTab = "all" | "uploading" | "done" | "errors";
 
 interface UploadFile {
   id: string;
@@ -74,8 +72,10 @@ interface UploadZoneProps {
  *    they're added to state, queued, and the total updates at once.
  *  - A shared worker pool pulls from a single queue, so there are no
  *    sequential "batches" that stall the count at 50.
- *  - Thumbnails preview instantly via object URLs; the grid below populates as
- *    each file lands (via onImageUploaded). Processing is fully decoupled.
+ *  - The list shows only what still needs attention: a finished upload FALLS
+ *    OFF the list (its thumbnail appears in the grid below instead). Errors
+ *    stay so they can be retried. An empty list therefore means "all done" —
+ *    and the whole block disappears, leaving a clean page.
  */
 export function UploadZone({
   eventId,
@@ -88,7 +88,6 @@ export function UploadZone({
   retryFiles,
 }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [corsError, setCorsError] = useState(false);
 
   const abortRef = useRef(false);
@@ -230,8 +229,9 @@ export function UploadZone({
         }
       }
 
-      // Mark complete regardless of /complete outcome — the binary is in R2
-      // and the row exists; the grid can show it now.
+      // Mark complete — the binary is in R2 and the row exists. The grid can
+      // show it now, and the row falls off the upload list (it's filtered out
+      // of the displayed list below).
       updateFile(task.fileId, { status: "complete", imageId: task.imageId });
       completedIdsRef.current.push(task.imageId);
       onImageUploaded?.(task.imageId);
@@ -384,15 +384,22 @@ export function UploadZone({
     useFsAccessApi: false, // traditional file dialog so CMD+A works in Finder
   });
 
-  // ─── Counts ───
-  const uploadingCount = files.filter(
-    (f) => f.status === "pending" || f.status === "uploading"
-  ).length;
+  // ─── Counts (cumulative this session — completed rows stay counted even
+  //     after they fall off the displayed list) ───
   const completedCount = files.filter((f) => f.status === "complete").length;
   const errorCount = files.filter((f) => f.status === "error").length;
+  const inFlight = files.filter(
+    (f) => f.status === "pending" || f.status === "uploading"
+  ).length;
   const totalCount = files.length;
-  const inFlight = files.filter((f) => f.status === "uploading").length;
-  const isUploading = uploadingCount > 0;
+  const isUploading = inFlight > 0;
+
+  // The displayed list shows only what still needs attention: in-flight rows
+  // and errors. Completed uploads fall off (they appear in the grid below).
+  const visibleFiles = useMemo(
+    () => files.filter((f) => f.status !== "complete"),
+    [files]
+  );
 
   // ─── Report progress up to the page (single unified bar lives there) ───
   useEffect(() => {
@@ -412,7 +419,7 @@ export function UploadZone({
       wasUploadingRef.current = true;
       return;
     }
-    if (wasUploadingRef.current && totalCount > 0) {
+    if (wasUploadingRef.current) {
       wasUploadingRef.current = false;
       if (failedFilesRef.current.length > 0) {
         onUploadFailed?.(failedFilesRef.current);
@@ -423,23 +430,26 @@ export function UploadZone({
         completedIdsRef.current = [];
       }
     }
-  }, [isUploading, totalCount, onUploadComplete, onUploadFailed]);
+  }, [isUploading, onUploadComplete, onUploadFailed]);
 
-  // ─── Filtered list ───
-  const filteredFiles = useMemo(() => {
-    switch (filterTab) {
-      case "uploading":
-        return files.filter(
-          (f) => f.status === "pending" || f.status === "uploading"
-        );
-      case "done":
-        return files.filter((f) => f.status === "complete");
-      case "errors":
-        return files.filter((f) => f.status === "error");
-      default:
-        return files;
+  // ─── Auto-clear once everything has succeeded ───
+  // When nothing is in flight and there are no errors to act on, drop the
+  // (all-complete) rows so the block disappears entirely — an empty list is
+  // the "you're done" signal. A short beat lets the last row settle first.
+  useEffect(() => {
+    if (!isUploading && errorCount === 0 && files.length > 0) {
+      const t = setTimeout(() => {
+        setFiles((prev) => {
+          prev.forEach((f) => {
+            URL.revokeObjectURL(f.previewUrl);
+            objectUrls.current.delete(f.previewUrl);
+          });
+          return [];
+        });
+      }, 600);
+      return () => clearTimeout(t);
     }
-  }, [files, filterTab]);
+  }, [isUploading, errorCount, files.length]);
 
   const retryFile = useCallback(
     async (entry: UploadFile) => {
@@ -548,8 +558,11 @@ export function UploadZone({
         )}
       </div>
 
-      {/* ─── File list ─── */}
-      {files.length > 0 && (
+      {/* ─── Active/error list ─── */}
+      {/* Shown only while there's something to act on: in-flight uploads or
+          errors. Completed rows fall off; when the list empties the block is
+          gone, signalling "all done". */}
+      {visibleFiles.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="label-caps">
@@ -580,57 +593,29 @@ export function UploadZone({
                   Cancel
                 </button>
               )}
-              {!isUploading && (
+              {!isUploading && errorCount > 0 && (
                 <button
                   onClick={() => removeFiles(new Set(files.map((f) => f.id)))}
                   className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
                 >
-                  Clear
+                  Dismiss
                 </button>
               )}
             </div>
           </div>
 
-          {/* Filter tabs */}
-          <div className="flex items-center gap-1.5">
-            {(
-              [
-                { id: "all" as FilterTab, label: "All", count: totalCount },
-                { id: "uploading" as FilterTab, label: "Uploading", count: uploadingCount },
-                { id: "done" as FilterTab, label: "Done", count: completedCount },
-                { id: "errors" as FilterTab, label: "Errors", count: errorCount },
-              ] as const
-            )
-              .filter((tab) => tab.id === "all" || tab.count > 0)
-              .map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setFilterTab(tab.id)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-[11px] transition-colors duration-200",
-                    filterTab === tab.id
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
-                  )}
-                >
-                  {tab.label}
-                  {tab.count > 0 && <span className="ml-1 opacity-60">{tab.count}</span>}
-                </button>
-              ))}
-          </div>
-
-          {/* List with thumbnails */}
+          {/* List with thumbnails — in-flight + errors only */}
           <div className="max-h-[340px] space-y-px overflow-y-auto">
-            {filteredFiles.map((f) => (
+            {visibleFiles.map((f) => (
               <div
                 key={f.id}
                 className="relative flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
               >
-                {/* Indeterminate progress bar across the row while uploading —
-                    uses the row's full width to make activity obvious. */}
+                {/* Indeterminate progress bar across the row while uploading. */}
                 {(f.status === "pending" || f.status === "uploading") && (
                   <span className="processing-bar pointer-events-none absolute bottom-0 left-0 h-[2px] w-full" />
                 )}
+
                 {/* Thumbnail preview */}
                 <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-stone-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -642,11 +627,6 @@ export function UploadZone({
                       f.status === "error" ? "opacity-40" : "opacity-100"
                     )}
                   />
-                  {f.status === "complete" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                      <CheckCircle2 className="h-4 w-4 text-white" />
-                    </div>
-                  )}
                   {(f.status === "pending" || f.status === "uploading") && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                       <Loader2 className="h-4 w-4 animate-spin text-white" />
