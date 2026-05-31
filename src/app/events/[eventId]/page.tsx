@@ -922,21 +922,9 @@ export default function EventPage({
               </div>
             )}
 
-            {/* ─── Empty section state ─── */}
-            {activeSection && allImages.length > 0 && images.length === 0 && sidebarPanel !== "design" && (
-              <div
-                onClick={() => setShowUpload(true)}
-                className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed border-stone-200 hover:border-stone-300 rounded-lg cursor-pointer transition-colors group fade-in"
-              >
-                <Upload className="h-8 w-8 text-stone-300 group-hover:text-stone-400 transition-colors mb-4" />
-                <p className="text-[13px] font-medium text-stone-400 group-hover:text-stone-600 transition-colors">
-                  Drag images here or click to upload
-                </p>
-                <p className="text-[11px] text-stone-300 mt-1">
-                  to {sections.find((s) => s.id === activeSection)?.name || "this section"}
-                </p>
-              </div>
-            )}
+            {/* Empty-section placeholder removed: an empty section now shows the
+                real UploadZone above (sectionIsEmpty), so there's exactly one
+                working dropzone — never a dead duplicate. */}
 
             {/* ─── Live gallery preview (when Design tab is active) ─── */}
             {sidebarPanel === "design" && allImages.length > 0 && (

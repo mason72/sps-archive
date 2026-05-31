@@ -129,9 +129,12 @@ export async function GET(
     // 5. Fetch sections with image counts
     const { data: rawSections, error: sectionsError } = await supabase
       .from("sections")
-      .select("id, name, is_auto, sort_order")
+      .select("id, name, is_auto, sort_order, created_at")
       .eq("event_id", eventId)
-      .order("sort_order", { ascending: true });
+      // created_at is a stable tiebreaker so equal sort_orders never shuffle
+      // between reloads.
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
 
     if (sectionsError) throw sectionsError;
 
