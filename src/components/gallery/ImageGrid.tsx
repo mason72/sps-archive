@@ -24,20 +24,23 @@ interface ImageGridProps {
   showFilenames?: boolean;
 }
 
-const GAP_MAP = {
-  tight: "gap-0.5",
-  normal: "gap-1.5",
-  loose: "gap-3",
-};
+/** Gap in px for each density — applied as column-gap + item margin-bottom. */
+const GAP_PX = { tight: 2, normal: 6, loose: 12 } as const;
 
 /**
- * ImageGrid — Balanced masonry layout.
- * Places each item into the currently-shortest column (greedy bin-packing by
- * estimated height), so columns stay even regardless of sort order. A pure
- * round-robin (item i → col i % n) looked fine when tall/short images were
- * scattered but produced one runaway column when portraits clustered together
- * (e.g. sorting by capture date). Estimated height uses each image's real
- * aspect ratio; unknown dimensions fall back to a neutral 1:1.
+ * ImageGrid — masonry via native CSS multi-column layout.
+ *
+ * The browser balances column heights using the ACTUAL rendered height of each
+ * tile, so the layout is correct regardless of whether we know image
+ * dimensions. (The previous hand-rolled version packed items into the shortest
+ * column using an estimated height from DB width/height; when those were null —
+ * the common case — every tile was estimated as a square and the columns came
+ * out wildly uneven with big blank gaps. CSS multicol removes that whole class
+ * of bug and the dimension dependency.)
+ *
+ * Tiles use break-inside-avoid so an image is never split across a column
+ * boundary. Reading order is top-to-bottom within a column, then the next
+ * column — the standard masonry flow.
  */
 export function ImageGrid({
   stacks,
@@ -63,7 +66,7 @@ export function ImageGrid({
 
   const responsiveColCount = useColumnCount();
   const colCount = settingsColumnCount ?? responsiveColCount;
-  const gapClass = GAP_MAP[gap];
+  const gapPx = GAP_PX[gap];
 
   if (gridItems.length === 0) {
     return (
@@ -78,69 +81,42 @@ export function ImageGrid({
     );
   }
 
-  // Distribute items into the shortest column so heights stay balanced.
-  // Height is relative (per unit column width): a 2:3 portrait ≈ 1.5, a 3:2
-  // landscape ≈ 0.67. Stacks get a small extra allowance for their UI chrome.
-  const columns: Array<typeof gridItems> = Array.from(
-    { length: colCount },
-    () => []
-  );
-  const colHeights = new Array(colCount).fill(0);
-  const estimateHeight = (
-    item: { type: "stack" | "image"; data: StackData | ImageData }
-  ): number => {
-    const data = item.data as { width?: number | null; height?: number | null };
-    const w = data.width ?? 0;
-    const h = data.height ?? 0;
-    const ratio = w > 0 && h > 0 ? h / w : 1; // fall back to square
-    return item.type === "stack" ? ratio + 0.15 : ratio;
-  };
-  gridItems.forEach((item) => {
-    // Pick the shortest column; ties go to the left-most for reading order.
-    let target = 0;
-    for (let c = 1; c < colCount; c++) {
-      if (colHeights[c] < colHeights[target] - 1e-9) target = c;
-    }
-    columns[target].push(item);
-    colHeights[target] += estimateHeight(item);
-  });
-
   return (
-    <div className={`flex ${gapClass}`}>
-      {columns.map((col, colIdx) => (
-        <div key={colIdx} className={`flex-1 flex flex-col ${gapClass}`}>
-          {col.map((item) => {
-            if (item.type === "stack") {
-              return (
-                <div key={`stack-${item.data.id}`}>
-                  <SmartStack
-                    stackId={item.data.id}
-                    stackType={item.data.stackType}
-                    imageCount={item.data.imageCount}
-                    images={item.data.images.map((img) => ({
-                      ...img,
-                      stackRank: img.stackRank ?? 0,
-                    }))}
-                    personName={item.data.personName}
-                    onToggleSelect={onToggleSelect}
-                    onImageDoubleClick={onImageDoubleClick}
-                    onSetCover={onSetCover}
-                    hasSelection={hasSelection}
-                    selectedIds={selectedIds}
-                    showFilename={showFilenames}
-                  />
-                </div>
-              );
-            }
-
-            const isSelected = selectedIds?.has(item.data.id) ?? false;
-
-            return (
+    <div style={{ columnCount: colCount, columnGap: `${gapPx}px` }}>
+      {gridItems.map((item) => {
+        const key =
+          item.type === "stack"
+            ? `stack-${item.data.id}`
+            : `img-${item.data.id}`;
+        return (
+          <div
+            key={key}
+            // break-inside-avoid keeps a tile whole within one column.
+            className="break-inside-avoid"
+            style={{ marginBottom: `${gapPx}px` }}
+          >
+            {item.type === "stack" ? (
+              <SmartStack
+                stackId={item.data.id}
+                stackType={item.data.stackType}
+                imageCount={item.data.imageCount}
+                images={item.data.images.map((img) => ({
+                  ...img,
+                  stackRank: img.stackRank ?? 0,
+                }))}
+                personName={item.data.personName}
+                onToggleSelect={onToggleSelect}
+                onImageDoubleClick={onImageDoubleClick}
+                onSetCover={onSetCover}
+                hasSelection={hasSelection}
+                selectedIds={selectedIds}
+                showFilename={showFilenames}
+              />
+            ) : (
               <GridImage
-                key={`img-${item.data.id}`}
                 image={item.data}
                 hasSelection={hasSelection}
-                isSelected={isSelected}
+                isSelected={selectedIds?.has(item.data.id) ?? false}
                 selectedIds={selectedIds}
                 onSelect={() => onToggleSelect?.(item.data.id)}
                 onRangeSelect={() => onRangeSelect?.(item.data.id)}
@@ -148,10 +124,10 @@ export function ImageGrid({
                 uniform={style === "uniform"}
                 showFilename={showFilenames}
               />
-            );
-          })}
-        </div>
-      ))}
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -235,7 +211,7 @@ function GridImage({
       onDragStart={handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      className={`group relative w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
+      className={`group relative block w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
         isSelected ? "ring-2 ring-accent ring-inset" : ""
       }`}
     >
@@ -264,10 +240,8 @@ function GridImage({
         ref={imgRef}
         src={image.thumbnailUrl}
         alt={image.parsedName || image.originalFilename || ""}
-        className={`w-full object-cover transition-all duration-500 ${
+        className={`w-full object-cover transition-opacity duration-500 ${
           uniform ? "aspect-square" : "h-auto"
-        } ${
-          hasSelection ? "" : "group-hover:scale-[1.03]"
         } ${loaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
         onLoad={() => setLoaded(true)}
@@ -278,8 +252,9 @@ function GridImage({
           }
         }}
       />
-      {/* Placeholder maintains minimum height while loading */}
-      {!loaded && <div className="aspect-square" />}
+      {/* Reserve a little height while the image loads so multicol can place
+          the tile; replaced by the real image height once loaded. */}
+      {!loaded && <div className="aspect-[3/4]" />}
       {showFilename && image.originalFilename && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">
           <p className="text-[11px] text-white truncate">

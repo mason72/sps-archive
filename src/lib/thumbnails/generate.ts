@@ -22,19 +22,28 @@ const VARIANTS = [
   { name: "thumb-lg" as const, width: 800, quality: 85 },
 ];
 
+export interface ThumbnailResult {
+  sm: string;
+  md: string;
+  lg: string;
+  width: number | null;
+  height: number | null;
+}
+
 /**
  * Generate three thumbnail sizes from an original image in R2.
  *
  * Downloads the original, resizes with sharp, and uploads the
  * thumbnails back to R2 under events/{eventId}/thumbnails/{variant}/{filename}.
  *
- * Returns the R2 keys for each generated thumbnail.
+ * Returns the R2 keys for each generated thumbnail plus the original's
+ * pixel dimensions.
  */
 export async function generateThumbnails(
   r2Key: string,
   eventId: string,
   filename: string
-): Promise<{ sm: string; md: string; lg: string }> {
+): Promise<ThumbnailResult> {
   // Download original from R2
   const response = await R2.send(
     new GetObjectCommand({ Bucket: BUCKET, Key: r2Key })
@@ -58,14 +67,31 @@ export async function generateThumbnails(
  * so we skip the R2 re-download. Called AWAITED inside the request so the
  * serverless function stays alive until thumbnails are written (the old
  * fire-and-forget version froze after the response and silently failed).
+ *
+ * Also reads the original's pixel dimensions (cheap with the buffer in hand)
+ * so callers can persist width/height — used by the lightbox and as a masonry
+ * hint. EXIF orientation is honoured so portrait/landscape is reported as
+ * displayed.
  */
 export async function generateThumbnailsFromBuffer(
   originalBuffer: Buffer,
   eventId: string,
   filename: string
-): Promise<{ sm: string; md: string; lg: string }> {
+): Promise<ThumbnailResult> {
   // Normalize filename to .jpg for thumbnails
   const thumbFilename = filename.replace(/\.[^.]+$/, ".jpg");
+
+  // Read dimensions (orientation-aware).
+  let width: number | null = null;
+  let height: number | null = null;
+  try {
+    const meta = await sharp(originalBuffer).metadata();
+    const rotated = !!meta.orientation && meta.orientation >= 5; // 90°/270°
+    width = (rotated ? meta.height : meta.width) ?? null;
+    height = (rotated ? meta.width : meta.height) ?? null;
+  } catch {
+    // dimensions are a nice-to-have, not required
+  }
 
   // Generate and upload all three sizes
   const results = await Promise.all(
@@ -85,5 +111,7 @@ export async function generateThumbnailsFromBuffer(
     sm: results.find((r) => r.variant === "thumb-sm")!.key,
     md: results.find((r) => r.variant === "thumb-md")!.key,
     lg: results.find((r) => r.variant === "thumb-lg")!.key,
+    width,
+    height,
   };
 }

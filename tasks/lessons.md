@@ -43,3 +43,32 @@
 **Mistake**: Vercel SSO protection (`ssoProtection: "all_except_custom_domains"`) blocked deployment-specific URLs with 401. Inngest's Vercel integration hits the deployment URL (not the custom domain), so syncs failed.
 **Rule**: Disable Vercel Deployment Protection (`ssoProtection: null`) when using Inngest or similar services that need to reach deployment URLs. Inngest has its own signing key security. The env var `INNGEST_SERVE_HOST` does NOT fix this — the integration still uses the deployment URL directly.
 **Fix**: `PATCH /v9/projects/{id}` with `{"ssoProtection": null}`.
+
+## 2026-05-31 — Recurring mistakes (Opus working session)
+
+These cost real time and broke production twice. Do not repeat.
+
+1. **Verify every Edit landed.** In this large, iCloud-synced repo, `Edit`
+   `old_string` matches FAIL SILENTLY on whitespace/escape mismatches. After any
+   Edit, grep/read to confirm it applied. For multi-spot deletions in a big file,
+   use a Node script (read → regex replace → write) instead of many fragile Edits.
+
+2. **`next build` before every commit — not just `tsc`.** main auto-deploys to
+   Vercel; a build failure errors the deploy. tsc passes things the Next build
+   fails (lint, unused vars). A green tsc is NOT enough. Also: a passing build
+   does NOT prove the logic is what you intended — read the diff.
+
+3. **Don't trust a green build for behavior.** Twice an Edit silently didn't
+   apply, the build still passed (valid JSX, wrong behavior), and I nearly
+   shipped a no-op. Read the actual changed region after building.
+
+4. **Use the right event_id.** Queried the wrong Supabase event_id and got
+   "0 images," nearly misdiagnosed. Confirm IDs from a fresh query, not memory.
+
+5. **Architecture notes for this app (root causes of the upload/gallery saga):**
+   - Masonry was hand-rolled JS column-packing using DB width/height. Those are
+     null for most images → square estimates → wildly uneven columns. Fixed by
+     switching to CSS multicol (browser balances by real height; no dim needed).
+   - The event grid fetches ALL event images then filters by section client-side
+     in an imperative effect → races to "No images yet". Fix: derive displayed
+     images (useMemo) from allImages + section IDs; never imperatively set empty.
