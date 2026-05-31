@@ -146,7 +146,6 @@ export default function EventPage({
   const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
-  const wasProcessingRef = useRef(false);
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchEvent = useCallback(async () => {
@@ -213,31 +212,6 @@ export default function EventPage({
     fetchEvent();
   }, [fetchEvent]);
 
-  // Fire celebration toast when processing completes (debounced to prevent oscillation)
-  useEffect(() => {
-    if (processing.isProcessing) {
-      wasProcessingRef.current = true;
-      // Cancel any pending celebration — processing resumed
-      if (processingTimerRef.current) {
-        clearTimeout(processingTimerRef.current);
-        processingTimerRef.current = null;
-      }
-    } else if (wasProcessingRef.current && processing.total > 0) {
-      // Debounce: wait 5s to confirm processing is truly done
-      processingTimerRef.current = setTimeout(() => {
-        processingTimerRef.current = null;
-        wasProcessingRef.current = false;
-        toast.success(`${processing.total} photos processed`);
-        fetchEvent();
-      }, 5000);
-    }
-
-    return () => {
-      if (processingTimerRef.current) {
-        clearTimeout(processingTimerRef.current);
-      }
-    };
-  }, [processing.isProcessing, processing.total, fetchEvent]);
 
   // Escape key clears selection
   useEffect(() => {
@@ -872,96 +846,6 @@ export default function EventPage({
               </div>
             )}
 
-            {/* ─── Processing indicator (background work — hidden during upload) ─── */}
-            {!uploadProgress.active &&
-              (processing.isProcessing || processing.failed > 0) && (
-              <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
-                {/* Progress bar with dual colors: emerald for complete, red for failed */}
-                <div className="h-[3px] w-full overflow-hidden rounded-full bg-stone-100">
-                  <div className="h-full flex">
-                    {processing.complete > 0 && (
-                      <div
-                        className="h-full bg-emerald-500 transition-all duration-500"
-                        style={{ width: `${(processing.complete / processing.total) * 100}%` }}
-                      />
-                    )}
-                    {processing.failed > 0 && (
-                      <div
-                        className="h-full bg-red-400 transition-all duration-500"
-                        style={{ width: `${(processing.failed / processing.total) * 100}%` }}
-                      />
-                    )}
-                    {(processing.pending + processing.processing) > 0 && (
-                      <div
-                        className="h-full processing-bar transition-all duration-500"
-                        style={{ width: `${((processing.pending + processing.processing) / processing.total) * 100}%` }}
-                      />
-                    )}
-                  </div>
-                </div>
-                {processing.isProcessing && (
-                  <p className="mt-1.5 text-[11px] text-stone-300 tracking-wide">
-                    Generating thumbnails
-                  </p>
-                )}
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-[13px] text-stone-500 tabular-nums">
-                    {processing.isProcessing ? (
-                      <>
-                        <span className="text-stone-400">Processing</span>
-                        <span className="text-stone-300"> — </span>
-                        <span className="text-emerald-600 font-medium">{processing.complete.toLocaleString()}</span>
-                        <span className="text-stone-300"> of </span>
-                        <span className="font-medium">{processing.total.toLocaleString()}</span>
-                        <span className="text-stone-300"> complete</span>
-                        {processing.processing > 0 && (
-                          <span className="text-stone-400"> · {processing.processing} active</span>
-                        )}
-                        {processing.pending > 0 && (
-                          <span className="text-stone-400"> · {processing.pending.toLocaleString()} queued</span>
-                        )}
-                        {processing.failed > 0 && (
-                          <span className="text-red-400"> · {processing.failed.toLocaleString()} failed</span>
-                        )}
-                      </>
-                    ) : processing.failed > 0 ? (
-                      <span className="text-stone-400">
-                        Processing failed for{" "}
-                        <span className="text-red-400 font-medium">{processing.failed.toLocaleString()}</span>
-                        {" "}{processing.failed === 1 ? "image" : "images"}
-                        {processing.complete > 0 && (
-                          <> · <span className="text-emerald-600">{processing.complete.toLocaleString()} complete</span></>
-                        )}
-                        {" — "}
-                        <span className="text-stone-500">
-                          thumbnails & search won&apos;t work for these until retried
-                        </span>
-                      </span>
-                    ) : null}
-                  </p>
-                  {(processing.failed > 0 || (processing.pending > 0 && !processing.processing)) && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await fetch(`/api/events/${eventId}/retry-processing`, { method: "POST" });
-                          if (res.ok) {
-                            toast.success("Retrying stuck images...");
-                          } else {
-                            toast.error("Failed to retry");
-                          }
-                        } catch {
-                          toast.error("Failed to retry");
-                        }
-                      }}
-                      className="text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-                    >
-                      {processing.failed > 0 ? "Retry Failed →" : "Retry Processing →"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
             {/* ─── Upload zone ─── */}
             {/* No max-height clip: the file list scrolls internally, so a long
                 queue is never cropped. */}
@@ -1019,7 +903,7 @@ export default function EventPage({
             )}
 
             {/* ─── Empty state ─── */}
-            {allImages.length === 0 && !processing.isProcessing && (
+            {allImages.length === 0 && !uploadProgress.active && (
               <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
                 <div className="w-16 h-16 mb-6 text-stone-200">
                   <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
