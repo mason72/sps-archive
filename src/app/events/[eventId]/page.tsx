@@ -15,7 +15,6 @@ import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
-import { useProcessingStatus } from "@/hooks/useProcessingStatus";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
 import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
@@ -133,9 +132,6 @@ export default function EventPage({
     return () => clearTimeout(previewRefreshTimer.current);
   }, [eventId, eventSettings, sidebarPanel]);
 
-  // Processing status (background thumbnail/AI work — never blocks uploads)
-  const processing = useProcessingStatus(eventId, true);
-
   // Live upload progress, owned here so a single unified bar can render it.
   const [uploadProgress, setUploadProgress] = useState<{
     active: boolean;
@@ -165,14 +161,18 @@ export default function EventPage({
       setStacks(data.stacks);
       setAllStacks(data.stacks);
       setSections(data.sections);
-      setShowUpload(data.images.length === 0);
 
-      // On first load, default-select the first section (e.g. "Highlights")
-      // rather than "All Images" — reinforces that uploads land in a section.
-      // Guarded so re-fetches during uploads never override the user's choice.
-      if (!didInitSectionRef.current && data.sections.length > 0) {
+      // Auto-show the upload zone ONLY on first load (empty event). On later
+      // refreshes — especially the live refresh fired while images are landing
+      // — never touch showUpload, or the zone (and its queue) would vanish the
+      // moment the first image arrives. After init it's user-controlled via the
+      // "Add Images / Hide Upload" toggle.
+      if (!didInitSectionRef.current) {
+        setShowUpload(data.images.length === 0);
+        // Default-select the first section (e.g. "Highlights") rather than
+        // "All Images" — reinforces that uploads land in a section.
+        if (data.sections.length > 0) setActiveSection(data.sections[0].id);
         didInitSectionRef.current = true;
-        setActiveSection(data.sections[0].id);
       }
       // Load event settings
       if (data.event.settings && Object.keys(data.event.settings).length > 0) {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { createServiceClient } from "@/lib/supabase/server";
 import { uploadToR2 } from "@/lib/r2/client";
+import { generateThumbnailsFromBuffer } from "@/lib/thumbnails/generate";
 
 // Allow large file uploads (up to 100MB)
 export const runtime = "nodejs";
@@ -9,8 +11,13 @@ export const maxDuration = 120; // 2 minutes
 /**
  * PUT /api/upload/[imageId]
  *
- * Receives raw file binary and proxies it to R2.
- * Avoids CORS issues with direct browser-to-R2 uploads.
+ * Receives the raw file binary, stores the original in R2, and generates
+ * thumbnails from the SAME in-memory buffer before responding. Doing it here
+ * (awaited, with the bytes already in hand) is reliable — unlike the old
+ * fire-and-forget job in /api/upload/complete, which froze after the response
+ * on serverless and left images stuck "failed" with no thumbnail.
+ *
+ * This is also the path that avoids CORS for browser→R2 uploads ≤4MB.
  */
 export async function PUT(
   request: NextRequest,
@@ -22,10 +29,10 @@ export async function PUT(
 
     const { imageId } = await params;
 
-    // Look up the image record to get the r2_key
+    // Look up the image record to get the r2_key + filename.
     const { data: image, error: imageError } = await supabase
       .from("images")
-      .select("id, r2_key, mime_type")
+      .select("id, r2_key, mime_type, filename, event_id")
       .eq("id", imageId)
       .single();
 
@@ -33,15 +40,36 @@ export async function PUT(
       return NextResponse.json({ error: "Image not found" }, { status: 404 });
     }
 
-    // Read the file body
-    const body = await request.arrayBuffer();
+    // Read the file body once; reuse the buffer for both R2 and thumbnails.
+    const body = Buffer.from(await request.arrayBuffer());
     const contentType =
       request.headers.get("content-type") || image.mime_type || "image/jpeg";
 
-    // Upload to R2
-    await uploadToR2(image.r2_key, Buffer.from(body), contentType);
+    // 1. Store the original.
+    await uploadToR2(image.r2_key, body, contentType);
 
-    return NextResponse.json({ success: true, imageId });
+    // 2. Generate thumbnails from the same buffer (awaited = reliable).
+    //    Non-fatal: if thumbnailing fails the original is safe and the grid
+    //    falls back to it; the backfill endpoint can retry later.
+    let thumbnailed = false;
+    try {
+      await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
+      thumbnailed = true;
+    } catch (thumbErr) {
+      console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+    }
+
+    // 3. Record thumbnail success with the service client (bypasses RLS for
+    //    this server-side write). Status is set by /api/upload/complete.
+    if (thumbnailed) {
+      const service = createServiceClient();
+      await service
+        .from("images")
+        .update({ thumbnail_generated: true })
+        .eq("id", imageId);
+    }
+
+    return NextResponse.json({ success: true, imageId, thumbnailed });
   } catch (error) {
     console.error("File upload error:", error);
     return NextResponse.json(

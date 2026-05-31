@@ -624,8 +624,13 @@ export function UploadZone({
             {filteredFiles.map((f) => (
               <div
                 key={f.id}
-                className="flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
+                className="relative flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
               >
+                {/* Indeterminate progress bar across the row while uploading —
+                    uses the row's full width to make activity obvious. */}
+                {(f.status === "pending" || f.status === "uploading") && (
+                  <span className="processing-bar pointer-events-none absolute bottom-0 left-0 h-[2px] w-full" />
+                )}
                 {/* Thumbnail preview */}
                 <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-stone-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -48,6 +48,22 @@ export async function generateThumbnails(
     await response.Body.transformToByteArray()
   );
 
+  return generateThumbnailsFromBuffer(originalBuffer, eventId, filename);
+}
+
+/**
+ * Generate three thumbnail sizes from an in-memory image buffer.
+ *
+ * Used by the proxy upload route, which already holds the original bytes —
+ * so we skip the R2 re-download. Called AWAITED inside the request so the
+ * serverless function stays alive until thumbnails are written (the old
+ * fire-and-forget version froze after the response and silently failed).
+ */
+export async function generateThumbnailsFromBuffer(
+  originalBuffer: Buffer,
+  eventId: string,
+  filename: string
+): Promise<{ sm: string; md: string; lg: string }> {
   // Normalize filename to .jpg for thumbnails
   const thumbFilename = filename.replace(/\.[^.]+$/, ".jpg");
 
