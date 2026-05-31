@@ -52,8 +52,9 @@ export default function EventPage({
 }) {
   const { eventId } = use(params);
   const [event, setEvent] = useState<EventData | null>(null);
-  const [images, setImages] = useState<ImageData[]>([]);
-  const [stacks, setStacks] = useState<StackData[]>([]);
+  // `images` and `stacks` are DERIVED below (useMemo) from allImages/allStacks
+  // + the active section + search — never set imperatively, so timing can't
+  // leave the grid wrongly empty ("No images yet" while the section has photos).
   const [sections, setSections] = useState<SectionData[]>([]);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -63,6 +64,8 @@ export default function EventPage({
   const [allImages, setAllImages] = useState<ImageData[]>([]);
   const [allStacks, setAllStacks] = useState<StackData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // Search results live in their own state; the displayed list is derived.
+  const [searchResults, setSearchResults] = useState<ImageData[] | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareModalImageIds, setShareModalImageIds] = useState<string[] | undefined>(undefined);
@@ -84,6 +87,30 @@ export default function EventPage({
   activeSectionRef.current = activeSection;
   // Ensures we only auto-select the default section once, on initial load.
   const didInitSectionRef = useRef(false);
+
+  // ─── Derived displayed list (race-proof) ───
+  // The grid shows: search results when searching; else the active section's
+  // images (filtered from the full set by the section's IDs); else everything.
+  // While a section's IDs are still loading we show the full set rather than
+  // empty, so the grid never flashes "No images yet" for a populated section.
+  const images = useMemo<ImageData[]>(() => {
+    if (isSearching) return searchResults ?? [];
+    if (activeSection && sectionImageIds)
+      return allImages.filter((img) => sectionImageIds.has(img.id));
+    return allImages;
+  }, [isSearching, searchResults, activeSection, sectionImageIds, allImages]);
+
+  const stacks = useMemo<StackData[]>(() => {
+    if (isSearching) return [];
+    if (activeSection && sectionImageIds)
+      return allStacks
+        .map((s) => ({
+          ...s,
+          images: s.images.filter((img) => sectionImageIds.has(img.id)),
+        }))
+        .filter((s) => s.images.length > 0);
+    return allStacks;
+  }, [isSearching, activeSection, sectionImageIds, allStacks]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
@@ -155,9 +182,7 @@ export default function EventPage({
       const data = await res.json();
 
       setEvent(data.event);
-      setImages(data.images);
       setAllImages(data.images);
-      setStacks(data.stacks);
       setAllStacks(data.stacks);
       setSections(data.sections);
 
@@ -225,21 +250,18 @@ export default function EventPage({
   }, [hasSelection, deselectAll]);
 
   // ─── Section filtering ───
-  // Single effect: fetch section image IDs AND filter the grid sequentially
-  // (prevents race condition where filter runs before new IDs arrive)
+  // This effect ONLY loads the active section's image IDs. The displayed grid
+  // derives from those IDs (see the `images`/`stacks` useMemos above), so there
+  // is no imperative state to race — switching sections can never strand the
+  // grid empty. IDs are cleared on switch so we never filter by a stale
+  // section while the new IDs load (the derivation falls back to the full set).
   useEffect(() => {
-    if (isSearching) return; // Don't override search results
-
     if (!activeSection) {
-      // Show all images
       setSectionImageIds(null);
-      setImages(allImages);
-      setStacks(allStacks);
       return;
     }
-
-    // Fetch section image IDs from the API, then filter
     let cancelled = false;
+    setSectionImageIds(null);
     (async () => {
       try {
         const res = await fetch(
@@ -247,37 +269,17 @@ export default function EventPage({
         );
         if (!res.ok || cancelled) return;
         const data = await res.json();
-        const ids = new Set<string>(data.imageIds || []);
         if (cancelled) return;
-
-        setSectionImageIds(ids);
-
-        // Filter images to only those in the section
-        const filtered = allImages.filter((img) => ids.has(img.id));
-        setImages(filtered);
-
-        // Filter stacks
-        const filteredStacks = allStacks
-          .map((stack) => ({
-            ...stack,
-            images: stack.images.filter((img) => ids.has(img.id)),
-          }))
-          .filter((stack) => stack.images.length > 0);
-        setStacks(filteredStacks);
+        setSectionImageIds(new Set<string>(data.imageIds || []));
       } catch {
-        // If fetch fails, just show all images
-        if (!cancelled) {
-          setSectionImageIds(null);
-          setImages(allImages);
-          setStacks(allStacks);
-        }
+        // Leave IDs null → derivation shows the full set rather than empty.
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [activeSection, allImages, allStacks, isSearching]);
+  }, [activeSection]);
 
   // Live grid population: refresh as images land, throttled so a 90-file
   // upload doesn't fire 90 fetches. Trailing-edge so the last one always runs.
