@@ -4,7 +4,6 @@ import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Upload,
-  Image as ImageIcon,
   CheckCircle2,
   Loader2,
   RotateCcw,
@@ -13,37 +12,45 @@ import {
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
 
-const BATCH_SIZE = 50;
+const PRESIGN_CHUNK = 50; // how many files we request presigned URLs for at once
 const MAX_CONCURRENT_UPLOADS = 12;
 const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
-/** Hard ceiling on a single R2 PUT so a hung connection can't spin forever. */
+/** Hard ceiling on a single upload so a hung connection can't spin forever. */
 const R2_PUT_TIMEOUT_MS = 120_000;
 /**
  * Files at or below this size upload through our server proxy
  * (PUT /api/upload/[imageId]), which needs no R2 CORS and always works.
- * Larger files must go browser→R2 directly to bypass Vercel's ~4.5MB request
- * body limit (that path needs the R2 bucket's CORS policy configured).
+ * Larger files go browser→R2 directly to bypass Vercel's ~4.5MB request body
+ * limit (that path needs the R2 bucket's CORS policy configured).
  */
 const PROXY_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
- * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to fetch")
- * with no response body. After this many consecutive TypeErrors on R2 PUTs,
- * we surface a CORS configuration error instead of per-file errors.
+ * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to
+ * fetch") with no response body. After this many consecutive TypeErrors on
+ * direct R2 PUTs, we surface a CORS configuration error.
  */
 const CORS_FAILURE_THRESHOLD = 3;
 
-type FileStatus = "pending" | "uploading" | "processing" | "complete" | "error";
+type FileStatus = "pending" | "uploading" | "complete" | "error";
 type FilterTab = "all" | "uploading" | "done" | "errors";
 
 interface UploadFile {
   id: string;
   file: File;
+  previewUrl: string;
   status: FileStatus;
-  progress: number;
   error?: string;
   imageId?: string;
+}
+
+export interface UploadProgress {
+  active: boolean;
+  total: number;
+  uploaded: number;
+  failed: number;
+  inFlight: number;
 }
 
 interface UploadZoneProps {
@@ -52,339 +59,317 @@ interface UploadZoneProps {
   sectionName?: string | null;
   onUploadComplete?: (imageIds: string[]) => void;
   onUploadFailed?: (files: File[]) => void;
+  /** Fires whenever an individual image lands, so the grid can populate live. */
+  onImageUploaded?: (imageId: string) => void;
+  /** Live progress for a single unified bar owned by the page. */
+  onProgressChange?: (p: UploadProgress) => void;
   retryFiles?: File[];
 }
 
-/** Worker-pool pattern for concurrency-limited async tasks */
-async function processPool<T>(
-  items: T[],
-  fn: (item: T) => Promise<void>,
-  concurrency: number
-): Promise<void> {
-  let idx = 0;
-  const workers = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    async () => {
-      while (idx < items.length) {
-        const i = idx++;
-        await fn(items[i]);
-      }
-    }
-  );
-  await Promise.all(workers);
-}
-
-export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, onUploadFailed, retryFiles }: UploadZoneProps) {
+/**
+ * UploadZone — drag/drop uploader.
+ *
+ * Design principles (uploading is the most important action):
+ *  - New files dropped mid-upload MERGE into the running session immediately:
+ *    they're added to state, queued, and the total updates at once.
+ *  - A shared worker pool pulls from a single queue, so there are no
+ *    sequential "batches" that stall the count at 50.
+ *  - Thumbnails preview instantly via object URLs; the grid below populates as
+ *    each file lands (via onImageUploaded). Processing is fully decoupled.
+ */
+export function UploadZone({
+  eventId,
+  sectionId,
+  sectionName,
+  onUploadComplete,
+  onUploadFailed,
+  onImageUploaded,
+  onProgressChange,
+  retryFiles,
+}: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [activeUploads, setActiveUploads] = useState(0);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [corsError, setCorsError] = useState(false);
-  const isUploading = activeUploads > 0;
+
   const abortRef = useRef(false);
   const corsFailureCount = useRef(0);
-  // Capture sectionId at render time so it doesn't go stale during upload
+  // Capture sectionId at drop time so it doesn't go stale mid-upload.
   const sectionIdRef = useRef(sectionId);
   sectionIdRef.current = sectionId;
 
+  // ─── Shared work queue + worker pool ───
+  // Tasks are pushed here as presigned URLs come back. Workers pull from it,
+  // so files dropped mid-upload are picked up by idle workers immediately.
+  const queueRef = useRef<UploadTask[]>([]);
+  const activeWorkers = useRef(0);
+  const completedIdsRef = useRef<string[]>([]);
+  const failedFilesRef = useRef<File[]>([]);
+  // Object URLs to revoke on unmount.
+  const objectUrls = useRef<Set<string>>(new Set());
+
+  interface UploadTask {
+    fileId: string;
+    file: File;
+    imageId: string;
+    uploadUrl: string;
+  }
+
   const updateFile = useCallback(
     (id: string, update: Partial<UploadFile>) => {
-      setFiles((prev) =>
-        prev.map((f) => (f.id === id ? { ...f, ...update } : f))
-      );
+      setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...update } : f)));
     },
     []
   );
 
   const removeFiles = useCallback((ids: Set<string>) => {
-    setFiles((prev) => prev.filter((f) => !ids.has(f.id)));
+    setFiles((prev) => {
+      prev.forEach((f) => {
+        if (ids.has(f.id)) {
+          URL.revokeObjectURL(f.previewUrl);
+          objectUrls.current.delete(f.previewUrl);
+        }
+      });
+      return prev.filter((f) => !ids.has(f.id));
+    });
   }, []);
 
+  // ─── Upload a single task (proxy for small files, direct for large) ───
+  const uploadOne = useCallback(
+    async (task: UploadTask) => {
+      if (abortRef.current) return;
+      updateFile(task.fileId, { status: "uploading" });
+
+      const useProxy = task.file.size <= PROXY_MAX_BYTES;
+      const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
+
+      let ok = false;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
+        if (abortRef.current) return;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), R2_PUT_TIMEOUT_MS);
+        try {
+          const res = await fetch(target, {
+            method: "PUT",
+            body: task.file,
+            headers: { "Content-Type": task.file.type },
+            signal: controller.signal,
+          });
+          if (res.ok) {
+            ok = true;
+            break;
+          }
+          lastErr = new Error(`Upload failed (${res.status})`);
+        } catch (err) {
+          lastErr = err;
+          // CORS only afflicts the DIRECT path; never blame it for the proxy.
+          if (!useProxy && err instanceof TypeError) {
+            corsFailureCount.current++;
+            if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
+              setCorsError(true);
+              abortRef.current = true;
+              break;
+            }
+          }
+        } finally {
+          clearTimeout(timeoutId);
+        }
+        if (attempt < R2_PUT_RETRIES) {
+          await new Promise((r) =>
+            setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt))
+          );
+        }
+      }
+
+      if (!ok) {
+        failedFilesRef.current.push(task.file);
+        updateFile(task.fileId, {
+          status: "error",
+          imageId: task.imageId,
+          error:
+            lastErr instanceof TypeError
+              ? "Storage connection failed"
+              : lastErr instanceof Error
+              ? lastErr.message
+              : "Upload failed",
+        });
+        return;
+      }
+
+      corsFailureCount.current = 0;
+
+      // Extract EXIF (best-effort) and tell the server we're done.
+      let exifData: Record<string, unknown> = {};
+      try {
+        const buf = await task.file.arrayBuffer();
+        const exif = await extractExif(buf);
+        if (exif) exifData = exif;
+      } catch {
+        // EXIF is non-critical
+      }
+
+      const COMPLETE_RETRIES = 2;
+      for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
+        try {
+          const res = await fetch("/api/upload/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageId: task.imageId,
+              width: (exifData as { width?: number }).width ?? null,
+              height: (exifData as { height?: number }).height ?? null,
+              exif: exifData,
+            }),
+          });
+          if (res.ok) break;
+        } catch {
+          // retry
+        }
+        if (attempt < COMPLETE_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      // Mark complete regardless of /complete outcome — the binary is in R2
+      // and the row exists; the grid can show it now.
+      updateFile(task.fileId, { status: "complete", imageId: task.imageId });
+      completedIdsRef.current.push(task.imageId);
+      onImageUploaded?.(task.imageId);
+    },
+    [updateFile, onImageUploaded]
+  );
+
+  // ─── Worker pool: pulls from the shared queue until it's drained ───
+  const drainQueue = useCallback(() => {
+    while (
+      activeWorkers.current < MAX_CONCURRENT_UPLOADS &&
+      queueRef.current.length > 0
+    ) {
+      const task = queueRef.current.shift()!;
+      activeWorkers.current++;
+      uploadOne(task)
+        .catch(() => {
+          /* uploadOne never throws, but guard anyway */
+        })
+        .finally(() => {
+          activeWorkers.current--;
+          // Pick up any work that arrived while we were busy.
+          drainQueue();
+        });
+    }
+  }, [uploadOne]);
+
+  // ─── Drop handler: registers files, fetches presigned URLs, enqueues ───
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
+      if (acceptedFiles.length === 0) return;
       abortRef.current = false;
-      corsFailureCount.current = 0;
       setCorsError(false);
 
-      const newFiles: UploadFile[] = acceptedFiles.map((file, i) => ({
-        id: `${Date.now()}-${i}`,
-        file,
-        status: "pending",
-        progress: 0,
-      }));
+      // 1. Add every dropped file to the list immediately (instant feedback,
+      //    even while a previous batch is still uploading).
+      const baseId = `${performance.now()}`;
+      const newEntries: UploadFile[] = acceptedFiles.map((file, i) => {
+        const previewUrl = URL.createObjectURL(file);
+        objectUrls.current.add(previewUrl);
+        return {
+          id: `${baseId}-${i}`,
+          file,
+          previewUrl,
+          status: "pending" as FileStatus,
+        };
+      });
+      setFiles((prev) => [...prev, ...newEntries]);
 
-      setFiles((prev) => [...prev, ...newFiles]);
-      setActiveUploads((c) => c + 1);
+      // 2. Request presigned URLs in chunks and enqueue as they arrive, so
+      //    workers can start on the first chunk while later chunks resolve.
+      for (let start = 0; start < acceptedFiles.length; start += PRESIGN_CHUNK) {
+        if (abortRef.current) break;
+        const chunk = acceptedFiles.slice(start, start + PRESIGN_CHUNK);
+        const chunkEntries = newEntries.slice(start, start + PRESIGN_CHUNK);
 
-      const completedIds: string[] = [];
-      const succeededIndices = new Set<number>();
-
-      try {
-        // Process files in batches of BATCH_SIZE
-        for (
-          let batchStart = 0;
-          batchStart < acceptedFiles.length;
-          batchStart += BATCH_SIZE
-        ) {
-          if (abortRef.current) break;
-
-          const batchEnd = Math.min(
-            batchStart + BATCH_SIZE,
-            acceptedFiles.length
-          );
-          const batchFiles = acceptedFiles.slice(batchStart, batchEnd);
-          const batchNewFiles = newFiles.slice(batchStart, batchEnd);
-
-          // 1. Get presigned URLs for this batch
-          let response: Response;
-          try {
-            response = await fetch("/api/upload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                eventId,
-                sectionId: sectionIdRef.current || undefined,
-                files: batchFiles.map((f) => ({
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                })),
-              }),
-            });
-          } catch (err) {
-            // Network error — mark batch as failed, try next
-            for (const nf of batchNewFiles) {
-              updateFile(nf.id, {
-                status: "error",
-                error:
-                  err instanceof Error ? err.message : "Network error",
-              });
-            }
-            continue;
-          }
-
+        let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
+        try {
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              eventId,
+              sectionId: sectionIdRef.current || undefined,
+              files: chunk.map((f) => ({
+                name: f.name,
+                type: f.type,
+                size: f.size,
+              })),
+            }),
+          });
           if (!response.ok) {
-            for (const nf of batchNewFiles) {
-              updateFile(nf.id, {
+            for (const e of chunkEntries) {
+              failedFilesRef.current.push(e.file);
+              updateFile(e.id, {
                 status: "error",
                 error: `Server error (${response.status})`,
               });
             }
             continue;
           }
-
-          const { uploads } = await response.json();
-
-          // Defend against a short/misaligned presign response: any file with no
-          // matching upload URL must be failed, never left spinning forever.
-          if (!Array.isArray(uploads) || uploads.length < batchNewFiles.length) {
-            for (let i = uploads?.length ?? 0; i < batchNewFiles.length; i++) {
-              updateFile(batchNewFiles[i].id, {
-                status: "error",
-                error: "Server returned no upload URL",
-              });
-            }
+          const data = await response.json();
+          uploads = data.uploads;
+        } catch (err) {
+          for (const e of chunkEntries) {
+            failedFilesRef.current.push(e.file);
+            updateFile(e.id, {
+              status: "error",
+              error: err instanceof Error ? err.message : "Network error",
+            });
           }
-
-          // 2. Upload each file (proxy for small, direct-to-R2 for large)
-          const uploadTasks = uploads.map(
-            (
-              upload: { imageId: string; r2Key: string; uploadUrl: string },
-              index: number
-            ) => ({
-              upload,
-              file: batchFiles[index],
-              fileId: batchNewFiles[index].id,
-              originalIndex: batchStart + index,
-            })
-          );
-
-          await processPool(
-            uploadTasks,
-            async (task: {
-              upload: { imageId: string; r2Key: string; uploadUrl: string };
-              file: File;
-              fileId: string;
-              originalIndex: number;
-            }) => {
-              if (abortRef.current) return;
-
-              try {
-                updateFile(task.fileId, { status: "uploading" });
-
-                // Small files go through the server proxy (no CORS needed);
-                // large files go browser→R2 directly to beat Vercel's body
-                // limit. Retry with backoff either way.
-                const useProxy = task.file.size <= PROXY_MAX_BYTES;
-                const target = useProxy
-                  ? `/api/upload/${task.upload.imageId}`
-                  : task.upload.uploadUrl;
-
-                let uploadRes: Response | undefined;
-                let lastErr: unknown;
-                for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
-                  const controller = new AbortController();
-                  const timeoutId = setTimeout(
-                    () => controller.abort(),
-                    R2_PUT_TIMEOUT_MS
-                  );
-                  try {
-                    uploadRes = await fetch(target, {
-                      method: "PUT",
-                      body: task.file,
-                      headers: { "Content-Type": task.file.type },
-                      signal: controller.signal,
-                    });
-                    if (uploadRes.ok) {
-                      lastErr = undefined;
-                      break;
-                    }
-                    lastErr = new Error(`Upload failed (${uploadRes.status})`);
-                  } catch (fetchErr) {
-                    lastErr = fetchErr;
-                    // TypeError("Failed to fetch") on the DIRECT path means R2
-                    // CORS isn't configured. The proxy path doesn't depend on
-                    // CORS, so never blame CORS for a proxy failure.
-                    if (!useProxy && fetchErr instanceof TypeError) {
-                      corsFailureCount.current++;
-                      if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
-                        setCorsError(true);
-                        abortRef.current = true;
-                        throw fetchErr;
-                      }
-                    }
-                  } finally {
-                    clearTimeout(timeoutId);
-                  }
-                  // Exponential backoff before retry
-                  if (attempt < R2_PUT_RETRIES) {
-                    await new Promise((r) => setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt)));
-                  }
-                }
-
-                if (lastErr || !uploadRes?.ok) {
-                  throw lastErr || new Error("Upload failed after retries");
-                }
-
-                // Upload succeeded — reset CORS failure counter
-                corsFailureCount.current = 0;
-
-                // Extract EXIF (non-blocking), then call complete with retry
-                // Don't mark UI complete until the /api/upload/complete call succeeds
-                (async () => {
-                  let exifData: Record<string, unknown> = {};
-                  try {
-                    const buf = await task.file.arrayBuffer();
-                    const exif = await extractExif(buf);
-                    if (exif) exifData = exif;
-                  } catch {
-                    // EXIF extraction is non-critical
-                  }
-
-                  // Call /api/upload/complete with retry (2 retries, 1s delay)
-                  const COMPLETE_RETRIES = 2;
-                  let completeOk = false;
-                  for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
-                    try {
-                      const res = await fetch("/api/upload/complete", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          imageId: task.upload.imageId,
-                          width: (exifData as { width?: number }).width ?? null,
-                          height: (exifData as { height?: number }).height ?? null,
-                          exif: exifData,
-                        }),
-                      });
-                      if (res.ok) {
-                        completeOk = true;
-                        break;
-                      }
-                    } catch {
-                      // Retry on network error
-                    }
-                    if (attempt < COMPLETE_RETRIES) {
-                      await new Promise((r) => setTimeout(r, 1000));
-                    }
-                  }
-
-                  // Mark as complete in UI after the server acknowledges
-                  if (completeOk) {
-                    updateFile(task.fileId, {
-                      status: "complete",
-                      progress: 100,
-                      imageId: task.upload.imageId,
-                    });
-                  } else {
-                    // Still mark complete in UI — the R2 upload succeeded,
-                    // and the record exists in DB even if /complete failed
-                    updateFile(task.fileId, {
-                      status: "complete",
-                      progress: 100,
-                      imageId: task.upload.imageId,
-                    });
-                  }
-                })();
-
-                completedIds.push(task.upload.imageId);
-                succeededIndices.add(task.originalIndex);
-              } catch (err) {
-                updateFile(task.fileId, {
-                  status: "error",
-                  imageId: task.upload.imageId,
-                  error:
-                    err instanceof TypeError
-                      ? "Storage connection failed"
-                      : err instanceof Error ? err.message : "Upload failed",
-                });
-              }
-            },
-            MAX_CONCURRENT_UPLOADS
-          );
+          continue;
         }
 
-        // Final sweep: nothing should remain in 'pending' (never-started). If it
-        // does, fail it rather than leave an infinite spinner.
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.status === "pending"
-              ? { ...f, status: "error", error: f.error || "Upload did not start" }
-              : f
-          )
-        );
-
-        // Notify parent of failures FIRST so error flag is set before confetti check
-        const failedFiles = acceptedFiles.filter(
-          (_, index) => !succeededIndices.has(index)
-        );
-        if (failedFiles.length > 0) {
-          onUploadFailed?.(failedFiles);
+        // Any file without a matching presigned URL is failed, not stranded.
+        if (!Array.isArray(uploads) || uploads.length < chunkEntries.length) {
+          for (let i = uploads?.length ?? 0; i < chunkEntries.length; i++) {
+            failedFilesRef.current.push(chunkEntries[i].file);
+            updateFile(chunkEntries[i].id, {
+              status: "error",
+              error: "Server returned no upload URL",
+            });
+          }
         }
 
-        if (completedIds.length > 0) {
-          onUploadComplete?.(completedIds);
-        }
-      } catch (err) {
-        console.error("Upload error:", err);
-      } finally {
-        setActiveUploads((c) => c - 1);
+        // Enqueue the resolved tasks and kick the pool.
+        (uploads ?? []).forEach((u, i) => {
+          if (!chunkEntries[i]) return;
+          queueRef.current.push({
+            fileId: chunkEntries[i].id,
+            file: chunk[i],
+            imageId: u.imageId,
+            uploadUrl: u.uploadUrl,
+          });
+        });
+        drainQueue();
       }
     },
-    [eventId, onUploadComplete, onUploadFailed, updateFile]
+    [eventId, updateFile, drainQueue]
   );
 
-  // Handle retry: when retryFiles prop is set with files, trigger upload
+  // Retry: when retryFiles prop changes, re-drop those files.
   const retryFilesRef = useRef<File[] | undefined>(undefined);
   useEffect(() => {
-    if (
-      retryFiles &&
-      retryFiles.length > 0 &&
-      retryFiles !== retryFilesRef.current &&
-      !isUploading
-    ) {
+    if (retryFiles && retryFiles.length > 0 && retryFiles !== retryFilesRef.current) {
       retryFilesRef.current = retryFiles;
       onDrop(retryFiles);
     }
-  }, [retryFiles, isUploading, onDrop]);
+  }, [retryFiles, onDrop]);
+
+  // Revoke all object URLs on unmount.
+  useEffect(() => {
+    const urls = objectUrls.current;
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      urls.clear();
+    };
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -396,23 +381,56 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
       "image/heic": [".heic", ".heif"],
     },
     maxSize: 100 * 1024 * 1024,
-    useFsAccessApi: false, // Use traditional file dialog so CMD+A works in Finder
+    useFsAccessApi: false, // traditional file dialog so CMD+A works in Finder
   });
 
   // ─── Counts ───
   const uploadingCount = files.filter(
-    (f) => f.status === "pending" || f.status === "uploading" || f.status === "processing"
+    (f) => f.status === "pending" || f.status === "uploading"
   ).length;
   const completedCount = files.filter((f) => f.status === "complete").length;
   const errorCount = files.filter((f) => f.status === "error").length;
   const totalCount = files.length;
+  const inFlight = files.filter((f) => f.status === "uploading").length;
+  const isUploading = uploadingCount > 0;
 
-  // ─── Filtered file list ───
+  // ─── Report progress up to the page (single unified bar lives there) ───
+  useEffect(() => {
+    onProgressChange?.({
+      active: isUploading,
+      total: totalCount,
+      uploaded: completedCount,
+      failed: errorCount,
+      inFlight,
+    });
+  }, [isUploading, totalCount, completedCount, errorCount, inFlight, onProgressChange]);
+
+  // ─── Fire parent callbacks once the queue fully drains ───
+  const wasUploadingRef = useRef(false);
+  useEffect(() => {
+    if (isUploading) {
+      wasUploadingRef.current = true;
+      return;
+    }
+    if (wasUploadingRef.current && totalCount > 0) {
+      wasUploadingRef.current = false;
+      if (failedFilesRef.current.length > 0) {
+        onUploadFailed?.(failedFilesRef.current);
+        failedFilesRef.current = [];
+      }
+      if (completedIdsRef.current.length > 0) {
+        onUploadComplete?.(completedIdsRef.current);
+        completedIdsRef.current = [];
+      }
+    }
+  }, [isUploading, totalCount, onUploadComplete, onUploadFailed]);
+
+  // ─── Filtered list ───
   const filteredFiles = useMemo(() => {
     switch (filterTab) {
       case "uploading":
         return files.filter(
-          (f) => f.status === "pending" || f.status === "uploading" || f.status === "processing"
+          (f) => f.status === "pending" || f.status === "uploading"
         );
       case "done":
         return files.filter((f) => f.status === "complete");
@@ -423,23 +441,21 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
     }
   }, [files, filterTab]);
 
-  // ─── Retry helpers ───
   const retryFile = useCallback(
-    async (fileEntry: UploadFile) => {
-      // Delete orphaned DB record before retrying
-      if (fileEntry.imageId) {
+    async (entry: UploadFile) => {
+      if (entry.imageId) {
         try {
           await fetch("/api/images/batch", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds: [fileEntry.imageId] }),
+            body: JSON.stringify({ imageIds: [entry.imageId] }),
           });
         } catch {
-          // Non-critical
+          /* non-critical */
         }
       }
-      removeFiles(new Set([fileEntry.id]));
-      onDrop([fileEntry.file]);
+      removeFiles(new Set([entry.id]));
+      onDrop([entry.file]);
     },
     [onDrop, removeFiles]
   );
@@ -447,9 +463,6 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
   const retryAllFailed = useCallback(async () => {
     const errorFiles = files.filter((f) => f.status === "error");
     const errorIds = new Set(errorFiles.map((f) => f.id));
-    const rawFiles = errorFiles.map((f) => f.file);
-
-    // Delete orphaned DB records from failed uploads before retrying
     const orphanImageIds = errorFiles
       .map((f) => f.imageId)
       .filter(Boolean) as string[];
@@ -461,10 +474,10 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
           body: JSON.stringify({ imageIds: orphanImageIds }),
         });
       } catch {
-        // Non-critical — orphans will just be unused
+        /* non-critical */
       }
     }
-
+    const rawFiles = errorFiles.map((f) => f.file);
     removeFiles(errorIds);
     onDrop(rawFiles);
   }, [files, onDrop, removeFiles]);
@@ -480,9 +493,9 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               Storage configuration required
             </p>
             <p className="text-[12px] leading-relaxed text-red-600">
-              Uploads are being blocked by the storage provider. CORS must be
-              configured on the R2 bucket to allow direct browser uploads.
-              Run{" "}
+              Large uploads (over 4 MB) are blocked because the R2 bucket has no
+              CORS policy. Smaller files still upload via the server. To enable
+              large direct uploads, run{" "}
               <code className="rounded bg-red-100 px-1 py-0.5 text-[11px] font-mono">
                 node scripts/setup-r2-cors.mjs
               </code>{" "}
@@ -499,8 +512,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
           "relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center border border-dashed p-12 text-center transition-all duration-300",
           isDragActive
             ? "border-accent bg-accent-muted/30"
-            : "border-stone-300 hover:border-stone-400",
-          isUploading && "opacity-60"
+            : "border-stone-300 hover:border-stone-400"
         )}
       >
         <input {...getInputProps()} />
@@ -511,13 +523,11 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
           )}
         />
         {isDragActive ? (
-          <p className="font-editorial text-lg text-accent">
-            Drop images here
-          </p>
+          <p className="font-editorial text-lg text-accent">Drop images here</p>
         ) : (
           <>
             <p className="font-editorial text-lg text-stone-700">
-              Drag & drop images here
+              Drag &amp; drop images here
             </p>
             <p className="mt-2 text-[13px] text-stone-400 leading-relaxed">
               or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB
@@ -529,18 +539,25 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
             Uploading to: {sectionName}
           </p>
         )}
+        {isUploading && (
+          <p className="mt-3 text-[11px] text-stone-400">
+            Uploading {completedCount} of {totalCount}
+            {errorCount > 0 && ` · ${errorCount} failed`} — you can keep adding
+            files
+          </p>
+        )}
       </div>
 
-      {/* ─── Upload progress ─── */}
+      {/* ─── File list ─── */}
       {files.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="label-caps">
               {isUploading
                 ? `Uploading ${completedCount} / ${totalCount}`
-                : completedCount === totalCount && totalCount > 0
-                ? `${completedCount} uploaded`
-                : `${completedCount} uploaded, ${errorCount} failed`}
+                : errorCount > 0
+                ? `${completedCount} uploaded · ${errorCount} failed`
+                : `${completedCount} uploaded`}
             </span>
             <div className="flex items-center gap-4">
               {!isUploading && errorCount > 0 && (
@@ -556,6 +573,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
                 <button
                   onClick={() => {
                     abortRef.current = true;
+                    queueRef.current = [];
                   }}
                   className="text-[12px] text-red-400 hover:text-red-600 transition-colors duration-300"
                 >
@@ -564,7 +582,7 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
               )}
               {!isUploading && (
                 <button
-                  onClick={() => setFiles([])}
+                  onClick={() => removeFiles(new Set(files.map((f) => f.id)))}
                   className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
                 >
                   Clear
@@ -573,78 +591,72 @@ export function UploadZone({ eventId, sectionId, sectionName, onUploadComplete, 
             </div>
           </div>
 
-          {/* ─── Progress bar ─── */}
-          {totalCount > 0 && (
-            <div className="h-1 bg-stone-100 w-full overflow-hidden">
-              <div
-                className="h-full bg-accent transition-all duration-500 ease-out"
-                style={{
-                  width: `${(completedCount / totalCount) * 100}%`,
-                }}
-              />
-            </div>
-          )}
+          {/* Filter tabs */}
+          <div className="flex items-center gap-1.5">
+            {(
+              [
+                { id: "all" as FilterTab, label: "All", count: totalCount },
+                { id: "uploading" as FilterTab, label: "Uploading", count: uploadingCount },
+                { id: "done" as FilterTab, label: "Done", count: completedCount },
+                { id: "errors" as FilterTab, label: "Errors", count: errorCount },
+              ] as const
+            )
+              .filter((tab) => tab.id === "all" || tab.count > 0)
+              .map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilterTab(tab.id)}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px] transition-colors duration-200",
+                    filterTab === tab.id
+                      ? "bg-stone-900 text-white"
+                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                  )}
+                >
+                  {tab.label}
+                  {tab.count > 0 && <span className="ml-1 opacity-60">{tab.count}</span>}
+                </button>
+              ))}
+          </div>
 
-          {/* ─── Filter tabs ─── */}
-          {totalCount > 0 && (
-            <div className="flex items-center gap-1.5">
-              {(
-                [
-                  { id: "all" as FilterTab, label: "All", count: totalCount },
-                  { id: "uploading" as FilterTab, label: "Uploading", count: uploadingCount },
-                  { id: "done" as FilterTab, label: "Done", count: completedCount },
-                  { id: "errors" as FilterTab, label: "Errors", count: errorCount },
-                ] as const
-              )
-                .filter((tab) => tab.id === "all" || tab.count > 0)
-                .map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setFilterTab(tab.id)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-[11px] transition-colors duration-200",
-                      filterTab === tab.id
-                        ? "bg-stone-900 text-white"
-                        : "bg-stone-100 text-stone-500 hover:bg-stone-200"
-                    )}
-                  >
-                    {tab.label}
-                    {tab.count > 0 && (
-                      <span className="ml-1 opacity-60">{tab.count}</span>
-                    )}
-                  </button>
-                ))}
-            </div>
-          )}
-
-          {/* ─── File list ─── */}
-          <div className="max-h-[300px] space-y-px overflow-y-auto">
+          {/* List with thumbnails */}
+          <div className="max-h-[340px] space-y-px overflow-y-auto">
             {filteredFiles.map((f) => (
               <div
                 key={f.id}
-                className="flex items-center gap-3 border-b border-stone-100 px-0 py-2.5 text-[13px]"
+                className="flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
               >
-                <ImageIcon className="h-3.5 w-3.5 shrink-0 text-stone-300" />
-                <span className="flex-1 truncate text-stone-600">
-                  {f.file.name}
-                </span>
+                {/* Thumbnail preview */}
+                <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-stone-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={f.previewUrl}
+                    alt={f.file.name}
+                    className={cn(
+                      "h-full w-full object-cover transition-opacity duration-300",
+                      f.status === "error" ? "opacity-40" : "opacity-100"
+                    )}
+                  />
+                  {f.status === "complete" && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <CheckCircle2 className="h-4 w-4 text-white" />
+                    </div>
+                  )}
+                  {(f.status === "pending" || f.status === "uploading") && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+
+                <span className="flex-1 truncate text-stone-600">{f.file.name}</span>
                 <span className="shrink-0 text-[12px] text-stone-300">
                   {formatFileSize(f.file.size)}
                 </span>
 
-                {/* Status indicators */}
-                {(f.status === "pending" || f.status === "uploading") && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-400" />
-                )}
-                {f.status === "processing" && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
-                )}
-                {f.status === "complete" && (
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
-                )}
                 {f.status === "error" && (
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[11px] text-red-400 truncate max-w-[200px]">
+                    <span className="max-w-[180px] truncate text-[11px] text-red-400">
                       {f.error || "Upload failed"}
                     </span>
                     <button

@@ -133,8 +133,23 @@ export default function EventPage({
     return () => clearTimeout(previewRefreshTimer.current);
   }, [eventId, eventSettings, sidebarPanel]);
 
-  // Processing status
+  // Processing status (background thumbnail/AI work — never blocks uploads)
   const processing = useProcessingStatus(eventId, true);
+
+  // Live upload progress, owned here so a single unified bar can render it.
+  const [uploadProgress, setUploadProgress] = useState<{
+    active: boolean;
+    total: number;
+    uploaded: number;
+    failed: number;
+  }>({ active: false, total: 0, uploaded: 0, failed: 0 });
+
+  // Uploads always target a real section: the selected one, or — when "All
+  // Images" is the view (activeSection null) — the first section. Never null
+  // once sections exist, so uploads can never become orphans.
+  const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
+  const uploadTargetName =
+    sections.find((s) => s.id === uploadTargetId)?.name ?? null;
   const wasProcessingRef = useRef(false);
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -290,16 +305,32 @@ export default function EventPage({
     };
   }, [activeSection, allImages, allStacks, isSearching]);
 
+  // Live grid population: refresh as images land, throttled so a 90-file
+  // upload doesn't fire 90 fetches. Trailing-edge so the last one always runs.
+  const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleImageUploaded = useCallback(() => {
+    if (liveRefreshTimer.current) return; // already scheduled
+    liveRefreshTimer.current = setTimeout(() => {
+      liveRefreshTimer.current = null;
+      fetchEvent();
+    }, 1500);
+  }, [fetchEvent]);
+
+  useEffect(() => {
+    return () => {
+      if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
+    };
+  }, []);
+
   const handleUploadComplete = useCallback(
     async (imageIds: string[]) => {
-      // Images are already assigned to the correct section by /api/upload via sectionId.
-      // No auto-assignment needed — just refresh and celebrate.
+      // Images are already linked to the correct section by /api/upload.
+      // Final refresh to reconcile the grid, then celebrate.
       fetchEvent();
       toast.success(`${imageIds.length} images uploaded`);
-      // Clear retry state on successful upload (retry worked)
       setRetryFiles(undefined);
 
-      // Celebrate! Subtle confetti burst for large uploads (suppress if errors occurred)
+      // Celebrate! Subtle confetti for large uploads (suppress if errors occurred)
       if (imageIds.length >= 5 && !hadUploadErrors.current) {
         confetti({
           particleCount: Math.min(imageIds.length * 3, 150),
@@ -310,7 +341,7 @@ export default function EventPage({
         });
       }
     },
-    [fetchEvent, eventId]
+    [fetchEvent]
   );
 
   const handleUploadFailed = useCallback((files: File[]) => {
@@ -803,8 +834,47 @@ export default function EventPage({
 
         {!isLoading && !loadError && (
           <>
-            {/* ─── Processing indicator ─── */}
-            {(processing.isProcessing || processing.failed > 0) && (
+            {/* ─── Unified upload bar (owns progress while uploading) ─── */}
+            {uploadProgress.active && (
+              <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
+                <div className="h-[3px] w-full overflow-hidden rounded-full bg-stone-100">
+                  <div
+                    className="h-full bg-accent transition-all duration-300 ease-out"
+                    style={{
+                      width: `${
+                        uploadProgress.total > 0
+                          ? ((uploadProgress.uploaded + uploadProgress.failed) /
+                              uploadProgress.total) *
+                            100
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-2 text-[13px] text-stone-500 tabular-nums">
+                  <span className="text-stone-400">Uploading</span>{" "}
+                  <span className="font-medium text-accent">
+                    {uploadProgress.uploaded.toLocaleString()}
+                  </span>
+                  <span className="text-stone-300"> of </span>
+                  <span className="font-medium">
+                    {uploadProgress.total.toLocaleString()}
+                  </span>
+                  {uploadProgress.failed > 0 && (
+                    <span className="text-red-400">
+                      {" "}· {uploadProgress.failed.toLocaleString()} failed
+                    </span>
+                  )}
+                  <span className="text-stone-300">
+                    {" "}— keep adding files anytime
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {/* ─── Processing indicator (background work — hidden during upload) ─── */}
+            {!uploadProgress.active &&
+              (processing.isProcessing || processing.failed > 0) && (
               <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
                 {/* Progress bar with dual colors: emerald for complete, red for failed */}
                 <div className="h-[3px] w-full overflow-hidden rounded-full bg-stone-100">
@@ -893,18 +963,22 @@ export default function EventPage({
             )}
 
             {/* ─── Upload zone ─── */}
+            {/* No max-height clip: the file list scrolls internally, so a long
+                queue is never cropped. */}
             <div
               className={cn(
-                "transition-all duration-300 ease-in-out overflow-hidden",
-                showUpload ? "max-h-[500px] opacity-100 mb-12" : "max-h-0 opacity-0"
+                "transition-opacity duration-300 ease-in-out",
+                showUpload ? "opacity-100 mb-12" : "hidden opacity-0"
               )}
             >
               <UploadZone
                 eventId={eventId}
-                sectionId={activeSection}
-                sectionName={activeSection ? sections.find((s) => s.id === activeSection)?.name : null}
+                sectionId={uploadTargetId}
+                sectionName={uploadTargetName}
                 onUploadComplete={handleUploadComplete}
                 onUploadFailed={handleUploadFailed}
+                onImageUploaded={handleImageUploaded}
+                onProgressChange={setUploadProgress}
                 retryFiles={retryFiles}
               />
             </div>
