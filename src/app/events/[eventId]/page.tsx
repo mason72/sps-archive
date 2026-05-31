@@ -847,25 +847,30 @@ export default function EventPage({
             )}
 
             {/* ─── Upload zone ─── */}
-            {/* No max-height clip: the file list scrolls internally, so a long
-                queue is never cropped. */}
-            <div
-              className={cn(
-                "transition-opacity duration-300 ease-in-out",
-                showUpload ? "opacity-100 mb-12" : "hidden opacity-0"
-              )}
-            >
-              <UploadZone
-                eventId={eventId}
-                sectionId={uploadTargetId}
-                sectionName={uploadTargetName}
-                onUploadComplete={handleUploadComplete}
-                onUploadFailed={handleUploadFailed}
-                onImageUploaded={handleImageUploaded}
-                onProgressChange={setUploadProgress}
-                retryFiles={retryFiles}
-              />
-            </div>
+            {/* Shown when the user opted in (Add Images) OR when the active
+                section is empty — so an empty section presents the REAL
+                dropzone directly (one working box, never a dead placeholder).
+                Keyed by target section so each section keeps its own queue.
+                No max-height clip: the file list scrolls internally. */}
+            {(showUpload ||
+              (!isLoading &&
+                sidebarPanel !== "design" &&
+                images.length === 0 &&
+                !!uploadTargetId)) && (
+              <div className="mb-12">
+                <UploadZone
+                  key={uploadTargetId ?? "no-section"}
+                  eventId={eventId}
+                  sectionId={uploadTargetId}
+                  sectionName={uploadTargetName}
+                  onUploadComplete={handleUploadComplete}
+                  onUploadFailed={handleUploadFailed}
+                  onImageUploaded={handleImageUploaded}
+                  onProgressChange={setUploadProgress}
+                  retryFiles={retryFiles}
+                />
+              </div>
+            )}
 
             {/* ─── Failed uploads banner ─── */}
             {failedUploads.length > 0 && (
