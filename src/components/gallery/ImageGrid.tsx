@@ -263,18 +263,29 @@ function GridImage({
           loading="lazy"
           onLoad={() => setLoaded(true)}
           onError={async () => {
-            // Thumbnail missing/failed. Originals aren't in the list payload
-            // anymore (signed lazily), so fetch this image's signed original
-            // on demand and fall back to it — a missing thumbnail degrades to
-            // the full image instead of a permanent gray tile. Guard against
-            // loops with a one-shot ref flag.
-            const el = imgRef.current;
-            if (!el || triedFallback.current) {
+            // Thumbnail missing/broken. SELF-HEAL: ask the server to rebuild it
+            // from the original, then swap in the fresh thumbnail — so the gap
+            // is permanently fixed for next load, not patched every time. Falls
+            // back to the signed original if regeneration fails. One-shot
+            // guarded so it can't loop.
+            if (!imgRef.current || triedFallback.current) {
               setLoaded(true); // stop hiding the (broken) tile
               return;
             }
             triedFallback.current = true;
             try {
+              const regen = await fetch(
+                `/api/images/${image.id}/regenerate-thumbnail`,
+                { method: "POST" }
+              );
+              if (regen.ok) {
+                const { thumbnailUrl } = await regen.json();
+                if (thumbnailUrl && imgRef.current) {
+                  imgRef.current.src = thumbnailUrl;
+                  return;
+                }
+              }
+              // Regeneration failed — fall back to the signed original.
               const res = await fetch(`/api/images/${image.id}`);
               if (res.ok) {
                 const detail = await res.json();
