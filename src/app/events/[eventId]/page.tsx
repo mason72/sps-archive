@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
+import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import { ImageGridSkeleton } from "@/components/ui/Skeleton";
@@ -89,28 +90,35 @@ export default function EventPage({
   const didInitSectionRef = useRef(false);
 
   // ─── Derived displayed list (race-proof) ───
-  // The grid shows: search results when searching; else the active section's
-  // images (filtered from the full set by the section's IDs); else everything.
-  // While a section's IDs are still loading we show the full set rather than
-  // empty, so the grid never flashes "No images yet" for a populated section.
-  const images = useMemo<ImageData[]>(() => {
-    if (isSearching) return searchResults ?? [];
-    if (activeSection && sectionImageIds)
-      return allImages.filter((img) => sectionImageIds.has(img.id));
-    return allImages;
-  }, [isSearching, searchResults, activeSection, sectionImageIds, allImages]);
+  // Pure function of (search, active section, section IDs, full set). Lives in
+  // src/lib/gallery/derive-display.ts so it's unit-tested in isolation — this
+  // is the logic whose imperative version caused "No images yet" on populated
+  // sections. A section with un-loaded IDs falls back to the full set.
+  const images = useMemo<ImageData[]>(
+    () =>
+      deriveDisplayImages({
+        isSearching,
+        searchResults,
+        activeSection,
+        sectionImageIds,
+        allImages,
+        allStacks,
+      }),
+    [isSearching, searchResults, activeSection, sectionImageIds, allImages, allStacks]
+  );
 
-  const stacks = useMemo<StackData[]>(() => {
-    if (isSearching) return [];
-    if (activeSection && sectionImageIds)
-      return allStacks
-        .map((s) => ({
-          ...s,
-          images: s.images.filter((img) => sectionImageIds.has(img.id)),
-        }))
-        .filter((s) => s.images.length > 0);
-    return allStacks;
-  }, [isSearching, activeSection, sectionImageIds, allStacks]);
+  const stacks = useMemo<StackData[]>(
+    () =>
+      deriveDisplayStacks({
+        isSearching,
+        searchResults,
+        activeSection,
+        sectionImageIds,
+        allImages,
+        allStacks,
+      }),
+    [isSearching, searchResults, activeSection, sectionImageIds, allImages, allStacks]
+  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
