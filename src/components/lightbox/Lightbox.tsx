@@ -126,6 +126,7 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
           <LightboxImage
             key={currentImage.id}
             image={currentImage}
+            fullResUrl={imageDetail?.originalUrl}
             zoom={zoom}
             onWheel={handleZoomWheel}
             onDoubleClick={handleDoubleClick}

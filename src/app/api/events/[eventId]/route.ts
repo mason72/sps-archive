@@ -92,20 +92,18 @@ export async function GET(
       }
     }
 
-    // 3. Generate presigned download URLs for all images (batched)
-    // thumbnailUrl = thumb-md (400px) for grid, originalUrl = full-res for lightbox
+    // 3. Sign ONLY the grid thumbnail per image. The full-res original is
+    // signed lazily by GET /api/images/[imageId] when the lightbox opens —
+    // that halves presigning and the payload size, and it stays fully private
+    // (no public bucket). The grid never needs the original.
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
         const thumbKey = getThumbnailKey(img.r2_key);
-        const [thumbnailUrl, originalUrl] = await Promise.all([
-          getPresignedDownloadUrl(thumbKey, 14400),
-          getPresignedDownloadUrl(img.r2_key, 14400),
-        ]);
+        const thumbnailUrl = await getPresignedDownloadUrl(thumbKey, 14400);
         return {
           id: img.id,
           r2Key: img.r2_key,
           thumbnailUrl,
-          originalUrl,
           originalFilename: img.original_filename,
           aestheticScore: img.aesthetic_score,
           sharpnessScore: img.sharpness_score,

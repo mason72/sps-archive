@@ -11,7 +11,12 @@ export interface ImageData {
   id: string;
   r2Key: string;
   thumbnailUrl: string;
-  originalUrl: string;
+  /**
+   * Full-res URL. Omitted from the event list payload (signed lazily via
+   * GET /api/images/[imageId] when the lightbox opens) to keep the list small
+   * and halve presigning. Always present on ImageDetail.
+   */
+  originalUrl?: string;
   originalFilename: string;
   aestheticScore: number | null;
   sharpnessScore: number | null;

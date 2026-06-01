@@ -7,6 +7,13 @@ import type { ZoomState } from "./useLightbox";
 
 interface LightboxImageProps {
   image: ImageData;
+  /**
+   * Full-resolution URL, signed lazily when the lightbox opens (so the event
+   * list doesn't have to ship a signed original for every image). Until it
+   * arrives we show the thumbnail, then swap to full-res — a progressive
+   * blur-up.
+   */
+  fullResUrl?: string | null;
   zoom: ZoomState;
   onWheel: (e: WheelEvent) => void;
   onDoubleClick: () => void;
@@ -23,6 +30,7 @@ interface LightboxImageProps {
  */
 export function LightboxImage({
   image,
+  fullResUrl,
   zoom,
   onWheel,
   onDoubleClick,
@@ -106,9 +114,10 @@ export function LightboxImage({
         </div>
       )}
 
+      {/* Full-res once its lazily-signed URL arrives; thumbnail meanwhile. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={image.originalUrl || image.thumbnailUrl}
+        src={fullResUrl || image.originalUrl || image.thumbnailUrl}
         alt={image.originalFilename}
         className={`max-h-[calc(100vh-120px)] max-w-full object-contain transition-opacity duration-300 ${
           isLoaded ? "opacity-100" : "opacity-0"

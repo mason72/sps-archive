@@ -427,12 +427,24 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
-  const handleBatchDownload = useCallback(() => {
-    const selectedImages = images.filter((img) =>
-      selectedIds.has(img.id)
-    );
-    selectedImages.forEach((img) => {
-      const url = img.originalUrl || img.thumbnailUrl;
+  const handleBatchDownload = useCallback(async () => {
+    const selectedImages = images.filter((img) => selectedIds.has(img.id));
+    // Originals aren't in the list payload anymore — fetch each image's signed
+    // download URL on demand, then trigger the download.
+    for (const img of selectedImages) {
+      let url = img.originalUrl;
+      if (!url) {
+        try {
+          const res = await fetch(`/api/images/${img.id}`);
+          if (res.ok) {
+            const detail = await res.json();
+            url = detail.downloadUrl || detail.originalUrl;
+          }
+        } catch {
+          /* fall through to thumbnail */
+        }
+      }
+      url = url || img.thumbnailUrl;
       if (url) {
         const a = document.createElement("a");
         a.href = url;
@@ -442,7 +454,7 @@ export default function EventPage({
         a.click();
         document.body.removeChild(a);
       }
-    });
+    }
   }, [images, selectedIds]);
 
   const handleAddToSection = useCallback(
