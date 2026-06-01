@@ -748,6 +748,12 @@ export default function EventPage({
           </Link>
           <h1 className="font-editorial text-[clamp(36px,5vw,64px)] leading-[0.95] text-stone-900 reveal">
             {event?.name || "Event"}
+            {activeSection && (
+              <span className="text-accent">
+                {" // "}
+                {sections.find((s) => s.id === activeSection)?.name}
+              </span>
+            )}
           </h1>
           {event?.event_date && (
             <p className="caption-italic mt-3">
