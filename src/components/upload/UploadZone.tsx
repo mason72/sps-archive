@@ -39,8 +39,57 @@ interface UploadFile {
   file: File;
   previewUrl: string;
   status: FileStatus;
+  /** 0–100, real bytes-sent progress for the current upload. */
+  progress: number;
   error?: string;
   imageId?: string;
+}
+
+/**
+ * PUT a file via XMLHttpRequest so we get real upload-progress events
+ * (fetch() exposes none). Resolves with the HTTP status; rejects on network
+ * error/timeout/abort. onProgress receives 0–100.
+ */
+function putWithProgress(
+  url: string,
+  file: File,
+  opts: {
+    timeoutMs: number;
+    signal: { aborted: boolean };
+    onProgress: (pct: number) => void;
+  }
+): Promise<{ ok: boolean; status: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    xhr.timeout = opts.timeoutMs;
+    if (file.type) xhr.setRequestHeader("Content-Type", file.type);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        opts.onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      opts.onProgress(100);
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
+    };
+    xhr.onerror = () => reject(new TypeError("Failed to fetch"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+    xhr.onabort = () => reject(new Error("aborted"));
+
+    // Cooperative abort: poll the shared abort flag and cancel in flight.
+    const abortPoll = setInterval(() => {
+      if (opts.signal.aborted) {
+        clearInterval(abortPoll);
+        xhr.abort();
+      }
+    }, 250);
+    const clear = () => clearInterval(abortPoll);
+    xhr.addEventListener("loadend", clear);
+
+    xhr.send(file);
+  });
 }
 
 export interface UploadProgress {
@@ -136,7 +185,7 @@ export function UploadZone({
   const uploadOne = useCallback(
     async (task: UploadTask) => {
       if (abortRef.current) return;
-      updateFile(task.fileId, { status: "uploading" });
+      updateFile(task.fileId, { status: "uploading", progress: 0 });
 
       const useProxy = task.file.size <= PROXY_MAX_BYTES;
       const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
@@ -145,14 +194,11 @@ export function UploadZone({
       let lastErr: unknown;
       for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
         if (abortRef.current) return;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), R2_PUT_TIMEOUT_MS);
         try {
-          const res = await fetch(target, {
-            method: "PUT",
-            body: task.file,
-            headers: { "Content-Type": task.file.type },
-            signal: controller.signal,
+          const res = await putWithProgress(target, task.file, {
+            timeoutMs: R2_PUT_TIMEOUT_MS,
+            signal: { get aborted() { return abortRef.current; } },
+            onProgress: (pct) => updateFile(task.fileId, { progress: pct }),
           });
           if (res.ok) {
             ok = true;
@@ -170,10 +216,10 @@ export function UploadZone({
               break;
             }
           }
-        } finally {
-          clearTimeout(timeoutId);
         }
         if (attempt < R2_PUT_RETRIES) {
+          // Reset the bar before retrying so it doesn't look stuck mid-fill.
+          updateFile(task.fileId, { progress: 0 });
           await new Promise((r) =>
             setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt))
           );
@@ -232,7 +278,7 @@ export function UploadZone({
       // Mark complete — the binary is in R2 and the row exists. The grid can
       // show it now, and the row falls off the upload list (it's filtered out
       // of the displayed list below).
-      updateFile(task.fileId, { status: "complete", imageId: task.imageId });
+      updateFile(task.fileId, { status: "complete", progress: 100, imageId: task.imageId });
       completedIdsRef.current.push(task.imageId);
       onImageUploaded?.(task.imageId);
     },
@@ -277,6 +323,7 @@ export function UploadZone({
           file,
           previewUrl,
           status: "pending" as FileStatus,
+          progress: 0,
         };
       });
       setFiles((prev) => [...prev, ...newEntries]);
@@ -611,9 +658,16 @@ export function UploadZone({
                 key={f.id}
                 className="relative flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
               >
-                {/* Indeterminate progress bar across the row while uploading. */}
+                {/* Determinate progress: gray track + green fill that grows
+                    left→right with real bytes-sent, so a quick upload visibly
+                    fills then the row drops off. */}
                 {(f.status === "pending" || f.status === "uploading") && (
-                  <span className="processing-bar pointer-events-none absolute bottom-0 left-0 h-[2px] w-full" />
+                  <span className="pointer-events-none absolute bottom-0 left-0 h-[2px] w-full bg-stone-200">
+                    <span
+                      className="block h-full bg-accent transition-[width] duration-200 ease-out"
+                      style={{ width: `${f.progress}%` }}
+                    />
+                  </span>
                 )}
 
                 {/* Thumbnail preview */}
