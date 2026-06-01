@@ -141,6 +141,11 @@ export function UploadZone({
 
   const abortRef = useRef(false);
   const corsFailureCount = useRef(0);
+  // Set once the DIRECT (>4MB) path has clearly hit a CORS wall. It short-
+  // circuits further LARGE-file attempts only — small files keep uploading
+  // through the proxy. (Previously a CORS storm tripped the global abort and
+  // stranded the whole batch, including small files that would've worked.)
+  const corsBlockedRef = useRef(false);
   // Capture sectionId at drop time so it doesn't go stale mid-upload.
   const sectionIdRef = useRef(sectionId);
   sectionIdRef.current = sectionId;
@@ -181,13 +186,41 @@ export function UploadZone({
     });
   }, []);
 
+  // Delete the DB row pre-created by /api/upload for a file that then failed to
+  // upload, so a failed upload never leaves a backing-less "ghost" image.
+  const deleteOrphanRow = useCallback(async (imageId: string) => {
+    try {
+      await fetch("/api/images/batch", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageIds: [imageId] }),
+      });
+    } catch {
+      /* best-effort cleanup */
+    }
+  }, []);
+
   // ─── Upload a single task (proxy for small files, direct for large) ───
   const uploadOne = useCallback(
     async (task: UploadTask) => {
       if (abortRef.current) return;
-      updateFile(task.fileId, { status: "uploading", progress: 0 });
 
       const useProxy = task.file.size <= PROXY_MAX_BYTES;
+
+      // Large files can only go direct-to-R2, which needs bucket CORS. If that
+      // path is already known-blocked, fail this file fast with a clear reason
+      // — but DON'T touch the queue, so small files keep flowing.
+      if (!useProxy && corsBlockedRef.current) {
+        failedFilesRef.current.push(task.file);
+        await deleteOrphanRow(task.imageId);
+        updateFile(task.fileId, {
+          status: "error",
+          error: "Files over 4 MB need storage (CORS) configured — see settings",
+        });
+        return;
+      }
+
+      updateFile(task.fileId, { status: "uploading", progress: 0 });
       const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
 
       let ok = false;
@@ -207,12 +240,14 @@ export function UploadZone({
           lastErr = new Error(`Upload failed (${res.status})`);
         } catch (err) {
           lastErr = err;
-          // CORS only afflicts the DIRECT path; never blame it for the proxy.
+          // TypeError on the DIRECT path = CORS wall. Flag it so subsequent
+          // large files fail fast (above) — but never abort the small-file
+          // (proxy) work, which doesn't depend on CORS.
           if (!useProxy && err instanceof TypeError) {
             corsFailureCount.current++;
             if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
+              corsBlockedRef.current = true;
               setCorsError(true);
-              abortRef.current = true;
               break;
             }
           }
@@ -228,12 +263,14 @@ export function UploadZone({
 
       if (!ok) {
         failedFilesRef.current.push(task.file);
+        // Clean up the pre-created DB row so a failed upload never leaves a
+        // backing-less "ghost" image (the cause of broken tiles).
+        await deleteOrphanRow(task.imageId);
         updateFile(task.fileId, {
           status: "error",
-          imageId: task.imageId,
           error:
-            lastErr instanceof TypeError
-              ? "Storage connection failed"
+            !useProxy && (lastErr instanceof TypeError || corsBlockedRef.current)
+              ? "Files over 4 MB need storage (CORS) configured — see settings"
               : lastErr instanceof Error
               ? lastErr.message
               : "Upload failed",
@@ -282,7 +319,7 @@ export function UploadZone({
       completedIdsRef.current.push(task.imageId);
       onImageUploaded?.(task.imageId);
     },
-    [updateFile, onImageUploaded]
+    [updateFile, onImageUploaded, deleteOrphanRow]
   );
 
   // ─── Worker pool: pulls from the shared queue until it's drained ───
