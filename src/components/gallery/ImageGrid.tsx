@@ -158,6 +158,8 @@ function GridImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  // One-shot guard so the on-error original fallback can't loop.
+  const triedFallback = useRef(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleClick = useCallback(
@@ -260,11 +262,32 @@ function GridImage({
           }`}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          onError={() => {
-            // Thumbnail doesn't exist yet — fall back to original
-            if (imgRef.current && image.originalUrl && imgRef.current.src !== image.originalUrl) {
-              imgRef.current.src = image.originalUrl;
+          onError={async () => {
+            // Thumbnail missing/failed. Originals aren't in the list payload
+            // anymore (signed lazily), so fetch this image's signed original
+            // on demand and fall back to it — a missing thumbnail degrades to
+            // the full image instead of a permanent gray tile. Guard against
+            // loops with a one-shot ref flag.
+            const el = imgRef.current;
+            if (!el || triedFallback.current) {
+              setLoaded(true); // stop hiding the (broken) tile
+              return;
             }
+            triedFallback.current = true;
+            try {
+              const res = await fetch(`/api/images/${image.id}`);
+              if (res.ok) {
+                const detail = await res.json();
+                const url = detail.originalUrl || detail.thumbnailUrl;
+                if (url && imgRef.current) {
+                  imgRef.current.src = url;
+                  return;
+                }
+              }
+            } catch {
+              /* fall through */
+            }
+            setLoaded(true);
           }}
         />
       </div>
