@@ -7,6 +7,7 @@ import {
   Loader2,
   RotateCcw,
   ShieldAlert,
+  Copy,
 } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
@@ -32,7 +33,7 @@ const PROXY_MAX_BYTES = 4 * 1024 * 1024;
  */
 const CORS_FAILURE_THRESHOLD = 3;
 
-type FileStatus = "pending" | "uploading" | "complete" | "error";
+type FileStatus = "pending" | "uploading" | "complete" | "error" | "duplicate";
 
 interface UploadFile {
   id: string;
@@ -43,6 +44,9 @@ interface UploadFile {
   progress: number;
   error?: string;
   imageId?: string;
+  /** When status is "duplicate": the existing image ids in this section that
+   *  share this filename (deleted if the user chooses Replace). */
+  existingImageIds?: string[];
 }
 
 /**
@@ -342,15 +346,81 @@ export function UploadZone({
     }
   }, [uploadOne]);
 
-  // ─── Drop handler: registers files, fetches presigned URLs, enqueues ───
+  // ─── Presign + enqueue a set of already-registered entries ───
+  // (Shared by the normal drop path and the "Replace"/"upload anyway" paths.)
+  const uploadEntries = useCallback(
+    async (entries: UploadFile[]) => {
+      for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
+        if (abortRef.current) break;
+        const chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
+        const chunk = chunkEntries.map((e) => e.file);
+
+        let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
+        try {
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              eventId,
+              sectionId: sectionIdRef.current || undefined,
+              files: chunk.map((f) => ({ name: f.name, type: f.type, size: f.size })),
+            }),
+          });
+          if (!response.ok) {
+            for (const e of chunkEntries) {
+              failedFilesRef.current.push(e.file);
+              updateFile(e.id, {
+                status: "error",
+                error: `Server error (${response.status})`,
+              });
+            }
+            continue;
+          }
+          uploads = (await response.json()).uploads;
+        } catch (err) {
+          for (const e of chunkEntries) {
+            failedFilesRef.current.push(e.file);
+            updateFile(e.id, {
+              status: "error",
+              error: err instanceof Error ? err.message : "Network error",
+            });
+          }
+          continue;
+        }
+
+        if (!Array.isArray(uploads) || uploads.length < chunkEntries.length) {
+          for (let i = uploads?.length ?? 0; i < chunkEntries.length; i++) {
+            failedFilesRef.current.push(chunkEntries[i].file);
+            updateFile(chunkEntries[i].id, {
+              status: "error",
+              error: "Server returned no upload URL",
+            });
+          }
+        }
+
+        (uploads ?? []).forEach((u, i) => {
+          if (!chunkEntries[i]) return;
+          queueRef.current.push({
+            fileId: chunkEntries[i].id,
+            file: chunk[i],
+            imageId: u.imageId,
+            uploadUrl: u.uploadUrl,
+          });
+        });
+        drainQueue();
+      }
+    },
+    [eventId, updateFile, drainQueue]
+  );
+
+  // ─── Drop handler: register files, hold duplicates, upload the rest ───
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
       abortRef.current = false;
       setCorsError(false);
 
-      // 1. Add every dropped file to the list immediately (instant feedback,
-      //    even while a previous batch is still uploading).
+      // 1. Register every dropped file immediately (instant feedback).
       const baseId = `${performance.now()}`;
       const newEntries: UploadFile[] = acceptedFiles.map((file, i) => {
         const previewUrl = URL.createObjectURL(file);
@@ -365,76 +435,45 @@ export function UploadZone({
       });
       setFiles((prev) => [...prev, ...newEntries]);
 
-      // 2. Request presigned URLs in chunks and enqueue as they arrive, so
-      //    workers can start on the first chunk while later chunks resolve.
-      for (let start = 0; start < acceptedFiles.length; start += PRESIGN_CHUNK) {
-        if (abortRef.current) break;
-        const chunk = acceptedFiles.slice(start, start + PRESIGN_CHUNK);
-        const chunkEntries = newEntries.slice(start, start + PRESIGN_CHUNK);
-
-        let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
+      // 2. Check which filenames already exist in the target section. Dupes are
+      //    HELD (status "duplicate") for Skip/Replace; the rest upload now.
+      let dupMap: Record<string, string[]> = {};
+      const targetSection = sectionIdRef.current;
+      if (targetSection) {
         try {
-          const response = await fetch("/api/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              eventId,
-              sectionId: sectionIdRef.current || undefined,
-              files: chunk.map((f) => ({
-                name: f.name,
-                type: f.type,
-                size: f.size,
-              })),
-            }),
-          });
-          if (!response.ok) {
-            for (const e of chunkEntries) {
-              failedFilesRef.current.push(e.file);
-              updateFile(e.id, {
-                status: "error",
-                error: `Server error (${response.status})`,
-              });
+          const res = await fetch(
+            `/api/sections/${targetSection}/check-duplicates`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                filenames: [...new Set(acceptedFiles.map((f) => f.name))],
+              }),
             }
-            continue;
-          }
-          const data = await response.json();
-          uploads = data.uploads;
-        } catch (err) {
-          for (const e of chunkEntries) {
-            failedFilesRef.current.push(e.file);
-            updateFile(e.id, {
-              status: "error",
-              error: err instanceof Error ? err.message : "Network error",
-            });
-          }
-          continue;
+          );
+          if (res.ok) dupMap = (await res.json()).duplicates ?? {};
+        } catch {
+          // If the check fails, fall through and upload everything (no worse
+          // than before — better to allow than to block on a flaky check).
         }
-
-        // Any file without a matching presigned URL is failed, not stranded.
-        if (!Array.isArray(uploads) || uploads.length < chunkEntries.length) {
-          for (let i = uploads?.length ?? 0; i < chunkEntries.length; i++) {
-            failedFilesRef.current.push(chunkEntries[i].file);
-            updateFile(chunkEntries[i].id, {
-              status: "error",
-              error: "Server returned no upload URL",
-            });
-          }
-        }
-
-        // Enqueue the resolved tasks and kick the pool.
-        (uploads ?? []).forEach((u, i) => {
-          if (!chunkEntries[i]) return;
-          queueRef.current.push({
-            fileId: chunkEntries[i].id,
-            file: chunk[i],
-            imageId: u.imageId,
-            uploadUrl: u.uploadUrl,
-          });
-        });
-        drainQueue();
       }
+
+      const toUpload: UploadFile[] = [];
+      for (const entry of newEntries) {
+        const existing = dupMap[entry.file.name];
+        if (existing && existing.length > 0) {
+          updateFile(entry.id, {
+            status: "duplicate",
+            existingImageIds: existing,
+          });
+        } else {
+          toUpload.push(entry);
+        }
+      }
+
+      await uploadEntries(toUpload);
     },
-    [eventId, updateFile, drainQueue]
+    [updateFile, uploadEntries]
   );
 
   // Retry: when retryFiles prop changes, re-drop those files.
@@ -472,18 +511,75 @@ export function UploadZone({
   //     after they fall off the displayed list) ───
   const completedCount = files.filter((f) => f.status === "complete").length;
   const errorCount = files.filter((f) => f.status === "error").length;
+  const duplicateFiles = useMemo(
+    () => files.filter((f) => f.status === "duplicate"),
+    [files]
+  );
+  const duplicateCount = duplicateFiles.length;
   const inFlight = files.filter(
     (f) => f.status === "pending" || f.status === "uploading"
   ).length;
-  const totalCount = files.length;
+  // Held duplicates aren't counted in the total/progress — they're awaiting a
+  // Skip/Replace decision, not uploading.
+  const totalCount = files.filter((f) => f.status !== "duplicate").length;
   const isUploading = inFlight > 0;
 
-  // The displayed list shows only what still needs attention: in-flight rows
-  // and errors. Completed uploads fall off (they appear in the grid below).
+  // The displayed list shows what still needs attention: in-flight rows, errors
+  // (completed fall off — they're in the grid below). Duplicates render in their
+  // own group, so they're excluded here.
   const visibleFiles = useMemo(
-    () => files.filter((f) => f.status !== "complete"),
+    () => files.filter((f) => f.status === "pending" || f.status === "uploading" || f.status === "error"),
     [files]
   );
+
+  // ─── Duplicate resolution: Skip / Replace (per-file and bulk) ───
+  const skipDuplicate = useCallback(
+    (id: string) => removeFiles(new Set([id])),
+    [removeFiles]
+  );
+
+  const replaceDuplicate = useCallback(
+    async (entry: UploadFile) => {
+      // Delete the existing image(s) with this filename in the section, then
+      // upload the new file in their place.
+      if (entry.existingImageIds?.length) {
+        try {
+          await fetch("/api/images/batch", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageIds: entry.existingImageIds }),
+          });
+        } catch {
+          /* best-effort; upload still proceeds */
+        }
+      }
+      updateFile(entry.id, { status: "pending", progress: 0 });
+      await uploadEntries([{ ...entry, status: "pending" }]);
+    },
+    [updateFile, uploadEntries]
+  );
+
+  const skipAllDuplicates = useCallback(() => {
+    removeFiles(new Set(duplicateFiles.map((f) => f.id)));
+  }, [duplicateFiles, removeFiles]);
+
+  const replaceAllDuplicates = useCallback(async () => {
+    const dupes = [...duplicateFiles];
+    const allExisting = dupes.flatMap((d) => d.existingImageIds ?? []);
+    if (allExisting.length) {
+      try {
+        await fetch("/api/images/batch", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: allExisting }),
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
+    dupes.forEach((d) => updateFile(d.id, { status: "pending", progress: 0 }));
+    await uploadEntries(dupes.map((d) => ({ ...d, status: "pending" as FileStatus })));
+  }, [duplicateFiles, updateFile, uploadEntries]);
 
   // ─── Report progress up to the page (single unified bar lives there) ───
   useEffect(() => {
@@ -517,23 +613,26 @@ export function UploadZone({
   }, [isUploading, onUploadComplete, onUploadFailed]);
 
   // ─── Auto-clear once everything has succeeded ───
-  // When nothing is in flight and there are no errors to act on, drop the
-  // (all-complete) rows so the block disappears entirely — an empty list is
-  // the "you're done" signal. A short beat lets the last row settle first.
+  // When nothing is in flight and there's nothing left to act on (no errors,
+  // no held duplicates), drop the completed rows so the block disappears — an
+  // empty list is the "you're done" signal. Held duplicates/errors keep the
+  // block alive until resolved. Only complete rows are cleared.
   useEffect(() => {
-    if (!isUploading && errorCount === 0 && files.length > 0) {
+    if (!isUploading && errorCount === 0 && duplicateCount === 0 && files.length > 0) {
       const t = setTimeout(() => {
         setFiles((prev) => {
           prev.forEach((f) => {
-            URL.revokeObjectURL(f.previewUrl);
-            objectUrls.current.delete(f.previewUrl);
+            if (f.status === "complete") {
+              URL.revokeObjectURL(f.previewUrl);
+              objectUrls.current.delete(f.previewUrl);
+            }
           });
-          return [];
+          return prev.filter((f) => f.status !== "complete");
         });
       }, 600);
       return () => clearTimeout(t);
     }
-  }, [isUploading, errorCount, files.length]);
+  }, [isUploading, errorCount, duplicateCount, files.length]);
 
   const retryFile = useCallback(
     async (entry: UploadFile) => {
@@ -641,6 +740,58 @@ export function UploadZone({
           </p>
         )}
       </div>
+
+      {/* ─── Duplicates held for a decision ─── */}
+      {duplicateCount > 0 && (
+        <div className="space-y-2 border border-amber-200 bg-amber-50/50 p-3">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[13px] font-medium text-amber-900">
+              <Copy className="h-3.5 w-3.5" />
+              {duplicateCount} already in {sectionName || "this section"}
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={replaceAllDuplicates}
+                className="text-[12px] font-medium text-amber-900 hover:text-amber-700 transition-colors"
+              >
+                Replace all
+              </button>
+              <button
+                onClick={skipAllDuplicates}
+                className="text-[12px] text-stone-500 hover:text-stone-800 transition-colors"
+              >
+                Skip all
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[220px] space-y-px overflow-y-auto">
+            {duplicateFiles.map((f) => (
+              <div
+                key={f.id}
+                className="flex items-center gap-3 border-b border-amber-100/70 py-1.5 text-[13px] last:border-b-0"
+              >
+                <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-stone-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.previewUrl} alt={f.file.name} className="h-full w-full object-cover" />
+                </div>
+                <span className="flex-1 truncate text-stone-700">{f.file.name}</span>
+                <button
+                  onClick={() => replaceDuplicate(f)}
+                  className="text-[12px] font-medium text-amber-900 hover:text-amber-700 transition-colors"
+                >
+                  Replace
+                </button>
+                <button
+                  onClick={() => skipDuplicate(f.id)}
+                  className="text-[12px] text-stone-500 hover:text-stone-800 transition-colors"
+                >
+                  Skip
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── Active/error list ─── */}
       {/* Shown only while there's something to act on: in-flight uploads or
