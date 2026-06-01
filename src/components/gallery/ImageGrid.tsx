@@ -235,26 +235,39 @@ function GridImage({
         <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
       )}
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        ref={imgRef}
-        src={image.thumbnailUrl}
-        alt={image.parsedName || image.originalFilename || ""}
-        className={`w-full object-cover transition-opacity duration-500 ${
-          uniform ? "aspect-square" : "h-auto"
-        } ${loaded ? "opacity-100" : "opacity-0"}`}
-        loading="lazy"
-        onLoad={() => setLoaded(true)}
-        onError={() => {
-          // Thumbnail doesn't exist yet — fall back to original
-          if (imgRef.current && image.originalUrl && imgRef.current.src !== image.originalUrl) {
-            imgRef.current.src = image.originalUrl;
-          }
+      {/* Fixed-aspect box. Reserving the tile's FINAL height up front (from the
+          image's known dimensions) means the image loads into already-correct
+          space — zero layout shift, so CSS multicol never re-balances mid-load.
+          That eliminated the grid-wide flicker as lazy images streamed in.
+          Falls back to 3:4 only when dimensions are unknown. */}
+      <div
+        className="relative w-full"
+        style={{
+          aspectRatio: uniform
+            ? "1 / 1"
+            : image.width && image.height
+            ? `${image.width} / ${image.height}`
+            : "3 / 4",
         }}
-      />
-      {/* Reserve a little height while the image loads so multicol can place
-          the tile; replaced by the real image height once loaded. */}
-      {!loaded && <div className="aspect-[3/4]" />}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imgRef}
+          src={image.thumbnailUrl}
+          alt={image.parsedName || image.originalFilename || ""}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            // Thumbnail doesn't exist yet — fall back to original
+            if (imgRef.current && image.originalUrl && imgRef.current.src !== image.originalUrl) {
+              imgRef.current.src = image.originalUrl;
+            }
+          }}
+        />
+      </div>
       {showFilename && image.originalFilename && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">
           <p className="text-[11px] text-white truncate">

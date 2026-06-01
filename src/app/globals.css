@@ -109,8 +109,9 @@
   }
 
   @keyframes processing-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    /* Sweep the green band (first layer) left→right; keep the track fixed. */
+    0% { background-position: -50% 0, 0 0; }
+    100% { background-position: 150% 0, 0 0; }
   }
 
   @keyframes panel-slide-in {
@@ -302,17 +303,20 @@
     display: none; /* Chrome/Safari/Opera */
   }
 
-  /* Processing progress bar — animated shimmer gradient */
+  /* Upload progress bar — gray track with a green band sweeping across it
+     to signal active (indeterminate) progress. */
   .processing-bar {
-    background: linear-gradient(
-      90deg,
-      var(--color-stone-900) 0%,
-      var(--color-stone-500) 50%,
-      var(--color-stone-900) 100%
-    );
-    background-size: 200% 100%;
-    animation: processing-shimmer 2s ease-in-out infinite;
-    transition: width 0.6s ease-out;
+    background:
+      linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--color-accent) 50%,
+        transparent 100%
+      ),
+      var(--color-stone-200);
+    background-size: 50% 100%, 100% 100%;
+    background-repeat: no-repeat, no-repeat;
+    animation: processing-shimmer 1.5s linear infinite;
   }
 
   /* Marquee / rubber-band selection overlay */
