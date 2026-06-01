@@ -65,6 +65,33 @@ export async function GET(
       offset += PAGE_SIZE;
     }
 
+    // 2b. Fetch section membership for ALL images in one grouped query, then
+    // attach each image's sectionIds to its payload. This lets the client
+    // filter by section purely in memory (no per-section-switch round-trip),
+    // which removes the fetch-then-filter race that showed "No images yet" on
+    // populated sections. (Paginated — an image can be in several sections.)
+    const sectionIdsByImage = new Map<string, string[]>();
+    {
+      let liOffset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data: links, error: linksError } = await supabase
+          .from("section_images")
+          .select("image_id, section_id, sections!inner(event_id)")
+          .eq("sections.event_id", eventId)
+          .range(liOffset, liOffset + PAGE_SIZE - 1);
+        if (linksError) throw linksError;
+        if (!links || links.length === 0) break;
+        for (const link of links) {
+          const arr = sectionIdsByImage.get(link.image_id);
+          if (arr) arr.push(link.section_id);
+          else sectionIdsByImage.set(link.image_id, [link.section_id]);
+        }
+        if (links.length < PAGE_SIZE) break;
+        liOffset += PAGE_SIZE;
+      }
+    }
+
     // 3. Generate presigned download URLs for all images (batched)
     // thumbnailUrl = thumb-md (400px) for grid, originalUrl = full-res for lightbox
     const images = await Promise.all(
@@ -90,6 +117,7 @@ export async function GET(
           height: img.height,
           createdAt: img.created_at,
           takenAt: img.taken_at,
+          sectionIds: sectionIdsByImage.get(img.id) ?? [],
         };
       })
     );
@@ -143,23 +171,21 @@ export async function GET(
 
     if (sectionsError) throw sectionsError;
 
-    // Get image counts per section
-    const sections = await Promise.all(
-      (rawSections || []).map(async (section) => {
-        const { count } = await supabase
-          .from("section_images")
-          .select("*", { count: "exact", head: true })
-          .eq("section_id", section.id);
-
-        return {
-          id: section.id,
-          name: section.name,
-          isAuto: section.is_auto,
-          sortOrder: section.sort_order,
-          imageCount: count || 0,
-        };
-      })
-    );
+    // Image counts per section, computed from the membership we already loaded
+    // (no per-section count query — replaces the old N+1).
+    const sectionCounts = new Map<string, number>();
+    for (const ids of sectionIdsByImage.values()) {
+      for (const sid of ids) {
+        sectionCounts.set(sid, (sectionCounts.get(sid) ?? 0) + 1);
+      }
+    }
+    const sections = (rawSections || []).map((section) => ({
+      id: section.id,
+      name: section.name,
+      isAuto: section.is_auto,
+      sortOrder: section.sort_order,
+      imageCount: sectionCounts.get(section.id) ?? 0,
+    }));
 
     return NextResponse.json({
       event: {

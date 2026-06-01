@@ -23,6 +23,8 @@ export interface ImageData {
   height: number | null;
   createdAt: string;
   takenAt: string | null;
+  /** Ids of every section this image belongs to (junction membership). */
+  sectionIds?: string[];
 }
 
 /** Full image detail returned by GET /api/images/[imageId] */

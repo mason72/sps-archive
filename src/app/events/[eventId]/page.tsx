@@ -20,7 +20,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Upload } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import type { EventSettings } from "@/types/event-settings";
@@ -81,8 +81,6 @@ export default function EventPage({
   const [hasActiveShare, setHasActiveShare] = useState(false);
   const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
 
-  // Section image IDs (for filtering when a section is active)
-  const [sectionImageIds, setSectionImageIds] = useState<Set<string> | null>(null);
   // Stable ref for activeSection so UploadZone always has the current value
   const activeSectionRef = useRef<string | null>(null);
   activeSectionRef.current = activeSection;
@@ -100,11 +98,10 @@ export default function EventPage({
         isSearching,
         searchResults,
         activeSection,
-        sectionImageIds,
         allImages,
         allStacks,
       }),
-    [isSearching, searchResults, activeSection, sectionImageIds, allImages, allStacks]
+    [isSearching, searchResults, activeSection, allImages, allStacks]
   );
 
   const stacks = useMemo<StackData[]>(
@@ -113,11 +110,10 @@ export default function EventPage({
         isSearching,
         searchResults,
         activeSection,
-        sectionImageIds,
         allImages,
         allStacks,
       }),
-    [isSearching, searchResults, activeSection, sectionImageIds, allImages, allStacks]
+    [isSearching, searchResults, activeSection, allImages, allStacks]
   );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
@@ -181,7 +177,6 @@ export default function EventPage({
   const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
-  const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -257,37 +252,9 @@ export default function EventPage({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [hasSelection, deselectAll]);
 
-  // ─── Section filtering ───
-  // This effect ONLY loads the active section's image IDs. The displayed grid
-  // derives from those IDs (see the `images`/`stacks` useMemos above), so there
-  // is no imperative state to race — switching sections can never strand the
-  // grid empty. IDs are cleared on switch so we never filter by a stale
-  // section while the new IDs load (the derivation falls back to the full set).
-  useEffect(() => {
-    if (!activeSection) {
-      setSectionImageIds(null);
-      return;
-    }
-    let cancelled = false;
-    setSectionImageIds(null);
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/sections/${activeSection}/images?list=true`
-        );
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (cancelled) return;
-        setSectionImageIds(new Set<string>(data.imageIds || []));
-      } catch {
-        // Leave IDs null → derivation shows the full set rather than empty.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection]);
+  // Section filtering needs no effect: each image carries its own sectionIds
+  // (loaded in the main event payload), so switching sections is a synchronous
+  // in-memory filter in the derivation above — no fetch, no race, no blank grid.
 
   // Live grid population: refresh as images land, throttled so a 90-file
   // upload doesn't fire 90 fetches. Trailing-edge so the last one always runs.
