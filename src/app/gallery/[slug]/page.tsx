@@ -435,6 +435,9 @@ export default function GalleryPage({
 
       {/* ─── Branded header ─── */}
       <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-5`}>
+        {/* Title/meta block (left) with Download across from it (top-right) */}
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0 flex-1">
         {/* When title is below cover: logo + title inline */}
         {titleBelowCover ? (
           <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
@@ -532,11 +535,11 @@ export default function GalleryPage({
             {gallery.customMessage}
           </p>
         )}
+          </div>
 
-        {/* Download menu: All / Favorites (kept in folders by section) */}
-        {gallery.allowDownload && (
-          <div className="mt-5 flex justify-start">
-            <div className="relative">
+          {/* Download menu (top-right, across from the title): All / Favorites */}
+          {gallery.allowDownload && (
+            <div className="relative shrink-0">
               <button
                 onClick={() => setDownloadMenuOpen((o) => !o)}
                 onBlur={() => setTimeout(() => setDownloadMenuOpen(false), 150)}
@@ -549,7 +552,7 @@ export default function GalleryPage({
               </button>
               {downloadMenuOpen && (
                 <div
-                  className="absolute left-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
+                  className="absolute right-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
                   style={{ borderColor: `${colors.secondary}1f` }}
                 >
                   <button
@@ -572,8 +575,8 @@ export default function GalleryPage({
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       <div
