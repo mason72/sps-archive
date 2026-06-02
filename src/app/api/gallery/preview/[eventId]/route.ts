@@ -169,12 +169,22 @@ export async function GET(
     const imageIdSet = new Set((rawImages || []).map((img) => img.id));
     const sectionIds = (rawSections || []).map((s) => s.id);
 
-    const { data: sectionImageRows } = sectionIds.length > 0
-      ? await supabase
+    // Paginate — a single select caps at 1000 rows, which would drop sections
+    // in large events (same bug fixed in the public gallery route).
+    const sectionImageRows: { section_id: string; image_id: string }[] = [];
+    if (sectionIds.length > 0) {
+      const SI_PAGE = 1000;
+      for (let off = 0; ; off += SI_PAGE) {
+        const { data: page } = await supabase
           .from("section_images")
           .select("section_id, image_id")
           .in("section_id", sectionIds)
-      : { data: [] as { section_id: string; image_id: string }[] };
+          .range(off, off + SI_PAGE - 1);
+        if (!page || page.length === 0) break;
+        sectionImageRows.push(...page);
+        if (page.length < SI_PAGE) break;
+      }
+    }
 
     const sectionImageMap = new Map<string, string[]>();
     for (const row of sectionImageRows || []) {

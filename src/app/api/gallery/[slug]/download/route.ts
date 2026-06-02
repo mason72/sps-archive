@@ -58,20 +58,31 @@ export async function GET(
     }
   }
 
-  // 2. Fetch images
-  let imagesQuery = supabase
-    .from("images")
-    .select("id, r2_key, original_filename")
-    .eq("event_id", share.event_id)
-    .neq("processing_status", "error");
-
-  if (share.share_type === "selection" && share.image_ids?.length) {
-    imagesQuery = imagesQuery.in("id", share.image_ids);
+  // 2. Fetch images — paginate so a >1000-photo gallery downloads ALL of them
+  // (a single select caps at 1000 rows; without this the ZIP silently dropped
+  // everything past the first 1000).
+  const selectionIds =
+    share.share_type === "selection" && share.image_ids?.length
+      ? (share.image_ids as string[])
+      : null;
+  const allImages: { id: string; r2_key: string; original_filename: string }[] = [];
+  {
+    const IMG_PAGE = 1000;
+    for (let off = 0; ; off += IMG_PAGE) {
+      let q = supabase
+        .from("images")
+        .select("id, r2_key, original_filename")
+        .eq("event_id", share.event_id)
+        .neq("processing_status", "error");
+      if (selectionIds) q = q.in("id", selectionIds);
+      const { data: page } = await q
+        .order("created_at", { ascending: true })
+        .range(off, off + IMG_PAGE - 1);
+      if (!page || page.length === 0) break;
+      allImages.push(...page);
+      if (page.length < IMG_PAGE) break;
+    }
   }
-
-  const { data: allImages } = await imagesQuery.order("created_at", {
-    ascending: true,
-  });
 
   if (!allImages || allImages.length === 0) {
     return NextResponse.json(
