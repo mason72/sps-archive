@@ -78,7 +78,10 @@ export async function GET(
         .from("images")
         .select(PREVIEW_IMG_FIELDS)
         .eq("event_id", eventId)
-        .eq("processing_status", "complete");
+        // Display gate = thumbnail ready, not AI-pipeline complete. Keep this in
+        // lockstep with the public gallery route so Preview matches what clients
+        // see. (See gallery/[slug]/route.ts for the full rationale.)
+        .eq("thumbnail_generated", true);
 
       if (gridSort === "filename") {
         pageQuery = pageQuery.order("original_filename", { ascending: true });

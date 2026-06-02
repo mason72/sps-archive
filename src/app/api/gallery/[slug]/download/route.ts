@@ -73,7 +73,10 @@ export async function GET(
         .from("images")
         .select("id, r2_key, original_filename")
         .eq("event_id", share.event_id)
-        .neq("processing_status", "error");
+        // Match the gallery's display gate: anything with a thumbnail is a real,
+        // downloadable photo. (Was neq 'error' — a status value that never
+        // exists, so it silently included everything; now explicit + consistent.)
+        .eq("thumbnail_generated", true);
       if (selectionIds) q = q.in("id", selectionIds);
       const { data: page } = await q
         .order("created_at", { ascending: true })

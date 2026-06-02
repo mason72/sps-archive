@@ -149,7 +149,13 @@ export async function GET(
         .from("images")
         .select(IMG_FIELDS)
         .eq("event_id", share.event_id)
-        .eq("processing_status", "complete");
+        // An image is displayable once its thumbnail exists — NOT once the AI
+        // pipeline finishes. processing_status tracks the (currently hidden)
+        // Modal AI step (CLIP/faces/aesthetic); when that step fails or is
+        // skipped, the photo is still fully viewable. Gating on
+        // processing_status='complete' silently hid every photo whose AI step
+        // failed, dropping whole sections from client galleries.
+        .eq("thumbnail_generated", true);
 
       // Apply sort order from event settings
       if (gridSort === "filename") {

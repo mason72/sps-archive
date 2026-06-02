@@ -46,12 +46,15 @@ export async function GET(
           .from("images")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId),
-        // Images still processing
+        // Images not yet displayable = those still missing a thumbnail. (NOT
+        // processing_status<>'complete' — that counts photos whose hidden AI
+        // step failed, which are perfectly shareable, and would raise a false
+        // "still processing" warning in the share checklist.)
         supabase
           .from("images")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId)
-          .neq("processing_status", "complete"),
+          .or("thumbnail_generated.is.null,thumbnail_generated.eq.false"),
         // Photographer profile / branding
         supabase
           .from("user_profiles")
