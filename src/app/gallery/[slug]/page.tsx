@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
-import { Download, ChevronLeft, ChevronRight, X, Heart, Search } from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
@@ -82,6 +82,7 @@ export default function GalleryPage({
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
 
   // PIN prompt state
@@ -214,16 +215,17 @@ export default function GalleryPage({
     fetchGallery();
   };
 
-  /** Attempt download all -- shows PIN prompt if required */
-  const handleDownloadAll = () => {
+  /** Attempt bulk download (all or favorites) -- shows PIN prompt if required */
+  const handleDownloadAll = (favoritesOnly = false) => {
     if (!gallery) return;
+    setDownloadMenuOpen(false);
     if (gallery.requirePinBulk && !pinVerified) {
       setPinAction({ type: "bulk" });
       setShowPinModal(true);
       return;
     }
     toast.success("Preparing download...");
-    window.location.href = `/api/gallery/${slug}/download`;
+    window.location.href = `/api/gallery/${slug}/download${favoritesOnly ? "?favorites=true" : ""}`;
   };
 
   /** Attempt individual download -- shows PIN prompt if required */
@@ -348,6 +350,22 @@ export default function GalleryPage({
     accent: s?.colorAccent || b?.accentColor || "#10B981",
     background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
   };
+
+  // The lightbox tints to the gallery background (white by default) instead of a
+  // hardcoded black. Pick readable foreground (ink vs white) from the bg's
+  // luminance so controls/filename stay legible on any theme.
+  const lightboxBg = colors.background;
+  const isDarkBg = (() => {
+    const hex = lightboxBg.replace("#", "");
+    if (hex.length < 6) return false;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const bl = parseInt(hex.slice(4, 6), 16);
+    // Relative luminance (perceptual); < 0.5 → dark bg → light text.
+    return (0.299 * r + 0.587 * g + 0.114 * bl) / 255 < 0.5;
+  })();
+  const lbFg = isDarkBg ? "#ffffff" : colors.primary;
+  const lbFgMuted = isDarkBg ? "rgba(255,255,255,0.6)" : `${colors.secondary}`;
 
   // Cover image
   const hasCover = s?.coverEnabled && !!s?.coverImageUrl;
@@ -484,16 +502,45 @@ export default function GalleryPage({
           </p>
         )}
 
-        {/* Download All button */}
+        {/* Download menu: All / Favorites (kept in folders by section) */}
         {gallery.allowDownload && (
           <div className="mt-6 flex justify-end">
-            <button
-              onClick={handleDownloadAll}
-              className="text-[13px] text-stone-900 border border-stone-200 px-4 py-2 hover:bg-stone-50 transition-colors flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" strokeWidth={1.5} />
-              Download All
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setDownloadMenuOpen((o) => !o)}
+                onBlur={() => setTimeout(() => setDownloadMenuOpen(false), 150)}
+                className="flex items-center gap-2 px-4 py-2 text-[13px] transition-colors hover:bg-stone-50"
+                style={{ color: colors.primary, border: `1px solid ${colors.secondary}30` }}
+              >
+                <Download className="h-4 w-4" strokeWidth={1.5} />
+                Download
+                <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+              {downloadMenuOpen && (
+                <div
+                  className="absolute right-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
+                  style={{ borderColor: `${colors.secondary}1f` }}
+                >
+                  <button
+                    onMouseDown={() => handleDownloadAll(false)}
+                    className="block w-full px-4 py-2 text-left text-[13px] hover:bg-stone-50"
+                    style={{ color: colors.primary }}
+                  >
+                    Download all
+                  </button>
+                  {gallery.allowFavorites && (
+                    <button
+                      onMouseDown={() => handleDownloadAll(true)}
+                      className="flex w-full items-center gap-1.5 px-4 py-2 text-left text-[13px] hover:bg-stone-50"
+                      style={{ color: colors.primary }}
+                    >
+                      <Heart className="h-3.5 w-3.5" style={{ color: colors.accent }} fill={colors.accent} />
+                      Download favorites
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </header>
@@ -603,7 +650,8 @@ export default function GalleryPage({
           aria-modal="true"
           aria-label="Image viewer"
           tabIndex={-1}
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center lightbox-open"
+          className="fixed inset-0 z-50 flex items-center justify-center lightbox-open"
+          style={{ backgroundColor: lightboxBg, color: lbFg }}
           onClick={() => setSelectedImageId(null)}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -627,7 +675,8 @@ export default function GalleryPage({
           {selectedIndex > 0 && (
             <button
               aria-label="Previous image"
-              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 transition-opacity hover:opacity-100 z-10"
+              style={{ color: lbFgMuted }}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedImageId(gallery.images[selectedIndex - 1].id);
@@ -639,7 +688,8 @@ export default function GalleryPage({
           {selectedIndex < gallery.images.length - 1 && (
             <button
               aria-label="Next image"
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 transition-opacity hover:opacity-100 z-10"
+              style={{ color: lbFgMuted }}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedImageId(gallery.images[selectedIndex + 1].id);
@@ -652,7 +702,8 @@ export default function GalleryPage({
           {/* Close */}
           <button
             aria-label="Close image viewer"
-            className="absolute top-4 right-4 p-3 text-white/60 hover:text-white transition-colors z-10"
+            className="absolute top-4 right-4 p-3 transition-opacity hover:opacity-100 z-10"
+            style={{ color: lbFgMuted }}
             onClick={() => setSelectedImageId(null)}
           >
             <X className="h-6 w-6" strokeWidth={1.5} />
@@ -671,11 +722,11 @@ export default function GalleryPage({
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
             {gallery.allowFavorites && (
               <button
-                className={`p-2.5 rounded-full backdrop-blur-sm transition-colors ${
-                  favoriteIds.has(selectedImage.id)
-                    ? "bg-white/20 text-red-400"
-                    : "bg-white/10 text-white/70 hover:text-white"
-                }`}
+                className="p-2.5 rounded-full backdrop-blur-sm transition-opacity hover:opacity-100"
+                style={{
+                  color: favoriteIds.has(selectedImage.id) ? colors.accent : lbFgMuted,
+                  backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleFavorite(selectedImage.id);
@@ -686,7 +737,11 @@ export default function GalleryPage({
             )}
             {gallery.allowDownload && selectedImage.downloadUrl && (
               <button
-                className="p-2.5 rounded-full bg-white/10 text-white/70 hover:text-white backdrop-blur-sm transition-colors"
+                className="p-2.5 rounded-full backdrop-blur-sm transition-opacity hover:opacity-100"
+                style={{
+                  color: lbFgMuted,
+                  backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleIndividualDownload(selectedImage);
@@ -699,11 +754,11 @@ export default function GalleryPage({
 
           {/* Counter + filename */}
           <div className="absolute top-4 left-4">
-            <p className="text-[12px] text-white/40 tabular-nums">
+            <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
               {selectedIndex + 1} / {gallery.images.length}
             </p>
             {selectedImage.originalFilename && (
-              <p className="text-[13px] text-white/60 mt-1 max-w-[280px] truncate">
+              <p className="text-[13px] mt-1 max-w-[280px] truncate" style={{ color: lbFgMuted }}>
                 {selectedImage.originalFilename}
               </p>
             )}

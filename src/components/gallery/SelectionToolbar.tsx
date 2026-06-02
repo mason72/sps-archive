@@ -13,6 +13,7 @@ import {
   Pencil,
   X,
   Check,
+  Image as ImageIcon,
 } from "lucide-react";
 
 interface SectionOption {
@@ -31,6 +32,8 @@ interface SelectionToolbarProps {
   onMoveToSection?: (sectionId: string) => void;
   onRemoveFromSection?: () => void;
   onRename?: (pattern: string) => void;
+  /** Set the single selected image as the gallery cover (only when 1 selected). */
+  onSetCover?: () => void;
   sections?: SectionOption[];
   activeSection?: string | null;
   /** Sidebar width in px — used to center toolbar over the content area */
@@ -53,6 +56,7 @@ export function SelectionToolbar({
   onMoveToSection,
   onRemoveFromSection,
   onRename,
+  onSetCover,
   sections = [],
   activeSection,
   sidebarOffset = 0,
@@ -217,6 +221,13 @@ export function SelectionToolbar({
             label="Favorite"
             onClick={onFavorite}
           />
+          {onSetCover && (
+            <ToolbarButton
+              icon={<ImageIcon className="h-4 w-4" />}
+              label="Make cover"
+              onClick={onSetCover}
+            />
+          )}
           <ToolbarButton
             icon={<Link2 className="h-4 w-4" />}
             label="Share link"

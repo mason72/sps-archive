@@ -15,6 +15,7 @@ interface GalleryGridProps {
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
+  showFilenames?: boolean;
 }
 
 /**
@@ -100,6 +101,7 @@ export function GalleryGrid({
   gridStyle = "masonry",
   gridColumns = 4,
   gridGap = "normal",
+  showFilenames = false,
 }: GalleryGridProps) {
   const colCount = useResponsiveColumns(gridColumns);
   const isUniform = gridStyle === "uniform";
@@ -155,6 +157,7 @@ export function GalleryGrid({
             onFavorite={onFavorite}
             onClick={() => onImageClick(image.id)}
             onDownloadClick={onDownloadClick}
+            showFilename={showFilenames}
             uniform
           />
         ))}
@@ -177,6 +180,7 @@ export function GalleryGrid({
               onFavorite={onFavorite}
               onClick={() => onImageClick(image.id)}
               onDownloadClick={onDownloadClick}
+              showFilename={showFilenames}
             />
           ))}
         </div>
@@ -194,6 +198,7 @@ function GalleryCard({
   onFavorite,
   onClick,
   onDownloadClick,
+  showFilename,
   uniform,
 }: {
   image: GalleryImage;
@@ -203,6 +208,7 @@ function GalleryCard({
   onFavorite?: (imageId: string) => void;
   onClick: () => void;
   onDownloadClick?: (image: GalleryImage) => void;
+  showFilename?: boolean;
   uniform?: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -268,6 +274,13 @@ function GalleryCard({
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+      {/* Filename (when toggled on) */}
+      {showFilename && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none">
+          <p className="truncate text-[11px] text-white">{image.originalFilename}</p>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">

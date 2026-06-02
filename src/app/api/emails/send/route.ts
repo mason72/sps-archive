@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { renderEmailShell } from "@/lib/email/shell";
 
 
 /**
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const { recipients, subject, bodyHtml, eventId, templateId } = body;
+    const { recipients, subject, bodyHtml, eventId, templateId, galleryUrl } = body;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -50,6 +51,14 @@ export async function POST(request: NextRequest) {
     const fromName =
       profile?.business_name || profile?.display_name || "Pixeltrunk Gallery";
 
+    // Wrap the composer's message in the branded HTML shell (clean layout +
+    // a real "View Gallery" button instead of a bare text link).
+    const renderedHtml = renderEmailShell({
+      body: bodyHtml || "",
+      galleryUrl: galleryUrl || null,
+      fromName,
+    });
+
     // Attempt to send via Resend if configured
     let status = "sent";
     const resendKey = process.env.RESEND_API_KEY;
@@ -66,7 +75,7 @@ export async function POST(request: NextRequest) {
             from: `${fromName} <${process.env.RESEND_FROM_EMAIL || "gallery@resend.dev"}>`,
             to: recipients,
             subject,
-            html: bodyHtml,
+            html: renderedHtml,
           }),
         });
 
@@ -93,7 +102,7 @@ export async function POST(request: NextRequest) {
         template_id: templateId || null,
         recipients: JSON.stringify(recipients),
         subject,
-        body_html: bodyHtml || "",
+        body_html: renderedHtml,
         status,
       })
       .select()

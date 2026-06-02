@@ -143,7 +143,9 @@ function ShareComposePage() {
 
   const templateVars: Record<string, string> = {
     event_name: eventName,
-    gallery_link: galleryUrl ? `<a href="${galleryUrl}">${galleryUrl}</a>` : "",
+    // Plain URL in the body; the email shell renders the prominent "View
+    // Gallery" button, so a bare link in the text isn't needed.
+    gallery_link: galleryUrl,
     business_name: businessName || "Your Business",
     photographer_name: photographerName || "Photographer",
     client_name: "{client_name}",
@@ -193,6 +195,7 @@ function ShareComposePage() {
           subject: interpolatedSubject,
           bodyHtml: interpolatedBody,
           eventId,
+          galleryUrl,
         }),
       });
 
@@ -204,7 +207,7 @@ function ShareComposePage() {
     } finally {
       setIsSending(false);
     }
-  }, [recipients, interpolatedSubject, interpolatedBody, eventId, router]);
+  }, [recipients, interpolatedSubject, interpolatedBody, eventId, galleryUrl, router]);
 
   if (!user) return null;
 

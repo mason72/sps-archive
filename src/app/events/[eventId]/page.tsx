@@ -20,7 +20,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import type { EventSettings } from "@/types/event-settings";
@@ -371,6 +371,31 @@ export default function EventPage({
       toast.error("Failed to delete images");
     }
   }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
+
+  // Set an image as the gallery cover (event.settings.cover.imageId). The
+  // public gallery hero uses this. PATCH merges settings server-side.
+  const handleSetCover = useCallback(
+    async (imageId: string) => {
+      try {
+        const nextCover = {
+          ...eventSettings.cover,
+          enabled: true,
+          imageId,
+        };
+        const res = await fetch(`/api/events/${eventId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ settings: { cover: nextCover } }),
+        });
+        if (!res.ok) throw new Error("Failed to set cover");
+        setEventSettings((prev) => ({ ...prev, cover: nextCover }));
+        toast.success("Cover image set");
+      } catch {
+        toast.error("Failed to set cover image");
+      }
+    },
+    [eventId, eventSettings.cover]
+  );
 
   const handleBatchFavorite = useCallback(async () => {
     try {
@@ -1143,6 +1168,11 @@ export default function EventPage({
           onMoveToSection={handleMoveToSection}
           onRemoveFromSection={activeSection ? handleRemoveFromSection : undefined}
           onRename={handleBatchRename}
+          onSetCover={
+            selection.count === 1
+              ? () => handleSetCover(selectedArray[0])
+              : undefined
+          }
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           activeSection={activeSection}
           sidebarOffset={sidebarOpen ? 320 : 48}
@@ -1167,6 +1197,9 @@ export default function EventPage({
           images={flatImageList}
           initialImageId={selectedImageId}
           onClose={() => setSelectedImageId(null)}
+          actions={[
+            { icon: ImageIcon, label: "Make Cover", onClick: handleSetCover },
+          ]}
         />
       )}
 

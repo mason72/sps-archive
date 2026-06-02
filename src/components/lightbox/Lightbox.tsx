@@ -1,16 +1,26 @@
 "use client";
 
 import { createPortal } from "react-dom";
+import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Info, Download, X } from "lucide-react";
 import { useLightbox } from "./useLightbox";
 import { LightboxImage } from "./LightboxImage";
 import { MetadataPanel } from "./MetadataPanel";
 import type { ImageData } from "@/types/image";
 
+export interface LightboxAction {
+  icon: LucideIcon;
+  label: string;
+  /** Receives the currently-viewed image id. */
+  onClick: (imageId: string) => void;
+}
+
 interface LightboxProps {
   images: ImageData[];
   initialImageId: string;
   onClose: () => void;
+  /** Owner actions (e.g. Make Cover) rendered in the top bar. */
+  actions?: LightboxAction[];
 }
 
 /**
@@ -18,7 +28,7 @@ interface LightboxProps {
  * zoom/pan, metadata sidebar, and download support. Renders as a portal
  * to avoid z-index issues with the page layout. Light theme design.
  */
-export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
+export function Lightbox({ images, initialImageId, onClose, actions }: LightboxProps) {
   const {
     currentIndex,
     currentImage,
@@ -74,6 +84,21 @@ export function Lightbox({ images, initialImageId, onClose }: LightboxProps) {
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {(actions ?? []).map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.label}
+                onClick={() => action.onClick(currentImage.id)}
+                className="flex h-10 items-center justify-center gap-1.5 px-3 text-[12px] font-medium text-stone-500 hover:text-stone-900 transition-colors duration-300"
+                title={action.label}
+              >
+                <Icon className="h-[16px] w-[16px]" />
+                <span className="hidden sm:inline">{action.label}</span>
+              </button>
+            );
+          })}
+
           <button
             onClick={toggleMetadata}
             className={`flex h-10 w-10 items-center justify-center transition-colors duration-300 ${
