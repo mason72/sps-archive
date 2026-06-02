@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -194,7 +194,9 @@ export async function GET(
         const thumbKey = getThumbnailKey(img.r2_key);
         const urls = await Promise.all([
           getPresignedDownloadUrl(thumbKey, 14400),
-          getPresignedDownloadUrl(img.r2_key, 14400),
+          // Lightbox/full view: web-viewable original, or the 800px JPEG for
+          // non-renderable formats (TIFF). Download still gets the raw original.
+          getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
           share.allow_download ? getPresignedDownloadUrl(img.r2_key, 3600) : Promise.resolve(null),
         ]);
 

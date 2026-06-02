@@ -118,3 +118,24 @@ export function getThumbnailKey(
   const thumbFilename = filename.replace(/\.[^.]+$/, ".jpg");
   return `events/${eventId}/thumbnails/${variant}/${thumbFilename}`;
 }
+
+/** Image formats a browser can render directly in an <img> tag. */
+const WEB_VIEWABLE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif"]);
+
+/** Is this original directly renderable in the browser? (TIFF/etc. are not.) */
+export function isWebViewable(key: string): boolean {
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  return WEB_VIEWABLE_EXTS.has(ext);
+}
+
+/**
+ * The key to use for *displaying* an image (lightbox / full view).
+ *
+ * Browsers can't render TIFF (and other non-web formats) in an <img>, so for
+ * those we fall back to the largest JPEG thumbnail (thumb-lg, 800px). The raw
+ * original is still served separately for download. Web-viewable originals
+ * (JPEG/PNG/WebP/…) display at full resolution as before.
+ */
+export function getDisplayKey(r2Key: string): string {
+  return isWebViewable(r2Key) ? r2Key : getThumbnailKey(r2Key, "thumb-lg");
+}

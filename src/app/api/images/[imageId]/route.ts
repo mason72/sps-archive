@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 
 /**
  * GET /api/images/[imageId]
@@ -32,11 +32,14 @@ export async function GET(
       );
     }
 
-    // Generate presigned URLs — thumb (4h), original (4h), download (1h)
+    // Generate presigned URLs — thumb (4h), display (4h), download (1h).
+    // "display" is the web-viewable URL the lightbox renders: the original for
+    // JPEG/PNG/etc., or the 800px JPEG for non-renderable formats (TIFF).
+    // Download always serves the raw original.
     const thumbKey = getThumbnailKey(image.r2_key);
     const [thumbnailUrl, originalUrl, downloadUrl] = await Promise.all([
       getPresignedDownloadUrl(thumbKey, 14400),
-      getPresignedDownloadUrl(image.r2_key, 14400),
+      getPresignedDownloadUrl(getDisplayKey(image.r2_key), 14400),
       getPresignedDownloadUrl(image.r2_key, 3600),
     ]);
 

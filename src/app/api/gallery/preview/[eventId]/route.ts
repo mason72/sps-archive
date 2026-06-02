@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -115,7 +115,9 @@ export async function GET(
         const thumbKey = getThumbnailKey(img.r2_key);
         const [thumbnailUrl, originalUrl] = await Promise.all([
           getPresignedDownloadUrl(thumbKey, 14400),
-          getPresignedDownloadUrl(img.r2_key, 14400),
+          // Non-renderable originals (TIFF) fall back to the 800px JPEG so the
+          // preview lightbox shows them instead of a broken image.
+          getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
         ]);
 
         return {
