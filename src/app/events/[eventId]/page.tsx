@@ -643,10 +643,11 @@ export default function EventPage({
     const sorted = [...images];
     switch (sortBy) {
       case "filename":
+        // Sort by the ACTUAL filename (not parsedName) so "Filename" means the
+        // same thing here as in the public gallery — otherwise the two grids
+        // order the same section differently.
         sorted.sort((a, b) =>
-          (a.parsedName || a.originalFilename).localeCompare(
-            b.parsedName || b.originalFilename
-          )
+          (a.originalFilename || "").localeCompare(b.originalFilename || "")
         );
         break;
       case "date-taken":
