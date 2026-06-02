@@ -81,53 +81,62 @@ export function ImageGrid({
     );
   }
 
+  // Distribute round-robin into flex columns (item i → column i % n) so the
+  // sorted order reads LEFT-TO-RIGHT across the first row, then wraps — matching
+  // the public gallery. (CSS multi-column fills top-to-bottom down each column
+  // first, which made a filename sort read down column 1 — the reported bug.)
+  // Tiles keep their fixed aspect ratio, so there's no load-time reflow.
+  const columns: (typeof gridItems)[] = Array.from({ length: colCount }, () => []);
+  gridItems.forEach((item, i) => {
+    columns[i % colCount].push(item);
+  });
+
+  const renderItem = (item: (typeof gridItems)[number]) => {
+    const key =
+      item.type === "stack" ? `stack-${item.data.id}` : `img-${item.data.id}`;
+    return (
+      <div key={key} style={{ marginBottom: `${gapPx}px` }}>
+        {item.type === "stack" ? (
+          <SmartStack
+            stackId={item.data.id}
+            stackType={item.data.stackType}
+            imageCount={item.data.imageCount}
+            images={item.data.images.map((img) => ({
+              ...img,
+              stackRank: img.stackRank ?? 0,
+            }))}
+            personName={item.data.personName}
+            onToggleSelect={onToggleSelect}
+            onImageDoubleClick={onImageDoubleClick}
+            onSetCover={onSetCover}
+            hasSelection={hasSelection}
+            selectedIds={selectedIds}
+            showFilename={showFilenames}
+          />
+        ) : (
+          <GridImage
+            image={item.data}
+            hasSelection={hasSelection}
+            isSelected={selectedIds?.has(item.data.id) ?? false}
+            selectedIds={selectedIds}
+            onSelect={() => onToggleSelect?.(item.data.id)}
+            onRangeSelect={() => onRangeSelect?.(item.data.id)}
+            onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
+            uniform={style === "uniform"}
+            showFilename={showFilenames}
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div style={{ columnCount: colCount, columnGap: `${gapPx}px` }}>
-      {gridItems.map((item) => {
-        const key =
-          item.type === "stack"
-            ? `stack-${item.data.id}`
-            : `img-${item.data.id}`;
-        return (
-          <div
-            key={key}
-            // break-inside-avoid keeps a tile whole within one column.
-            className="break-inside-avoid"
-            style={{ marginBottom: `${gapPx}px` }}
-          >
-            {item.type === "stack" ? (
-              <SmartStack
-                stackId={item.data.id}
-                stackType={item.data.stackType}
-                imageCount={item.data.imageCount}
-                images={item.data.images.map((img) => ({
-                  ...img,
-                  stackRank: img.stackRank ?? 0,
-                }))}
-                personName={item.data.personName}
-                onToggleSelect={onToggleSelect}
-                onImageDoubleClick={onImageDoubleClick}
-                onSetCover={onSetCover}
-                hasSelection={hasSelection}
-                selectedIds={selectedIds}
-                showFilename={showFilenames}
-              />
-            ) : (
-              <GridImage
-                image={item.data}
-                hasSelection={hasSelection}
-                isSelected={selectedIds?.has(item.data.id) ?? false}
-                selectedIds={selectedIds}
-                onSelect={() => onToggleSelect?.(item.data.id)}
-                onRangeSelect={() => onRangeSelect?.(item.data.id)}
-                onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
-                uniform={style === "uniform"}
-                showFilename={showFilenames}
-              />
-            )}
-          </div>
-        );
-      })}
+    <div className="flex items-start" style={{ gap: `${gapPx}px` }}>
+      {columns.map((col, ci) => (
+        <div key={ci} className="min-w-0 flex-1">
+          {col.map(renderItem)}
+        </div>
+      ))}
     </div>
   );
 }
