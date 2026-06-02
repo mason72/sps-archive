@@ -434,7 +434,7 @@ export default function GalleryPage({
       )}
 
       {/* ─── Branded header ─── */}
-      <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-8`}>
+      <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-5`}>
         {/* When title is below cover: logo + title inline */}
         {titleBelowCover ? (
           <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
@@ -507,13 +507,8 @@ export default function GalleryPage({
         {!searchQuery.trim() && activeSectionInfo && (
           <div
             key={activeSectionInfo.id}
-            className="reveal mt-6 flex items-center gap-4"
+            className="reveal mt-2 flex items-baseline gap-3"
           >
-            <span
-              aria-hidden
-              className="h-px w-10 shrink-0 origin-left"
-              style={{ backgroundColor: colors.accent, opacity: 0.7 }}
-            />
             <span
               className={`${headingClass} italic leading-none text-[clamp(24px,3.4vw,40px)]`}
               style={{ color: colors.accent }}
@@ -540,7 +535,7 @@ export default function GalleryPage({
 
         {/* Download menu: All / Favorites (kept in folders by section) */}
         {gallery.allowDownload && (
-          <div className="mt-6 flex justify-end">
+          <div className="mt-5 flex justify-start">
             <div className="relative">
               <button
                 onClick={() => setDownloadMenuOpen((o) => !o)}
@@ -554,7 +549,7 @@ export default function GalleryPage({
               </button>
               {downloadMenuOpen && (
                 <div
-                  className="absolute right-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
+                  className="absolute left-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
                   style={{ borderColor: `${colors.secondary}1f` }}
                 >
                   <button
@@ -587,7 +582,7 @@ export default function GalleryPage({
       />
 
       {/* ─── Search + Sort + Gallery grid ─── */}
-      <main className="px-8 md:px-16 pt-8 pb-24">
+      <main className="px-8 md:px-16 pt-6 pb-24">
         {/* Toolbar: search + sort */}
         {gallery.images.length > 8 && (
           <div className="flex items-end justify-between gap-6 mb-8">
