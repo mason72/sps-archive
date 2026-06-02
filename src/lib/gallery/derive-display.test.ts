@@ -93,6 +93,27 @@ describe("deriveDisplayImages", () => {
       deriveDisplayImages(base({ isSearching: true, searchResults: null }))
     ).toEqual([]);
   });
+
+  it("favoritesOnly restricts to favorited images (within the active view)", () => {
+    // All images, favorites only = a, c
+    expect(
+      deriveDisplayImages(
+        base({ favoritesOnly: true, favoriteIds: new Set(["a", "c"]) })
+      )
+    ).toEqual([a, c]);
+    // Section s1 (a,c) ∩ favorites (c) = c
+    expect(
+      deriveDisplayImages(
+        base({ activeSection: "s1", favoritesOnly: true, favoriteIds: new Set(["c"]) })
+      )
+    ).toEqual([c]);
+  });
+
+  it("favoritesOnly with no favorites returns empty", () => {
+    expect(
+      deriveDisplayImages(base({ favoritesOnly: true, favoriteIds: new Set() }))
+    ).toEqual([]);
+  });
 });
 
 describe("deriveDisplayStacks", () => {

@@ -27,6 +27,10 @@ export interface DisplayInput {
   activeSection: string | null;
   allImages: ImageData[];
   allStacks: StackData[];
+  /** When true, restrict to favorited images (using favoriteIds). */
+  favoritesOnly?: boolean;
+  /** Ids of favorited images (from the event's active share). */
+  favoriteIds?: Set<string>;
 }
 
 function inSection(img: ImageData, sectionId: string): boolean {
@@ -34,27 +38,31 @@ function inSection(img: ImageData, sectionId: string): boolean {
 }
 
 export function deriveDisplayImages(input: DisplayInput): ImageData[] {
-  const { isSearching, searchResults, activeSection, allImages } = input;
+  const { isSearching, searchResults, activeSection, allImages, favoritesOnly, favoriteIds } = input;
 
-  if (isSearching) return searchResults ?? [];
-  if (activeSection) return allImages.filter((img) => inSection(img, activeSection));
-  return allImages;
+  let list: ImageData[];
+  if (isSearching) list = searchResults ?? [];
+  else if (activeSection) list = allImages.filter((img) => inSection(img, activeSection));
+  else list = allImages;
+
+  if (favoritesOnly) {
+    const favs = favoriteIds ?? new Set<string>();
+    list = list.filter((img) => favs.has(img.id));
+  }
+  return list;
 }
 
 export function deriveDisplayStacks(input: DisplayInput): StackData[] {
-  const { isSearching, activeSection, allStacks } = input;
+  const { isSearching, activeSection, allStacks, favoritesOnly, favoriteIds } = input;
 
   // Search results are a flat list — stacks are not shown while searching.
   if (isSearching) return [];
 
-  if (activeSection) {
-    return allStacks
-      .map((s) => ({
-        ...s,
-        images: s.images.filter((img) => inSection(img, activeSection)),
-      }))
-      .filter((s) => s.images.length > 0);
-  }
+  const favs = favoritesOnly ? favoriteIds ?? new Set<string>() : null;
+  const keep = (img: ImageData) =>
+    (!activeSection || inSection(img, activeSection)) && (!favs || favs.has(img.id));
 
-  return allStacks;
+  return allStacks
+    .map((s) => ({ ...s, images: s.images.filter(keep) }))
+    .filter((s) => s.images.length > 0);
 }

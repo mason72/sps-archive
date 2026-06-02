@@ -20,7 +20,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import type { EventSettings } from "@/types/event-settings";
@@ -87,6 +87,10 @@ export default function EventPage({
   // Ensures we only auto-select the default section once, on initial load.
   const didInitSectionRef = useRef(false);
 
+  // Favorites filter (client/team favorites from the event's active share).
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+
   // ─── Derived displayed list (race-proof) ───
   // Pure function of (search, active section, section IDs, full set). Lives in
   // src/lib/gallery/derive-display.ts so it's unit-tested in isolation — this
@@ -100,8 +104,10 @@ export default function EventPage({
         activeSection,
         allImages,
         allStacks,
+        favoritesOnly,
+        favoriteIds,
       }),
-    [isSearching, searchResults, activeSection, allImages, allStacks]
+    [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds]
   );
 
   const stacks = useMemo<StackData[]>(
@@ -112,8 +118,10 @@ export default function EventPage({
         activeSection,
         allImages,
         allStacks,
+        favoritesOnly,
+        favoriteIds,
       }),
-    [isSearching, searchResults, activeSection, allImages, allStacks]
+    [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds]
   );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
@@ -371,6 +379,36 @@ export default function EventPage({
       toast.error("Failed to delete images");
     }
   }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
+
+  // Load client/team favorites for this event (from the active share) when the
+  // Favorites filter is switched on. Favorites are per-share and shared across
+  // everyone on that link, so this reflects the team's picks.
+  const loadFavorites = useCallback(async () => {
+    try {
+      const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
+      if (!sharesRes.ok) return;
+      const sharesData = await sharesRes.json();
+      const active = sharesData.shares?.find((s: { isActive: boolean }) => s.isActive);
+      if (!active) {
+        setFavoriteIds(new Set());
+        return;
+      }
+      const favRes = await fetch(`/api/gallery/${active.slug}/favorites?shareId=${active.id}`);
+      if (!favRes.ok) return;
+      const favData = await favRes.json();
+      setFavoriteIds(new Set<string>((favData.favorites ?? []).map((f: { imageId: string }) => f.imageId)));
+    } catch {
+      /* non-critical */
+    }
+  }, [eventId]);
+
+  const toggleFavoritesFilter = useCallback(() => {
+    setFavoritesOnly((on) => {
+      const next = !on;
+      if (next) loadFavorites(); // refresh on enable
+      return next;
+    });
+  }, [loadFavorites]);
 
   // Set an image as the gallery cover (event.settings.cover.imageId). The
   // public gallery hero uses this. PATCH merges settings server-side.
@@ -1059,6 +1097,18 @@ export default function EventPage({
                     </div>
                   )}
                 </div>
+
+                <div className="w-px h-4 bg-stone-200" />
+
+                {/* Favorites filter */}
+                <button
+                  onClick={toggleFavoritesFilter}
+                  className={`p-1.5 transition-colors ${favoritesOnly ? "text-accent" : "text-stone-300 hover:text-stone-500"}`}
+                  aria-label="Filter to favorites"
+                  title={favoritesOnly ? "Showing favorites" : "Show favorites only"}
+                >
+                  <Heart className="h-4 w-4" fill={favoritesOnly ? "currentColor" : "none"} />
+                </button>
 
                 <div className="w-px h-4 bg-stone-200" />
 
