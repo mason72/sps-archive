@@ -26,7 +26,7 @@ import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-d
 import { sortImages } from "@/lib/gallery/sort-images";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
-import { ImageGridSkeleton } from "@/components/ui/Skeleton";
+import { ImageGridSkeleton, EventSidebarSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import confetti from "canvas-confetti";
 
 interface EventData {
@@ -725,6 +725,9 @@ export default function EventPage({
   return (
     <div className="flex min-h-screen">
       {/* ─── Left Sidebar ─── */}
+      {/* Show a placeholder of the real sidebar's footprint while the event
+          payload loads, so the gallery never shifts sideways when it pops in. */}
+      {!event && isLoading && <EventSidebarSkeleton />}
       {event && (
         <EventSidebar
           eventId={eventId}
@@ -802,15 +805,20 @@ export default function EventPage({
           >
             ← Back to archive
           </Link>
-          <h1 className="font-editorial text-[clamp(36px,5vw,64px)] leading-[0.95] text-stone-900 reveal">
-            {event?.name || "Event"}
-            {activeSection && (
-              <span className="text-accent">
-                {" // "}
-                {sections.find((s) => s.id === activeSection)?.name}
-              </span>
-            )}
-          </h1>
+          {event ? (
+            <h1 className="font-editorial text-[clamp(36px,5vw,64px)] leading-[0.95] text-stone-900 reveal">
+              {event.name}
+              {activeSection && (
+                <span className="text-accent">
+                  {" // "}
+                  {sections.find((s) => s.id === activeSection)?.name}
+                </span>
+              )}
+            </h1>
+          ) : (
+            /* No fake "Event" title while loading — shimmer where the name goes. */
+            <Skeleton className="h-[clamp(36px,5vw,64px)] w-[min(420px,70%)]" />
+          )}
           {event?.event_date && (
             <p className="caption-italic mt-3">
               {event.event_date}
