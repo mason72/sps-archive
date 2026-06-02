@@ -162,8 +162,11 @@ export function SectionedGallery({
         className="mb-8 flex items-center justify-between gap-6 border-y py-2.5 text-[12px]"
         style={{ borderColor: `${colors.secondary}1f` }}
       >
-        {/* Tabs — overflow collapses into "More ▾" so they never hit controls */}
-        <div ref={tabBarRef} className="flex min-w-0 flex-1 items-center overflow-hidden">
+        {/* Tabs — overflow collapses into "More ▾" so they never hit controls.
+            overflow-hidden clips the tab row ONLY; the More popover is a sibling
+            outside this clip, or it'd be hidden along with the overflowing tabs. */}
+        <div ref={tabBarRef} className="flex min-w-0 flex-1 items-center">
+          <div className="flex min-w-0 items-center overflow-hidden">
           {visibleTabs.map((tab, i) => {
             const isActive = activeTab === tab.id;
             return (
@@ -205,10 +208,12 @@ export function SectionedGallery({
               </span>
             );
           })}
+          </div>
 
-          {/* More ▾ overflow dropdown */}
+          {/* More ▾ overflow dropdown — sibling of the clipped tab row so the
+              popover renders fully instead of being cut off by overflow-hidden. */}
           {overflowTabs.length > 0 && (
-            <div className="relative flex items-center">
+            <div className="relative flex shrink-0 items-center">
               <span
                 aria-hidden
                 className="mx-3 select-none text-[12px]"
