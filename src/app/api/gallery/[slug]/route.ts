@@ -252,13 +252,24 @@ export async function GET(
     const imageIdSet = new Set((rawImages || []).map((img) => img.id));
     const sectionIds = (rawSections || []).map((s) => s.id);
 
-    // Batch-fetch all section_images for these sections
-    const { data: sectionImageRows } = sectionIds.length > 0
-      ? await supabase
+    // Batch-fetch all section_images for these sections. MUST paginate —
+    // Supabase caps a single select at 1000 rows, and a large event easily has
+    // more links than that. Without paging, sections past the cap lost their
+    // members (showed partial counts, or vanished via the length>0 filter).
+    const sectionImageRows: { section_id: string; image_id: string }[] = [];
+    if (sectionIds.length > 0) {
+      const SI_PAGE = 1000;
+      for (let off = 0; ; off += SI_PAGE) {
+        const { data: page } = await supabase
           .from("section_images")
           .select("section_id, image_id")
           .in("section_id", sectionIds)
-      : { data: [] as { section_id: string; image_id: string }[] };
+          .range(off, off + SI_PAGE - 1);
+        if (!page || page.length === 0) break;
+        sectionImageRows.push(...page);
+        if (page.length < SI_PAGE) break;
+      }
+    }
 
     // Group image IDs by section, filtering to images in this gallery
     const sectionImageMap = new Map<string, string[]>();
