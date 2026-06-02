@@ -94,6 +94,12 @@ export default function GalleryPage({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  // Active section (reported up from SectionedGallery) for the header label.
+  const [activeSectionInfo, setActiveSectionInfo] = useState<{
+    id: string;
+    name: string;
+    count: number;
+  } | null>(null);
   const filteredImages = useMemo(() => {
     if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
     const q = searchQuery.toLowerCase();
@@ -493,6 +499,36 @@ export default function GalleryPage({
             })}
           </p>
         )}
+
+        {/* ─── Active section label ─── */}
+        {/* The section you're viewing, set in the accent color in the heading
+            font. Keyed by section id so it fades up on each change. Hidden while
+            searching (sections aren't shown then). */}
+        {!searchQuery.trim() && activeSectionInfo && (
+          <div
+            key={activeSectionInfo.id}
+            className="reveal mt-6 flex items-center gap-4"
+          >
+            <span
+              aria-hidden
+              className="h-px w-10 shrink-0 origin-left"
+              style={{ backgroundColor: colors.accent, opacity: 0.7 }}
+            />
+            <span
+              className={`${headingClass} italic leading-none text-[clamp(24px,3.4vw,40px)]`}
+              style={{ color: colors.accent }}
+            >
+              {activeSectionInfo.name}
+            </span>
+            <span
+              className="text-[11px] uppercase tracking-[0.22em] tabular-nums"
+              style={{ color: colors.accent, opacity: 0.55 }}
+            >
+              {activeSectionInfo.count}{" "}
+              {activeSectionInfo.count === 1 ? "photo" : "photos"}
+            </span>
+          </div>
+        )}
         {gallery.customMessage && (
           <p
             className="text-[14px] mt-4 max-w-2xl"
@@ -625,6 +661,7 @@ export default function GalleryPage({
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
             colors={colors}
+            onActiveSectionChange={setActiveSectionInfo}
           />
         ) : (
           <GalleryGrid

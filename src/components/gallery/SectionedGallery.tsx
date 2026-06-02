@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
 import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { sortImages, type SortBy } from "@/lib/gallery/sort-images";
@@ -28,6 +28,7 @@ export function SectionedGallery({
   gridGap,
   colors,
   showAllTab = false,
+  onActiveSectionChange,
 }: {
   images: GalleryImage[];
   sections: GallerySection[];
@@ -43,6 +44,10 @@ export function SectionedGallery({
   colors: { primary: string; secondary: string; accent: string; background: string };
   /** Show "All" tab — true for preview/edit, false for public galleries */
   showAllTab?: boolean;
+  /** Reports the active section up to the page (for the header section label). */
+  onActiveSectionChange?: (
+    info: { id: string; name: string; count: number } | null
+  ) => void;
 }) {
   const [activeTab, setActiveTab] = useState<string>(
     showAllTab ? "all" : sections[0]?.id ?? "all"
@@ -108,6 +113,18 @@ export function SectionedGallery({
       }))
       .filter((t) => t.count > 0),
   ];
+
+  // Surface the active section to the page so it can render the header label.
+  const activeTabInfo = tabs.find((t) => t.id === activeTab) ?? null;
+  useEffect(() => {
+    onActiveSectionChange?.(
+      activeTabInfo
+        ? { id: activeTabInfo.id, name: activeTabInfo.label, count: activeTabInfo.count }
+        : null
+    );
+    // Primitive deps so this only fires when the active section actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabInfo?.id, activeTabInfo?.label, activeTabInfo?.count, onActiveSectionChange]);
 
   const SORT_LABELS: Record<SortBy, string> = {
     upload: "Latest",
