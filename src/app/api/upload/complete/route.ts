@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { generateThumbnails } from "@/lib/thumbnails/generate";
+
+// Large originals (>4MB direct uploads) are downloaded here for thumbnailing;
+// give sharp room and a node runtime.
+export const runtime = "nodejs";
+export const maxDuration = 120;
 
 /**
  * POST /api/upload/complete
  *
- * Called after a file has been uploaded to R2. Records EXIF/dimensions and
- * marks the image "complete" — fast, so uploads never wait on processing.
+ * Called after a file has been uploaded to R2. Records EXIF/dimensions, ensures
+ * a thumbnail exists, and marks the image "complete".
  *
- * Thumbnail generation is DEFERRED, not run here: it's slow, competes with
- * the upload path, and is unreliable on serverless (the function can freeze
- * after the response). The grid falls back to the original image until a
- * thumbnail exists, and /api/admin/batch-thumbnails backfills them out of
- * band. Uploading must never be blocked by processing.
+ * Two upload paths converge here:
+ *  - Proxy uploads (≤4MB) already generated thumbnails inline in
+ *    /api/upload/[imageId], so thumbnail_generated is already true and we skip
+ *    the work below.
+ *  - Direct uploads (>4MB, browser→R2) never touched the server, so no
+ *    thumbnail exists yet. We generate it here from the R2 original (download +
+ *    sharp). Since display now gates on thumbnail_generated, a direct upload
+ *    would otherwise be invisible in the gallery.
+ *
+ * Thumbnail generation here is best-effort: if it fails the original is safe,
+ * the editor grid self-heals on view (/api/images/[id]/regenerate-thumbnail),
+ * and /api/admin/batch-thumbnails backfills out of band.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -43,6 +56,18 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
+    // Look up the row so we know whether a thumbnail already exists (proxy path)
+    // or still needs generating (direct >4MB path), and where the original is.
+    const { data: image, error: fetchError } = await supabase
+      .from("images")
+      .select("r2_key, event_id, filename, thumbnail_generated")
+      .eq("id", imageId)
+      .single();
+
+    if (fetchError || !image) {
+      return NextResponse.json({ error: "Image not found" }, { status: 404 });
+    }
+
     // Update image with EXIF data and mark as complete
     const updateData: Record<string, unknown> = {
       processing_status: "complete",
@@ -64,19 +89,33 @@ export async function POST(request: NextRequest) {
       if (exif.gpsLng) updateData.gps_lng = exif.gpsLng;
     }
 
+    // Direct (>4MB) uploads never hit the server, so they have no thumbnail yet.
+    // Generate it here from the R2 original — display gates on thumbnail_generated,
+    // so without this a large upload would be invisible in the gallery. Proxy
+    // uploads (≤4MB) already set thumbnail_generated, so we skip them.
+    // Best-effort: the original is safe regardless, and the grid self-heals.
+    if (!image.thumbnail_generated && image.r2_key) {
+      try {
+        const result = await generateThumbnails(
+          image.r2_key,
+          image.event_id,
+          image.filename
+        );
+        updateData.thumbnail_generated = true;
+        // Backfill real pixel dimensions if the client didn't supply them.
+        if (!width && result.width) updateData.width = result.width;
+        if (!height && result.height) updateData.height = result.height;
+      } catch (thumbErr) {
+        console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("images")
       .update(updateData)
       .eq("id", imageId);
 
     if (updateError) throw updateError;
-
-    // Thumbnails are generated inline by the proxy upload route
-    // (/api/upload/[imageId]) from the upload buffer, and backfilled out of
-    // band by /api/admin/batch-thumbnails. The AI pipeline is disabled, so we
-    // no longer fire an "image/uploaded" Inngest event here — that step ran
-    // Modal AI and, on failure, re-marked the just-completed photo as "failed".
-    // See src/lib/inngest/functions.ts for the full rationale.
 
     return NextResponse.json({ success: true, imageId });
   } catch (error) {
