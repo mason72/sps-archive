@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
+import { sortImages } from "@/lib/gallery/sort-images";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import { ImageGridSkeleton } from "@/components/ui/Skeleton";
@@ -639,30 +640,9 @@ export default function EventPage({
   }, []);
 
   // Sort images based on user selection (stacks keep internal rank order)
-  const sortedImages = useMemo(() => {
-    const sorted = [...images];
-    switch (sortBy) {
-      case "filename":
-        // Sort by the ACTUAL filename (not parsedName) so "Filename" means the
-        // same thing here as in the public gallery — otherwise the two grids
-        // order the same section differently.
-        sorted.sort((a, b) =>
-          (a.originalFilename || "").localeCompare(b.originalFilename || "")
-        );
-        break;
-      case "date-taken":
-        sorted.sort((a, b) => {
-          if (!a.takenAt && !b.takenAt) return 0;
-          if (!a.takenAt) return 1;
-          if (!b.takenAt) return -1;
-          return a.takenAt.localeCompare(b.takenAt);
-        });
-        break;
-      default:
-        break; // "upload" — keep API order (created_at asc)
-    }
-    return sorted;
-  }, [images, sortBy]);
+  // Shared sort module — same comparator the public gallery uses, so
+  // "Filename"/"Date taken"/"Latest" order identically in both.
+  const sortedImages = useMemo(() => sortImages(images, sortBy), [images, sortBy]);
 
   const standalone = sortedImages.filter((img) => !img.stackId);
 

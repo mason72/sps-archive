@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Download, Heart } from "lucide-react";
+import { distributeIntoColumns, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { GalleryImage } from "@/types/gallery";
 
 interface GalleryGridProps {
@@ -43,51 +44,8 @@ const UNIFORM_COLUMNS_MAP: Record<number, string> = {
   6: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
 };
 
-/* ─── Responsive column count (mirrors old Tailwind breakpoints) ─── */
-// [default, sm≥640, lg≥1024, xl≥1280]
-const RESPONSIVE_COLS: Record<number, number[]> = {
-  2: [1, 2, 2, 2],
-  3: [1, 2, 3, 3],
-  4: [1, 2, 3, 4],
-  5: [2, 3, 4, 5],
-  6: [2, 3, 4, 6],
-};
-
-function useResponsiveColumns(target: number): number {
-  const tiers = RESPONSIVE_COLS[target] ?? RESPONSIVE_COLS[4];
-
-  const [cols, setCols] = useState(() => {
-    if (typeof window === "undefined") return tiers[0];
-    const w = window.innerWidth;
-    if (w >= 1280) return tiers[3];
-    if (w >= 1024) return tiers[2];
-    if (w >= 640) return tiers[1];
-    return tiers[0];
-  });
-
-  useEffect(() => {
-    const update = () => {
-      const w = window.innerWidth;
-      if (w >= 1280) setCols(tiers[3]);
-      else if (w >= 1024) setCols(tiers[2]);
-      else if (w >= 640) setCols(tiers[1]);
-      else setCols(tiers[0]);
-    };
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [tiers]);
-
-  return cols;
-}
-
-/* ─── Round-robin distribution (preserves left-to-right reading order) ─── */
-function distributeIntoColumns(images: GalleryImage[], numCols: number): GalleryImage[][] {
-  const columns: GalleryImage[][] = Array.from({ length: numCols }, () => []);
-  images.forEach((img, i) => {
-    columns[i % numCols].push(img);
-  });
-  return columns;
-}
+/* Responsive columns + round-robin distribution now come from the shared
+   src/lib/gallery/grid-layout module (used by the editor grid too). */
 
 /* ─── Main component ─── */
 export function GalleryGrid({

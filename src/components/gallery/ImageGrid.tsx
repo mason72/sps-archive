@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Check } from "lucide-react";
 import { SmartStack } from "./SmartStack";
-import { useColumnCount } from "@/hooks/useColumnCount";
+import { distributeIntoColumns, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
 
 interface ImageGridProps {
@@ -64,8 +64,7 @@ export function ImageGrid({
     ...standalone.map((i) => ({ type: "image" as const, data: i })),
   ];
 
-  const responsiveColCount = useColumnCount();
-  const colCount = settingsColumnCount ?? responsiveColCount;
+  const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
 
   if (gridItems.length === 0) {
@@ -81,15 +80,10 @@ export function ImageGrid({
     );
   }
 
-  // Distribute round-robin into flex columns (item i → column i % n) so the
-  // sorted order reads LEFT-TO-RIGHT across the first row, then wraps — matching
-  // the public gallery. (CSS multi-column fills top-to-bottom down each column
-  // first, which made a filename sort read down column 1 — the reported bug.)
-  // Tiles keep their fixed aspect ratio, so there's no load-time reflow.
-  const columns: (typeof gridItems)[] = Array.from({ length: colCount }, () => []);
-  gridItems.forEach((item, i) => {
-    columns[i % colCount].push(item);
-  });
+  // Shared left-to-right round-robin distribution (same as the public gallery)
+  // so sorted order reads across the first row, then wraps. Tiles keep their
+  // fixed aspect ratio, so there's no load-time reflow.
+  const columns = distributeIntoColumns(gridItems, colCount);
 
   const renderItem = (item: (typeof gridItems)[number]) => {
     const key =

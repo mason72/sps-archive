@@ -3,9 +3,8 @@
 import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
+import { sortImages, type SortBy } from "@/lib/gallery/sort-images";
 import type { GalleryImage, GallerySection } from "@/types/gallery";
-
-type SortBy = "upload" | "filename" | "date-taken";
 
 /**
  * Tabbed gallery renderer for public + preview galleries.
@@ -77,28 +76,12 @@ export function SectionedGallery({
     );
   }, [activeTab, images, sections, imageMap]);
 
-  // Apply favorites filter + sort.
+  // Apply favorites filter, then the shared sort (same comparator as editor).
   const visibleImages = useMemo(() => {
-    let list = favoritesOnly
+    const filtered = favoritesOnly
       ? tabImages.filter((img) => favoriteIds.has(img.id))
       : tabImages;
-    list = [...list];
-    if (sortBy === "filename") {
-      list.sort((a, b) =>
-        (a.originalFilename || "").localeCompare(b.originalFilename || "")
-      );
-    } else if (sortBy === "date-taken") {
-      list.sort((a, b) => {
-        const at = a.takenAt || "";
-        const bt = b.takenAt || "";
-        if (!at && !bt) return 0;
-        if (!at) return 1;
-        if (!bt) return -1;
-        return at.localeCompare(bt);
-      });
-    }
-    // "upload" keeps the server order.
-    return list;
+    return sortImages(filtered, sortBy);
   }, [tabImages, favoritesOnly, favoriteIds, sortBy]);
 
   const sectionCounts = useMemo(
