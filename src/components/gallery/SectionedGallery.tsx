@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { ArrowUpDown, Heart, Tag, Check } from "lucide-react";
+import { useState, useMemo, useRef, useLayoutEffect } from "react";
+import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import type { GalleryImage, GallerySection } from "@/types/gallery";
 
@@ -52,6 +52,14 @@ export function SectionedGallery({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Tab overflow: measure each tab's width against the available space (row
+  // minus the controls) and collapse the tail into a "More ▾" dropdown so tabs
+  // never run into the sort/filter controls.
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const tabWidthsRef = useRef<number[]>([]);
+  const [visibleCount, setVisibleCount] = useState<number>(Infinity);
 
   const imageMap = useMemo(
     () => new Map(images.map((img) => [img.id, img])),
@@ -124,118 +132,207 @@ export function SectionedGallery({
     "date-taken": "Date taken",
   };
 
+  // Recompute how many tabs fit whenever the row resizes or the tab set changes.
+  useLayoutEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const widths = tabWidthsRef.current;
+      if (widths.length === 0) {
+        setVisibleCount(tabs.length);
+        return;
+      }
+      const available = el.clientWidth;
+      const MORE_W = 72; // reserve room for the "More ▾" button
+      const DIVIDER_W = 25; // the "|" + margins between tabs
+      let used = 0;
+      let fit = 0;
+      for (let i = 0; i < widths.length; i++) {
+        const next = used + widths[i] + (i > 0 ? DIVIDER_W : 0);
+        // Reserve MORE_W unless this is the last tab (no More needed then).
+        const reserve = i === widths.length - 1 ? 0 : MORE_W;
+        if (next + reserve > available) break;
+        used = next;
+        fit++;
+      }
+      setVisibleCount(Math.max(1, fit)); // always show at least one
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.length]);
+
+  const visibleTabs = tabs.slice(0, visibleCount);
+  const overflowTabs = tabs.slice(visibleCount);
+  // If the active tab is hidden in overflow, surface it as the last visible tab
+  // so the user always sees which section they're in.
+  const activeInOverflow = overflowTabs.some((t) => t.id === activeTab);
+
   return (
     <div>
-      {/* ─── Section tabs (inline, hairline-divided, active underlined) ─── */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-1 gap-y-2">
-        {tabs.map((tab, i) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <span key={tab.id} className="flex items-center">
-              {i > 0 && (
-                <span
-                  aria-hidden
-                  className="mx-3 select-none text-[12px]"
-                  style={{ color: `${colors.secondary}40` }}
-                >
-                  |
-                </span>
-              )}
-              <button
-                onClick={() => setActiveTab(tab.id)}
-                className="group relative pb-1 text-[13px] tracking-wide transition-opacity duration-200 whitespace-nowrap cursor-pointer"
-                style={{
-                  color: isActive ? colors.primary : colors.secondary,
-                  fontWeight: isActive ? 600 : 400,
-                  opacity: isActive ? 1 : 0.7,
-                }}
-              >
-                {tab.label}
-                <span
-                  className="ml-1.5 text-[11px] tabular-nums"
-                  style={{ opacity: 0.5 }}
-                >
-                  {tab.count}
-                </span>
-                {/* Active underline */}
-                <span
-                  className="absolute -bottom-px left-0 h-[2px] transition-all duration-300"
-                  style={{
-                    width: isActive ? "100%" : "0%",
-                    backgroundColor: colors.accent,
-                  }}
-                />
-              </button>
-            </span>
-          );
-        })}
-      </div>
-
-      {/* ─── Controls: sort / favorites filter / filename toggle ─── */}
+      {/* ─── Header row: section tabs (left) + controls (right) ─── */}
       <div
-        className="mb-8 flex items-center gap-5 border-y py-2.5 text-[12px]"
+        className="mb-8 flex items-center justify-between gap-6 border-y py-2.5 text-[12px]"
         style={{ borderColor: `${colors.secondary}1f` }}
       >
-        {/* Sort */}
-        <div className="relative">
-          <button
-            onClick={() => setSortOpen((o) => !o)}
-            onBlur={() => setTimeout(() => setSortOpen(false), 150)}
-            className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-            style={{ color: colors.secondary }}
-          >
-            <ArrowUpDown size={13} />
-            {SORT_LABELS[sortBy]}
-          </button>
-          {sortOpen && (
-            <div
-              className="absolute left-0 top-7 z-20 min-w-[150px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
-              style={{ borderColor: `${colors.secondary}1f` }}
-            >
-              {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+        {/* Tabs — overflow collapses into "More ▾" so they never hit controls */}
+        <div ref={tabBarRef} className="flex min-w-0 flex-1 items-center overflow-hidden">
+          {visibleTabs.map((tab, i) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <span
+                key={tab.id}
+                ref={(el) => {
+                  // Record each tab's full width once for the overflow math.
+                  if (el) tabWidthsRef.current[i] = el.getBoundingClientRect().width;
+                }}
+                className="flex items-center"
+              >
+                {i > 0 && (
+                  <span
+                    aria-hidden
+                    className="mx-3 select-none text-[12px]"
+                    style={{ color: `${colors.secondary}40` }}
+                  >
+                    |
+                  </span>
+                )}
                 <button
-                  key={key}
-                  onMouseDown={() => {
-                    setSortBy(key);
-                    setSortOpen(false);
+                  onClick={() => setActiveTab(tab.id)}
+                  className="group relative whitespace-nowrap pb-1 text-[13px] tracking-wide transition-opacity duration-200 cursor-pointer"
+                  style={{
+                    color: isActive ? colors.primary : colors.secondary,
+                    fontWeight: isActive ? 600 : 400,
+                    opacity: isActive ? 1 : 0.7,
                   }}
-                  className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[12px] hover:bg-stone-50"
-                  style={{ color: colors.primary }}
                 >
-                  {SORT_LABELS[key]}
-                  {sortBy === key && <Check size={13} style={{ color: colors.accent }} />}
+                  {tab.label}
+                  <span className="ml-1.5 text-[11px] tabular-nums" style={{ opacity: 0.5 }}>
+                    {tab.count}
+                  </span>
+                  <span
+                    className="absolute -bottom-px left-0 h-[2px] transition-all duration-300"
+                    style={{ width: isActive ? "100%" : "0%", backgroundColor: colors.accent }}
+                  />
                 </button>
-              ))}
+              </span>
+            );
+          })}
+
+          {/* More ▾ overflow dropdown */}
+          {overflowTabs.length > 0 && (
+            <div className="relative flex items-center">
+              <span
+                aria-hidden
+                className="mx-3 select-none text-[12px]"
+                style={{ color: `${colors.secondary}40` }}
+              >
+                |
+              </span>
+              <button
+                onClick={() => setMoreOpen((o) => !o)}
+                onBlur={() => setTimeout(() => setMoreOpen(false), 150)}
+                className="flex items-center gap-1 whitespace-nowrap pb-1 text-[13px] tracking-wide transition-opacity hover:opacity-100 cursor-pointer"
+                style={{
+                  color: activeInOverflow ? colors.primary : colors.secondary,
+                  fontWeight: activeInOverflow ? 600 : 400,
+                  opacity: activeInOverflow ? 1 : 0.7,
+                }}
+              >
+                More
+                <ChevronDown size={13} />
+              </button>
+              {moreOpen && (
+                <div
+                  className="absolute left-0 top-8 z-20 max-h-[320px] min-w-[180px] overflow-y-auto rounded-md border bg-white py-1 shadow-lg"
+                  style={{ borderColor: `${colors.secondary}1f` }}
+                >
+                  {overflowTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onMouseDown={() => {
+                        setActiveTab(tab.id);
+                        setMoreOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-[12px] hover:bg-stone-50"
+                      style={{ color: activeTab === tab.id ? colors.accent : colors.primary }}
+                    >
+                      <span className="truncate">{tab.label}</span>
+                      <span className="text-[11px] tabular-nums" style={{ opacity: 0.5 }}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Favorites filter (only when favorites are enabled) */}
-        {allowFavorites && (
-          <button
-            onClick={() => setFavoritesOnly((v) => !v)}
-            className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-            style={{ color: favoritesOnly ? colors.accent : colors.secondary }}
-          >
-            <Heart size={13} fill={favoritesOnly ? colors.accent : "none"} />
-            {favoritesOnly ? "Favorites" : "All images"}
-            {favCount > 0 && (
-              <span className="text-[11px] tabular-nums" style={{ opacity: 0.6 }}>
-                {favoritesOnly ? "" : `· ${favCount} ♥`}
-              </span>
+        {/* Controls — sort / favorites / filename (right-aligned, same row) */}
+        <div className="flex shrink-0 items-center gap-5">
+          {/* Sort */}
+          <div className="relative">
+            <button
+              onClick={() => setSortOpen((o) => !o)}
+              onBlur={() => setTimeout(() => setSortOpen(false), 150)}
+              className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+              style={{ color: colors.secondary }}
+            >
+              <ArrowUpDown size={13} />
+              <span className="hidden sm:inline">{SORT_LABELS[sortBy]}</span>
+            </button>
+            {sortOpen && (
+              <div
+                className="absolute right-0 top-7 z-20 min-w-[150px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
+                style={{ borderColor: `${colors.secondary}1f` }}
+              >
+                {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+                  <button
+                    key={key}
+                    onMouseDown={() => {
+                      setSortBy(key);
+                      setSortOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[12px] hover:bg-stone-50"
+                    style={{ color: colors.primary }}
+                  >
+                    {SORT_LABELS[key]}
+                    {sortBy === key && <Check size={13} style={{ color: colors.accent }} />}
+                  </button>
+                ))}
+              </div>
             )}
-          </button>
-        )}
+          </div>
 
-        {/* Filename toggle */}
-        <button
-          onClick={() => setShowFilenames((v) => !v)}
-          className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-          style={{ color: showFilenames ? colors.accent : colors.secondary }}
-        >
-          <Tag size={13} />
-          {showFilenames ? "Filenames on" : "Filenames off"}
-        </button>
+          {/* Favorites filter */}
+          {allowFavorites && (
+            <button
+              onClick={() => setFavoritesOnly((v) => !v)}
+              className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+              style={{ color: favoritesOnly ? colors.accent : colors.secondary }}
+            >
+              <Heart size={13} fill={favoritesOnly ? colors.accent : "none"} />
+              <span className="hidden sm:inline">
+                {favoritesOnly ? "Favorites" : "All"}
+              </span>
+            </button>
+          )}
+
+          {/* Filename toggle */}
+          <button
+            onClick={() => setShowFilenames((v) => !v)}
+            className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+            style={{ color: showFilenames ? colors.accent : colors.secondary }}
+          >
+            <Tag size={13} />
+            <span className="hidden sm:inline">Names</span>
+          </button>
+        </div>
       </div>
 
       {/* ─── Active section description ─── */}
