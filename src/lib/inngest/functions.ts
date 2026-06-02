@@ -1,96 +1,60 @@
 import { inngest } from "./client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createProcessingJob, processImage, saveProcessingResults } from "@/lib/ai/process";
-import { buildFaceStacks, buildBurstStacks } from "@/lib/ai/stacks";
-import { generateAutoSections } from "@/lib/ai/sections";
-import { clusterFaces } from "@/lib/ai/clustering";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 
 /**
- * Function 1: Process a single uploaded image.
+ * AI PROCESSING IS DISABLED.
  *
- * Pipeline: thumbnails → Modal AI → save results → check event completion
+ * The Modal AI pipeline (CLIP embeddings, ArcFace faces, aesthetic scoring)
+ * and auto-section generation are shelved. They were not only unused (AI
+ * features are hidden in the UI) but actively harmful: a failing Modal step
+ * marked fully-uploaded photos as "failed" — hiding them and whole sections
+ * from client galleries — and the auto-section generator rewrote manually
+ * organized section membership in the background.
+ *
+ * What remains is the only thing display actually needs: thumbnail generation.
+ */
+
+/**
+ * Function 1: Prepare an uploaded/imported image for display.
+ *
+ * Generates the thumbnail and marks the image complete. No Modal, no AI.
+ *
+ * Normal browser uploads never reach here — the proxy upload route
+ * (/api/upload/[imageId]) generates thumbnails inline from the upload buffer,
+ * and /api/upload/complete marks the row complete. This path exists for SPS
+ * zero-copy imports, where the binary already lives in R2 (no upload buffer)
+ * and the thumbnail still has to be produced server-side.
  */
 export const processUploadedImage = inngest.createFunction(
   {
     id: "process-uploaded-image",
     retries: 3,
     concurrency: { limit: 5 },
-    onFailure: async ({ event }) => {
-      // Mark image as failed so it doesn't block event completion
-      const supabase = createServiceClient();
-      await supabase
-        .from("images")
-        .update({ processing_status: "failed" })
-        .eq("id", event.data.event.data.imageId);
-    },
   },
   { event: "image/uploaded" },
   async ({ event, step }) => {
     const { imageId, eventId, r2Key } = event.data;
 
-    // Step 1: Fetch image record for filename
     const imageRecord = await step.run("fetch-image-record", async () => {
       const supabase = createServiceClient();
       const { data, error } = await supabase
         .from("images")
-        .select("original_filename, processing_status")
+        .select("original_filename")
         .eq("id", imageId)
         .single();
-
       if (error) throw error;
       return data;
     });
 
-    // Step 2: Mark as "processing" so we can distinguish queued vs active
-    await step.run("mark-processing", async () => {
-      const supabase = createServiceClient();
-      await supabase
-        .from("images")
-        .update({ processing_status: "processing" })
-        .eq("id", imageId);
-    });
-
-    // Step 3: Generate thumbnails (3 sizes via sharp)
-    await step.run("generate-thumbnails", async () => {
+    await step.run("generate-thumbnail", async () => {
       await generateThumbnails(r2Key, eventId, imageRecord.original_filename);
 
-      // Mark thumbnail as generated
       const supabase = createServiceClient();
       await supabase
         .from("images")
-        .update({ thumbnail_generated: true })
+        .update({ thumbnail_generated: true, processing_status: "complete" })
         .eq("id", imageId);
-    });
-
-    // Step 4: Run AI processing via Modal (CLIP + ArcFace + aesthetic)
-    const aiResult = await step.run("ai-process", async () => {
-      const job = await createProcessingJob(imageId, r2Key, eventId);
-      return processImage(job);
-    });
-
-    // Step 5: Save AI results to Supabase
-    await step.run("save-results", async () => {
-      await saveProcessingResults(aiResult);
-    });
-
-    // Step 6: Check if all images for this event are done
-    await step.run("check-event-completion", async () => {
-      const supabase = createServiceClient();
-
-      const { count } = await supabase
-        .from("images")
-        .select("*", { count: "exact", head: true })
-        .eq("event_id", eventId)
-        .in("processing_status", ["pending", "processing"]);
-
-      if (count === 0) {
-        // All images done — trigger stack building
-        await inngest.send({
-          name: "event/processing.complete",
-          data: { eventId },
-        });
-      }
     });
 
     return { imageId, status: "complete" };
@@ -98,42 +62,10 @@ export const processUploadedImage = inngest.createFunction(
 );
 
 /**
- * Function 2: Build stacks and sections after all images in an event are processed.
- */
-export const buildEventStacks = inngest.createFunction(
-  {
-    id: "build-event-stacks",
-    retries: 2,
-  },
-  { event: "event/processing.complete" },
-  async ({ event, step }) => {
-    const { eventId } = event.data;
-
-    // Cluster face embeddings into persons (populates faces.person_id)
-    await step.run("cluster-faces", async () => {
-      await clusterFaces(eventId);
-    });
-
-    await step.run("build-face-stacks", async () => {
-      await buildFaceStacks(eventId);
-    });
-
-    await step.run("build-burst-stacks", async () => {
-      await buildBurstStacks(eventId);
-    });
-
-    await step.run("generate-sections", async () => {
-      await generateAutoSections(eventId);
-    });
-
-    return { eventId, status: "stacks-and-sections-built" };
-  }
-);
-
-/**
- * Function 3: Process an imported event from SPS.
+ * Function 2: Process an imported event from SPS.
  *
- * Fans out individual image processing for each pending image.
+ * Fans out a thumbnail job for each imported image (binaries are already in
+ * R2 via zero-copy import; they just need thumbnails + a complete status).
  */
 export const processImportedEvent = inngest.createFunction(
   {
@@ -144,7 +76,6 @@ export const processImportedEvent = inngest.createFunction(
   async ({ event, step }) => {
     const { eventId } = event.data;
 
-    // Get all pending images for this event
     const pendingImages = await step.run("get-pending-images", async () => {
       const supabase = createServiceClient();
       const { data, error } = await supabase
@@ -157,7 +88,6 @@ export const processImportedEvent = inngest.createFunction(
       return data || [];
     });
 
-    // Fan out: send an image/uploaded event for each image
     if (pendingImages.length > 0) {
       await step.run("fan-out-processing", async () => {
         const events = pendingImages.map((img) => ({
@@ -169,7 +99,6 @@ export const processImportedEvent = inngest.createFunction(
           },
         }));
 
-        // Inngest supports batch sending
         await inngest.send(events);
       });
     }

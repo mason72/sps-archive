@@ -71,34 +71,12 @@ export async function POST(request: NextRequest) {
 
     if (updateError) throw updateError;
 
-    // NOTE: thumbnail generation intentionally NOT run here — deferred to the
-    // out-of-band /api/admin/batch-thumbnails backfill so uploads stay fast
-    // and never hang. The grid shows the original until a thumbnail exists.
-
-    // Trigger AI pipeline only if Inngest is configured
-    if (process.env.INNGEST_EVENT_KEY) {
-      try {
-        const { inngest } = await import("@/lib/inngest/client");
-        const { data: image } = await supabase
-          .from("images")
-          .select("r2_key, event_id")
-          .eq("id", imageId)
-          .single();
-
-        if (image) {
-          await inngest.send({
-            name: "image/uploaded",
-            data: {
-              imageId,
-              eventId: image.event_id,
-              r2Key: image.r2_key,
-            },
-          });
-        }
-      } catch {
-        // Inngest not available — skip AI processing silently
-      }
-    }
+    // Thumbnails are generated inline by the proxy upload route
+    // (/api/upload/[imageId]) from the upload buffer, and backfilled out of
+    // band by /api/admin/batch-thumbnails. The AI pipeline is disabled, so we
+    // no longer fire an "image/uploaded" Inngest event here — that step ran
+    // Modal AI and, on failure, re-marked the just-completed photo as "failed".
+    // See src/lib/inngest/functions.ts for the full rationale.
 
     return NextResponse.json({ success: true, imageId });
   } catch (error) {
