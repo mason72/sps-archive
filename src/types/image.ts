@@ -30,6 +30,12 @@ export interface ImageData {
   takenAt: string | null;
   /** Ids of every section this image belongs to (junction membership). */
   sectionIds?: string[];
+  /**
+   * True for the event's cover image. The cover is returned in the payload so
+   * the settings sidebar can preview it, but it is excluded from the gallery
+   * grid / "All Images" — it's a cover, not a gallery photo.
+   */
+  isCover?: boolean;
 }
 
 /** Full image detail returned by GET /api/images/[imageId] */
@@ -64,4 +70,8 @@ export interface SectionData {
   name: string;
   isAuto: boolean;
   imageCount: number;
+  /** Section position within the event (sections.sort_order). */
+  sortOrder?: number;
+  /** Member image ids in manual (section_images.sort_order) order. */
+  imageIds?: string[];
 }

@@ -70,22 +70,44 @@ export async function GET(
     // filter by section purely in memory (no per-section-switch round-trip),
     // which removes the fetch-then-filter race that showed "No images yet" on
     // populated sections. (Paginated — an image can be in several sections.)
+    // Also accumulate each section's members in sort_order order (the manual
+    // arrangement) so the client can render the "Manual" sort. Ordering the
+    // whole query by (section_id, sort_order, image_id) keeps every section's
+    // subsequence correct across pagination.
+    // The cover image must never appear in the grid / sections, even if a
+    // legacy cover still has a section link. Identify it from settings and skip
+    // its membership rows below.
+    const coverImageId =
+      ((event.settings as Record<string, unknown> | null)?.cover as
+        | Record<string, unknown>
+        | undefined)?.imageId as string | undefined;
+
     const sectionIdsByImage = new Map<string, string[]>();
+    const orderedImageIdsBySection = new Map<string, string[]>();
     {
       let liOffset = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data: links, error: linksError } = await supabase
           .from("section_images")
-          .select("image_id, section_id, sections!inner(event_id)")
+          .select("image_id, section_id, sort_order, sections!inner(event_id)")
           .eq("sections.event_id", eventId)
+          .order("section_id", { ascending: true })
+          .order("sort_order", { ascending: true })
+          .order("image_id", { ascending: true })
           .range(liOffset, liOffset + PAGE_SIZE - 1);
         if (linksError) throw linksError;
         if (!links || links.length === 0) break;
         for (const link of links) {
+          // Drop any cover-image membership so it stays out of the gallery.
+          if (coverImageId && link.image_id === coverImageId) continue;
           const arr = sectionIdsByImage.get(link.image_id);
           if (arr) arr.push(link.section_id);
           else sectionIdsByImage.set(link.image_id, [link.section_id]);
+
+          const ordered = orderedImageIdsBySection.get(link.section_id);
+          if (ordered) ordered.push(link.image_id);
+          else orderedImageIdsBySection.set(link.section_id, [link.image_id]);
         }
         if (links.length < PAGE_SIZE) break;
         liOffset += PAGE_SIZE;
@@ -116,6 +138,7 @@ export async function GET(
           createdAt: img.created_at,
           takenAt: img.taken_at,
           sectionIds: sectionIdsByImage.get(img.id) ?? [],
+          isCover: coverImageId ? img.id === coverImageId : false,
         };
       })
     );
@@ -183,6 +206,8 @@ export async function GET(
       isAuto: section.is_auto,
       sortOrder: section.sort_order,
       imageCount: sectionCounts.get(section.id) ?? 0,
+      // Members in manual (sort_order) order — drives the "Manual" sort.
+      imageIds: orderedImageIdsBySection.get(section.id) ?? [],
     }));
 
     return NextResponse.json({

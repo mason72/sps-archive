@@ -53,7 +53,7 @@ export interface EventSettings {
     gap: GridGap;
     style: GridStyle;
     showFilenames?: boolean;
-    sortBy?: "upload" | "filename" | "date-taken";
+    sortBy?: "upload" | "filename" | "date-taken" | "manual";
   };
   sharing: SharingSettings;
 }

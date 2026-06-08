@@ -8,6 +8,14 @@
 
 export type SortBy = "upload" | "filename" | "date-taken";
 
+/**
+ * UI-level sort mode. "manual" is a per-section drag order (see order-manual.ts)
+ * that the comparator below CANNOT express — callers must branch on it
+ * (manual → orderBySectionManual, otherwise → sortImages). Kept separate from
+ * SortBy so the comparator's contract stays exactly the three intrinsic modes.
+ */
+export type GallerySortMode = SortBy | "manual";
+
 /** Minimal shape needed to sort — both ImageData and GalleryImage satisfy it. */
 export interface SortableImage {
   originalFilename: string;

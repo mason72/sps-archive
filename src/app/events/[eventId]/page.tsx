@@ -23,7 +23,8 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
-import { sortImages } from "@/lib/gallery/sort-images";
+import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
+import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import { ImageGridSkeleton, EventSidebarSkeleton, Skeleton } from "@/components/ui/Skeleton";
@@ -45,6 +46,10 @@ interface SectionData {
   name: string;
   isAuto: boolean;
   imageCount: number;
+  /** Section position within the event (sections.sort_order). */
+  sortOrder?: number;
+  /** Member image ids in manual (section_images.sort_order) order. */
+  imageIds?: string[];
 }
 
 export default function EventPage({
@@ -76,8 +81,14 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
-  const [sortBy, setSortByState] = useState<"upload" | "filename" | "date-taken">("upload");
+  const [sortBy, setSortByState] = useState<GallerySortMode>("upload");
   const [sortOpen, setSortOpen] = useState(false);
+  // Optimistic per-section manual order overrides (sectionId -> ordered ids).
+  // Seeded from the server's stored order; updated immediately on drag, then
+  // persisted in the background.
+  const [manualOrderBySection, setManualOrderBySection] = useState<
+    Record<string, string[]>
+  >({});
   const sortRef = useRef<HTMLDivElement>(null);
   const [hasActiveShare, setHasActiveShare] = useState(false);
   const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
@@ -639,12 +650,45 @@ export default function EventPage({
     setSections(updated);
   }, []);
 
-  // Sort images based on user selection (stacks keep internal rank order)
-  // Shared sort module — same comparator the public gallery uses, so
-  // "Filename"/"Date taken"/"Latest" order identically in both.
-  const sortedImages = useMemo(() => sortImages(images, sortBy), [images, sortBy]);
+  // Sort images based on user selection. "manual" is per-section drag order
+  // (order-manual.ts); the other three use the shared comparator the public
+  // gallery uses, so "Filename"/"Date taken"/"Latest" order identically in both.
+  const manualMode = sortBy === "manual";
+  const sortedImages = useMemo(() => {
+    if (sortBy !== "manual") return sortImages(images, sortBy);
+    if (activeSection) {
+      const order =
+        manualOrderBySection[activeSection] ??
+        sections.find((s) => s.id === activeSection)?.imageIds ??
+        [];
+      return orderBySectionManual(images, order);
+    }
+    // "All Images" — read-only reflection of every section's manual order.
+    const manualSections = sections.map((s) => ({
+      id: s.id,
+      sortOrder: s.sortOrder ?? 0,
+      imageIds: manualOrderBySection[s.id] ?? s.imageIds ?? [],
+    }));
+    return orderByPrimarySection(images, manualSections);
+  }, [images, sortBy, activeSection, manualOrderBySection, sections]);
 
-  const standalone = sortedImages.filter((img) => !img.stackId);
+  // Drag-to-reorder is available inside any real section (not "All Images",
+  // search, or favorites — a filtered/cross-section subset can't be persisted to
+  // a single sort_order sequence). Dragging while in another sort auto-switches
+  // to Manual (see handleReorder), so users never have to pick Manual first.
+  const dndEnabled = !!activeSection && !isSearching && !favoritesOnly;
+
+  // When Manual is active OR a drag could begin, every tile must be an
+  // individually-reorderable image, so stacks are expanded into loose tiles;
+  // otherwise stacks render as groups. (No stacks exist today — AI stacking is
+  // off — so the expand-on-dndEnabled branch only matters if it's re-enabled.)
+  const expandTiles = manualMode || dndEnabled;
+  const gridStacks = expandTiles ? [] : stacks;
+  const gridStandalone = expandTiles
+    ? sortedImages
+    : sortedImages.filter((img) => !img.stackId);
+  // Kept name `standalone` for the existing render/filmstrip props below.
+  const standalone = gridStandalone;
 
   // ─── Gallery keyboard shortcuts ───
   const { showHelp: showShortcutsHelp, setShowHelp: setShowShortcutsHelp } =
@@ -670,7 +714,7 @@ export default function EventPage({
   // Flat list of all images for lightbox navigation + range selection
   const flatImageList = useMemo(() => {
     const list: ImageData[] = [];
-    for (const stack of stacks) {
+    for (const stack of gridStacks) {
       for (const img of stack.images) {
         list.push(img);
       }
@@ -679,7 +723,7 @@ export default function EventPage({
       list.push(img);
     }
     return list;
-  }, [stacks, standalone]);
+  }, [gridStacks, standalone]);
 
   // Ordered IDs for shift+click range selection
   const flatOrderedIds = useMemo(
@@ -691,7 +735,7 @@ export default function EventPage({
   const gridSettings = eventSettings.grid;
 
   // Persist sort selection to event settings
-  const setSortBy = useCallback(async (value: "upload" | "filename" | "date-taken") => {
+  const setSortBy = useCallback(async (value: GallerySortMode) => {
     setSortByState(value);
     const newGrid = { ...gridSettings, sortBy: value };
     setEventSettings((prev) => ({ ...prev, grid: newGrid }));
@@ -705,6 +749,73 @@ export default function EventPage({
       /* non-critical */
     }
   }, [gridSettings, eventId]);
+
+  // Persist a new manual order for the active section (optimistic + background).
+  // Dragging while in a non-manual sort AUTO-SWITCHES to Manual, seeding the
+  // arrangement from what's on screen (WYSIWYG) — and offers a one-click Undo
+  // that restores both the previous sort and the section's prior saved order, so
+  // accidentally clobbering a careful arrangement is fully recoverable.
+  const handleReorder = useCallback(
+    (orderedIds: string[]) => {
+      if (!activeSection) return;
+      const sectionId = activeSection;
+      const wasManual = sortBy === "manual";
+      const prevSort = sortBy;
+      const prevOrder =
+        manualOrderBySection[sectionId] ??
+        sections.find((s) => s.id === sectionId)?.imageIds ??
+        null;
+
+      const persistOrder = async (ids: string[]) => {
+        const res = await fetch(`/api/sections/${sectionId}/images/reorder`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: ids }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      };
+
+      // Optimistic: apply the new order and enter Manual so it sticks.
+      setManualOrderBySection((m) => ({ ...m, [sectionId]: orderedIds }));
+      if (!wasManual) setSortBy("manual");
+
+      (async () => {
+        try {
+          await persistOrder(orderedIds);
+          if (!wasManual) {
+            toast.success("Switched to Manual order", {
+              action: prevOrder
+                ? {
+                    label: "Undo",
+                    onClick: () => {
+                      setManualOrderBySection((m) => ({
+                        ...m,
+                        [sectionId]: prevOrder,
+                      }));
+                      setSortBy(prevSort);
+                      persistOrder(prevOrder).catch(() =>
+                        toast.error("Couldn't undo — please try again.")
+                      );
+                    },
+                  }
+                : undefined,
+            });
+          }
+        } catch {
+          // Revert the optimistic order (and the sort switch) on failure.
+          setManualOrderBySection((m) => {
+            const next = { ...m };
+            if (prevOrder) next[sectionId] = prevOrder;
+            else delete next[sectionId];
+            return next;
+          });
+          if (!wasManual) setSortBy(prevSort);
+          toast.error("Couldn't save the new order — please try again.");
+        }
+      })();
+    },
+    [activeSection, manualOrderBySection, sortBy, sections, setSortBy]
+  );
 
   // Toggle filename overlay (persists to event settings)
   const toggleFilenames = useCallback(async () => {
@@ -1061,7 +1172,13 @@ export default function EventPage({
                     className="flex items-center gap-1.5 text-[12px] text-stone-500 hover:text-stone-700 transition-colors cursor-pointer"
                   >
                     <ArrowUpDown className="h-3.5 w-3.5" />
-                    {sortBy === "upload" ? "Upload Date" : sortBy === "filename" ? "Filename" : "Date Taken"}
+                    {sortBy === "upload"
+                      ? "Upload Date"
+                      : sortBy === "filename"
+                      ? "Filename"
+                      : sortBy === "date-taken"
+                      ? "Date Taken"
+                      : "Manual"}
                   </button>
                   {sortOpen && (
                     <div className="absolute top-full right-0 mt-2 bg-white border border-stone-200 shadow-lg py-1 min-w-[140px] z-30 scale-in">
@@ -1069,20 +1186,35 @@ export default function EventPage({
                         ["upload", "Upload Date"],
                         ["filename", "Filename"],
                         ["date-taken", "Date Taken"],
-                      ] as const).map(([value, label]) => (
-                        <button
-                          key={value}
-                          onClick={() => { setSortBy(value); setSortOpen(false); }}
-                          className={`w-full text-left px-3 py-2 text-[12px] flex items-center justify-between gap-3 transition-colors ${
-                            sortBy === value
-                              ? "text-stone-900 bg-stone-50"
-                              : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"
-                          }`}
-                        >
-                          {label}
-                          {sortBy === value && <Check className="h-3.5 w-3.5 text-accent" />}
-                        </button>
-                      ))}
+                        ["manual", "Manual"],
+                      ] as const).map(([value, label]) => {
+                        // Manual is cross-section-incoherent while searching.
+                        const disabled = value === "manual" && isSearching;
+                        return (
+                          <button
+                            key={value}
+                            disabled={disabled}
+                            title={
+                              disabled
+                                ? "Clear search to use manual order"
+                                : undefined
+                            }
+                            onClick={() => { setSortBy(value); setSortOpen(false); }}
+                            className={`w-full text-left px-3 py-2 text-[12px] flex items-center justify-between gap-3 transition-colors ${
+                              disabled
+                                ? "text-stone-300 cursor-not-allowed"
+                                : sortBy === value
+                                ? "text-stone-900 bg-stone-50"
+                                : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                            }`}
+                          >
+                            {label}
+                            {sortBy === value && !disabled && (
+                              <Check className="h-3.5 w-3.5 text-accent" />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1138,32 +1270,47 @@ export default function EventPage({
             {/* ─── Gallery view ─── */}
             <div ref={gridAreaRef} className="relative">
               {viewMode === "grid" ? (
-                <ImageGrid
-                  images={images}
-                  stacks={stacks}
-                  standalone={standalone}
-                  onToggleSelect={selection.toggle}
-                  onRangeSelect={(id) => selection.rangeSelect(id, flatOrderedIds)}
-                  onImageDoubleClick={(id) => setSelectedImageId(id)}
-                  onSetCover={async (stackId, imageId) => {
-                    await fetch(`/api/stacks/${stackId}/cover`, {
-                      method: "PUT",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ imageId }),
-                    });
-                    fetchEvent();
-                  }}
-                  hasSelection={selection.hasSelection}
-                  selectedIds={selection.selectedIds}
-                  columnCount={gridSettings?.columns}
-                  gap={gridSettings?.gap}
-                  style={gridSettings?.style}
-                  showFilenames={gridSettings?.showFilenames}
-                />
+                <>
+                  {(dndEnabled || manualMode) && (
+                    <p className="mb-3 text-[12px] text-stone-400">
+                      {dndEnabled
+                        ? manualMode
+                          ? "Drag photos to rearrange your Manual order."
+                          : "Drag photos to arrange them — this switches to your Manual order."
+                        : activeSection
+                        ? "Clear search or favorites to rearrange this section."
+                        : "Manual order is read-only in “All Images.” Open a section to rearrange it."}
+                    </p>
+                  )}
+                  <ImageGrid
+                    images={images}
+                    stacks={gridStacks}
+                    standalone={standalone}
+                    onToggleSelect={selection.toggle}
+                    onRangeSelect={(id) => selection.rangeSelect(id, flatOrderedIds)}
+                    onImageDoubleClick={(id) => setSelectedImageId(id)}
+                    onSetCover={async (stackId, imageId) => {
+                      await fetch(`/api/stacks/${stackId}/cover`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ imageId }),
+                      });
+                      fetchEvent();
+                    }}
+                    hasSelection={selection.hasSelection}
+                    selectedIds={selection.selectedIds}
+                    columnCount={gridSettings?.columns}
+                    gap={gridSettings?.gap}
+                    style={gridSettings?.style}
+                    showFilenames={gridSettings?.showFilenames}
+                    dndEnabled={dndEnabled}
+                    onReorder={handleReorder}
+                  />
+                </>
               ) : (
                 <FilmStrip
                   images={images}
-                  stacks={stacks}
+                  stacks={gridStacks}
                   standalone={standalone}
                   onToggleSelect={selection.toggle}
                   onImageDoubleClick={(id) => setSelectedImageId(id)}

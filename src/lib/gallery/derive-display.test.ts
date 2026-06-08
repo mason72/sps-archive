@@ -114,6 +114,20 @@ describe("deriveDisplayImages", () => {
       deriveDisplayImages(base({ favoritesOnly: true, favoriteIds: new Set() }))
     ).toEqual([]);
   });
+
+  it("excludes the cover image from every view", () => {
+    const cover = { ...img("cover", ["s1"]), isCover: true };
+    // All Images
+    expect(
+      deriveDisplayImages(base({ allImages: [a, b, c, cover] })).map((i) => i.id)
+    ).toEqual(["a", "b", "c"]);
+    // Section view (cover tagged into s1 must still not appear)
+    expect(
+      deriveDisplayImages(
+        base({ allImages: [a, b, c, cover], activeSection: "s1" })
+      ).map((i) => i.id)
+    ).toEqual(["a", "c"]);
+  });
 });
 
 describe("deriveDisplayStacks", () => {

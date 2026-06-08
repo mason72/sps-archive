@@ -49,7 +49,9 @@ export function deriveDisplayImages(input: DisplayInput): ImageData[] {
     const favs = favoriteIds ?? new Set<string>();
     list = list.filter((img) => favs.has(img.id));
   }
-  return list;
+  // The cover image is delivered in the payload (for the settings preview) but
+  // is never a gallery photo — keep it out of every displayed view.
+  return list.filter((img) => !img.isCover);
 }
 
 export function deriveDisplayStacks(input: DisplayInput): StackData[] {
@@ -60,7 +62,9 @@ export function deriveDisplayStacks(input: DisplayInput): StackData[] {
 
   const favs = favoritesOnly ? favoriteIds ?? new Set<string>() : null;
   const keep = (img: ImageData) =>
-    (!activeSection || inSection(img, activeSection)) && (!favs || favs.has(img.id));
+    !img.isCover &&
+    (!activeSection || inSection(img, activeSection)) &&
+    (!favs || favs.has(img.id));
 
   return allStacks
     .map((s) => ({ ...s, images: s.images.filter(keep) }))

@@ -3,7 +3,8 @@
 import { useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
 import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
-import { sortImages, type SortBy } from "@/lib/gallery/sort-images";
+import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
+import { orderByPrimarySection } from "@/lib/gallery/order-manual";
 import type { GalleryImage, GallerySection } from "@/types/gallery";
 
 /**
@@ -52,7 +53,9 @@ export function SectionedGallery({
   const [activeTab, setActiveTab] = useState<string>(
     showAllTab ? "all" : sections[0]?.id ?? "all"
   );
-  const [sortBy, setSortBy] = useState<SortBy>("upload");
+  // Default to the photographer's manual arrangement (section.imageIds already
+  // arrive in sort_order); visitors can still re-sort via the dropdown.
+  const [sortBy, setSortBy] = useState<GallerySortMode>("manual");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -81,13 +84,28 @@ export function SectionedGallery({
     );
   }, [activeTab, images, sections, imageMap]);
 
-  // Apply favorites filter, then the shared sort (same comparator as editor).
+  // Apply favorites filter, then the chosen order. "Manual" uses the stored
+  // per-section arrangement (tabImages already arrive in section.imageIds order;
+  // the "All" tab reflects every section's order via primary-section). The other
+  // modes use the shared comparator (same as the editor).
   const visibleImages = useMemo(() => {
     const filtered = favoritesOnly
       ? tabImages.filter((img) => favoriteIds.has(img.id))
       : tabImages;
+    if (sortBy === "manual") {
+      if (activeTab === "all") {
+        const manualSections = sections.map((s, i) => ({
+          id: s.id,
+          sortOrder: i, // sections arrive pre-ordered by sort_order
+          imageIds: s.imageIds,
+        }));
+        return orderByPrimarySection(filtered, manualSections);
+      }
+      // A section tab: filtered preserves section.imageIds order already.
+      return filtered;
+    }
     return sortImages(filtered, sortBy);
-  }, [tabImages, favoritesOnly, favoriteIds, sortBy]);
+  }, [tabImages, favoritesOnly, favoriteIds, sortBy, activeTab, sections]);
 
   const sectionCounts = useMemo(
     () =>
@@ -126,7 +144,8 @@ export function SectionedGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabInfo?.id, activeTabInfo?.label, activeTabInfo?.count, onActiveSectionChange]);
 
-  const SORT_LABELS: Record<SortBy, string> = {
+  const SORT_LABELS: Record<GallerySortMode, string> = {
+    manual: "Featured",
     upload: "Latest",
     filename: "Filename",
     "date-taken": "Date taken",
@@ -296,7 +315,7 @@ export function SectionedGallery({
                 className="absolute right-0 top-7 z-20 min-w-[150px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
                 style={{ borderColor: `${colors.secondary}1f` }}
               >
-                {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+                {(Object.keys(SORT_LABELS) as GallerySortMode[]).map((key) => (
                   <button
                     key={key}
                     onMouseDown={() => {

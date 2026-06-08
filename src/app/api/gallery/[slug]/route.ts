@@ -270,8 +270,13 @@ export async function GET(
       for (let off = 0; ; off += SI_PAGE) {
         const { data: page } = await supabase
           .from("section_images")
+          // Manual (drag) order lives in sort_order; order by it so each
+          // section's imageIds arrive in the photographer's arrangement. The
+          // image_id tiebreaker keeps pagination deterministic across pages.
           .select("section_id, image_id")
           .in("section_id", sectionIds)
+          .order("sort_order", { ascending: true })
+          .order("image_id", { ascending: true })
           .range(off, off + SI_PAGE - 1);
         if (!page || page.length === 0) break;
         sectionImageRows.push(...page);

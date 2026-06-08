@@ -54,6 +54,8 @@ export function CoverLayoutTab({
         body: JSON.stringify({
           eventId,
           files: [{ name: file.name, type: file.type, size: file.size }],
+          // Cover-only: don't add this image to a section / the gallery grid.
+          skipSection: true,
         }),
       });
       if (!metaRes.ok) throw new Error("Failed to create upload");

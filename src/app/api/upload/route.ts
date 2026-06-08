@@ -19,10 +19,17 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { eventId, sectionId, files } = body as {
+    const { eventId, sectionId, files, skipSection } = body as {
       eventId: string;
       sectionId?: string;
       files: { name: string; type: string; size: number }[];
+      /**
+       * Cover-image uploads set this: the image is stored for use as the gallery
+       * cover ONLY and must NOT join a section (so it never shows in the grid /
+       * "All Images"). Deliberately bypasses the no-orphans invariant below —
+       * a cover is not a gallery image.
+       */
+      skipSection?: boolean;
     };
 
     if (!eventId || !files?.length) {
@@ -47,8 +54,9 @@ export async function POST(request: NextRequest) {
     // "All Photos" is a derived view, not an upload target. When no section is
     // specified, resolve the event's default (first) section, creating a
     // "Highlights" section if the event somehow has none.
+    // (Cover uploads opt out via skipSection — they are not gallery images.)
     let targetSectionId = sectionId;
-    if (!targetSectionId) {
+    if (!skipSection && !targetSectionId) {
       const { data: firstSection } = await supabase
         .from("sections")
         .select("id")
@@ -77,7 +85,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!targetSectionId) {
+    if (!skipSection && !targetSectionId) {
       throw new Error("Could not resolve a target section for upload");
     }
 
@@ -109,22 +117,26 @@ export async function POST(request: NextRequest) {
 
     // Link every image to the resolved section. If this fails, roll back the
     // image rows we just inserted so we never leave orphaned images behind.
-    const { error: linkError } = await supabase.from("section_images").insert(
-      records.map((r, i) => ({
-        section_id: targetSectionId,
-        image_id: r.id,
-        sort_order: i,
-      }))
-    );
-    if (linkError) {
-      await supabase
-        .from("images")
-        .delete()
-        .in(
-          "id",
-          records.map((r) => r.id)
-        );
-      throw linkError;
+    // Cover uploads (skipSection) intentionally create no link.
+    if (!skipSection && targetSectionId) {
+      const sectionIdForLinks = targetSectionId;
+      const { error: linkError } = await supabase.from("section_images").insert(
+        records.map((r, i) => ({
+          section_id: sectionIdForLinks,
+          image_id: r.id,
+          sort_order: i,
+        }))
+      );
+      if (linkError) {
+        await supabase
+          .from("images")
+          .delete()
+          .in(
+            "id",
+            records.map((r) => r.id)
+          );
+        throw linkError;
+      }
     }
 
     // Generate presigned upload URLs so the browser uploads directly to R2

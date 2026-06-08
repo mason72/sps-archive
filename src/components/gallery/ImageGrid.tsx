@@ -1,7 +1,25 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { Check } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { SmartStack } from "./SmartStack";
 import { distributeIntoColumns, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
@@ -22,25 +40,30 @@ interface ImageGridProps {
   gap?: "tight" | "normal" | "loose";
   style?: "masonry" | "uniform";
   showFilenames?: boolean;
+  /**
+   * Manual drag-to-reorder. When true, tiles become sortable (stacks are
+   * expected to be pre-expanded into `standalone` by the caller) and `onReorder`
+   * fires with the full new id order on drop.
+   */
+  dndEnabled?: boolean;
+  onReorder?: (orderedImageIds: string[]) => void;
 }
 
 /** Gap in px for each density — applied as column-gap + item margin-bottom. */
 const GAP_PX = { tight: 2, normal: 6, loose: 12 } as const;
 
 /**
- * ImageGrid — masonry via native CSS multi-column layout.
+ * ImageGrid — masonry via round-robin distribution into flex columns.
  *
- * The browser balances column heights using the ACTUAL rendered height of each
- * tile, so the layout is correct regardless of whether we know image
- * dimensions. (The previous hand-rolled version packed items into the shortest
- * column using an estimated height from DB width/height; when those were null —
- * the common case — every tile was estimated as a square and the columns came
- * out wildly uneven with big blank gaps. CSS multicol removes that whole class
- * of bug and the dimension dependency.)
+ * Items are distributed left-to-right (item i → column i % n, see
+ * distributeIntoColumns) so the sorted/manual sequence reads across the first
+ * row then wraps. Tiles keep their natural aspect ratio.
  *
- * Tiles use break-inside-avoid so an image is never split across a column
- * boundary. Reading order is top-to-bottom within a column, then the next
- * column — the standard masonry flow.
+ * When `dndEnabled` (the "Manual" sort), the whole grid is wrapped in a single
+ * dnd-kit SortableContext spanning every tile regardless of which column div it
+ * physically lives in — dnd-kit tracks geometry by measured rects, so dragging
+ * across columns works. Stacks are expanded to loose tiles by the caller in this
+ * mode, so every tile maps to exactly one section_images row = one sort_order.
  */
 export function ImageGrid({
   stacks,
@@ -55,7 +78,30 @@ export function ImageGrid({
   gap = "normal",
   style = "masonry",
   showFilenames,
+  dndEnabled,
+  onReorder,
 }: ImageGridProps) {
+  const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
+  const gapPx = GAP_PX[gap];
+
+  if (dndEnabled) {
+    return (
+      <SortableImageGrid
+        standalone={standalone}
+        onToggleSelect={onToggleSelect}
+        onRangeSelect={onRangeSelect}
+        onImageDoubleClick={onImageDoubleClick}
+        hasSelection={hasSelection}
+        selectedIds={selectedIds}
+        colCount={colCount}
+        gapPx={gapPx}
+        style={style}
+        showFilenames={showFilenames}
+        onReorder={onReorder}
+      />
+    );
+  }
+
   const gridItems: Array<
     | { type: "stack"; data: StackData }
     | { type: "image"; data: ImageData }
@@ -63,9 +109,6 @@ export function ImageGrid({
     ...stacks.map((s) => ({ type: "stack" as const, data: s })),
     ...standalone.map((i) => ({ type: "image" as const, data: i })),
   ];
-
-  const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
-  const gapPx = GAP_PX[gap];
 
   if (gridItems.length === 0) {
     return (
@@ -80,9 +123,6 @@ export function ImageGrid({
     );
   }
 
-  // Shared left-to-right round-robin distribution (same as the public gallery)
-  // so sorted order reads across the first row, then wraps. Tiles keep their
-  // fixed aspect ratio, so there's no load-time reflow.
   const columns = distributeIntoColumns(gridItems, colCount);
 
   const renderItem = (item: (typeof gridItems)[number]) => {
@@ -135,6 +175,231 @@ export function ImageGrid({
   );
 }
 
+/* ─────────────────────────── Manual (sortable) grid ─────────────────────── */
+
+function SortableImageGrid({
+  standalone,
+  onToggleSelect,
+  onRangeSelect,
+  onImageDoubleClick,
+  hasSelection,
+  selectedIds,
+  colCount,
+  gapPx,
+  style,
+  showFilenames,
+  onReorder,
+}: {
+  standalone: ImageData[];
+  onToggleSelect?: (imageId: string) => void;
+  onRangeSelect?: (imageId: string) => void;
+  onImageDoubleClick?: (imageId: string) => void;
+  hasSelection?: boolean;
+  selectedIds?: Set<string>;
+  colCount: number;
+  gapPx: number;
+  style?: "masonry" | "uniform";
+  showFilenames?: boolean;
+  onReorder?: (orderedImageIds: string[]) => void;
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const ids = useMemo(() => standalone.map((i) => i.id), [standalone]);
+  const byId = useMemo(
+    () => new Map(standalone.map((i) => [i.id, i])),
+    [standalone]
+  );
+
+  // The move set for the in-flight drag (the whole selection if the dragged
+  // tile is part of a multi-selection, else just the dragged tile).
+  const moveSet = useMemo(() => {
+    if (!activeId) return [] as string[];
+    if (selectedIds?.has(activeId) && selectedIds.size > 1) {
+      return ids.filter((id) => selectedIds.has(id)); // current visual order
+    }
+    return [activeId];
+  }, [activeId, ids, selectedIds]);
+
+  const sensors = useSensors(
+    // 8px activation distance so a click still selects and a double-click still
+    // opens the lightbox — only a real drag starts a reorder.
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragStart = useCallback((e: DragStartEvent) => {
+    setActiveId(String(e.active.id));
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      const active = String(e.active.id);
+      const over = e.over ? String(e.over.id) : null;
+      setActiveId(null);
+      if (!over || over === active) return;
+
+      const set =
+        selectedIds?.has(active) && selectedIds.size > 1
+          ? ids.filter((id) => selectedIds.has(id))
+          : [active];
+      const setLookup = new Set(set);
+      if (setLookup.has(over)) return; // dropped onto a member of the move set
+
+      const remaining = ids.filter((id) => !setLookup.has(id));
+      const insertAt = remaining.indexOf(over);
+      if (insertAt === -1) return;
+
+      const next = [
+        ...remaining.slice(0, insertAt),
+        ...set,
+        ...remaining.slice(insertAt),
+      ];
+      onReorder?.(next);
+    },
+    [ids, selectedIds, onReorder]
+  );
+
+  if (standalone.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <p className="font-editorial text-xl text-stone-400 italic">
+          No images in this section
+        </p>
+      </div>
+    );
+  }
+
+  const columns = distributeIntoColumns(standalone, colCount);
+  const activeImage = activeId ? byId.get(activeId) : null;
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      <SortableContext items={ids} strategy={rectSortingStrategy}>
+        <div className="flex items-start" style={{ gap: `${gapPx}px` }}>
+          {columns.map((col, ci) => (
+            <div key={ci} className="min-w-0 flex-1">
+              {col.map((image) => (
+                <div key={image.id} style={{ marginBottom: `${gapPx}px` }}>
+                  <SortableTile
+                    image={image}
+                    isSelected={selectedIds?.has(image.id) ?? false}
+                    inMoveSet={
+                      activeId ? moveSet.includes(image.id) : false
+                    }
+                    hasSelection={hasSelection}
+                    selectedIds={selectedIds}
+                    onSelect={() => onToggleSelect?.(image.id)}
+                    onRangeSelect={() => onRangeSelect?.(image.id)}
+                    onDoubleClick={() => onImageDoubleClick?.(image.id)}
+                    uniform={style === "uniform"}
+                    showFilename={showFilenames}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </SortableContext>
+
+      <DragOverlay>
+        {activeImage ? (
+          <div className="relative w-full opacity-90 shadow-2xl ring-2 ring-accent">
+            <div
+              className="relative w-full bg-stone-100"
+              style={{
+                aspectRatio:
+                  style === "uniform"
+                    ? "1 / 1"
+                    : activeImage.width && activeImage.height
+                    ? `${activeImage.width} / ${activeImage.height}`
+                    : "3 / 4",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={activeImage.thumbnailUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            </div>
+            {moveSet.length > 1 && (
+              <div className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-accent px-1.5 text-[12px] font-semibold text-white shadow-md">
+                {moveSet.length}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+/** A reorderable tile: GridImage wrapped in dnd-kit useSortable. */
+function SortableTile({
+  image,
+  isSelected,
+  inMoveSet,
+  hasSelection,
+  selectedIds,
+  onSelect,
+  onRangeSelect,
+  onDoubleClick,
+  uniform,
+  showFilename,
+}: {
+  image: ImageData;
+  isSelected: boolean;
+  inMoveSet: boolean;
+  hasSelection?: boolean;
+  selectedIds?: Set<string>;
+  onSelect: () => void;
+  onRangeSelect: () => void;
+  onDoubleClick: () => void;
+  uniform?: boolean;
+  showFilename?: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: image.id });
+
+  const styleObj = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // Hide the originals being dragged (the DragOverlay shows them following the
+    // cursor); the whole move set fades so a multi-drag reads as one gesture.
+    opacity: isDragging || inMoveSet ? 0.35 : 1,
+    touchAction: "none" as const,
+  };
+
+  return (
+    <div ref={setNodeRef} style={styleObj} {...attributes} {...listeners}>
+      <GridImage
+        image={image}
+        hasSelection={hasSelection}
+        isSelected={isSelected}
+        selectedIds={selectedIds}
+        onSelect={onSelect}
+        onRangeSelect={onRangeSelect}
+        onDoubleClick={onDoubleClick}
+        uniform={uniform}
+        showFilename={showFilename}
+        dndManaged
+      />
+    </div>
+  );
+}
+
 /** Individual grid cell with natural aspect ratio + fade-in on load.
  *  Selection-first: single click → select, double click → lightbox.
  */
@@ -148,6 +413,7 @@ function GridImage({
   selectedIds,
   uniform,
   showFilename,
+  dndManaged,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -158,6 +424,8 @@ function GridImage({
   selectedIds?: Set<string>;
   uniform?: boolean;
   showFilename?: boolean;
+  /** True when a parent dnd-kit sortable owns the drag gesture. */
+  dndManaged?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -212,8 +480,11 @@ function GridImage({
   return (
     <button
       data-image-id={image.id}
-      draggable
-      onDragStart={handleDragStart}
+      // In manual mode the parent dnd-kit sortable owns dragging; native HTML5
+      // drag (used elsewhere to drop images onto sidebar sections) is disabled
+      // to avoid two drag systems fighting on one element.
+      draggable={!dndManaged}
+      onDragStart={dndManaged ? undefined : handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       className={`group relative block w-full overflow-hidden bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${
