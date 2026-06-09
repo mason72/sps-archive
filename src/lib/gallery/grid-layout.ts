@@ -54,3 +54,35 @@ export function distributeIntoColumns<T>(items: T[], numCols: number): T[][] {
   });
   return columns;
 }
+
+/**
+ * Distribute items into N columns using shortest-column-first packing, so column
+ * HEIGHTS stay balanced. Round-robin above balances item COUNTS but not heights,
+ * which leaves one column far taller when tall (portrait) tiles cluster —
+ * especially in small sets (few rows to average over). That's the "one column
+ * way too tall" look in the editor's smaller sections.
+ *
+ * `getHeightUnit(item)` returns an item's rendered height per unit column width
+ * (i.e. height / width — the inverse of the CSS aspect-ratio). Each item lands
+ * in the currently-shortest column; ties go to the leftmost, so the first row
+ * still reads left-to-right before balancing kicks in. Deterministic (no
+ * randomness) so server and client produce the same layout.
+ */
+export function distributeBalanced<T>(
+  items: T[],
+  numCols: number,
+  getHeightUnit: (item: T) => number
+): T[][] {
+  const n = Math.max(1, numCols);
+  const columns: T[][] = Array.from({ length: n }, () => []);
+  const heights = new Array<number>(n).fill(0);
+  for (const item of items) {
+    let min = 0;
+    for (let c = 1; c < n; c++) {
+      if (heights[c] < heights[min] - 1e-9) min = c;
+    }
+    columns[min].push(item);
+    heights[min] += Math.max(0.01, getHeightUnit(item) || 1);
+  }
+  return columns;
+}

@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { SmartStack } from "./SmartStack";
-import { distributeIntoColumns, useResponsiveColumns } from "@/lib/gallery/grid-layout";
+import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
 
 interface ImageGridProps {
@@ -53,16 +53,19 @@ interface ImageGridProps {
 const GAP_PX = { tight: 2, normal: 6, loose: 12 } as const;
 
 /**
- * ImageGrid — masonry via round-robin distribution into flex columns.
+ * ImageGrid — masonry via height-balanced distribution into flex columns.
  *
- * Items are distributed left-to-right (item i → column i % n, see
- * distributeIntoColumns) so the sorted/manual sequence reads across the first
- * row then wraps. Tiles keep their natural aspect ratio.
+ * Items are packed shortest-column-first (distributeBalanced) so columns stay
+ * even in height — round-robin balanced item COUNTS but not heights, which left
+ * one column much taller when portrait tiles clustered in a small section. Ties
+ * go to the leftmost column, so the first row still reads left-to-right. Tiles
+ * keep their natural aspect ratio.
  *
  * When `dndEnabled` (the "Manual" sort), the whole grid is wrapped in a single
  * dnd-kit SortableContext spanning every tile regardless of which column div it
  * physically lives in — dnd-kit tracks geometry by measured rects, so dragging
- * across columns works. Stacks are expanded to loose tiles by the caller in this
+ * across columns works, and reorder operates on the flat sequence independently
+ * of the column layout. Stacks are expanded to loose tiles by the caller in this
  * mode, so every tile maps to exactly one section_images row = one sort_order.
  */
 export function ImageGrid({
@@ -123,7 +126,10 @@ export function ImageGrid({
     );
   }
 
-  const columns = distributeIntoColumns(gridItems, colCount);
+  const columns = distributeBalanced(gridItems, colCount, (item) => {
+    const d = item.type === "image" ? item.data : item.data.images[0];
+    return d && d.width && d.height ? d.height / d.width : 4 / 3;
+  });
 
   const renderItem = (item: (typeof gridItems)[number]) => {
     const key =
@@ -269,7 +275,9 @@ function SortableImageGrid({
     );
   }
 
-  const columns = distributeIntoColumns(standalone, colCount);
+  const columns = distributeBalanced(standalone, colCount, (img) =>
+    img.width && img.height ? img.height / img.width : 4 / 3
+  );
   const activeImage = activeId ? byId.get(activeId) : null;
 
   return (

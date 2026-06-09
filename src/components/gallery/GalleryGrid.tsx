@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Download, Heart } from "lucide-react";
-import { distributeIntoColumns, useResponsiveColumns } from "@/lib/gallery/grid-layout";
+import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { GalleryImage } from "@/types/gallery";
 
 interface GalleryGridProps {
@@ -44,7 +44,7 @@ const UNIFORM_COLUMNS_MAP: Record<number, string> = {
   6: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
 };
 
-/* Responsive columns + round-robin distribution now come from the shared
+/* Responsive columns + height-balanced distribution now come from the shared
    src/lib/gallery/grid-layout module (used by the editor grid too). */
 
 /* ─── Main component ─── */
@@ -65,7 +65,12 @@ export function GalleryGrid({
   const isUniform = gridStyle === "uniform";
 
   const columns = useMemo(
-    () => (isUniform ? [] : distributeIntoColumns(images, colCount)),
+    () =>
+      isUniform
+        ? []
+        : distributeBalanced(images, colCount, (img) =>
+            img.width && img.height ? img.height / img.width : 3 / 4
+          ),
     [images, colCount, isUniform]
   );
 
