@@ -14,7 +14,7 @@ const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
  *
  * Public app routes (no auth required):
  *   /, /login, /signup, /forgot-password, /reset-password,
- *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/sps/*
+ *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/sps/*, /api/site/*
  *
  * Protected app routes (redirect to /login if unauthenticated):
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
@@ -100,6 +100,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/inngest") ||
     pathname.startsWith("/api/stripe/webhook") ||
     pathname.startsWith("/api/sps") ||
+    // Site-facing scene API enforces its own X-SPS-Key shared-secret auth
+    // (like /api/sps) — the login redirect must not intercept it.
+    pathname.startsWith("/api/site") ||
     pathname.startsWith("/dev");
 
   // Redirect unauthenticated users to login
