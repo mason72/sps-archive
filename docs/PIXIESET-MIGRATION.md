@@ -1,5 +1,7 @@
 # Pixieset → Pixeltrunk Migration Plan
 
+**Last updated:** 2026-05-30
+
 ## Context
 
 Shutting down Pixieset account (~1000+ events, ~5TB total). Migrating 2022+ events only (~200-400 events, ~1-2TB estimated). Pixieset is the **only copy** of these images — no local backups. Need to preserve images at original resolution plus gallery names and set/category structure.
@@ -179,9 +181,9 @@ Read the exported folder structure and create events in Pixeltrunk with all imag
 
 ### Prerequisites
 - Pixeltrunk deployed and operational
-- Upload API working (presigned URL flow)
+- Upload API working (two-step presigned-URL flow; see `docs/TECHNICAL.md` §4)
 - Sections API working
-- AI processing pipeline deployed on Modal
+- (Optional) Modal AI pipeline deployed — currently dormant and NOT required for import. Without it, images import fine and simply skip AI analysis.
 
 ### Script: `scripts/pixieset-import.ts`
 
@@ -196,22 +198,30 @@ Step 2: For each gallery (resumable, batched)
     - name: gallery.name
     - date: gallery.date
     - slug: auto-generated or from gallery.slug
+    - Note: a new event is auto-seeded with a "Highlights" section. Rename or
+      delete it once the real sets are created (you cannot delete the last
+      section, so create sets first).
   - For each set in gallery:
-    - Create section via POST /api/sections
-      - name: set.name
-      - event_id: new event ID
+    - Create section via POST /api/sections { eventId, name }
   - For each image in each set:
-    - POST /api/upload (metadata: filename, type, size)
-    - PUT /api/upload/[imageId] (binary upload via presigned URL)
-    - POST /api/sections/[sectionId]/images (add to section)
+    - POST /api/upload { eventId, sectionId, files:[{name,type,size}] }
+      (creates the image row AND links it to the section in one call; returns a presigned URL)
+    - Send the binary: PUT /api/upload/[imageId] for files <=4MB (server proxy),
+      or PUT the presigned URL directly for files >4MB (needs R2 bucket CORS)
+    - POST /api/upload/complete { imageId, width, height, exif }
+    - (POST /api/sections/[sectionId]/images is only needed to add an image to
+      an ADDITIONAL section — the initial section link is handled by /api/upload)
   - Set cover image if specified
   - Update manifest with Pixeltrunk event ID
   - Log: "Imported {name} — {N} images across {M} sections"
 
-Step 3: Trigger AI processing
-  - AI pipeline picks up new images via Inngest events (already wired)
-  - CLIP embeddings, aesthetic scoring, face detection, smart stacks
-  - This runs asynchronously — no need to wait per-gallery
+Step 3: (Optional) AI processing — only if Modal + Inngest are configured
+  - AI processing is DORMANT by default. /api/upload/complete only emits an
+    Inngest event when INNGEST_EVENT_KEY is set, and Modal must be deployed.
+  - If active: CLIP embeddings, aesthetic scoring, face detection, smart stacks
+    run asynchronously via Inngest — no need to wait per-gallery.
+  - If not active (current state): skip this step entirely. Images import and
+    display normally without AI metadata.
 
 Step 4: Verification
   - For each imported gallery:
@@ -241,9 +251,9 @@ Step 4: Verification
 - [ ] All 2022+ galleries appear in Pixeltrunk with correct names/dates
 - [ ] Image counts match between manifest and Pixeltrunk for every gallery
 - [ ] Sections/sets are correctly mapped
-- [ ] AI processing complete (stacks, embeddings, scores)
 - [ ] Spot-check 10-20 galleries visually — images load, quality correct
-- [ ] Test search works on imported images (CLIP embeddings indexed)
+- [ ] Test filename search works on imported images
+- [ ] (Only if Modal/Inngest active) AI processing complete (stacks, embeddings, scores) and semantic search works
 - [ ] Back up the `pixieset-export/` folder to a second location (external drive or cloud)
 
 ### Cancel Pixieset
@@ -290,4 +300,4 @@ Step 4: Verification
 2. **Actual 2022+ event count** — Log into Pixieset, filter collections by date, get exact number
 3. **Storage destination** — Local SSD? External drive? Cloud mount? Need 1-2TB free
 4. **Pixieset credentials** — Will need login for the Playwright script (store securely, not in code)
-5. **Events without sets** — Some galleries may not have sets/categories — handle as single "All Photos" section
+5. **Events without sets** — Some galleries may not have sets/categories. Every Pixeltrunk event must have >=1 real section, so import these into a single section (e.g. keep the seeded "Highlights", or create one named "All Photos"). Note "All Images" in the UI is a derived view, not a real section you can upload into.

@@ -1,113 +1,84 @@
 # Pixeltrunk — Setup Guide
 
-Everything you need to go from code to working app.
+From code to a working app. The app needs **two services** for the core flow (events, upload, sections, sharing): **Supabase** (metadata DB) and **Cloudflare R2** (file binaries). Stripe (billing) and Resend (email) are needed for paid plans and transactional email. Modal + Inngest power the AI features and are **not required** — the app runs fully without them; AI features stay dormant.
+
+> SECURITY: do not commit real secrets to this file. The values below are placeholders. Keep actual keys in `.env.local` (gitignored). If you previously pasted live keys here, rotate them.
 
 ---
 
-## Quick Start (minimum to test core flow)
-
-You need **2 services** to test event creation, upload, and gallery sharing:
-
-1. **Supabase** — Database + Auth
-2. **Cloudflare R2** — Image storage
-
-AI features (smart stacks, semantic search, face clustering) need Modal + Inngest and can be added later.
-
----
-
-## 1. Supabase
+## 1. Supabase (metadata database)
 
 ### Create project
-1. Go to [supabase.com/dashboard](https://supabase.com/dashboard)
-2. **New Project** → pick a name (e.g. `sps-prism`) and region
-3. Set a database password (save it somewhere)
-4. Wait for provisioning (~2 min)
+1. [supabase.com/dashboard](https://supabase.com/dashboard) -> **New Project**, pick a region.
+2. Set a database password (store it in your password manager, not here).
+3. Wait for provisioning (~2 min).
 
 ### Run migrations
-1. Go to **SQL Editor** in the Supabase dashboard
-2. Paste the contents of `supabase/migrations/001_initial_schema.sql` → **Run**
-3. Paste the contents of `supabase/migrations/002_rls_policies.sql` → **Run**
+In **SQL Editor**, run the files in `supabase/migrations/` in order (001 first). pgvector is enabled by migration 001; if it errors, enable `vector` under **Database -> Extensions** first.
 
-> **Note:** The vector extension (`pgvector`) is included in migration 001. If you get an error about it, go to **Database → Extensions** and enable `vector` first.
-
-### Get your keys
-Go to **Settings → API**:
-
+### Get your keys (Settings -> API)
 | Key | Env var |
 |-----|---------|
-| Project URL | `NEXT_PUBLIC_SUPABASE_URL` | https://hfusdrtrizabzzcdhnyy.supabase.co
-| `anon` `public` key | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmdXNkcnRyaXphYnp6Y2Robnl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMDM0MDMsImV4cCI6MjA4Nzc3OTQwM30._LnplUHBZcPniS5Ea8w9svl6xP_25xCck0vSjheLZPk
-| `service_role` key (hidden by default) | `SUPABASE_SERVICE_ROLE_KEY` | eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmdXNkcnRyaXphYnp6Y2Robnl5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjIwMzQwMywiZXhwIjoyMDg3Nzc5NDAzfQ.juRjt2p5C2qpNUHQVsXXB_qMXVl6VXIsA-JLFsr2g_o
+| Project URL | `NEXT_PUBLIC_SUPABASE_URL` |
+| `anon` `public` key | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+| `service_role` key (secret) | `SUPABASE_SERVICE_ROLE_KEY` |
 
-Direct Connection String | postgresql://postgres:AYcJajOSjzg1neMu@db.hfusdrtrizabzzcdhnyy.supabase.co:5432/postgres
+### Auth
+Email auth is on by default. For faster local testing, turn off **Authentication -> Settings -> Enable email confirmations** (re-enable for production).
 
-### Enable Auth
-1. Go to **Authentication → Providers**
-2. **Email** should already be enabled (it's the default)
-3. Optional: Turn off "Confirm email" under **Authentication → Settings** for faster testing (you can re-enable later)
-
-### Generate TypeScript types (optional but recommended)
+### TypeScript types (optional)
 ```bash
-# Install Supabase CLI if you haven't
-brew install supabase/tap/supabase
-
-# Get your project ID from the dashboard URL: supabase.com/dashboard/project/<PROJECT_ID>
-export SUPABASE_PROJECT_ID=your-project-id
-
-SUPABASE_PROJECT_ID: hfusdrtrizabzzcdhnyy
-
-# Login and generate types
+brew install supabase/tap/supabase     # if needed
+export SUPABASE_PROJECT_ID=<your-project-id>   # from dashboard URL
 npx supabase login
 npm run db:gen-types
 ```
 
 ---
 
-## 2. Cloudflare R2
+## 2. Cloudflare R2 (file binaries)
 
 ### Create bucket
-1. Go to [dash.cloudflare.com](https://dash.cloudflare.com) → **R2 Object Storage**
-2. **Create bucket** → name it `sps-prism`
-3. Leave defaults (no public access needed — we use presigned URLs)
+1. [dash.cloudflare.com](https://dash.cloudflare.com) -> **R2 Object Storage** -> **Create bucket**.
+2. No public access needed — the app serves files via presigned URLs.
 
 ### Create API token
-1. Go to **R2 → Manage R2 API Tokens** → **Create API token**
-2. Permissions: **Object Read & Write**
-3. Scope to the `sps-prism` bucket
-4. Save the credentials:
+**R2 -> Manage R2 API Tokens -> Create API token**, permission **Object Read & Write**, scoped to your bucket. Save:
 
 | Value | Env var |
 |-------|---------|
-| Account ID (from the dashboard URL) | `R2_ACCOUNT_ID` | aa3ce5fa7edd5346e777d23a4c34fe17
-| Access Key ID | `R2_ACCESS_KEY_ID` | e7a52d3915dcc09cd659789e8f1b0aca
-| Secret Access Key | `R2_SECRET_ACCESS_KEY` | 0ee838ee2bd835619903a42dbc6fafda077049d4ff207c29b96ed54c5f9738e2
+| Account ID (from dashboard URL) | `R2_ACCOUNT_ID` |
+| Access Key ID | `R2_ACCESS_KEY_ID` |
+| Secret Access Key | `R2_SECRET_ACCESS_KEY` |
 
-Set these as well:
-```
-R2_BUCKET_NAME=sps-prism
-R2_PUBLIC_URL=https://your-account-id.r2.cloudflarestorage.com/sps-prism
-```
+Also set `R2_BUCKET_NAME` and `R2_PUBLIC_URL` (the latter is a fallback only — the app uses presigned URLs).
 
-> **R2_PUBLIC_URL** is only used as a fallback — the app primarily uses presigned download URLs. You can set this to any placeholder for now.
+### Configure bucket CORS (required for large-file uploads)
+Uploads use a hybrid transport: files **<= 4 MB** stream through the server proxy (`PUT /api/upload/[imageId]`, no CORS needed), but files **> 4 MB** go **browser -> R2 directly** and **require CORS on the bucket**. The app's R2 API token **cannot** set CORS — you must do it once, manually, in the Cloudflare dashboard (R2 -> your bucket -> Settings -> CORS Policy), allowing `PUT` from your app origin(s).
+
+A `scripts/setup-r2-cors.mjs` helper exists, but bucket-CORS configuration generally must be applied with dashboard/admin credentials, not the scoped app token. Symptom of missing CORS: large uploads fail with `TypeError: Failed to fetch`.
 
 ---
 
 ## 3. Environment Variables
 
-Create `.env.local` in the project root:
+Create `.env.local` in the project root (see `.env.example` for the full, authoritative list):
 
 ```bash
-# ── Supabase ──
-NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
+# Supabase (metadata DB)
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
-# ── Cloudflare R2 ──
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your-access-key
-R2_SECRET_ACCESS_KEY=your-secret-key
-R2_BUCKET_NAME=sps-prism
+# Cloudflare R2 (file binaries)
+R2_ACCOUNT_ID=<account-id>
+R2_ACCESS_KEY_ID=<access-key>
+R2_SECRET_ACCESS_KEY=<secret-key>
+R2_BUCKET_NAME=<bucket-name>
 R2_PUBLIC_URL=https://placeholder.r2.dev
+
+# Stripe (billing) and Resend (email) — see .env.example
+# Modal + Inngest — leave unset to keep AI features dormant
 ```
 
 ---
@@ -119,48 +90,35 @@ npm install
 npm run dev
 ```
 
-Then open [localhost:3000](http://localhost:3000).
+Open [localhost:3000](http://localhost:3000).
 
-### Test the core flow:
-1. **Sign up** at `/signup` → creates your account
-2. **Create an event** from the homepage
-3. **Upload photos** on the event page (drag & drop)
-4. **Open lightbox** by clicking any image
-5. **Create a share link** via the "Share" button
-6. **Open the share URL** in an incognito window to see the client gallery
+### Test the core flow
+1. **Sign up** at `/signup`.
+2. **Create an event** — it is seeded with a "Highlights" section.
+3. **Upload photos** (drag & drop). Small files proxy through the server; large files go direct to R2 (needs CORS, step 2).
+4. **Organize** — rename/add sections, reorder photos.
+5. **Create a share link** via the Share button (set download/favorites/quality, optional password/PIN).
+6. **Open the share URL** in an incognito window to see the client gallery.
 
 ---
 
-## 5. AI Processing (Phase 2 — add when ready)
+## 5. AI Processing (optional — currently dormant)
 
-This powers smart stacks, semantic search, aesthetic scoring, and face clustering.
+These power the (not-yet-active) Smart Stacks, semantic search, face clustering, and aesthetic scoring. Leaving Modal and Inngest unconfigured is the current production state.
 
 ### Modal (serverless GPU)
-1. Sign up at [modal.com](https://modal.com)
-2. Create a token: `modal token new`
-3. Deploy the processing function (we need to build this — it's the Modal app that runs CLIP + ArcFace)
+1. Sign up at [modal.com](https://modal.com), create a token: `modal token new`.
+2. Deploy the pipeline: `modal deploy modal/ai_pipeline.py`.
+3. Set `MODAL_API_URL` (and tokens) in `.env.local`.
 
-```bash
-MODAL_API_URL=https://your-modal-app--process-image.modal.run
-```
-
-> **Without Modal:** Upload and gallery viewing work fine. Images just skip the AI analysis step — no aesthetic scores, scene tags, or semantic search. Filename search still works.
+> Without Modal: upload, sections, gallery viewing, and sharing all work. Images simply skip AI analysis — no scene tags, aesthetic scores, stacks, or semantic search. Filename search still works.
 
 ### Inngest (background job orchestration)
-1. Sign up at [inngest.com](https://inngest.com)
-2. Create an app → get your keys
-3. For local dev, run the Inngest dev server:
+1. Sign up at [inngest.com](https://inngest.com), create an app, get keys.
+2. Local dev server: `npx inngest-cli@latest dev`.
+3. Set `INNGEST_EVENT_KEY` / `INNGEST_SIGNING_KEY`.
 
-```bash
-npx inngest-cli@latest dev
-```
-
-```bash
-INNGEST_EVENT_KEY=your-event-key
-INNGEST_SIGNING_KEY=your-signing-key
-```
-
-> **Without Inngest:** Uploads still save to R2 and create DB records. The background processing pipeline (thumbnails → AI analysis → stacking) just won't trigger. You'll see images in "processing" status.
+> Without Inngest: uploads still save to R2 + Supabase and thumbnails still generate. The AI processing chain just never triggers (`/api/upload/complete` only emits the Inngest event when `INNGEST_EVENT_KEY` is set).
 
 ---
 
@@ -168,36 +126,32 @@ INNGEST_SIGNING_KEY=your-signing-key
 
 | Feature | Supabase | R2 | Modal | Inngest |
 |---------|:--------:|:--:|:-----:|:-------:|
-| Auth (login/signup) | **required** | — | — | — |
-| Create events | **required** | — | — | — |
-| Upload photos | **required** | **required** | — | — |
-| View photos in gallery | **required** | **required** | — | — |
-| Lightbox + EXIF | **required** | **required** | — | — |
-| Share links | **required** | **required** | — | — |
-| Client favorites | **required** | **required** | — | — |
-| Filename search | **required** | **required** | — | — |
-| Semantic search ("first dance") | **required** | **required** | **required** | — |
-| Aesthetic scores + smart stacks | **required** | **required** | **required** | **required** |
-| Face clustering | **required** | **required** | **required** | **required** |
-| Thumbnail generation | **required** | **required** | — | **required** |
+| Auth (login/signup) | req | — | — | — |
+| Create events | req | — | — | — |
+| Upload photos | req | req | — | — |
+| Sections (organize) | req | req | — | — |
+| View gallery + lightbox + EXIF | req | req | — | — |
+| Share links + client favorites | req | req | — | — |
+| Thumbnails | req | req | — | — |
+| Filename search | req | req | — | — |
+| Semantic search *(dormant)* | req | req | req | — |
+| Smart Stacks / aesthetic *(dormant)* | req | req | req | req |
+| Face clustering *(dormant)* | req | req | req | req |
 
-**TL;DR — Supabase + R2 gets you a fully working app. Modal + Inngest add the AI magic.**
+**TL;DR — Supabase + R2 give you a fully working archive-and-share app. Modal + Inngest add the (not-yet-active) AI features.**
 
 ---
 
 ## Troubleshooting
 
-**"Event not found" after creating an event**
-→ Check that both migrations ran successfully. Look at **Table Editor** in Supabase — you should see `events`, `images`, `shares`, `favorites`, and other tables.
+**"Event not found" after creating an event** — confirm all migrations ran; check **Table Editor** for `events`, `images`, `sections`, `section_images`, `shares`, `favorites`.
 
-**Upload fails with presigned URL error**
-→ Verify R2 credentials. The `R2_ACCOUNT_ID` is the hex string from your Cloudflare dashboard URL, not your email.
+**Large upload fails with `TypeError: Failed to fetch`** — R2 bucket CORS is not configured (step 2). Small files (<=4 MB) proxy through the server and are unaffected, which is a quick way to confirm CORS is the cause.
 
-**Login works but can't see events**
-→ RLS is active. Make sure migration 002 ran (adds `user_id` to events). Events created before auth was set up won't have a `user_id` and will be invisible.
+**Upload fails with a presigned-URL error** — verify R2 credentials. `R2_ACCOUNT_ID` is the hex string from your Cloudflare dashboard URL.
 
-**"Confirm email" blocking signup**
-→ In Supabase dashboard: **Authentication → Settings → turn off "Enable email confirmations"** for local testing.
+**Login works but no events show** — RLS is active and events are scoped to `user_id`. Events created before auth was wired won't have a `user_id`.
 
-**TypeScript errors about database types**
-→ Run `npm run db:gen-types` after setting `SUPABASE_PROJECT_ID`. This regenerates types from your live schema.
+**"Confirm email" blocking signup** — disable email confirmations in Supabase auth settings for local testing.
+
+**TypeScript errors about database types** — run `npm run db:gen-types` after setting `SUPABASE_PROJECT_ID`.

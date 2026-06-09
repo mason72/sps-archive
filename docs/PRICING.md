@@ -1,210 +1,145 @@
 # Pixeltrunk — Pricing Strategy
 
-**Status:** Approved direction
-**Last updated:** 2026-02-24
+**Status:** Approved direction (planning doc — not all features priced here ship today)
+**Last updated:** 2026-05-30
+
+> IMPORTANT — read before using this for marketing. This document was written assuming the AI features (Smart Stacks, semantic search, face search, Auto Sections, aesthetic scoring) are live. **They are not active in production yet** (the Modal pipeline is unconfigured). The pricing structure below (storage tiers, prices, margins) is the plan of record, but any tier copy that promises "AI" must be gated to what actually ships, or reframed as "coming soon," until the pipeline is stood up. Treat AI-feature mentions below as the intended end state, not current capability.
+
+What ships today and justifies the price right now: unlimited events/photos within the storage tier, section-based organization, client gallery sharing with passwords/PIN, client favorites/proofing, downloads, custom branding, and (zero-egress) R2-backed storage.
 
 ---
 
 ## 1. Positioning
 
-Pixeltrunk is a **premium product**. Photographers currently pay two separate bills — one for AI culling ($10–60/mo for Narrative or AfterShoot) and one for gallery/archive/delivery ($20–65/mo for ShootProof, Pixieset, Pic-Time). That's $30–125/mo for tools that don't talk to each other.
-
-Pixeltrunk is the only product that combines AI-powered organization, semantic search, smart stacks, and archive storage in one place — with native SPS integration for delivery. We do not undercut competitors. We price as a premium, feature-rich offering and deliver outsized value.
+Photographers typically pay two bills — gallery/delivery (ShootProof, Pixieset, Pic-Time: ~$20-65/mo) and, separately, AI culling (Narrative, AfterShoot: ~$10-60/mo). Pixeltrunk's long-term play is to combine archive storage, organized client delivery, and (once active) AI organization in one product with native SPS integration. Premium positioning; we sell on value, not by undercutting.
 
 ---
 
 ## 2. Pricing Model
 
-**Tiered subscription based on storage volume.** Image counts shown as contextual data points (since file sizes vary by format and resolution). AI processing costs are absorbed in margins.
-
-All tiers are available monthly or annually. Annual billing is the default presentation (17–24% discount). Most subscribers are expected to be annual.
+**Tiered subscription based on storage volume.** Image counts are shown only as context (file sizes vary by format/resolution). Available monthly or annually; annual is the default presentation (17-24% discount).
 
 ---
 
 ## 3. Tiers
 
+> "AI features" rows below describe the intended end state. Until the Modal pipeline is live, treat them as not-yet-available regardless of tier.
+
 ### Free — $0/mo
-
-The free tier exists to let photographers experience the AI magic firsthand. One event is enough to see Smart Stacks, Auto Sections, and semantic search in action — and to realize they want it for every shoot.
-
 | | |
 |---|---|
-| Storage | 10 GB |
-| *~images (JPEG context)* | *~1,250* |
+| Storage | 10 GB (~1,250 JPEGs) |
 | Events | 1 |
-| AI features | All (Smart Stacks, Auto Sections, Semantic Search, Filename Search, Face Search) |
 | Sharing links | Unlimited |
 | Custom branding | Yes |
-| SPS integration | Yes |
+| SPS integration | Yes (import) |
 | Team seats | 1 |
 | Client favorites/proofing | — |
-| Batch operations | — |
-| Analytics | — |
+| AI features *(planned)* | All, once live |
 
-**Cost to serve:** R2 $0.15/mo. AI processing ~$3.75 one-time. Effectively zero.
+**Cost to serve:** R2 ~$0.15/mo. Effectively zero. **Conversion mechanic:** data persists after trial; the 1-event cap makes every new shoot an upgrade trigger; share links keep working.
 
-**Conversion mechanic:** Data stays in their account after trial. One event cap means every new shoot is an upgrade trigger. Share links keep working, keeping the product sticky even on Free.
-
-### New account trial
-
-Every new account gets **14 days of Pro** (750 GB, all features, no credit card required). After 14 days, unconverted accounts downgrade to Free. Data is preserved; they just can't upload more or create new events beyond the 1-event Free cap.
-
----
+**New-account trial:** 14 days of Pro (750 GB, all then-available features, no card). Unconverted accounts drop to Free; data is preserved but uploads/new events are capped at the Free limit.
 
 ### Solo — $25/mo · $19/mo annual ($228/yr)
-
-The approachable entry point. Part-time photographers, newer pros, or anyone archiving a moderate volume of shoots.
-
 | | |
 |---|---|
-| Storage | 100 GB |
-| *~images (JPEG)* | *~12,500* |
-| *~images (mixed RAW + JPEG)* | *~8,600* |
+| Storage | 100 GB (~12,500 JPEG / ~8,600 mixed RAW+JPEG) |
 | Events | Unlimited |
-| AI features | All |
-| Sharing links | Unlimited |
-| Custom branding | Yes |
-| SPS integration | Yes |
 | Team seats | 1 |
 | Client favorites/proofing | — |
-| Batch operations | — |
-| Analytics | — |
-
----
+| Custom branding, sharing, SPS import | Yes |
+| AI features *(planned)* | All, once live |
 
 ### Pro — $59/mo · $49/mo annual ($588/yr)
-
-The working professional. Client-facing features unlock here — favorites, proofing, and team collaboration. This is the natural tier for active SPS users who want the full archive-to-delivery pipeline.
-
+Client-facing features unlock here.
 | | |
 |---|---|
-| Storage | 750 GB |
-| *~images (JPEG)* | *~93,000* |
-| *~images (mixed RAW + JPEG)* | *~65,000* |
+| Storage | 750 GB (~93,000 JPEG / ~65,000 mixed) |
 | Events | Unlimited |
-| AI features | All |
-| Sharing links | Unlimited |
-| Custom branding | Yes |
-| SPS integration | Yes |
 | Team seats | 3 |
 | Client favorites/proofing | Yes |
-| Batch operations | — |
-| Analytics | — |
-
----
+| Custom branding, sharing, SPS import | Yes |
+| AI features *(planned)* | All, once live |
 
 ### Studio — $99/mo · $79/mo annual ($948/yr)
-
-Multi-photographer studios and high-volume operations. Batch workflows, analytics, and generous team seats. Additional storage available for studios that outgrow 2 TB.
-
 | | |
 |---|---|
-| Storage | 2 TB |
-| *~images (JPEG)* | *~250,000* |
-| *~images (mixed RAW + JPEG)* | *~173,000* |
+| Storage | 2 TB (~250,000 JPEG / ~173,000 mixed) |
 | Events | Unlimited |
-| AI features | All |
-| Sharing links | Unlimited |
-| Custom branding | Yes |
-| SPS integration | Yes |
 | Team seats | 10 |
 | Client favorites/proofing | Yes |
 | Batch operations | Yes (bulk download, move, delete, tag, export to SPS) |
 | Analytics | Yes |
 | Additional storage | $5 / 100 GB / mo |
+| AI features *(planned)* | All, once live |
+
+### Enterprise — Custom
+For operations beyond 5 TB or needing SLAs: negotiated storage, unlimited seats, dedicated support, custom integrations.
 
 ---
 
-### Enterprise — Custom pricing
+## 4. Feature-Gate Philosophy
 
-For operations exceeding 5 TB or needing SLA guarantees. Contact sales.
+Storage is the primary upgrade driver, not artificial feature locks.
 
-- Unlimited storage (negotiated)
-- Unlimited team seats
-- Dedicated support + SLA
-- Custom integrations
-- Everything in Studio
+**Intended to be ungated across all tiers (incl. Free):** sharing links, custom branding, SPS import, and — once live — all AI processing (CLIP/ArcFace/aesthetic), Smart Stacks, Auto Sections, semantic + face search.
 
----
-
-## 4. Feature Gate Philosophy
-
-Gates are minimal and intentional. Storage is the primary upgrade driver — not artificial feature restrictions.
-
-**Ungated across all tiers (including Free):**
-- Smart Stacks (face + burst)
-- Auto Sections (scene-based + headshot alphabetical)
-- Semantic search (CLIP-powered natural language)
-- Filename search
-- Face search (selfie upload)
-- Unlimited sharing links
-- Custom branding on shared galleries
-- SPS integration (import + enhancement export)
-- Full AI processing (CLIP, ArcFace, aesthetic scoring)
-
-**Gated features and rationale:**
-
-| Feature | Available | Why gated |
+**Gated:**
+| Feature | Available | Why |
 |---|---|---|
-| Client favorites/proofing | Pro+ | Delivery workflow — solo archiving vs. client collaboration is a natural segmentation |
-| Team seats (3+) | Pro+ | Real cost/complexity scaling with concurrent users |
-| Batch operations | Studio | Studio workflow tool (bulk download ZIP, move between events, bulk tag, bulk export to SPS) |
-| Analytics dashboard | Studio | Enterprise-grade reporting need |
+| Client favorites/proofing | Pro+ | Solo archiving vs. client collaboration is a natural split |
+| Team seats (3+) | Pro+ | Cost/complexity scales with concurrent users |
+| Batch operations | Studio | Studio workflow tool |
+| Analytics dashboard | Studio | Reporting need |
 | Additional storage purchase | Studio | Growth path before Enterprise |
 
 ---
 
 ## 5. Storage & R2 Economics
 
-### What the customer sees
-Storage tiers in GB/TB with approximate image counts as context. Overages are handled via a soft gate — a banner appears when approaching the limit, uploads blocked at 110%. No surprise charges.
+**What the customer sees:** GB/TB tiers with approximate image counts. Soft gate — a banner near the limit, uploads blocked at 110%. No surprise charges.
 
-### What it costs us (Cloudflare R2)
-- **Storage:** $0.015 / GB / month ($15.36 / TB / month)
-- **Egress:** Free (this is our structural advantage — client gallery viewing costs $0)
-- **Class A operations (writes):** $4.50 / million
-- **Class B operations (reads):** $0.36 / million
-- **Thumbnails:** 3 sizes generated per image, stored alongside originals, included in storage allocation
+**What R2 costs us:**
+- Storage: $0.015 / GB / mo ($15.36 / TB / mo)
+- Egress: **free** (structural advantage — client gallery viewing costs $0)
+- Class A (writes): $4.50 / million · Class B (reads): $0.36 / million
+- Thumbnails: 3 sizes per image, stored alongside originals, counted in the allocation
 
-### Additional storage pricing (Studio tier)
-$5 per 100 GB per month ($50 / TB). Our R2 cost is $15.36/TB, yielding ~69% margin on overage storage.
+**Additional storage (Studio):** $5 / 100 GB / mo ($50/TB) vs. our $15.36/TB cost -> ~69% margin.
 
-### Margin analysis (annual billing)
-
-| Tier | Revenue/mo | R2 cost | AI cost | Total cost | Gross margin |
+**Margin analysis (annual billing):**
+| Tier | Rev/mo | R2 cost | AI cost* | Total | Margin |
 |---|---|---|---|---|---|
-| Free | $0 | $0.15 | ~$0.02 | $0.17 | N/A (acquisition) |
+| Free | $0 | $0.15 | ~$0.02 | $0.17 | acquisition |
 | Solo ($19) | $19 | $1.50 | $0.40 | $1.90 | **90%** |
 | Pro ($49) | $49 | $11.25 | $3.00 | $14.25 | **71%** |
 | Studio ($79) | $79 | $30.72 | $7.50 | $38.22 | **52%** |
 | +1 TB overage | $50 | $15.36 | — | $15.36 | **69%** |
 
-AI costs assume ~$0.003/image for CLIP + ArcFace + aesthetic scoring on Modal. These are one-time per image (on upload), not recurring. The AI cost column reflects amortized monthly processing for a steadily growing archive.
-
-Studio margin improves as users add overage storage (69% margin on add-ons). Blended Studio margin with 500 GB overage: ~56%.
+\* AI cost assumes ~$0.003/image one-time on Modal **once the pipeline is live**. Today AI cost is $0 (dormant), so current margins are slightly higher than shown.
 
 ---
 
 ## 6. Competitive Pricing Context
 
-| Platform | Category | Top tier | Our comparison |
+| Platform | Category | Top tier | Comparison |
 |---|---|---|---|
-| ShootProof | Gallery + sales | $50/mo unlimited | Pixeltrunk Studio at $79/mo includes AI that ShootProof doesn't offer |
-| Pixieset Suite | All-in-one | $55/mo annual | Pixeltrunk Pro at $49/mo with superior AI capabilities |
-| Pic-Time | Gallery + print | $42/mo annual | Pixeltrunk Pro comparable price, adds AI organization |
-| Narrative Select | AI culling + editing | $60/mo | Pixeltrunk Studio at $79/mo adds archive + search + sharing |
-| AfterShoot | AI culling + editing | $60/mo | Pixeltrunk Studio at $79/mo adds archive + search + sharing |
-| SmugMug Pro | Portfolio + sales | $37/mo annual | Pixeltrunk Solo at $19/mo adds AI, comparable archive |
-| CloudSpot | Gallery + CRM | $50/mo unlimited | Pixeltrunk Pro at $49/mo with AI features CloudSpot lacks |
-
-**Key positioning:** Photographers paying for both a gallery platform ($30–55/mo) and an AI culling tool ($20–60/mo) spend $50–115/mo total. Pixeltrunk Pro at $49/mo or Studio at $79/mo replaces the AI tool and provides archive/search capabilities neither category offers alone.
+| ShootProof | Gallery + sales | $50/mo unlimited | Studio $79/mo (adds AI once live) |
+| Pixieset Suite | All-in-one | $55/mo annual | Pro $49/mo |
+| Pic-Time | Gallery + print | $42/mo annual | Pro comparable, adds organization |
+| Narrative Select | AI culling | $60/mo | Studio adds archive + sharing |
+| AfterShoot | AI culling | $60/mo | Studio adds archive + sharing |
+| SmugMug Pro | Portfolio + sales | $37/mo annual | Solo $19/mo |
+| CloudSpot | Gallery + CRM | $50/mo unlimited | Pro $49/mo |
 
 ---
 
 ## 7. Open Pricing Questions
 
-1. **SPS bundle discount** — Should existing SPS subscribers get a discount on Pixeltrunk (or vice versa)? A 10–20% loyalty discount could accelerate cross-adoption.
-2. **Annual-only option** — Should we offer monthly at all, or go annual-only like SmugMug? Monthly provides flexibility but annual improves cash flow and retention.
-3. **Education/nonprofit pricing** — Discounted tiers for schools, churches, nonprofits? Common in the space.
-4. **Referral program** — Free month or storage bonus for referrals? Photographers talk to each other constantly.
-5. **Launch pricing** — Introductory rate for early adopters? e.g. "Founding member" pricing locked in permanently at 20% off.
+1. **SPS bundle discount** — loyalty discount for existing SPS subscribers to drive cross-adoption?
+2. **Annual-only?** — drop monthly for cash-flow/retention, or keep for flexibility?
+3. **Education/nonprofit pricing** — discounted tiers for schools/churches/nonprofits?
+4. **Referral program** — free month or storage bonus?
+5. **Launch pricing** — founding-member rate locked in at ~20% off?
+6. **AI gating at launch** — if AI ships after paid launch, how to price/communicate tiers in the interim (the open question this doc most depends on).

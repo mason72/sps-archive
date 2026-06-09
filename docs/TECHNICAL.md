@@ -1,212 +1,109 @@
 # Pixeltrunk — Technical Documentation
 
-**Last updated:** 2026-02-22
+**Last updated:** 2026-05-30
+
+> What actually runs today: Next.js app on Vercel, Supabase (Postgres + pgvector) for metadata, Cloudflare R2 for file binaries, Stripe for billing, Resend for email. The Modal AI pipeline and Inngest processing exist in the codebase but are **not configured / not active** (see §5).
 
 ---
 
-## 1. Tech Stack
+## 1. Architecture in one paragraph
 
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | Next.js (App Router) | 15.1.0 |
-| UI Library | React | 19.0.0 |
-| Language | TypeScript | 5.7.0 |
-| Styling | Tailwind CSS | 4.0.0 |
-| CSS Processing | PostCSS + @tailwindcss/postcss | 8.4.0 |
-| Class Utilities | clsx + tailwind-merge | 2.1.0 / 2.6.0 |
-| Icons | lucide-react | 0.460.0 |
-| Database | Supabase (PostgreSQL + pgvector) | 2.47.0 |
-| Auth/SSR | @supabase/ssr | 0.5.0 |
-| Object Storage | Cloudflare R2 (S3-compatible) | via @aws-sdk/client-s3 3.700.0 |
-| Presigned URLs | @aws-sdk/s3-request-presigner | 3.700.0 |
-| AI Processing | Modal (serverless GPU) | Python 3.11 |
-| Async Workflows | Inngest | 3.27.0 |
-| Image Processing | sharp | 0.33.0 |
-| EXIF Extraction | exifr | 7.1.3 |
-| Unique IDs | nanoid | 5.0.0 |
-| File Upload UX | react-dropzone | 14.3.0 |
+There is **one database and one object store**. Supabase (Postgres) holds all *metadata* — events, sections, image rows (filename, size, dimensions, EXIF, `r2_key`, `processing_status`), shares, favorites, users. Cloudflare R2 holds the *file binaries* (the actual JPEGs/PNGs). An `images` row points at its binary via `r2_key`. The browser displays photos using short-lived **presigned GET URLs** to R2. This is the standard "DB for metadata + object store for blobs" split — not two databases.
 
 ---
 
-## 2. Project Structure
+## 2. Tech Stack
 
-```
-sps-archive/
-├── src/
-│   ├── app/                          # Next.js App Router pages
-│   │   ├── layout.tsx                # Root layout (html/body, metadata)
-│   │   ├── page.tsx                  # Home page (hero + feature highlights)
-│   │   ├── globals.css               # Tailwind import
-│   │   ├── events/
-│   │   │   ├── new/page.tsx          # Create new event form
-│   │   │   └── [eventId]/page.tsx    # Event detail (upload, search, gallery)
-│   │   ├── search/page.tsx           # Global cross-event search
-│   │   └── api/
-│   │       ├── events/route.ts       # GET (list) + POST (create) events
-│   │       ├── upload/
-│   │       │   ├── route.ts          # POST: get presigned upload URLs
-│   │       │   └── complete/route.ts # POST: finalize upload, save EXIF
-│   │       └── search/route.ts       # GET: unified search (filename/semantic)
-│   ├── components/
-│   │   ├── ui/
-│   │   │   └── button.tsx            # Button with variants (primary/secondary/ghost/danger)
-│   │   ├── upload/
-│   │   │   └── UploadZone.tsx        # Drag-and-drop upload with progress
-│   │   ├── gallery/
-│   │   │   ├── SmartStack.tsx        # Expandable image stack (collapsed/expanded)
-│   │   │   └── ImageGrid.tsx         # Masonry grid with stacks + standalone images
-│   │   └── search/
-│   │       └── SearchBar.tsx         # Debounced search with type toggles
-│   └── lib/
-│       ├── utils.ts                  # cn(), formatFileSize(), formatCount(), truncate()
-│       ├── supabase/
-│       │   ├── client.ts             # Browser client (anon key)
-│       │   ├── server.ts             # Server client (cookie-based) + service client (bypasses RLS)
-│       │   └── database.types.ts     # TypeScript types for all 9 tables + 2 RPC functions
-│       ├── r2/
-│       │   └── client.ts             # R2 upload/download/delete, presigned URLs, key builder
-│       ├── upload/
-│       │   └── parse-filename.ts     # Filename parser + EXIF extractor
-│       ├── ai/
-│       │   ├── types.ts              # AI result types + scene categories
-│       │   ├── process.ts            # Modal API client + result storage
-│       │   ├── stacks.ts             # Face stack + burst stack builders
-│       │   └── sections.ts           # Auto-section generator (scene-based + headshot)
-│       └── sps-integration/
-│           ├── types.ts              # SPS↔Archive integration contract types
-│           └── import.ts             # importFromSPS() + generateEnhancements()
-├── modal/
-│   └── ai_pipeline.py               # Modal serverless GPU: CLIP + ArcFace + aesthetic scoring
-├── package.json
-├── tsconfig.json
-├── next.config.ts
-├── postcss.config.mjs
-└── eslint.config.mjs
-```
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| UI | React 19, TypeScript |
+| Styling | Tailwind CSS 4 (PostCSS) |
+| Icons | lucide-react |
+| Metadata DB | Supabase (PostgreSQL + pgvector), `@supabase/ssr` |
+| Object storage | Cloudflare R2 (S3-compatible) via `@aws-sdk/client-s3` + `s3-request-presigner` |
+| Billing | Stripe |
+| Transactional email | Resend |
+| Image processing | sharp (thumbnails) |
+| EXIF extraction | exifr (client-side) |
+| AI processing *(dormant)* | Modal serverless GPU — not configured |
+| Async workflows *(dormant)* | Inngest — not configured |
 
 ---
 
 ## 3. Database Schema
 
-9 tables in PostgreSQL with pgvector extension:
+PostgreSQL with the pgvector extension. Core tables below (vector columns are populated only when the dormant AI pipeline is active).
 
 ### events
-Primary entity. One event = one photo shoot.
+One event = one photo shoot. Owned by a user.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
+| user_id | uuid | Owner (RLS scoped) |
 | name | text | "Sarah's Wedding" |
-| slug | text unique | URL-safe: "sarahs-wedding-m1abc" |
+| slug | text unique | URL-safe |
 | description | text? | |
 | event_date | date? | |
 | event_type | text? | wedding, headshot, corporate, portrait, sports, school |
 | cover_image_id | uuid? FK→images | |
-| settings | jsonb | Custom config, includes { spsEventId, source } for imports |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
+| settings | jsonb | Custom config; includes `{ spsEventId, source }` for SPS imports |
+| created_at / updated_at | timestamptz | |
 
 ### images
-Core asset table. One row per uploaded photo.
+One row per uploaded photo. Binary lives in R2 at `r2_key`.
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid PK | nanoid generated |
+| id | uuid PK | |
 | event_id | uuid FK→events | |
-| filename | text | Generated unique: `{nanoid}.{ext}` |
-| original_filename | text | Photographer's original: "SmithJohn_001.jpg" |
+| filename | text | Generated unique: `{uuid}.{ext}` |
+| original_filename | text | Photographer's original |
 | r2_key | text | `events/{eventId}/originals/{filename}` |
 | file_size | bigint | Bytes |
-| width | int? | Pixels |
-| height | int? | Pixels |
+| width / height | int? | Pixels |
 | mime_type | text | image/jpeg, etc. |
-| parsed_name | text? | Extracted from filename: "Smith, John" |
-| taken_at | timestamptz? | From EXIF DateTimeOriginal |
-| camera_make | text? | "Canon" |
-| camera_model | text? | "EOS R5" |
-| lens | text? | "RF 50mm F1.2L" |
-| focal_length | real? | mm |
-| aperture | real? | f-number |
-| shutter_speed | text? | "1/500" |
-| iso | int? | |
-| gps_lat | double? | |
-| gps_lng | double? | |
-| clip_embedding | vector(768)? | CLIP ViT-L/14 image embedding |
-| aesthetic_score | real? | 0-1 composite quality |
-| sharpness_score | real? | 0-1 Laplacian variance based |
-| is_eyes_open | boolean? | From face detection |
-| scene_tags | text[]? | ["ceremony", "outdoor"] |
-| stack_id | uuid? FK→stacks | Group membership |
-| stack_rank | int? | 1 = best/cover |
-| processing_status | text | pending → processing → complete / failed |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
-
-**Indexes:** HNSW on clip_embedding, GIN on scene_tags, composite on (stack_id, stack_rank), index on processing_status.
-
-### faces
-One row per detected face in an image.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| image_id | uuid FK→images | |
-| bbox_x/y/w/h | real | Normalized 0-1 bounding box |
-| embedding | vector(512)? | ArcFace identity embedding |
-| person_id | uuid? FK→persons | Assigned after clustering |
-| confidence | real? | Clustering confidence 0-1 |
-| created_at | timestamptz | |
-
-**Indexes:** HNSW on embedding.
-
-### persons
-Identity cluster. One person across multiple images.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| event_id | uuid FK→events | |
-| name | text? | Photographer can label |
-| representative_face_id | uuid? FK→faces | Best face crop |
-| face_count | int | |
-| created_at | timestamptz | |
-
-### stacks
-Groups of similar/related images.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| event_id | uuid FK→events | |
-| stack_type | text | "face", "burst", "similar" |
-| cover_image_id | uuid? FK→images | Best shot |
-| image_count | int | |
-| person_id | uuid? FK→persons | For face stacks |
-| created_at | timestamptz | |
+| parsed_name | text? | Extracted from filename |
+| taken_at | timestamptz? | From EXIF |
+| camera_make / camera_model / lens | text? | EXIF |
+| focal_length / aperture | real? | EXIF |
+| shutter_speed | text? | EXIF |
+| iso | int? | EXIF |
+| gps_lat / gps_lng | double? | EXIF |
+| thumbnail_generated | boolean | Set once sharp thumbnails exist |
+| processing_status | text | pending -> complete (or failed); see §4 upload flow |
+| clip_embedding | vector(768)? | *AI: populated only when Modal active* |
+| aesthetic_score / sharpness_score | real? | *AI: dormant* |
+| is_eyes_open | boolean? | *AI: dormant* |
+| scene_tags | text[]? | *AI: dormant* |
+| stack_id | uuid? FK→stacks | *AI: dormant* |
+| stack_rank | int? | *AI: dormant* |
+| created_at / updated_at | timestamptz | |
 
 ### sections
-Gallery organization units (auto-generated or manual).
+Gallery organization units. **Every event has at least one; the seed section is "Highlights".** See §6 for the section invariants.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
 | event_id | uuid FK→events | |
-| name | text | "Ceremony", "A", "Reception" |
+| name | text | "Ceremony", "Highlights" |
 | description | text? | |
 | sort_order | int | Display sequence |
-| is_auto | boolean | AI-generated vs manual |
-| filter_query | text? | Scene tag that defines this section |
+| is_auto | boolean | AI-generated vs manual (manual only, today) |
+| filter_query | text? | Scene tag for auto sections (*AI: dormant*) |
 | created_at | timestamptz | |
 
 ### section_images
-Many-to-many: images can belong to multiple sections.
+Many-to-many link. **Every image has at least one row here** — no orphaned images.
 
 | Column | Type | Notes |
 |---|---|---|
 | section_id | uuid FK→sections | Composite PK |
 | image_id | uuid FK→images | Composite PK |
 | sort_order | int | |
-| relevance_score | real? | How well image fits section |
+| relevance_score | real? | *AI: dormant* |
 
 ### shares
 Public gallery links with access control.
@@ -216,15 +113,12 @@ Public gallery links with access control.
 | id | uuid PK | |
 | event_id | uuid FK→events | |
 | slug | text unique | Public URL identifier |
-| password_hash | text? | Optional password protection |
-| pin | text? | Alternative PIN access |
+| password_hash / pin | text? | Optional access control |
 | expires_at | timestamptz? | |
 | is_active | boolean | Kill switch |
 | share_type | text | full, section, selection, person |
-| section_id | uuid? | If section share |
-| person_id | uuid? | If person share |
-| allow_download | boolean | |
-| allow_favorites | boolean | |
+| section_id / person_id | uuid? | If scoped share |
+| allow_download / allow_favorites | boolean | |
 | download_quality | text | original, high, web |
 | custom_message | text? | |
 | view_count | int | |
@@ -232,245 +126,179 @@ Public gallery links with access control.
 | created_at | timestamptz | |
 
 ### favorites
-Client picks on shared galleries.
+Client picks on a shared gallery. Unique on (share_id, image_id, client_email).
 
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
 | share_id | uuid FK→shares | |
 | image_id | uuid FK→images | |
-| client_name | text? | |
-| client_email | text? | |
+| client_name / client_email | text? | |
 | created_at | timestamptz | |
 
-**Unique:** (share_id, image_id, client_email)
+### faces / persons / stacks — *AI: dormant*
+Defined for face clustering and Smart Stacks. Populated only when the Modal pipeline is active. `faces` holds per-face bounding boxes + ArcFace `vector(512)` embeddings; `persons` are identity clusters; `stacks` group related images by type (face/burst/similar).
 
-### Database Functions (RPC)
-
+### Database Functions (RPC) — *used by semantic/face search, dormant*
 ```sql
 search_images_by_embedding(query_embedding vector(768), target_event_id uuid?, match_threshold real = 0.2, match_count int = 50)
-  → RETURNS {id, event_id, filename, original_filename, r2_key, similarity}
-
 search_faces_by_embedding(query_embedding vector(512), target_event_id uuid?, match_threshold real = 0.6, match_count int = 50)
-  → RETURNS {face_id, image_id, person_id, similarity}
 ```
 
 ---
 
-## 4. API Routes
+## 4. Upload Flow (the most fundamental function)
 
-### GET /api/events
-List events with image counts. Params: `limit` (default 50), `offset` (default 0).
+Upload is **two steps**, with a **hybrid transport** for the binary.
 
-### POST /api/events
-Create event. Body: `{ name, description?, eventDate?, eventType? }`. Auto-generates slug.
+**Step 1 — create rows + get presigned URLs.** `POST /api/upload` with `{ eventId, sectionId?, files: [{ name, type, size }] }`:
+- Verifies the event exists.
+- Resolves the target section: uses `sectionId` if given; otherwise the event's first (default) section; if the event somehow has none, it creates a "Highlights" section. (Uploads always land in a real section — never the "All Images" derived view.)
+- Inserts `images` rows (`processing_status: pending`) and links each to the section via `section_images`. If the link insert fails, the image rows are rolled back so nothing is orphaned.
+- Returns `{ uploads: [{ imageId, uploadUrl, r2Key, ... }], sectionId }` with presigned R2 PUT URLs.
 
-### POST /api/upload
-Get presigned R2 upload URLs. Body: `{ eventId, files: [{ name, type, size }] }`. Creates pending image records in DB. Returns `{ uploads: [{ imageId, uploadUrl, r2Key }] }`.
+**Step 2 — send the bytes (hybrid).** The browser chooses transport by file size (`PROXY_MAX_BYTES = 4 MB` in `src/components/upload/UploadZone.tsx`):
+- **Files ≤ 4 MB → server proxy:** `PUT /api/upload/[imageId]` streams the binary through the Next.js server, which writes it to R2. No CORS configuration needed. (Stays under Vercel's ~4.5 MB request-body limit.)
+- **Files > 4 MB → direct browser→R2:** the browser PUTs straight to the presigned URL, bypassing the server body limit. **This path requires R2 bucket CORS to be configured once, manually, in the Cloudflare dashboard** — the R2 API token used by the app cannot set bucket CORS. A direct-upload `TypeError("Failed to fetch")` almost always means CORS is missing.
 
-### POST /api/upload/complete
-Finalize after direct R2 upload. Body: `{ imageId, width?, height?, exif? }`. Updates EXIF metadata, sets status to "processing". (TODO: triggers Inngest event.)
-
-### GET /api/search
-Unified search. Params: `q` (required), `eventId?`, `type?` (auto|semantic|filename), `limit?`. Auto mode tries filename first, falls back to semantic CLIP vector search.
-
----
-
-## 5. AI Pipeline (Modal)
-
-**File:** `modal/ai_pipeline.py`
-**GPU:** NVIDIA T4
-**Concurrency:** 4 images per warm container
-**Timeout:** 300s per image, 600s for batch
-
-### Models
-
-1. **CLIP ViT-L/14** (open_clip, pretrained: datacomp_xl_s13b_b90k)
-   - Input: Image → 768-dim embedding
-   - Also: Text → 768-dim embedding (for search)
-   - Scene classification: 25 pre-tokenized scene prompts, softmax similarity, threshold 0.08
-
-2. **ArcFace** (insightface buffalo_l)
-   - Input: Image → face bounding boxes + 512-dim embeddings per face
-   - Eyes-open detection via landmark-based eye aspect ratio (threshold 0.15)
-   - Face quality: detection confidence × face size factor
-
-3. **Aesthetic Scorer** (custom heuristic)
-   - Sharpness: Laplacian variance, normalized to 0-1
-   - Exposure: Histogram analysis, penalizes extreme under/over-exposure
-   - Composite: sharpness × 0.5 + exposure × 0.3 + 0.2 base
-
-### Endpoints
-
-- `POST /process-image` — Process single image (returns clip + faces + aesthetic)
-- `POST /embed-text` — Generate text embedding for search queries
-- `process_batch()` — Batch processing via Modal .map()
-
-### Scene Labels (25 categories)
-ceremony, reception, first dance, speeches, getting ready, bridal party, cake cutting, bouquet toss, first look, group photo, candid moment, portrait, detail shot, landscape, food, venue, decoration, headshot, presentation, networking, panel discussion, outdoor, indoor, night, golden hour
-
----
-
-## 6. Smart Stack Algorithm
-
-### Face Stacks
-1. Query all faces with person_id assigned for the event
-2. Group by person_id
-3. Deduplicate by image (one person may have multiple face detections in same image)
-4. Require 2+ unique images per person
-5. Rank by: `aesthetic × 0.4 + sharpness × 0.3 + eyes_open × 0.3`
-6. Create stack record, assign stack_id and stack_rank to images
-
-### Burst Stacks
-1. Query images not yet in a stack, with taken_at timestamp
-2. Sort by taken_at ascending
-3. Sequential images within 2000ms = burst group
-4. Require 3+ images per burst
-5. Rank by: `aesthetic × 0.6 + sharpness × 0.4`
-6. Create stack record, assign stack_id and stack_rank
-
----
-
-## 7. Auto-Section Algorithm
-
-### Scene-Based (non-headshot events)
-1. Get all processed images with scene_tags, ordered by taken_at
-2. Count tag frequency, track first appearance time
-3. Filter: only tags with 3+ images become sections
-4. Sort by first appearance time (timeline order)
-5. Delete previous auto sections, create new ones
-6. Link images to sections via section_images (500 per batch)
-
-### Headshot-Based
-1. Get all persons for event, ordered by name
-2. Group by first letter of name
-3. Create alphabetical sections (A, B, C...)
-4. Link images via faces → persons → sections
-
----
-
-## 8. Upload Flow
+**Step 3 — finalize.** `POST /api/upload/complete` with `{ imageId, width?, height?, exif? }`:
+- Saves dimensions + client-extracted EXIF, sets `processing_status: complete`.
+- Fires sharp thumbnail generation (fire-and-forget; grid falls back to the original URL if it fails).
+- **Only if `INNGEST_EVENT_KEY` is set**, sends an `image/uploaded` Inngest event to kick off AI processing. In production this is unset, so the AI step is skipped silently.
 
 ```
-Client                        Server (API)              R2 (Cloudflare)        Modal (GPU)
-  │                              │                          │                      │
-  ├─ POST /api/upload ──────────>│                          │                      │
-  │  {eventId, files[]}          │                          │                      │
-  │                              ├─ Create image records ──>│                      │
-  │                              │   (status: pending)      │                      │
-  │<── {uploads: [{uploadUrl}]}──┤                          │                      │
-  │                              │                          │                      │
-  ├─ PUT uploadUrl (file body) ─────────────────────────────>│                     │
-  │                              │                          │                      │
-  ├─ extractExif(file) ─────┐   │                          │                      │
-  │  (client-side)          │   │                          │                      │
-  │<────────────────────────┘   │                          │                      │
-  │                              │                          │                      │
-  ├─ POST /api/upload/complete ->│                          │                      │
-  │  {imageId, exif}             ├─ Update image with EXIF  │                      │
-  │                              │   (status: processing)   │                      │
-  │                              │                          │                      │
-  │                              ├─ (TODO) Inngest event ──────────────────────────>│
-  │                              │                          │   CLIP + ArcFace +   │
-  │                              │                          │   Aesthetic scoring   │
-  │                              │<─────────────────────────────────────────────────┤
-  │                              ├─ Save results            │                      │
-  │                              │   (status: complete)     │                      │
-  │                              ├─ Build stacks            │                      │
-  │                              ├─ Generate sections       │                      │
+Browser                     Next.js API                R2                 (Inngest/Modal)
+  | POST /api/upload --------> create rows + links
+  |                           presigned URLs
+  | <-- {uploads, sectionId} --
+  |
+  | -- <=4MB: PUT /api/upload/[id] --> proxy --> R2
+  | -- >4MB:  PUT presignedUrl ---------------> R2  (needs bucket CORS)
+  |
+  | extractExif (client-side)
+  | POST /api/upload/complete -> save EXIF, status=complete, thumbnails
+  |                              if INNGEST_EVENT_KEY: emit image/uploaded ----> (dormant)
 ```
+
+---
+
+## 5. AI Pipeline (Modal) — NOT ACTIVE
+
+**File:** `modal/ai_pipeline.py`. This is a complete design that is **not deployed or configured** in production. Kept for future activation. When stood up, it would run on Modal GPU and provide:
+
+1. **CLIP ViT-L/14** — image -> 768-dim embedding + scene tags (25 pre-tokenized scene prompts); text -> 768-dim embedding for semantic search.
+2. **ArcFace (insightface buffalo_l)** — face boxes + 512-dim embeddings, eyes-open detection, face quality.
+3. **Aesthetic scorer (heuristic)** — sharpness (Laplacian variance) + exposure + composite.
+
+Endpoints (when deployed): `POST /process-image`, `POST /embed-text`, `process_batch()`.
+
+Scene labels (25): ceremony, reception, first dance, speeches, getting ready, bridal party, cake cutting, bouquet toss, first look, group photo, candid moment, portrait, detail shot, landscape, food, venue, decoration, headshot, presentation, networking, panel discussion, outdoor, indoor, night, golden hour.
+
+---
+
+## 6. Section Invariants
+
+Enforced across `/api/upload`, `/api/sections`, and `/api/sections/[sectionId]`:
+
+- **≥1 section per event, always.** Deleting the last section is rejected (`Cannot delete the last section`).
+- **≥1 real section per image, always.** Deleting a section first rescues any photo that lived only in it by reassigning it to the next section — no orphans.
+- **"All Images" is a derived view** (union of all sections). Never stored, never writable, never deletable.
+- **Seed section is "Highlights"** — fully renamable, deletable once others exist, not otherwise special.
+- New manual sections are created at the top (`sort_order = 0`; existing sections shift down).
+
+---
+
+## 7. Auto-Section & Smart Stack Algorithms — *AI: dormant*
+
+These run only when the Modal pipeline is active.
+
+**Auto-Sections (scene-based):** group processed images by `scene_tags`, only tags with 3+ images become sections, ordered by first appearance time. **Headshot variant:** alphabetical sections by person name via faces -> persons.
+
+**Smart Stacks — Face:** group faces by `person_id` (2+ unique images), rank `aesthetic*0.4 + sharpness*0.3 + eyes_open*0.3`. **Burst:** sequential images within 2000ms (3+), rank `aesthetic*0.6 + sharpness*0.4`.
+
+---
+
+## 8. API Routes (live)
+
+Auth, account, and billing:
+- `POST /api/auth/signup`, `POST /api/auth/forgot-password`
+- `GET/PATCH /api/account`, `POST /api/account/logo`, `/api/account/subscription`
+- `/api/stripe/checkout`, `/api/stripe/portal`, `/api/stripe/webhook`
+
+Events & images:
+- `GET/POST /api/events`, `GET/PATCH/DELETE /api/events/[eventId]`
+- `/api/events/[eventId]/duplicate`, `/processing-status`, `/retry-processing`, `/share-readiness`, `/favorites`, `/emails`
+- `GET/PATCH/DELETE /api/images/[imageId]`, `POST /api/images/batch`
+
+Upload (see §4):
+- `POST /api/upload`, `PUT /api/upload/[imageId]`, `POST /api/upload/complete`
+
+Sections (see §6):
+- `GET/POST /api/sections`, `PATCH/DELETE /api/sections/[sectionId]`, `POST /api/sections/[sectionId]/images`, `POST /api/sections/reorder`
+- `POST /api/events/[eventId]/auto-sections` *(depends on dormant AI)*
+
+Sharing & public galleries:
+- `GET/POST /api/shares`, `PATCH/DELETE /api/shares/[shareId]`, `GET/POST /api/events/[eventId]/shares`
+- Public: `GET /api/gallery/[slug]`, `/verify`, `/verify-pin`, `/favorites`, `/download`, `/track`, `GET /api/gallery/preview/[eventId]`
+
+Email templates, analytics, stats, search, SPS, stacks, Inngest:
+- `/api/emails/send`, `/api/emails/templates`, `/api/templates`
+- `/api/analytics/overview`, `/api/analytics/engagement`, `/api/stats`
+- `GET /api/search` — `q`, `eventId?`, `type?` (auto|semantic|filename). **Filename search works today; semantic falls back / no-ops without Modal.**
+- `/api/sps/import`, `/api/sps/enhancements/[eventId]` *(enhancements depend on dormant AI)*
+- `POST /api/stacks/[stackId]/cover` *(dormant AI)*, `/api/inngest` *(dormant)*, `/api/admin/batch-thumbnails`
 
 ---
 
 ## 9. SPS Integration
 
-### Integration Contract
-
-**SPS → Archive (import):**
-```typescript
-interface SPSEventImport {
-  spsEventId: string;
-  name: string;
-  date?: string;
-  eventType?: string;
-  images: SPSImageImport[];   // r2Key references (zero-copy)
-  collections?: SPSCollection[];
-}
-```
-
-**Archive → SPS (enhancements):**
-```typescript
-interface ArchiveEnhancements {
-  eventId: string;
-  spsEventId: string;
-  sections: { name: string; imageIds: string[] }[];
-  stacks: { coverImageId: string; imageIds: string[]; personName?: string }[];
-  imageEnhancements: { spsImageId: string; sceneTags: string[]; aestheticScore: number }[];
-}
-```
-
-### Key Design Decision: Shared R2 Bucket
-Both SPS and Archive use the same Cloudflare R2 bucket. Images are stored once at `events/{eventId}/originals/{filename}`. When importing from SPS, Archive creates metadata records pointing to existing R2 keys — no file copying needed.
+Both SPS and Archive use the **same R2 bucket**; binaries are stored once at `events/{eventId}/originals/{filename}`. Importing from SPS (`/api/sps/import`) creates metadata rows pointing at the existing R2 keys — zero-copy, no re-upload. The enhancements export (`/api/sps/enhancements/[eventId]`) returns AI-derived sections/stacks/scene tags and therefore only produces meaningful output once the Modal pipeline is active.
 
 ---
 
 ## 10. Design System
 
-### Color Palette
-Based on Tailwind's stone scale:
-- **Primary:** stone-900 (near black) for buttons, headers, active states
-- **Surface:** white, stone-50, stone-100 for backgrounds
-- **Text:** stone-900 (primary), stone-600/700 (secondary), stone-400/500 (muted)
-- **Borders:** stone-200 (default), stone-300 (hover/active)
-- **Success:** green-600
-- **Warning:** amber-500
-- **Error:** red-500/600
-- **Overlays:** black/50, black/70 with backdrop-blur-sm
-
-### Button Component
-Located at `src/components/ui/button.tsx`.
-
-Variants: `primary` (stone-900), `secondary` (stone-100), `ghost` (transparent), `danger` (red-600).
-Sizes: `sm` (h-8), `md` (h-10, default), `lg` (h-12).
-Features: forwardRef, focus rings, disabled states, transition-all.
-
-### Component Patterns
-- **Client components:** `"use client"` directive, React hooks for state
-- **Class merging:** `cn()` utility combines clsx + tailwind-merge
-- **Loading states:** Loader2 icon with animate-spin
-- **Status indicators:** color-coded icons (green=success, amber=processing, red=error)
-- **Cards:** rounded-lg, subtle shadows, hover:scale-[1.02]
-- **Masonry layout:** CSS columns (columns-2 → columns-6 responsive)
-
-### Typography
-System font stack (Tailwind default). Font weights: medium for labels/headers, regular for body. No custom fonts.
+- **Fonts:** `font-brand` (Libre Baskerville — wordmark only), `font-editorial` (Playfair Display — headlines), `font-sans` (Inter — body).
+- **Palette:** Tailwind stone scale — stone-900 primary, white/stone-50 surfaces, stone-200/300 borders, **emerald accent**. Success green-600, warning amber-500, error red-500/600.
+- **Buttons:** `src/components/ui/button.tsx` — variants primary/secondary/ghost/danger; sizes sm/md/lg; plus animated BrandButton.
+- **Layout:** CSS-columns masonry; `cn()` utility (clsx + tailwind-merge); lucide-react icons.
 
 ---
 
 ## 11. Environment Variables
 
 ```env
-# Supabase
+# Supabase (metadata DB)
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
-# Cloudflare R2
+# Cloudflare R2 (file binaries)
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=
-R2_PUBLIC_URL=
+R2_PUBLIC_URL=          # fallback only; app uses presigned URLs
 
-# Modal AI
+# Stripe (billing)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+# (plus publishable key + price IDs as used by the app)
+
+# Resend (email)
+RESEND_API_KEY=
+
+# Modal AI — leave unset to keep AI dormant
 MODAL_API_URL=
 MODAL_TOKEN_ID=
 MODAL_TOKEN_SECRET=
 
-# Inngest
+# Inngest — leave unset to keep AI/processing dormant
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
 ```
+
+> Verify the exact Stripe/Resend variable names against `.env.example` and the code in `src/lib/stripe` and `src/lib/email` before relying on this list — the AI/Supabase/R2 vars are confirmed in code.
 
 ---
 
@@ -486,6 +314,4 @@ INNGEST_SIGNING_KEY=
 | IMG_4532.jpg | null | 4532 |
 | DSC_0012.RAW | null | 12 |
 
-Camera prefixes (IMG, DSC, DSCF, DSCN, etc.) are detected and treated as unnamed.
-CamelCase names (SmithJohn) are split into "Smith, John".
-Keywords like "headshot", "portrait", "final" are stripped from name parts.
+Camera prefixes (IMG, DSC, DSCF, DSCN, etc.) are treated as unnamed. CamelCase names are split. Keywords like "headshot", "portrait", "final" are stripped from name parts.

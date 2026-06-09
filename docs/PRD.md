@@ -1,216 +1,117 @@
 # Pixeltrunk — Product Requirements Document
 
-**Status:** Early development (scaffold complete, not yet deployed)
-**Last updated:** 2026-02-22
+**Status:** In active development. Core archive + gallery sharing works end to end. AI features are built but dormant (see §5).
+**Last updated:** 2026-05-30
 
 ---
 
-## 1. Vision
+## 1. What Pixeltrunk Is
 
-Pixeltrunk is an AI-powered photo archiving and organization tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)** — SPS handles the live gallery delivery experience; Pixeltrunk handles the post-shoot organization, culling, and long-term storage layer.
+Pixeltrunk is a photo archive and client-gallery tool for professional photographers. It is the sister product to **SimplePhotoShare (SPS/spsv2)**.
 
-**One-line pitch:** Drop 3,000 photos from a wedding shoot and get back an organized, searchable, client-ready archive in minutes — not hours.
+The app does five concrete jobs today:
+
+1. **Create events** — a photographer creates an event (one event = one shoot: name, type, date).
+2. **Upload photos into sections** — drag-and-drop upload puts photos into a section of the event.
+3. **Store files + metadata** — the photo binary (JPEG/PNG/etc.) goes to Cloudflare R2; a metadata row (filename, size, dimensions, EXIF, R2 key, processing status) goes to Supabase (Postgres). Display uses presigned GET URLs from R2.
+4. **Organize into sections** — every event is divided into named sections (e.g. "Ceremony", "Reception"). Photos are reordered, moved, and grouped by section.
+5. **Share client galleries** — the photographer publishes a public gallery link (optionally password/PIN protected) where clients view, favorite, and download photos.
+
+**One-line pitch:** A place to archive and deliver client galleries — upload a shoot, organize it into sections, and share it.
 
 ---
 
 ## 2. Target Users
 
-- **Professional event photographers** (weddings, corporate, schools, sports)
-- **Portrait/headshot studios** processing high volumes
-- **Photography businesses** that need to archive and retrieve past shoots
-
-Users already use SPS for client gallery delivery. Archive solves the step *before* delivery: organizing and culling the raw shoot output.
+- Professional event photographers (weddings, corporate, schools, sports)
+- Portrait/headshot studios
+- Photography businesses that archive and re-deliver past shoots
 
 ---
 
-## 3. Core Problems
+## 3. Core Concepts
 
-| Problem | How Archive solves it |
-|---|---|
-| Photographers spend hours manually culling thousands of photos | AI-powered Smart Stacks surface the best shot from each grouping automatically |
-| Finding specific photos in large event shoots is tedious | Semantic search ("first dance", "speeches") and filename search find images instantly |
-| Headshot workflows require matching names to faces across many images | Filename parsing + face clustering auto-group by person |
-| Organizing photos into gallery sections is manual and repetitive | Auto-sections generated from AI scene classification |
-| No easy bridge between raw archive and client delivery gallery | One-click SPS integration: Archive enhances, SPS delivers |
+### Events
+The top-level container. One event = one shoot. Has a name, optional date, optional type, a cover image, and one or more sections.
 
----
+### Sections (hard rules — these are invariants enforced in code)
+- Every event **always has at least one section**.
+- Every photo belongs to **at least one real section** — there are no orphaned photos.
+- **"All Images" is a derived view** (the union of every section). It is never a stored row, is not writable, and cannot be deleted.
+- New events seed a default section named **"Highlights"**. It is fully renamable, and deletable once other sections exist — it is not otherwise special.
+- You can delete any section **except the last one**. Deleting a section that holds the only copy of a photo reassigns that photo to another section first, so deletion never orphans photos.
+- Uploads always target a real section. When the photographer is viewing "All Images," uploads land in the default (first) section.
 
-## 4. Key Features
+### Images
+One row per uploaded photo. The row holds filename, size, dimensions, MIME type, EXIF, the R2 key for the binary, and a processing status. The actual file lives in R2.
 
-### 4.1 Smart Stacks
-Group similar images and surface the best shot on top.
-
-- **Face Stacks:** Multiple shots of the same person grouped together. Ranked by composite quality score (aesthetic 40% + sharpness 30% + eyes-open 30%).
-- **Burst Stacks:** Sequential shots taken within 2 seconds grouped as a burst. Best shot ranked by aesthetic (60%) + sharpness (40%).
-- **Similar Stacks:** (Planned) Visually similar images grouped by CLIP embedding distance.
-
-The photographer sees one card per stack. Click to expand and compare. Click "Set as best" to override AI's pick.
-
-### 4.2 AI Search
-Three search modes:
-- **Filename search:** Fast, exact matching on original filenames and parsed names ("Smith", "IMG_4532")
-- **Semantic search:** CLIP-powered vector search using natural language descriptions ("first dance", "people laughing", "outdoor group photo")
-- **Face search:** (Planned) Upload a selfie to find all photos of that person
-
-Search works within a single event or across the entire archive.
-
-### 4.3 Auto-Sections
-AI classifies images into scene categories and generates gallery sections automatically.
-
-**Wedding events:** Getting Ready, Ceremony, Portraits, Reception, Speeches, First Dance, etc.
-**Headshot events:** Alphabetical sections by person name (A, B, C...)
-
-Sections only appear when 3+ images match a tag. Images can belong to multiple sections (overlapping). Sections are ordered by first appearance time.
-
-### 4.4 Upload & Processing Pipeline
-1. Photographer creates an event (name, type, date)
-2. Drag-and-drop upload zone accepts JPEG, PNG, TIFF, WebP, HEIC (up to 100MB each)
-3. Client uploads directly to Cloudflare R2 via presigned URLs (no server bottleneck)
-4. Client-side EXIF extraction captures camera metadata
-5. AI pipeline processes each image on Modal GPUs:
-   - CLIP ViT-L/14 generates 768-dim embeddings + scene tags
-   - ArcFace (insightface buffalo_l) detects faces + 512-dim face embeddings
-   - Aesthetic scoring (sharpness, exposure, composite quality)
-6. Smart stacks and auto-sections are built from AI results
-
-### 4.5 SPS Integration
-Bidirectional sync between SPS and Archive:
-
-**SPS → Archive:**
-- "Archive this event" button in SPS sends event metadata + image references
-- Zero-copy: both share the same R2 bucket, so no re-upload needed
-- Archive runs AI pipeline on the imported images
-
-**Archive → SPS:**
-- Archive sends back enhanced metadata: stacks, sections, scene tags, quality scores
-- SPS can display AI-generated sections and best-shot selections
-
-### 4.6 Client Sharing
-(Schema defined, UI planned)
-- Shareable gallery links with optional password/PIN protection
-- Share types: full event, single section, person's photos, curated selection
-- Configurable download quality (original, high, web)
-- Client favoriting with name/email tracking
-- View analytics (count, last viewed)
+### Shares
+A public gallery link for a client. Optional password or PIN, configurable download permission and quality, optional client favoriting, and basic view tracking.
 
 ---
 
-## 5. Non-Goals (for v1)
+## 4. Primary Flows (working today)
 
-- Real-time collaboration between multiple photographers
-- Video processing
+### Flow 1: New event -> upload -> organize
+```
+Create event (name, type, date)
+  -> "Highlights" section is seeded
+  -> Drag & drop photos into a section
+  -> Browser uploads bytes to R2; metadata saved to Supabase; EXIF extracted client-side
+  -> Photographer renames/adds sections and reorders photos
+```
+
+### Flow 2: Share a client gallery
+```
+Open event -> Share -> set permissions (download, favorites, quality) + optional password/PIN
+  -> Public share link generated
+  -> Client opens the link, browses by section, favorites and downloads photos
+  -> Photographer sees view count and client favorites
+```
+
+---
+
+## 5. AI Features — built but NOT active
+
+The codebase contains a full AI design (CLIP semantic search, ArcFace face clustering, Smart Stacks, Auto Sections, aesthetic scoring) and a Modal GPU pipeline (`modal/ai_pipeline.py`). **None of this is active in production.** The Modal backend is not configured and the UI surfaces are hidden. Treat everything below as FUTURE / NOT YET ACTIVE.
+
+- **Smart Stacks** — group similar/burst/same-person shots and surface a best shot. (dormant)
+- **Semantic search** — CLIP vector search over natural-language queries like "first dance." (dormant)
+- **Face clustering / face search** — ArcFace embeddings to group photos by person. (dormant)
+- **Auto Sections** — generate sections automatically from AI scene tags. (dormant)
+- **Aesthetic scoring** — sharpness/exposure/composite quality per image. (dormant)
+
+What works in search today: **filename search** over original/parsed filenames. Semantic search requires the Modal pipeline.
+
+The design notes for these features are preserved in `docs/TECHNICAL.md` sections 5-7 — kept intentionally so the work can be wired up later.
+
+---
+
+## 6. SPS Integration — partial
+
+Both products share one R2 bucket, so importing a shoot from SPS does not re-upload files (zero-copy: Archive creates metadata rows pointing at existing R2 keys). Import (`/api/sps/import`) and an enhancements endpoint (`/api/sps/enhancements/[eventId]`) exist. The enhancement payloads depend on the dormant AI pipeline, so the round-trip is not fully live yet.
+
+---
+
+## 7. Non-Goals (for now)
+
+- Photo editing
+- Video
+- Real-time multi-photographer collaboration
 - Direct print ordering
-- Mobile-native app (web-first, responsive)
-- Social features or public galleries
-
----
-
-## 6. User Flows
-
-### Flow 1: New Event Upload
-```
-Create Event → Set name + type + date
-  → Upload zone appears → Drag & drop images
-  → Files upload directly to R2 → EXIF extracted client-side
-  → AI pipeline processes in background
-  → Gallery populates with Smart Stacks + Auto Sections
-```
-
-### Flow 2: Import from SPS
-```
-SPS "Archive Event" button → Sends event + image metadata
-  → Archive creates records pointing to same R2 keys (zero-copy)
-  → AI pipeline runs → Stacks + sections generated
-  → Archive sends enhancements back to SPS
-```
-
-### Flow 3: Search & Retrieve
-```
-Global search bar → Type query
-  → Auto mode: tries filename match first, falls back to semantic
-  → Results displayed as grid with relevance scores
-  → Click to view full image or navigate to parent event
-```
-
-### Flow 4: Client Delivery
-```
-Select event/section/person → Create share link
-  → Set permissions (download, favorites, quality)
-  → Optional password/PIN protection
-  → Client views gallery, picks favorites
-  → Photographer sees favorite selections
-```
-
----
-
-## 7. Success Metrics
-
-| Metric | Target |
-|---|---|
-| Time to organize 3,000 photo wedding shoot | < 10 minutes (down from 2-4 hours) |
-| Smart Stack accuracy (correct best shot) | > 80% of the time |
-| Scene classification accuracy | > 70% correct primary tag |
-| Face clustering precision | > 90% same-person grouping |
-| Search relevance (semantic) | Top-5 results contain target > 75% |
+- Native mobile app (web-first, responsive)
 
 ---
 
 ## 8. Open Questions
 
-1. ~~**Product naming:**~~ **Resolved.** Product is named "Pixeltrunk".
-2. ~~**Pricing model:**~~ **Resolved.** Tiered subscription based on storage volume. See `docs/PRICING.md` for full pricing strategy.
-3. ~~**Storage quotas:**~~ **Resolved.** Free 10 GB, Solo 100 GB, Pro 750 GB, Studio 2 TB. Additional storage $5/100 GB on Studio.
-4. ~~**AI processing costs:**~~ **Resolved.** Absorbed in margins. ~$0.003/image one-time cost.
-5. **Authentication:** Share Supabase project with SPS? Separate project with SSO?
+1. **Authentication boundary** — share the Supabase project with SPS, or stay separate with SSO? (Currently separate; Pixeltrunk has its own email/password auth via Supabase.)
+2. **AI activation** — when to stand up and configure the Modal pipeline so the dormant AI features go live.
 
 ---
 
-## 9. Competitive Landscape
+## 9. Pricing & Storage
 
-| Product | What it does | Where Archive differs |
-|---|---|---|
-| Adobe Lightroom | Photo editing + basic organization | Archive is AI-first organization, no editing |
-| Narrative Select | Culling tool with AI rating | Archive integrates with SPS delivery pipeline |
-| AfterShoot | AI culling standalone | Archive provides full archive + search + sharing |
-| ShootProof / Pixieset | Gallery delivery | Archive is the pre-delivery organization layer |
-| Google Photos | Consumer photo organization | Archive is professional-grade with business features |
+Tiered subscription by storage volume. Free 10 GB, Solo 100 GB, Pro 750 GB, Studio 2 TB; additional storage $5/100 GB on Studio. Full strategy in `docs/PRICING.md`.
 
----
-
-## 10. Roadmap
-
-### Phase 1: Foundation (current)
-- [x] Project scaffold (Next.js 15, React 19, TypeScript)
-- [x] Database schema (9 tables with pgvector)
-- [x] Upload pipeline (presigned URLs, EXIF extraction)
-- [x] AI pipeline (Modal: CLIP, ArcFace, aesthetic scoring)
-- [x] Smart Stacks (face + burst)
-- [x] Auto Sections (scene-based + headshot alphabetical)
-- [x] Search (filename + semantic)
-- [x] SPS integration layer (import + enhancements)
-- [x] Core UI components (Button, UploadZone, SmartStack, ImageGrid, SearchBar)
-
-### Phase 2: Wire Up & Polish
-- [ ] Connect Supabase (deploy schema, wire up real data)
-- [ ] Deploy Modal AI pipeline
-- [ ] Wire Inngest event-driven processing
-- [ ] Lightbox/full-image viewer
-- [ ] Share link creation UI
-- [ ] Client gallery viewer (public share pages)
-- [ ] Event list/dashboard page (with real data)
-- [ ] Thumbnail generation pipeline
-
-### Phase 3: SPS Integration
-- [ ] "Archive Event" button in SPS
-- [ ] API endpoint for SPS → Archive import
-- [ ] Enhancements feedback loop (Archive → SPS)
-- [ ] Shared authentication
-- [ ] Consistent branding between products
-
-### Phase 4: Advanced Features
-- [ ] Face search (selfie upload)
-- [ ] Similar-image stacks (CLIP distance)
-- [ ] Batch operations (select, download, move)
-- [ ] Custom sections (manual curation)
-- [ ] Client comments/annotations
-- [ ] Analytics dashboard
+> Note: the pricing doc currently advertises AI features (Smart Stacks, semantic search, face search) as included on every tier. Those are not active yet — see section 5. Reconcile marketing copy with shipped capability before launch.
