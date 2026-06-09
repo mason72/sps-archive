@@ -502,6 +502,35 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
+  // Tag selected images into a website scene (or remove them). Tagging
+  // publishes the image's public variants to the marketing lane (sps-public);
+  // private galleries are untouched. `scene === null` removes from the site.
+  const handleSetScene = useCallback(
+    async (scene: string | null) => {
+      try {
+        const cnt = selectionCount;
+        const res = await fetch("/api/images/batch", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageIds: selectedArray,
+            action: "set_scene",
+            scene,
+          }),
+        });
+        if (!res.ok) throw new Error("Scene tag failed");
+        deselectAll();
+        toast.success(
+          scene ? `Tagged ${cnt} images for the website` : `Removed ${cnt} images from the website`
+        );
+      } catch (err) {
+        console.error("Set scene failed:", err);
+        toast.error("Failed to update website tag");
+      }
+    },
+    [selectedArray, selectionCount, deselectAll]
+  );
+
   const handleBatchDownload = useCallback(async () => {
     const selectedImages = images.filter((img) => selectedIds.has(img.id));
     // Originals aren't in the list payload anymore — fetch each image's signed
@@ -1359,6 +1388,7 @@ export default function EventPage({
               ? () => handleSetCover(selectedArray[0])
               : undefined
           }
+          onSetScene={handleSetScene}
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           activeSection={activeSection}
           sidebarOffset={sidebarOpen ? 320 : 48}

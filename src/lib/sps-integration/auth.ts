@@ -67,6 +67,24 @@ export async function authenticateSPSRequest(
 }
 
 /**
+ * Verify a request carries the shared integration secret.
+ *
+ * Lightweight check for read-only service-to-service endpoints (e.g. the
+ * site-facing scene API) that have no request body and no user context — so the
+ * `bodyUserId` requirement of `authenticateSPSRequest` doesn't apply. Compares
+ * the `X-SPS-Key` header against `SPS_INTEGRATION_KEY`.
+ *
+ * Returns false (deny) if the server has no key configured, so a missing env
+ * var can never accidentally open the endpoint.
+ */
+export function verifySharedSecret(request: NextRequest): boolean {
+  const apiKey = request.headers.get("x-sps-key");
+  const configuredKey = process.env.SPS_INTEGRATION_KEY;
+  if (!apiKey || !configuredKey) return false;
+  return apiKey === configuredKey;
+}
+
+/**
  * Validate a Supabase JWT and extract the user ID.
  */
 async function validateJWT(token: string): Promise<SPSAuthResult> {

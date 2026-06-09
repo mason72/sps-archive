@@ -178,3 +178,31 @@ Plan: `~/.claude/plans/curried-snacking-feather.md`
 Decisions: public label "Featured" vs editor "Manual"; stacks expand when drag is live (0 stacks today; unit-drag is a fast-follow); drag = reorder, so cross-section moves use the SelectionToolbar (drag-to-sidebar superseded — unified drag is a possible follow-up).
 
 Follow-up fix: masonry columns were uneven (one column "way too tall") in small sections — round-robin balances item COUNT not HEIGHT, very visible with few rows. Added `distributeBalanced` (shortest-column-first, ties→leftmost so row 1 still reads L-to-R) in grid-layout.ts; both editor (ImageGrid, incl. dnd path) and public (GalleryGrid) now use it. Verified public Light Painting (10 imgs/5 cols): column-height spread 11% (was lopsided). Compatible with dnd reorder (sequence is layout-independent). +5 unit tests.
+
+## Phase: Public Marketing Lane (Two Dudes Photo website) [BUILT + INFRA VERIFIED — pending commit/deploy]
+Separate PUBLIC R2 lane for curated marketing imagery. Private client galleries
+(sps-prism + presigning) stay completely unchanged.
+- Decisions: sps-public bucket; r2.dev public URL for now (pixeltrunk.com is NOT a CF zone, so no
+  custom domain without a nameserver move — `R2_PUBLIC_LANE_URL` swap later, zero code change);
+  existing R2 token broadened to sps-prism+sps-public (same key pair) → server-side CopyObject;
+  city on events; site_scene/service/featured/display_order on images; service auto-derives from service/* scene keys.
+- [x] Migration (events.city; images scene fields + partial idx) — applied to live DB via Supabase MCP
+      (recorded as timestamped `site_scenes`; local file renamed 013→`019_site_scenes.sql` because the
+      remote history already had 013–018 that aren't in the repo — repo migrations dir is out of sync, see follow-up)
+- [x] r2/public-lane.ts (getPublicLaneUrl, copyToPublicLane, deleteFromPublicLane)
+- [x] site/scenes.ts (registry + deriveServiceFromScene) · site/publish.ts (thumb-md + display only, never raw originals)
+- [x] set_scene action in /api/images/batch · SelectionToolbar globe picker · events page wiring
+- [x] GET /api/site/scene/[...key] (catch-all for service/* keys; X-SPS-Key; non-expiring URLs)
+- [x] verifySharedSecret in sps-integration/auth.ts
+- [x] docs/SITE-INTEGRATION.md (.env.example is hook-protected — env lines live in the doc)
+- [x] tests 55/55 · lint warnings-only · next build green (route registered)
+- [x] INFRA: sps-public bucket created · r2.dev public URL enabled
+      (https://pub-d26e68845d7742259c52f68cbb95e72e.r2.dev) · token broadened · Vercel env vars set
+      (R2_PUBLIC_BUCKET_NAME, R2_PUBLIC_LANE_URL → Production+Preview, via REST API; CLI env add loops on a prompt bug)
+- [x] E2E STORAGE PROOF: CopyObject sps-prism→sps-public OK with app creds; public URL curl → 200 image/jpeg
+      no-auth no-expiry; delete → 404 (unpublish path proven). Test object cleaned up.
+- [ ] Commit + push (auto-deploys Vercel) — awaiting user OK
+- [ ] Post-deploy E2E: tag real images via UI → curl /api/site/scene/... → 200 with public URLs
+- [ ] Follow-up: reconcile supabase/migrations/ with remote history (remote has 013_subscriptions…018_section_atomicity not in repo)
+- [ ] Follow-up: .env.local — user attempted to add the 2 public-lane vars but parser shows them absent (local dev only)
+- [ ] Later: custom domain cdn.pixeltrunk.com (add zone to CF → connect on bucket → update env var)

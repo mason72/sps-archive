@@ -19,6 +19,7 @@ export type Database = {
           event_date: string | null;
           event_type: string | null;
           cover_image_id: string | null;
+          city: string | null;
           settings: Json;
           created_at: string;
           updated_at: string;
@@ -32,6 +33,7 @@ export type Database = {
           event_date?: string | null;
           event_type?: string | null;
           cover_image_id?: string | null;
+          city?: string | null;
           settings?: Json;
           created_at?: string;
           updated_at?: string;
@@ -45,6 +47,7 @@ export type Database = {
           event_date?: string | null;
           event_type?: string | null;
           cover_image_id?: string | null;
+          city?: string | null;
           settings?: Json;
           created_at?: string;
           updated_at?: string;
@@ -82,6 +85,11 @@ export type Database = {
           stack_rank: number | null;
           processing_status: string;
           thumbnail_generated: boolean;
+          site_scene: string | null;
+          service: string | null;
+          featured: boolean;
+          display_order: number;
+          site_published_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -115,6 +123,11 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          site_scene?: string | null;
+          service?: string | null;
+          featured?: boolean;
+          display_order?: number;
+          site_published_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -148,6 +161,11 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          site_scene?: string | null;
+          service?: string | null;
+          featured?: boolean;
+          display_order?: number;
+          site_published_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

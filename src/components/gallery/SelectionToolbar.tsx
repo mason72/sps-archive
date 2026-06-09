@@ -14,7 +14,9 @@ import {
   X,
   Check,
   Image as ImageIcon,
+  Globe,
 } from "lucide-react";
+import { SITE_SCENES } from "@/lib/site/scenes";
 
 interface SectionOption {
   id: string;
@@ -34,6 +36,8 @@ interface SelectionToolbarProps {
   onRename?: (pattern: string) => void;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
+  /** Tag selected images into a website scene (null = remove from site). */
+  onSetScene?: (scene: string | null) => void;
   sections?: SectionOption[];
   activeSection?: string | null;
   /** Sidebar width in px — used to center toolbar over the content area */
@@ -57,6 +61,7 @@ export function SelectionToolbar({
   onRemoveFromSection,
   onRename,
   onSetCover,
+  onSetScene,
   sections = [],
   activeSection,
   sidebarOffset = 0,
@@ -66,6 +71,8 @@ export function SelectionToolbar({
   const [showSectionPicker, setShowSectionPicker] = useState(false);
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [showRenamePopover, setShowRenamePopover] = useState(false);
+  const [showScenePicker, setShowScenePicker] = useState(false);
+  const [taggedScene, setTaggedScene] = useState<string | null>(null);
   const [addedToSection, setAddedToSection] = useState<string | null>(null);
   const [movedToSection, setMovedToSection] = useState<string | null>(null);
   const [renameBaseName, setRenameBaseName] = useState("");
@@ -73,6 +80,7 @@ export function SelectionToolbar({
   const pickerRef = useRef<HTMLDivElement>(null);
   const movePickerRef = useRef<HTMLDivElement>(null);
   const renameRef = useRef<HTMLDivElement>(null);
+  const scenePickerRef = useRef<HTMLDivElement>(null);
 
   // Close popovers on outside click
   useEffect(() => {
@@ -86,10 +94,13 @@ export function SelectionToolbar({
       if (showRenamePopover && renameRef.current && !renameRef.current.contains(e.target as Node)) {
         setShowRenamePopover(false);
       }
+      if (showScenePicker && scenePickerRef.current && !scenePickerRef.current.contains(e.target as Node)) {
+        setShowScenePicker(false);
+      }
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [showSectionPicker, showMovePicker, showRenamePopover]);
+  }, [showSectionPicker, showMovePicker, showRenamePopover, showScenePicker]);
 
   if (typeof window === "undefined") return null;
 
@@ -326,6 +337,54 @@ export function SelectionToolbar({
               label="Remove from section"
               onClick={onRemoveFromSection}
             />
+          )}
+
+          {/* Tag for the marketing website (publishes to the public lane) */}
+          {onSetScene && (
+            <div className="relative" ref={scenePickerRef}>
+              <ToolbarButton
+                icon={<Globe className="h-4 w-4" />}
+                label="Tag for website…"
+                onClick={() => setShowScenePicker((v) => !v)}
+                active={showScenePicker}
+              />
+              {showScenePicker && (
+                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[220px] py-1 scale-in max-h-[60vh] overflow-y-auto">
+                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+                    Add to website scene
+                  </p>
+                  {SITE_SCENES.map((s) => (
+                    <button
+                      key={s.key}
+                      onClick={() => {
+                        onSetScene(s.key);
+                        setTaggedScene(s.key);
+                        setTimeout(() => {
+                          setTaggedScene(null);
+                          setShowScenePicker(false);
+                        }, 800);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                    >
+                      <span className="flex-1 truncate">{s.label}</span>
+                      {taggedScene === s.key && (
+                        <Check size={14} className="text-accent shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                  <div className="h-px bg-stone-100 my-1" />
+                  <button
+                    onClick={() => {
+                      onSetScene(null);
+                      setShowScenePicker(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-[13px] text-stone-500 hover:bg-stone-50 transition-colors"
+                  >
+                    Remove from website
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="w-px h-4 bg-stone-200" />
