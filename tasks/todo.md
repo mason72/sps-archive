@@ -207,7 +207,7 @@ Separate PUBLIC R2 lane for curated marketing imagery. Private client galleries
 - [ ] Follow-up: .env.local — user attempted to add the 2 public-lane vars but parser shows them absent (local dev only)
 - [ ] Later: custom domain cdn.pixeltrunk.com (add zone to CF → connect on bucket → update env var)
 
-## Phase: Website Content Model v2 — "TDP Website" gallery [BUILT 2026-06-09 — pending migration + deploy]
+## Phase: Website Content Model v2 — "TDP Website" gallery [SHIPPED + LIVE E2E VERIFIED 2026-06-09]
 Spec: ~/Documents/Projects/TDP/tdp-website/tasks/pixeltrunk-content-model-v2.md
 Client rejected per-image site_scene tags ("impossible to backtrace"); the site is now
 ONE gallery whose sections ARE the content slots (pool = rotating grid, slot = explicit
@@ -253,14 +253,19 @@ Design decisions:
 - [x] database.types.ts hand-updated; tests 74/74 (scenes v2, route contract incl.
       slot semantics + cache regression, membership sync matrix); lint warnings-only
       (pre-existing); next build green; docs/SITE-INTEGRATION.md rewritten for v2
-- [ ] HANDOFF (blocked here: no supabase login/psql/Docker this session):
-      1. Apply supabase/migrations/020_website_gallery.sql to hfusdrtrizabzzcdhnyy
-         (dashboard SQL editor or `npx supabase db push` after `supabase login`).
-         ORDER MATTERS: migration BEFORE deploy — new code selects focal_x/site_scene_key
-         and 500s without them; old code keeps working after the migration (additive).
-      2. Push to main (commit ready) → Vercel deploy.
-      3. Live E2E per docs/SITE-INTEGRATION.md "Verifying end to end (v2)" steps 2-6
-         (add → API serves with public URL+focal → remove → API drops + public copy 404).
-      4. Website repo follow-ups: consume focalX/focalY (object-position), new scene
-         keys already registered there per spec.
-      5. Later: drop deprecated images.site_scene + v1 partial index once v2 soaks.
+- [x] Migration applied by user (verified via Supabase MCP: columns present, gallery +
+      28 sections scaffolded; prod had 0 v1-tagged images so the data migration was a
+      no-op as expected)
+- [x] Pushed 1ce61cc → Vercel production deploy (probed live by slot/slice-1 404→200)
+- [x] LIVE E2E (scripts/verify-site-v2.ts drives the real syncSitePublication + R2 lane
+      against prod DB; deployed API curled in between):
+      · pool add → API 200 with source-event caption, auto-filled service, public URLs
+      · slot with 2 images → API returns ONLY first-by-drag-order, extras ignored,
+        focalX/focalY served (33.3/25)
+      · public thumb URL → 200 image/jpeg, no auth, no expiry
+      · no key → 401; unknown scene → 404 (cache headers unchanged)
+      · remove → API count 0, all 4 public copies 404, site_published_at cleared
+      · test images fully restored (service/focal/memberships reset)
+- [ ] Website repo follow-ups: consume focalX/focalY (object-position); UI gesture
+      spot-check (globe → add → remove) next time someone is logged into the app
+- [ ] Later: drop deprecated images.site_scene + v1 partial index once v2 soaks
