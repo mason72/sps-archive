@@ -71,36 +71,44 @@ export async function getPresignedDownloadUrl(
 }
 
 /**
- * Presigned-URL memo for GRID THUMBNAILS.
+ * DETERMINISTIC presigned URLs for GRID THUMBNAILS.
  *
- * Presigning embeds a fresh timestamp+signature, so naively re-signing on
- * every event fetch hands the browser a brand-new URL for an unchanged file —
- * the cache misses and the whole grid re-downloads. During an upload session
+ * Presigning embeds a timestamp+signature, so naively re-signing on every
+ * event fetch hands the browser a brand-new URL for an unchanged file — the
+ * cache misses and the whole grid re-downloads. During an upload session
  * (live refresh every ~1.5s) that meant constantly re-fetching hundreds of
  * progressive JPEGs over a saturated connection: tiles sat on their blurry
- * first scan. Reusing the SAME signed URL while it has plenty of life left
- * keeps the URL string byte-identical across fetches, so the browser cache
- * actually works.
+ * first scan.
  *
- * Per-instance memory (serverless): cold starts re-sign, which is fine — the
- * win is URL stability within a browsing/upload session against a warm
- * instance. Use for immutable grid assets only; downloads should stay fresh.
+ * SigV4 is fully deterministic given the same signing inputs, so quantizing
+ * the signing time to a half-expiry window makes every server — across
+ * serverless instances AND cold starts — produce the byte-identical URL (a
+ * per-instance memo alone proved useless on Vercel: consecutive requests hit
+ * different lambdas). URLs rotate once per window with at least half their
+ * validity remaining, and the browser cache holds within a session.
+ *
+ * Use for immutable grid assets only; downloads should stay freshly signed.
  */
-const signedUrlCache = new Map<string, { url: string; expiresAtMs: number }>();
+const signedUrlMemo = new Map<string, string>();
 
 export async function getCachedThumbnailUrl(
   key: string,
   expiresIn = 14400
 ): Promise<string> {
-  const cached = signedUrlCache.get(key);
-  // Reuse while at least half the validity window remains, so a URL handed
-  // out from cache is never close to expiry.
-  if (cached && cached.expiresAtMs - Date.now() > (expiresIn * 1000) / 2) {
-    return cached.url;
-  }
-  const url = await getPresignedDownloadUrl(key, expiresIn);
-  if (signedUrlCache.size > 20000) signedUrlCache.clear(); // crude bound
-  signedUrlCache.set(key, { url, expiresAtMs: Date.now() + expiresIn * 1000 });
+  const windowMs = (expiresIn * 1000) / 2;
+  const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+  const memoKey = `${signingDate.getTime()}:${key}`;
+
+  const memoized = signedUrlMemo.get(memoKey);
+  if (memoized) return memoized;
+
+  const url = await getSignedUrl(
+    R2,
+    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+    { expiresIn, signingDate }
+  );
+  if (signedUrlMemo.size > 20000) signedUrlMemo.clear(); // crude bound
+  signedUrlMemo.set(memoKey, url);
   return url;
 }
 
