@@ -12,7 +12,7 @@ async function verifySectionOwnership(
 ) {
   const { data: section } = await supabase
     .from("sections")
-    .select("id, event_id, site_scene_key")
+    .select("id, event_id, name, site_scene_key, locked")
     .eq("id", sectionId)
     .single();
 
@@ -52,6 +52,9 @@ export async function PATCH(
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
+    // The lock toggle itself — deliberately editable while locked (that's how
+    // you unlock; the lock guards content, not its own switch).
+    if (typeof body.locked === "boolean") updates.locked = body.locked;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
@@ -73,6 +76,7 @@ export async function PATCH(
         description: data.description,
         isAuto: data.is_auto,
         sortOrder: data.sort_order,
+        locked: data.locked,
       },
     });
   } catch (error) {
@@ -98,6 +102,13 @@ export async function DELETE(
     const section = await verifySectionOwnership(supabase, sectionId, user!.id);
     if (!section) {
       return NextResponse.json({ error: "Section not found" }, { status: 404 });
+    }
+
+    if (section.locked) {
+      return NextResponse.json(
+        { error: `"${section.name}" is locked — unlock it to delete the section.` },
+        { status: 423 }
+      );
     }
 
     // Guard: cannot delete the last section

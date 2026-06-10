@@ -23,7 +23,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
@@ -32,6 +32,16 @@ import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import { ImageGridSkeleton, EventSidebarSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import confetti from "canvas-confetti";
+
+/** Read the server's {error} message for a failed response, with a fallback. */
+async function apiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { error?: string };
+    return data.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 interface EventData {
   id: string;
@@ -55,6 +65,8 @@ interface SectionData {
   imageIds?: string[];
   /** Website scene this section feeds (TDP Website gallery), else null. */
   siteSceneKey?: string | null;
+  /** Soft guard: locked sections reject membership/order edits until unlocked. */
+  locked?: boolean;
 }
 
 export default function EventPage({
@@ -162,6 +174,26 @@ export default function EventPage({
     [deselectAll]
   );
 
+  // One-click unlock from the locked-section banner; relock in the sidebar.
+  const handleUnlockActiveSection = useCallback(async () => {
+    const id = activeSectionRef.current;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/sections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: false }),
+      });
+      if (!res.ok) throw new Error(await apiError(res, "Failed to unlock"));
+      setSections((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, locked: false } : s))
+      );
+      toast.success("Section unlocked — lock it again from the sidebar");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to unlock");
+    }
+  }, []);
+
   // Marquee / rubber-band selection
   const gridAreaRef = useRef<HTMLDivElement>(null);
   const { isDrawing: isMarqueeDrawing, rect: marqueeRect } = useMarqueeSelect({
@@ -227,6 +259,8 @@ export default function EventPage({
   const [showCuration, setShowCuration] = useState(false);
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
+  const uploadTargetLocked =
+    sections.find((s) => s.id === uploadTargetId)?.locked ?? false;
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -417,7 +451,7 @@ export default function EventPage({
           sectionId: activeSectionRef.current ?? undefined,
         }),
       });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) throw new Error(await apiError(res, "Delete failed"));
       const data = (await res.json()) as {
         deleted: number;
         removedFromSection?: number;
@@ -435,7 +469,7 @@ export default function EventPage({
       );
     } catch (err) {
       console.error("Batch delete failed:", err);
-      toast.error("Failed to delete images");
+      toast.error(err instanceof Error ? err.message : "Failed to delete images");
     }
   }, [selectedArray, deselectAll, fetchEvent]);
 
@@ -587,12 +621,12 @@ export default function EventPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds: selectedArray }),
         });
-        if (!res.ok) throw new Error("Failed to add images to section");
+        if (!res.ok) throw new Error(await apiError(res, "Failed to add to section"));
         fetchEvent();
         toast.success("Added to section");
       } catch (err) {
         console.error("Add to section failed:", err);
-        toast.error("Failed to add to section");
+        toast.error(err instanceof Error ? err.message : "Failed to add to section");
       }
     },
     [selectedArray, fetchEvent]
@@ -602,22 +636,26 @@ export default function EventPage({
     async (targetSectionId: string) => {
       if (!activeSection) return;
       try {
-        await fetch(`/api/sections/${activeSection}/images`, {
+        const removeRes = await fetch(`/api/sections/${activeSection}/images`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds: selectedArray }),
         });
-        await fetch(`/api/sections/${targetSectionId}/images`, {
+        if (!removeRes.ok)
+          throw new Error(await apiError(removeRes, "Failed to move images"));
+        const addRes = await fetch(`/api/sections/${targetSectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds: selectedArray }),
         });
+        if (!addRes.ok)
+          throw new Error(await apiError(addRes, "Failed to move images"));
         deselectAll();
         fetchEvent();
         toast.success("Moved to section");
       } catch (err) {
         console.error("Move to section failed:", err);
-        toast.error("Failed to move images");
+        toast.error(err instanceof Error ? err.message : "Failed to move images");
       }
     },
     [activeSection, selectedArray, deselectAll, fetchEvent]
@@ -628,25 +666,29 @@ export default function EventPage({
       try {
         // If viewing a specific section, remove from the current section first (move)
         if (activeSection && activeSection !== sectionId) {
-          await fetch(`/api/sections/${activeSection}/images`, {
+          const removeRes = await fetch(`/api/sections/${activeSection}/images`, {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageIds }),
           });
+          if (!removeRes.ok)
+            throw new Error(await apiError(removeRes, "Failed to move images"));
         }
         // Add to the target section
-        await fetch(`/api/sections/${sectionId}/images`, {
+        const addRes = await fetch(`/api/sections/${sectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageIds }),
         });
+        if (!addRes.ok)
+          throw new Error(await apiError(addRes, "Failed to move images"));
         deselectAll();
         fetchEvent();
         const action = activeSection && activeSection !== sectionId ? "Moved" : "Added";
         toast.success(`${action} ${imageIds.length} ${imageIds.length === 1 ? "image" : "images"} to section`);
       } catch (err) {
         console.error("Drop to section failed:", err);
-        toast.error("Failed to move images");
+        toast.error(err instanceof Error ? err.message : "Failed to move images");
       }
     },
     [activeSection, deselectAll, fetchEvent]
@@ -706,7 +748,8 @@ export default function EventPage({
   // search, or favorites — a filtered/cross-section subset can't be persisted to
   // a single sort_order sequence). Dragging while in another sort auto-switches
   // to Manual (see handleReorder), so users never have to pick Manual first.
-  const dndEnabled = !!activeSection && !isSearching && !favoritesOnly;
+  const dndEnabled =
+    !!activeSection && !isSearching && !favoritesOnly && !activeSectionData?.locked;
 
   // When Manual is active OR a drag could begin, every tile must be an
   // individually-reorderable image, so stacks are expanded into loose tiles;
@@ -1045,6 +1088,15 @@ export default function EventPage({
                 images.length === 0 &&
                 !!uploadTargetId)) && (
               <div className="mb-12">
+                {uploadTargetLocked ? (
+                  <div className="flex items-center gap-3 border border-dashed border-amber-300 bg-amber-50/40 px-6 py-8">
+                    <Lock className="h-4 w-4 shrink-0 text-amber-500" />
+                    <p className="text-[13px] text-amber-900">
+                      &ldquo;{uploadTargetName}&rdquo; is locked — uploads are
+                      off. Unlock it to add photos here.
+                    </p>
+                  </div>
+                ) : (
                 <UploadZone
                   key={uploadTargetId ?? "no-section"}
                   eventId={eventId}
@@ -1056,6 +1108,7 @@ export default function EventPage({
                   onProgressChange={setUploadProgress}
                   retryFiles={retryFiles}
                 />
+                )}
               </div>
             )}
 
@@ -1299,6 +1352,23 @@ export default function EventPage({
 
             {/* ─── Gallery view ─── */}
             <div ref={gridAreaRef} className="relative">
+              {activeSectionData?.locked && (
+                <div className="mb-4 flex items-center justify-between gap-4 border border-amber-200 bg-amber-50/70 px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Lock className="h-4 w-4 shrink-0 text-amber-500" />
+                    <p className="text-[13px] text-amber-900">
+                      This section is locked — adding, removing, and
+                      rearranging are off so nothing shifts by accident.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleUnlockActiveSection}
+                    className="shrink-0 border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-100"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              )}
               {isSlotSection && (activeSectionData?.imageCount ?? 0) > 1 && (
                 <p className="mb-3 text-[12px] text-amber-600">
                   Slot section — the website uses only the first image. Drag
@@ -1422,7 +1492,7 @@ export default function EventPage({
           onEditWebsiteDetails={
             isWebsiteContext ? () => setShowCuration(true) : undefined
           }
-          sections={sections.map((s) => ({ id: s.id, name: s.name }))}
+          sections={sections.map((s) => ({ id: s.id, name: s.name, locked: s.locked }))}
           activeSection={activeSection}
           sidebarOffset={sidebarOpen ? 320 : 48}
         />

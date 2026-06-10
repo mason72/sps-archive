@@ -66,13 +66,20 @@ export async function DELETE(request: NextRequest) {
     if (sectionId) {
       const { data: section } = await supabase
         .from("sections")
-        .select("id, site_scene_key, events!event_id(user_id)")
+        .select("id, name, site_scene_key, locked, events!event_id(user_id)")
         .eq("id", sectionId)
         .maybeSingle();
       const sectionOwner = (section?.events as { user_id?: string } | null)
         ?.user_id;
       if (!section || sectionOwner !== user!.id) {
         return NextResponse.json({ error: "Section not found" }, { status: 404 });
+      }
+
+      if (section.locked) {
+        return NextResponse.json(
+          { error: `"${section.name}" is locked — unlock it to remove or delete photos.` },
+          { status: 423 }
+        );
       }
 
       const membershipCounts = new Map<string, number>();
@@ -110,6 +117,35 @@ export async function DELETE(request: NextRequest) {
       );
       removeOnlyIds = partition.removeFromSection;
       hardDeleteIds = partition.hardDelete;
+    }
+
+    // Hard deletes would also rip images out of any LOCKED section they live
+    // in (membership cascades with the row) — exactly the inadvertent edit
+    // locks exist to stop. All-or-nothing: block the whole request with the
+    // section names so the user can unlock deliberately.
+    if (hardDeleteIds.length > 0) {
+      const { data: lockedLinks } = await supabase
+        .from("section_images")
+        .select("image_id, sections!inner(name, locked)")
+        .in("image_id", hardDeleteIds)
+        .eq("sections.locked", true);
+      if (lockedLinks && lockedLinks.length > 0) {
+        const names = [
+          ...new Set(
+            (lockedLinks as unknown as { sections: { name: string } }[]).map(
+              (l) => l.sections.name
+            )
+          ),
+        ];
+        return NextResponse.json(
+          {
+            error: `Nothing deleted — ${lockedLinks.length === 1 ? "a photo lives" : "photos live"} in locked ${
+              names.length === 1 ? "section" : "sections"
+            } ${names.map((n) => `"${n}"`).join(", ")}. Unlock to delete.`,
+          },
+          { status: 423 }
+        );
+      }
     }
 
     // 1. Unlink the section copies; if this was a website section the sync
@@ -224,9 +260,16 @@ export async function PATCH(request: NextRequest) {
         // Adding into a website section publishes by membership.
         const { data: targetSection } = await supabase
           .from("sections")
-          .select("site_scene_key")
+          .select("name, site_scene_key, locked")
           .eq("id", sectionId)
           .maybeSingle();
+
+        if (targetSection?.locked) {
+          return NextResponse.json(
+            { error: `"${targetSection.name}" is locked — unlock it to add images.` },
+            { status: 423 }
+          );
+        }
 
         // Get current max sort_order
         const { data: existing } = await supabase
@@ -267,9 +310,16 @@ export async function PATCH(request: NextRequest) {
 
         const { data: sourceSection } = await supabase
           .from("sections")
-          .select("site_scene_key")
+          .select("name, site_scene_key, locked")
           .eq("id", sectionId)
           .maybeSingle();
+
+        if (sourceSection?.locked) {
+          return NextResponse.json(
+            { error: `"${sourceSection.name}" is locked — unlock it to remove images.` },
+            { status: 423 }
+          );
+        }
 
         const { error } = await supabase
           .from("section_images")

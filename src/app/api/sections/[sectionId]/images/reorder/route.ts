@@ -32,7 +32,7 @@ export async function PUT(
     // Verify section ownership through the event chain (mirrors POST/DELETE).
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id, site_scene_key")
+      .select("id, event_id, name, site_scene_key, locked")
       .eq("id", sectionId)
       .single();
 
@@ -49,6 +49,13 @@ export async function PUT(
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (section.locked) {
+      return NextResponse.json(
+        { error: `"${section.name}" is locked — unlock it to rearrange it.` },
+        { status: 423 }
+      );
     }
 
     // Current membership — the source of truth for which rows exist.

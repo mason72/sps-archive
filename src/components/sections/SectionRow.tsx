@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { GripVertical, Pencil, Trash2, Check, X, Upload } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Check, X, Upload, Lock, LockOpen } from "lucide-react";
+import { toast } from "sonner";
 
 interface SectionRowProps {
   id: string;
@@ -20,6 +21,9 @@ interface SectionRowProps {
   isUploadTarget?: boolean;
   /** When false, the delete control is hidden (e.g. the last remaining section) */
   canDelete?: boolean;
+  /** Soft guard: locked sections reject membership/order edits until unlocked. */
+  locked?: boolean;
+  onToggleLock?: (id: string, locked: boolean) => void;
 }
 
 export function SectionRow({
@@ -36,6 +40,8 @@ export function SectionRow({
   onDropImages,
   isUploadTarget = false,
   canDelete = true,
+  locked = false,
+  onToggleLock,
 }: SectionRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -90,6 +96,7 @@ export function SectionRow({
         e.preventDefault();
         // Check if this is an image drop (not a section reorder)
         if (e.dataTransfer.types.includes("application/x-image-ids")) {
+          if (locked) return; // no drop affordance on locked sections
           e.dataTransfer.dropEffect = "move";
           setIsDropTarget(true);
         } else {
@@ -106,6 +113,10 @@ export function SectionRow({
         e.preventDefault();
         setIsDropTarget(false);
         const raw = e.dataTransfer.getData("application/x-image-ids");
+        if (raw && locked) {
+          toast.error(`"${name}" is locked — unlock it to add images.`);
+          return;
+        }
         if (raw && onDropImages) {
           try {
             const imageIds = JSON.parse(raw) as string[];
@@ -175,9 +186,36 @@ export function SectionRow({
       </div>
 
       {/* Image count badge */}
-      <span className="text-[11px] text-stone-400 tabular-nums shrink-0">
+      <span
+        className={`text-[11px] tabular-nums shrink-0 ${
+          locked ? "text-stone-300" : "text-stone-400"
+        }`}
+      >
         {imageCount} {imageCount === 1 ? "image" : "images"}
       </span>
+
+      {/* Lock toggle — always visible; dim when open, amber when locked */}
+      {onToggleLock && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleLock(id, !locked);
+          }}
+          className={`shrink-0 p-1 transition-colors ${
+            locked
+              ? "text-amber-500 hover:text-amber-600"
+              : "text-stone-200 hover:text-stone-400"
+          }`}
+          title={
+            locked
+              ? "Locked — click to unlock and allow edits"
+              : "Unlocked — click to lock against accidental edits"
+          }
+          aria-pressed={locked}
+        >
+          {locked ? <Lock size={13} /> : <LockOpen size={13} />}
+        </button>
+      )}
 
       {/* Actions */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -188,7 +226,7 @@ export function SectionRow({
         >
           <Pencil size={13} />
         </button>
-        {canDelete && (
+        {canDelete && !locked && (
           <button
             onClick={handleDelete}
             className={`p-1 transition-colors ${

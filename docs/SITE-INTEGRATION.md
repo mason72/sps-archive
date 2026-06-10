@@ -114,6 +114,14 @@ event.
    service/featured to all selected; when the selection spans several source
    events, city can be set for all of them at once.
 
+**Section locks**: any section can be locked (toggle in the sidebar row) as a
+soft guard against inadvertent edits — locked sections reject membership
+changes, reordering, uploads, section deletion, and hard-deletes of their
+member images (HTTP 423 with the section name; enforced server-side in every
+mutation route, surfaced as toasts/banners in the editor). Not security — one
+click unlocks; the point is that editing becomes deliberate. `sections.locked`,
+migration 021.
+
 Defaults keep editing rare: `images.service` auto-fills from the scene on add,
 and images added to a **slot** section with no focal point get one auto-filled
 from face detection (exactly one confident face → eye-level point; written

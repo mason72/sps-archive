@@ -88,6 +88,11 @@ where the crop gets much tighter.
 
 ## Good to know
 
+- **Lock a section** (the small lock next to its image count in the sidebar)
+  once you're happy with it — adding, removing, rearranging, uploads, and
+  deletes are all blocked until you unlock it, with a clear message saying
+  why. One click on the lock (or the banner inside the section) unlocks.
+  Great for slot and position-mapped sections where order IS the site.
 - An image can live in several sections at once (e.g. Hero Pool *and* Featured
   Work); it stays public until removed from the **last** one.
 - Adding to a service section auto-tags the image's `service` for captions —

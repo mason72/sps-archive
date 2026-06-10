@@ -232,7 +232,7 @@ export async function GET(
     // 5. Fetch sections with image counts
     const { data: rawSections, error: sectionsError } = await supabase
       .from("sections")
-      .select("id, name, is_auto, sort_order, created_at, site_scene_key")
+      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked")
       .eq("event_id", eventId)
       // created_at is a stable tiebreaker so equal sort_orders never shuffle
       // between reloads.
@@ -256,6 +256,8 @@ export async function GET(
       sortOrder: section.sort_order,
       // Website scene this section feeds (TDP Website gallery), else null.
       siteSceneKey: section.site_scene_key ?? null,
+      // Soft guard against inadvertent edits — see 021_section_locks.sql.
+      locked: section.locked ?? false,
       imageCount: sectionCounts.get(section.id) ?? 0,
       // Members in manual (sort_order) order — drives the "Manual" sort.
       imageIds: orderedImageIdsBySection.get(section.id) ?? [],

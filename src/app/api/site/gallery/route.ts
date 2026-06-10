@@ -90,6 +90,18 @@ export async function POST(request: NextRequest) {
       sceneKey
     );
 
+    const { data: targetSection } = await supabase
+      .from("sections")
+      .select("name, locked")
+      .eq("id", sectionId)
+      .maybeSingle();
+    if (targetSection?.locked) {
+      return NextResponse.json(
+        { error: `"${targetSection.name}" is locked — unlock it to add images.` },
+        { status: 423 }
+      );
+    }
+
     // Append after the section's current arrangement (same pattern as the
     // generic add-to-section route).
     const { data: maxSort } = await supabase
@@ -151,9 +163,13 @@ export async function DELETE(request: NextRequest) {
     // means the image appears nowhere on the site afterwards.
     const { data: websiteSections } = await supabase
       .from("sections")
-      .select("id")
+      .select("id, locked")
       .not("site_scene_key", "is", null);
-    const sectionIds = (websiteSections ?? []).map((s) => s.id);
+    // Locked sections keep their copies — removal there must be deliberate.
+    const sectionIds = (websiteSections ?? [])
+      .filter((s) => !s.locked)
+      .map((s) => s.id);
+    const lockedSkipped = (websiteSections ?? []).filter((s) => s.locked).length;
 
     if (sectionIds.length > 0) {
       const { error: deleteError } = await supabase
@@ -171,6 +187,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       removed: ownedIds.length,
       failed: sync.failed.length,
+      lockedSectionsSkipped: lockedSkipped,
     });
   } catch (error) {
     console.error("Remove from website gallery error:", error);

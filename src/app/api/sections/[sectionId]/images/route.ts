@@ -85,7 +85,7 @@ export async function POST(
     // Verify section ownership through event chain
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id, site_scene_key")
+      .select("id, event_id, name, site_scene_key, locked")
       .eq("id", sectionId)
       .single();
 
@@ -102,6 +102,13 @@ export async function POST(
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (section.locked) {
+      return NextResponse.json(
+        { error: `"${section.name}" is locked — unlock it to add images.` },
+        { status: 423 }
+      );
     }
 
     // Get max sort_order in this section
@@ -170,7 +177,7 @@ export async function DELETE(
     // Verify section ownership
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id, site_scene_key")
+      .select("id, event_id, name, site_scene_key, locked")
       .eq("id", sectionId)
       .single();
 
@@ -187,6 +194,13 @@ export async function DELETE(
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (section.locked) {
+      return NextResponse.json(
+        { error: `"${section.name}" is locked — unlock it to remove images.` },
+        { status: 423 }
+      );
     }
 
     const { error } = await supabase

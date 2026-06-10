@@ -41,6 +41,8 @@ interface SectionItem {
   name: string;
   isAuto: boolean;
   imageCount: number;
+  /** Soft guard: locked sections reject membership/order edits until unlocked. */
+  locked?: boolean;
 }
 
 interface CoverImage {
@@ -367,6 +369,26 @@ function SectionsPanel({
     [sections, onSectionsChange]
   );
 
+  const handleToggleLock = useCallback(
+    async (sectionId: string, locked: boolean) => {
+      // Optimistic flip; the server is the real guard.
+      const prev = sections;
+      onSectionsChange(sections.map((s) => (s.id === sectionId ? { ...s, locked } : s)));
+      try {
+        const res = await fetch(`/api/sections/${sectionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locked }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        onSectionsChange(prev);
+        toast.error("Failed to update section lock");
+      }
+    },
+    [sections, onSectionsChange]
+  );
+
   const handleDelete = useCallback(
     async (sectionId: string) => {
       // Guard: can't delete the last section
@@ -483,6 +505,8 @@ function SectionsPanel({
                 onDropImages={onDropImagesToSection}
                 isUploadTarget={section.id === uploadTargetId}
                 canDelete={sections.length > 1}
+                locked={section.locked ?? false}
+                onToggleLock={handleToggleLock}
               />
             </div>
           ))

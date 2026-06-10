@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
+  Lock,
   Star,
   Link2,
   Download,
@@ -20,6 +21,8 @@ import {
 interface SectionOption {
   id: string;
   name: string;
+  /** Locked sections can't receive (or give up) images — shown disabled. */
+  locked?: boolean;
 }
 
 interface SelectionToolbarProps {
@@ -272,6 +275,7 @@ export function SelectionToolbar({
                     .map((s) => (
                       <button
                         key={s.id}
+                        disabled={s.locked}
                         onClick={() => {
                           onMoveToSection(s.id);
                           setMovedToSection(s.id);
@@ -280,9 +284,11 @@ export function SelectionToolbar({
                             setShowMovePicker(false);
                           }, 800);
                         }}
-                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                        title={s.locked ? "Locked — unlock to move images here" : undefined}
+                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:text-stone-300 disabled:hover:bg-transparent"
                       >
                         <span className="flex-1 truncate">{s.name}</span>
+                        {s.locked && <Lock size={12} className="shrink-0 text-stone-300" />}
                         {movedToSection === s.id && (
                           <Check size={14} className="text-accent shrink-0" />
                         )}
@@ -310,6 +316,7 @@ export function SelectionToolbar({
                   {sections.map((s) => (
                     <button
                       key={s.id}
+                      disabled={s.locked}
                       onClick={() => {
                         onAddToSection(s.id);
                         setAddedToSection(s.id);
@@ -318,9 +325,11 @@ export function SelectionToolbar({
                           setShowSectionPicker(false);
                         }, 800);
                       }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                      title={s.locked ? "Locked — unlock to copy images here" : undefined}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:text-stone-300 disabled:hover:bg-transparent"
                     >
                       <span className="flex-1 truncate">{s.name}</span>
+                      {s.locked && <Lock size={12} className="shrink-0 text-stone-300" />}
                       {addedToSection === s.id && (
                         <Check size={14} className="text-accent shrink-0" />
                       )}

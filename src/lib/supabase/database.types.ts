@@ -289,6 +289,7 @@ export type Database = {
           is_auto: boolean;
           filter_query: string | null;
           site_scene_key: string | null;
+          locked: boolean;
           created_at: string;
         };
         Insert: {
@@ -300,6 +301,7 @@ export type Database = {
           is_auto?: boolean;
           filter_query?: string | null;
           site_scene_key?: string | null;
+          locked?: boolean;
           created_at?: string;
         };
         Update: {
@@ -311,6 +313,7 @@ export type Database = {
           is_auto?: boolean;
           filter_query?: string | null;
           site_scene_key?: string | null;
+          locked?: boolean;
           created_at?: string;
         };
         Relationships: [];

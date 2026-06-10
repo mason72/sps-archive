@@ -50,6 +50,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Locked sections don't accept uploads — editing them must be deliberate.
+    if (sectionId && !skipSection) {
+      const { data: target } = await supabase
+        .from("sections")
+        .select("name, locked")
+        .eq("id", sectionId)
+        .maybeSingle();
+      if (target?.locked) {
+        return NextResponse.json(
+          { error: `"${target.name}" is locked — unlock it to upload here.` },
+          { status: 423 }
+        );
+      }
+    }
+
     // INVARIANT: every image must belong to a real section — no orphans, ever.
     // "All Photos" is a derived view, not an upload target. When no section is
     // specified, resolve the event's default (first) section, creating a

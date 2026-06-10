@@ -105,4 +105,6 @@ export interface SectionData {
   imageIds?: string[];
   /** Website scene this section feeds (TDP Website gallery), else null. */
   siteSceneKey?: string | null;
+  /** Soft guard: locked sections reject membership/order edits until unlocked. */
+  locked?: boolean;
 }
