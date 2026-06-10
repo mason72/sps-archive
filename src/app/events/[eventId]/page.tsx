@@ -150,6 +150,17 @@ export default function EventPage({
   // (the `selection` object itself is recreated every render)
   const { selectedArray, selectedIds, count: selectionCount, hasSelection, deselectAll } = selection;
 
+  // Switching sections re-scopes the grid, so a selection carried across is a
+  // trap: it looks empty but the toolbar still acts on now-hidden photos.
+  // Clear it on any actual section change (sidebar clicks).
+  const handleSetActiveSection = useCallback(
+    (id: string | null) => {
+      if (id !== activeSectionRef.current) deselectAll();
+      setActiveSection(id);
+    },
+    [deselectAll]
+  );
+
   // Marquee / rubber-band selection
   const gridAreaRef = useRef<HTMLDivElement>(null);
   const { isDrawing: isMarqueeDrawing, rect: marqueeRect } = useMarqueeSelect({
@@ -885,7 +896,7 @@ export default function EventPage({
           sections={sections}
           onSectionsChange={handleSectionsChange}
           activeSection={activeSection}
-          onSetActiveSection={setActiveSection}
+          onSetActiveSection={handleSetActiveSection}
           settings={eventSettings}
           onSettingsChange={setEventSettings}
           images={allImages.map((img) => ({
