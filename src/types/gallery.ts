@@ -3,6 +3,8 @@
 export interface GalleryImage {
   id: string;
   thumbnailUrl: string;
+  /** 800px rendition for srcset — see ImageData.thumbnailLgUrl. */
+  thumbnailLgUrl?: string;
   originalUrl?: string;
   originalFilename: string;
   parsedName: string | null;

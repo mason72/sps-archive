@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -109,12 +109,13 @@ export async function GET(
       rawImages = rawImages.filter((img) => img.id !== coverImageId);
     }
 
-    // 4. Generate presigned URLs
+    // 4. Generate presigned URLs (grid thumbs via the presign memo + srcset
+    // pair, same as the live gallery)
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
-        const thumbKey = getThumbnailKey(img.r2_key);
-        const [thumbnailUrl, originalUrl] = await Promise.all([
-          getPresignedDownloadUrl(thumbKey, 14400),
+        const [thumbnailUrl, thumbnailLgUrl, originalUrl] = await Promise.all([
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Non-renderable originals (TIFF) fall back to the 800px JPEG so the
           // preview lightbox shows them instead of a broken image.
           getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
@@ -123,6 +124,7 @@ export async function GET(
         return {
           id: img.id,
           thumbnailUrl,
+          thumbnailLgUrl,
           originalUrl,
           originalFilename: img.original_filename,
           parsedName: img.parsed_name,

@@ -164,6 +164,7 @@ export function ImageGrid({
             onDoubleClick={() => onImageDoubleClick?.(item.data.id)}
             uniform={style === "uniform"}
             showFilename={showFilenames}
+            sizes={`${Math.round(100 / colCount)}vw`}
           />
         )}
       </div>
@@ -307,6 +308,7 @@ function SortableImageGrid({
                     onDoubleClick={() => onImageDoubleClick?.(image.id)}
                     uniform={style === "uniform"}
                     showFilename={showFilenames}
+                    sizes={`${Math.round(100 / colCount)}vw`}
                   />
                 </div>
               ))}
@@ -360,6 +362,7 @@ function SortableTile({
   onDoubleClick,
   uniform,
   showFilename,
+  sizes,
 }: {
   image: ImageData;
   isSelected: boolean;
@@ -371,6 +374,7 @@ function SortableTile({
   onDoubleClick: () => void;
   uniform?: boolean;
   showFilename?: boolean;
+  sizes?: string;
 }) {
   const {
     attributes,
@@ -403,6 +407,7 @@ function SortableTile({
         uniform={uniform}
         showFilename={showFilename}
         dndManaged
+        sizes={sizes}
       />
     </div>
   );
@@ -422,6 +427,7 @@ function GridImage({
   uniform,
   showFilename,
   dndManaged,
+  sizes,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -434,6 +440,8 @@ function GridImage({
   showFilename?: boolean;
   /** True when a parent dnd-kit sortable owns the drag gesture. */
   dndManaged?: boolean;
+  /** Rendered tile width hint for srcset selection (e.g. "20vw"). */
+  sizes?: string;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -538,6 +546,15 @@ function GridImage({
         <img
           ref={imgRef}
           src={image.thumbnailUrl}
+          // Wide tiles on retina displays need more than the 400px thumb or
+          // they upscale visibly soft — offer the 800px rendition and let the
+          // browser pick by rendered width × DPR.
+          srcSet={
+            image.thumbnailLgUrl
+              ? `${image.thumbnailUrl} 400w, ${image.thumbnailLgUrl} 800w`
+              : undefined
+          }
+          sizes={image.thumbnailLgUrl ? sizes : undefined}
           alt={image.parsedName || image.originalFilename || ""}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
@@ -563,6 +580,7 @@ function GridImage({
               if (regen.ok) {
                 const { thumbnailUrl } = await regen.json();
                 if (thumbnailUrl && imgRef.current) {
+                  imgRef.current.srcset = ""; // srcset outranks src — clear it
                   imgRef.current.src = thumbnailUrl;
                   return;
                 }
@@ -573,6 +591,7 @@ function GridImage({
                 const detail = await res.json();
                 const url = detail.originalUrl || detail.thumbnailUrl;
                 if (url && imgRef.current) {
+                  imgRef.current.srcset = "";
                   imgRef.current.src = url;
                   return;
                 }

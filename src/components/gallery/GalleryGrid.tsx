@@ -122,6 +122,7 @@ export function GalleryGrid({
             onDownloadClick={onDownloadClick}
             showFilename={showFilenames}
             uniform
+            sizes={`${Math.round(100 / gridColumns)}vw`}
           />
         ))}
       </div>
@@ -144,6 +145,7 @@ export function GalleryGrid({
               onClick={() => onImageClick(image.id)}
               onDownloadClick={onDownloadClick}
               showFilename={showFilenames}
+              sizes={`${Math.round(100 / colCount)}vw`}
             />
           ))}
         </div>
@@ -163,6 +165,7 @@ function GalleryCard({
   onDownloadClick,
   showFilename,
   uniform,
+  sizes,
 }: {
   image: GalleryImage;
   allowDownload: boolean;
@@ -173,6 +176,8 @@ function GalleryCard({
   onDownloadClick?: (image: GalleryImage) => void;
   showFilename?: boolean;
   uniform?: boolean;
+  /** Rendered tile width hint for srcset selection (e.g. "25vw"). */
+  sizes?: string;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [heartPop, setHeartPop] = useState(false);
@@ -220,6 +225,14 @@ function GalleryCard({
       <img
         ref={imgRef}
         src={image.thumbnailUrl}
+        // Wide tiles on retina displays need more than the 400px thumb — offer
+        // the 800px rendition and let the browser pick by tile width × DPR.
+        srcSet={
+          image.thumbnailLgUrl
+            ? `${image.thumbnailUrl} 400w, ${image.thumbnailLgUrl} 800w`
+            : undefined
+        }
+        sizes={image.thumbnailLgUrl ? sizes : undefined}
         alt={image.parsedName || image.originalFilename}
         className={`w-full object-cover transition-[opacity,transform] duration-300 group-hover:scale-[1.03] ${
           uniform ? "aspect-square" : "h-full"
@@ -229,6 +242,7 @@ function GalleryCard({
         onLoad={() => setIsLoaded(true)}
         onError={() => {
           if (imgRef.current && image.originalUrl && imgRef.current.src !== image.originalUrl) {
+            imgRef.current.srcset = ""; // srcset outranks src — clear it
             imgRef.current.src = image.originalUrl;
           }
         }}

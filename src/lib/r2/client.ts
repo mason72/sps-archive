@@ -70,6 +70,40 @@ export async function getPresignedDownloadUrl(
   );
 }
 
+/**
+ * Presigned-URL memo for GRID THUMBNAILS.
+ *
+ * Presigning embeds a fresh timestamp+signature, so naively re-signing on
+ * every event fetch hands the browser a brand-new URL for an unchanged file —
+ * the cache misses and the whole grid re-downloads. During an upload session
+ * (live refresh every ~1.5s) that meant constantly re-fetching hundreds of
+ * progressive JPEGs over a saturated connection: tiles sat on their blurry
+ * first scan. Reusing the SAME signed URL while it has plenty of life left
+ * keeps the URL string byte-identical across fetches, so the browser cache
+ * actually works.
+ *
+ * Per-instance memory (serverless): cold starts re-sign, which is fine — the
+ * win is URL stability within a browsing/upload session against a warm
+ * instance. Use for immutable grid assets only; downloads should stay fresh.
+ */
+const signedUrlCache = new Map<string, { url: string; expiresAtMs: number }>();
+
+export async function getCachedThumbnailUrl(
+  key: string,
+  expiresIn = 14400
+): Promise<string> {
+  const cached = signedUrlCache.get(key);
+  // Reuse while at least half the validity window remains, so a URL handed
+  // out from cache is never close to expiry.
+  if (cached && cached.expiresAtMs - Date.now() > (expiresIn * 1000) / 2) {
+    return cached.url;
+  }
+  const url = await getPresignedDownloadUrl(key, expiresIn);
+  if (signedUrlCache.size > 20000) signedUrlCache.clear(); // crude bound
+  signedUrlCache.set(key, { url, expiresAtMs: Date.now() + expiresIn * 1000 });
+  return url;
+}
+
 /** Delete a file from R2 */
 export async function deleteFromR2(key: string): Promise<void> {
   await R2.send(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 
 /**
  * GET /api/events/[eventId]
@@ -133,18 +133,24 @@ export async function GET(
       }
     }
 
-    // 3. Sign ONLY the grid thumbnail per image. The full-res original is
-    // signed lazily by GET /api/images/[imageId] when the lightbox opens —
-    // that halves presigning and the payload size, and it stays fully private
-    // (no public bucket). The grid never needs the original.
+    // 3. Sign ONLY grid thumbnails per image (400px + 800px so the client can
+    // srcset-pick by tile width/DPR). The full-res original is signed lazily
+    // by GET /api/images/[imageId] when the lightbox opens — that keeps
+    // presigning and the payload small, and it stays fully private (no public
+    // bucket). URLs come from the presign memo so repeat fetches (live
+    // refresh during uploads) return byte-identical URLs and the browser
+    // cache holds.
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
-        const thumbKey = getThumbnailKey(img.r2_key);
-        const thumbnailUrl = await getPresignedDownloadUrl(thumbKey, 14400);
+        const [thumbnailUrl, thumbnailLgUrl] = await Promise.all([
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
+        ]);
         return {
           id: img.id,
           r2Key: img.r2_key,
           thumbnailUrl,
+          thumbnailLgUrl,
           originalFilename: img.original_filename,
           aestheticScore: img.aesthetic_score,
           sharpnessScore: img.sharpness_score,

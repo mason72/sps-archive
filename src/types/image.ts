@@ -12,6 +12,12 @@ export interface ImageData {
   r2Key: string;
   thumbnailUrl: string;
   /**
+   * 800px rendition for srcset — grids pair it with the 400px thumbnailUrl so
+   * the browser picks by tile width × DPR (wide tiles on retina screens need
+   * more than 400px or they upscale visibly blurry).
+   */
+  thumbnailLgUrl?: string;
+  /**
    * Full-res URL. Omitted from the event list payload (signed lazily via
    * GET /api/images/[imageId] when the lightbox opens) to keep the list small
    * and halve presigning. Always present on ImageDetail.

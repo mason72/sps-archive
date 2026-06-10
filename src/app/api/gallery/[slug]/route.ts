@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -188,12 +188,14 @@ export async function GET(
       rawImages = rawImages.filter((img) => img.id !== coverImageId);
     }
 
-    // 5b. Generate presigned URLs (thumbnail for grid, original for lightbox)
+    // 5b. Generate presigned URLs (grid thumbnails at 400px + 800px for
+    // srcset, original for lightbox). Thumbnails use the presign memo so
+    // repeat visits within a session keep cache-friendly, stable URLs.
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
-        const thumbKey = getThumbnailKey(img.r2_key);
         const urls = await Promise.all([
-          getPresignedDownloadUrl(thumbKey, 14400),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Lightbox/full view: web-viewable original, or the 800px JPEG for
           // non-renderable formats (TIFF). Download still gets the raw original.
           getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
@@ -203,7 +205,8 @@ export async function GET(
         const result: Record<string, unknown> = {
           id: img.id,
           thumbnailUrl: urls[0],
-          originalUrl: urls[1],
+          thumbnailLgUrl: urls[1],
+          originalUrl: urls[2],
           originalFilename: img.original_filename,
           parsedName: img.parsed_name,
           width: img.width,
@@ -211,8 +214,8 @@ export async function GET(
           takenAt: img.taken_at,
         };
 
-        if (urls[2]) {
-          result.downloadUrl = urls[2];
+        if (urls[3]) {
+          result.downloadUrl = urls[3];
         }
 
         return result;
