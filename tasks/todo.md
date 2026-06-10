@@ -350,3 +350,21 @@ Per Mason 2026-06-09 + tdp-website/tasks/pt-auto-revalidate-brief.md.
       logging 403, enable "Protection Bypass for Automation" on tdp-website
       and set TDP_SITE_REVALIDATE_BYPASS in pixeltrunk — code already sends
       the header.
+
+## Phase: Sections-are-the-model cleanup + ordered scenes [SHIPPED 2026-06-10]
+- [x] srcset thumbnails (400/800 by tile width×DPR) + deterministic presigns
+      (quantized signing window — per-instance memo was useless across lambdas)
+- [x] Selection clears on section switch (carried selection acted on hidden photos)
+- [x] Globe fully retired; one delete button with "copies" semantics: section open →
+      photos in other sections lose this copy only (website section = off the site),
+      last copy = permanent delete; All Images = always permanent. Server-side
+      partition counts membership across ALL events (lib/gallery/delete-partition.ts).
+      Closes the remove-from-section orphan path.
+- [x] Ten "ordered" scenes (benefits ×7 services, story, about-values, quote) — new
+      scene kind: exact drag order, no featured boost, positions hint in editor.
+      Sections created in live DB (sort 28-37) + scaffold-on-open restored
+      (ensureWebsiteSections on website-gallery GET — globe retirement had orphaned
+      the lazy scaffold).
+- [x] All deployed + live-verified: 10 scenes 200/count 0, hero intact (12 curated),
+      401/404 contract intact. Tests 103/103.
+- [ ] Website repo: add the ten keys + position counts to its scenes.ts
