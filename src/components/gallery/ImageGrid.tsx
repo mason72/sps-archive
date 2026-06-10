@@ -52,6 +52,11 @@ interface ImageGridProps {
    * sections) — at a glance: art-directed crop vs default center crop.
    */
   showFocalBadge?: boolean;
+  /**
+   * TDP Work job sections: the first image by drag order is the job's cover
+   * on the website — badge it so the team knows what leads.
+   */
+  coverImageId?: string | null;
 }
 
 /** Gap in px for each density — applied as column-gap + item margin-bottom. */
@@ -89,6 +94,7 @@ export function ImageGrid({
   dndEnabled,
   onReorder,
   showFocalBadge,
+  coverImageId,
 }: ImageGridProps) {
   const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
@@ -108,6 +114,7 @@ export function ImageGrid({
         showFilenames={showFilenames}
         onReorder={onReorder}
         showFocalBadge={showFocalBadge}
+        coverImageId={coverImageId}
       />
     );
   }
@@ -173,6 +180,7 @@ export function ImageGrid({
             showFilename={showFilenames}
             sizes={`${Math.round(100 / colCount)}vw`}
             showFocalBadge={showFocalBadge}
+            isCover={item.data.id === coverImageId}
           />
         )}
       </div>
@@ -205,6 +213,7 @@ function SortableImageGrid({
   showFilenames,
   onReorder,
   showFocalBadge,
+  coverImageId,
 }: {
   standalone: ImageData[];
   onToggleSelect?: (imageId: string) => void;
@@ -218,6 +227,7 @@ function SortableImageGrid({
   showFilenames?: boolean;
   onReorder?: (orderedImageIds: string[]) => void;
   showFocalBadge?: boolean;
+  coverImageId?: string | null;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -320,6 +330,7 @@ function SortableImageGrid({
                     showFilename={showFilenames}
                     sizes={`${Math.round(100 / colCount)}vw`}
                     showFocalBadge={showFocalBadge}
+                    isCover={image.id === coverImageId}
                   />
                 </div>
               ))}
@@ -375,6 +386,7 @@ function SortableTile({
   showFilename,
   sizes,
   showFocalBadge,
+  isCover,
 }: {
   image: ImageData;
   isSelected: boolean;
@@ -388,6 +400,7 @@ function SortableTile({
   showFilename?: boolean;
   sizes?: string;
   showFocalBadge?: boolean;
+  isCover?: boolean;
 }) {
   const {
     attributes,
@@ -422,6 +435,7 @@ function SortableTile({
         dndManaged
         sizes={sizes}
         showFocalBadge={showFocalBadge}
+        isCover={isCover}
       />
     </div>
   );
@@ -443,6 +457,7 @@ function GridImage({
   dndManaged,
   sizes,
   showFocalBadge,
+  isCover,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -459,6 +474,8 @@ function GridImage({
   sizes?: string;
   /** Mark tiles whose focal point is set (website slot sections). */
   showFocalBadge?: boolean;
+  /** First image of a job section — the website cover for that job. */
+  isCover?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -542,6 +559,13 @@ function GridImage({
       {/* Selection overlay tint */}
       {isSelected && (
         <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
+      )}
+
+      {/* Job cover — the first image by drag order leads the job on the site */}
+      {isCover && (
+        <div className="absolute bottom-2 left-2 z-[2] border border-white/40 bg-black/40 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.15em] text-white pointer-events-none">
+          Cover
+        </div>
       )}
 
       {/* Focal point set — this slot crop is art-directed, not center-cropped */}

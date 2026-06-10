@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
 /**
  * PUT /api/sections/reorder
@@ -27,7 +28,7 @@ export async function PUT(request: NextRequest) {
     // Verify event ownership
     const { data: event } = await supabase
       .from("events")
-      .select("id")
+      .select("id, settings")
       .eq("id", eventId)
       .eq("user_id", user!.id)
       .single();
@@ -46,6 +47,14 @@ export async function PUT(request: NextRequest) {
           .eq("event_id", eventId)
       )
     );
+
+    // TDP Work: section order IS the order jobs lead on the site, so a
+    // reorder there changes public content. Scene sections don't care (each
+    // scene is independent) and client galleries never ping, so the gate is
+    // the work-gallery flag.
+    if ((event.settings as Record<string, unknown> | null)?.work === true) {
+      scheduleSiteRevalidate();
+    }
 
     return NextResponse.json({ reordered: true });
   } catch (error) {

@@ -24,6 +24,7 @@ import {
   Upload,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
+import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
 import { TypographyTab } from "@/components/settings/TypographyTab";
 import { ColorTab } from "@/components/settings/ColorTab";
@@ -43,6 +44,10 @@ interface SectionItem {
   imageCount: number;
   /** Soft guard: locked sections reject membership/order edits until unlocked. */
   locked?: boolean;
+  /** Website scene / job key this section feeds, else null. */
+  siteSceneKey?: string | null;
+  /** Job-sheet metadata (TDP Work gallery), raw jsonb. */
+  jobMeta?: unknown;
 }
 
 interface CoverImage {
@@ -77,11 +82,34 @@ interface EventSidebarProps {
   onActivePanelChange?: (panel: Panel | null) => void;
   /** Callback when images are dropped onto a section row */
   onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
+  /** TDP Work gallery: sections are jobs ("New job…", live/draft dots). */
+  isWorkGallery?: boolean;
+  /** Fired after a section is created (the work gallery opens the job form). */
+  onSectionCreated?: (section: SectionItem) => void;
 }
 
 export type Panel = "sections" | "design" | "details" | "activity";
 
 const STORAGE_KEY = "pixeltrunk-sidebar-open";
+
+/**
+ * Live/draft dot for TDP Work job sections: a job appears on the site only
+ * when its required metadata is complete AND it has photos. Non-job sections
+ * get no dot.
+ */
+function jobStatusFor(
+  section: SectionItem
+): { live: boolean; title: string } | undefined {
+  if (!isJobSceneKey(section.siteSceneKey)) return undefined;
+  const missing = jobMissingFields(parseJobMeta(section.jobMeta));
+  if (missing.length > 0) {
+    return { live: false, title: `Not live — missing ${missing.join(", ")}` };
+  }
+  if (section.imageCount === 0) {
+    return { live: false, title: "Not live — no photos yet" };
+  }
+  return { live: true, title: "Live on the site" };
+}
 
 /**
  * EventSidebar — Collapsible left sidebar for event management.
@@ -108,6 +136,8 @@ export function EventSidebar({
   onOpenChange,
   onActivePanelChange,
   onDropImagesToSection,
+  isWorkGallery = false,
+  onSectionCreated,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -215,6 +245,8 @@ export function EventSidebar({
             activeSection={activeSection}
             onSetActiveSection={onSetActiveSection}
             onDropImagesToSection={onDropImagesToSection}
+            isWorkGallery={isWorkGallery}
+            onSectionCreated={onSectionCreated}
           />
         )}
         {activePanel === "design" && (
@@ -284,6 +316,8 @@ function SectionsPanel({
   activeSection,
   onSetActiveSection,
   onDropImagesToSection,
+  isWorkGallery = false,
+  onSectionCreated,
 }: {
   eventId: string;
   sections: SectionItem[];
@@ -291,6 +325,8 @@ function SectionsPanel({
   activeSection: string | null;
   onSetActiveSection: (id: string | null) => void;
   onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
+  isWorkGallery?: boolean;
+  onSectionCreated?: (section: SectionItem) => void;
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -316,20 +352,27 @@ function SectionsPanel({
       });
       if (!res.ok) throw new Error("Failed to create section");
       const data = await res.json();
-      onSectionsChange([
-        ...sections,
-        { id: data.section.id, name: data.section.name, isAuto: data.section.isAuto, imageCount: 0 },
-      ]);
+      const created: SectionItem = {
+        id: data.section.id,
+        name: data.section.name,
+        isAuto: data.section.isAuto,
+        imageCount: 0,
+        siteSceneKey: data.section.siteSceneKey ?? null,
+        jobMeta: data.section.jobMeta ?? null,
+      };
+      onSectionsChange([...sections, created]);
       // Auto-select the freshly created section so uploads target it immediately.
-      onSetActiveSection(data.section.id);
+      onSetActiveSection(created.id);
       setNewName("");
-      toast.success("Section created");
+      toast.success(isWorkGallery ? "Job created" : "Section created");
+      // The work gallery opens the job form right away — one flow, no hunting.
+      onSectionCreated?.(created);
     } catch {
-      toast.error("Failed to create section");
+      toast.error(isWorkGallery ? "Failed to create job" : "Failed to create section");
     } finally {
       setIsCreating(false);
     }
-  }, [eventId, newName, sections, onSectionsChange]);
+  }, [eventId, newName, sections, onSectionsChange, onSetActiveSection, isWorkGallery, onSectionCreated]);
 
   const handleGenerateSections = useCallback(async () => {
     setIsGenerating(true);
@@ -507,6 +550,7 @@ function SectionsPanel({
                 canDelete={sections.length > 1}
                 locked={section.locked ?? false}
                 onToggleLock={handleToggleLock}
+                jobStatus={jobStatusFor(section)}
               />
             </div>
           ))
@@ -523,7 +567,7 @@ function SectionsPanel({
               if (e.key === "Enter") handleCreate();
               if (e.key === "Escape") setNewName("");
             }}
-            placeholder="New section..."
+            placeholder={isWorkGallery ? "New job..." : "New section..."}
             className="flex-1 text-[12px] text-stone-700 placeholder:text-stone-300 bg-transparent outline-none py-0.5 transition-colors"
           />
           {newName.trim() && (

@@ -24,6 +24,11 @@ interface SectionRowProps {
   /** Soft guard: locked sections reject membership/order edits until unlocked. */
   locked?: boolean;
   onToggleLock?: (id: string, locked: boolean) => void;
+  /**
+   * Job sections (TDP Work gallery): live = on the site; draft = held back
+   * (missing metadata or photos — the title says which). Undefined = not a job.
+   */
+  jobStatus?: { live: boolean; title: string };
 }
 
 export function SectionRow({
@@ -42,6 +47,7 @@ export function SectionRow({
   canDelete = true,
   locked = false,
   onToggleLock,
+  jobStatus,
 }: SectionRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -168,6 +174,14 @@ export function SectionRow({
           </div>
         ) : (
           <div className="flex items-center gap-2">
+            {jobStatus && (
+              <span
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                  jobStatus.live ? "bg-emerald-500" : "bg-amber-400"
+                }`}
+                title={jobStatus.title}
+              />
+            )}
             <span className="text-[13px] text-stone-900 font-medium truncate">
               {name}
             </span>

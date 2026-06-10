@@ -14,7 +14,9 @@ import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { FocalPointModal } from "@/components/gallery/FocalPointModal";
 import { sceneForKey } from "@/lib/site/scenes";
+import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CurationModal } from "@/components/gallery/CurationModal";
+import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
@@ -67,6 +69,25 @@ interface SectionData {
   siteSceneKey?: string | null;
   /** Soft guard: locked sections reject membership/order edits until unlocked. */
   locked?: boolean;
+  /** Job-sheet metadata (TDP Work gallery job sections), raw jsonb. */
+  jobMeta?: unknown;
+}
+
+/** Most frequent non-null value, or null. Used for job-form prefills. */
+function mostCommon<T>(values: Array<T | null | undefined>): T | null {
+  const counts = new Map<T, number>();
+  let best: T | null = null;
+  let bestCount = 0;
+  for (const v of values) {
+    if (v == null) continue;
+    const n = (counts.get(v) ?? 0) + 1;
+    counts.set(v, n);
+    if (n > bestCount) {
+      best = v;
+      bestCount = n;
+    }
+  }
+  return best;
 }
 
 export default function EventPage({
@@ -257,6 +278,33 @@ export default function EventPage({
   const isWebsiteContext =
     event?.event_type === "website" || !!activeSectionData?.siteSceneKey;
   const [showCuration, setShowCuration] = useState(false);
+
+  // ─── TDP Work gallery (sections are jobs) ───
+  const isWorkGallery =
+    (event?.settings as Record<string, unknown> | undefined)?.work === true;
+  const activeJobSection =
+    isWorkGallery && isJobSceneKey(activeSectionData?.siteSceneKey)
+      ? activeSectionData
+      : null;
+  const [jobModalSectionId, setJobModalSectionId] = useState<string | null>(null);
+  const jobModalSection =
+    sections.find((s) => s.id === jobModalSectionId && isJobSceneKey(s.siteSceneKey)) ??
+    null;
+  // The job's cover = first image by drag order; badge it in the grid.
+  const jobCoverImageId = activeJobSection
+    ? (manualOrderBySection[activeJobSection.id] ??
+        activeJobSection.imageIds ??
+        [])[0] ?? null
+    : null;
+  // After a save, patch the section in place (status dot, banner, modal).
+  const handleJobSaved = useCallback(
+    (sectionId: string, jobMeta: unknown, siteSceneKey: string) => {
+      setSections((prev) =>
+        prev.map((s) => (s.id === sectionId ? { ...s, jobMeta, siteSceneKey } : s))
+      );
+    },
+    []
+  );
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
   const uploadTargetLocked =
@@ -941,6 +989,11 @@ export default function EventPage({
           onOpenChange={setSidebarOpen}
           onActivePanelChange={setSidebarPanel}
           onDropImagesToSection={handleDropImagesToSection}
+          isWorkGallery={isWorkGallery}
+          onSectionCreated={
+            // A new job opens its form right away — name, then details.
+            isWorkGallery ? (s) => setJobModalSectionId(s.id) : undefined
+          }
         />
       )}
 
@@ -1088,7 +1141,16 @@ export default function EventPage({
                 images.length === 0 &&
                 !!uploadTargetId)) && (
               <div className="mb-12">
-                {uploadTargetLocked ? (
+                {isWorkGallery && !uploadTargetId ? (
+                  // Fresh work gallery: photos belong to a job, so there's
+                  // nowhere to upload until the first job exists.
+                  <div className="flex items-center gap-3 border border-dashed border-stone-300 bg-stone-50/60 px-6 py-8">
+                    <p className="text-[13px] text-stone-500">
+                      Photos here belong to a job — create your first job in
+                      the sidebar (&ldquo;New job…&rdquo;), then upload into it.
+                    </p>
+                  </div>
+                ) : uploadTargetLocked ? (
                   <div className="flex items-center gap-3 border border-dashed border-amber-300 bg-amber-50/40 px-6 py-8">
                     <Lock className="h-4 w-4 shrink-0 text-amber-500" />
                     <p className="text-[13px] text-amber-900">
@@ -1369,6 +1431,56 @@ export default function EventPage({
                   </button>
                 </div>
               )}
+              {activeJobSection &&
+                (() => {
+                  const missing = jobMissingFields(
+                    parseJobMeta(activeJobSection.jobMeta)
+                  );
+                  const live =
+                    missing.length === 0 && activeJobSection.imageCount > 0;
+                  return (
+                    <div
+                      className={cn(
+                        "mb-4 flex items-center justify-between gap-4 border px-4 py-3",
+                        live
+                          ? "border-emerald-200 bg-emerald-50/50"
+                          : "border-amber-200 bg-amber-50/70"
+                      )}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span
+                          className={cn(
+                            "h-2 w-2 shrink-0 rounded-full",
+                            live ? "bg-emerald-500" : "bg-amber-400"
+                          )}
+                        />
+                        <p
+                          className={cn(
+                            "text-[13px] truncate",
+                            live ? "text-emerald-900" : "text-amber-900"
+                          )}
+                        >
+                          {live
+                            ? "This job is live on the site — the first photo is its cover."
+                            : missing.length > 0
+                            ? `Not on the site yet — missing ${missing.join(", ")}.`
+                            : "Details complete — add photos to put this job live."}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setJobModalSectionId(activeJobSection.id)}
+                        className={cn(
+                          "shrink-0 border bg-white px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.15em] transition-colors",
+                          live
+                            ? "border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                            : "border-amber-300 text-amber-700 hover:bg-amber-100"
+                        )}
+                      >
+                        Job details
+                      </button>
+                    </div>
+                  );
+                })()}
               {isSlotSection && (activeSectionData?.imageCount ?? 0) > 1 && (
                 <p className="mb-3 text-[12px] text-amber-600">
                   Slot section — the website uses only the first image. Drag
@@ -1421,6 +1533,7 @@ export default function EventPage({
                     dndEnabled={dndEnabled}
                     onReorder={handleReorder}
                     showFocalBadge={isWebsiteContext}
+                    coverImageId={jobCoverImageId}
                   />
                 </>
               ) : (
@@ -1590,6 +1703,36 @@ export default function EventPage({
           }}
         />
       )}
+
+      {/* ─── Job details (TDP Work gallery — one form per job) ─── */}
+      {jobModalSection?.siteSceneKey &&
+        (() => {
+          // Prefills from the job's own photos: the year they were taken and
+          // their source event's city. Empty fields only — saved values win.
+          const memberImages = (jobModalSection.imageIds ?? [])
+            .map((id) => allImages.find((img) => img.id === id))
+            .filter((img): img is ImageData => !!img);
+          const prefillYear = mostCommon(
+            memberImages.map((img) =>
+              img.takenAt ? new Date(img.takenAt).getFullYear() : null
+            )
+          );
+          const prefillCity = mostCommon(
+            memberImages.map((img) => img.eventCity ?? null)
+          );
+          return (
+            <JobDetailsModal
+              sectionId={jobModalSection.id}
+              sectionName={jobModalSection.name}
+              siteSceneKey={jobModalSection.siteSceneKey}
+              initialMeta={jobModalSection.jobMeta}
+              imageCount={jobModalSection.imageCount}
+              prefill={{ city: prefillCity, year: prefillYear }}
+              onClose={() => setJobModalSectionId(null)}
+              onSaved={handleJobSaved}
+            />
+          );
+        })()}
 
       {/* ─── Keyboard Shortcuts Help ─── */}
       {showShortcutsHelp && (

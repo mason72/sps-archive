@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { syncSitePublication } from "@/lib/site/membership";
+import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
+import {
+  isJobSceneKey,
+  isValidJobSlug,
+  validateJobMeta,
+  JOB_KEY_PREFIX,
+} from "@/lib/site/jobs";
 
 /**
  * Helper: verify section ownership through event → user chain.
@@ -31,7 +38,10 @@ async function verifySectionOwnership(
 
 /**
  * PATCH /api/sections/[sectionId]
- * Rename a section or update its description.
+ * Rename a section, update its description or lock, or — on TDP Work job
+ * sections — save the job-sheet metadata (jobMeta) and edit the frozen URL
+ * slug (jobSlug). Job edits ping the site's revalidate webhook; renames
+ * don't (the section name is editor-only — the site shows eventName).
  */
 export async function PATCH(
   request: NextRequest,
@@ -56,6 +66,39 @@ export async function PATCH(
     // you unlock; the lock guards content, not its own switch).
     if (typeof body.locked === "boolean") updates.locked = body.locked;
 
+    // Job-sheet fields (TDP Work gallery only). Like renames, these stay
+    // editable while locked — the lock guards membership/order, and the job
+    // form is always a deliberate act.
+    const isJobSection = isJobSceneKey(section.site_scene_key);
+    if (body.jobMeta !== undefined) {
+      if (!isJobSection) {
+        return NextResponse.json(
+          { error: "jobMeta is only valid on TDP Work job sections" },
+          { status: 400 }
+        );
+      }
+      const result = validateJobMeta(body.jobMeta);
+      if ("error" in result) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      updates.job_meta = result.meta;
+    }
+    if (body.jobSlug !== undefined) {
+      if (!isJobSection) {
+        return NextResponse.json(
+          { error: "jobSlug is only valid on TDP Work job sections" },
+          { status: 400 }
+        );
+      }
+      if (typeof body.jobSlug !== "string" || !isValidJobSlug(body.jobSlug)) {
+        return NextResponse.json(
+          { error: "Slug must be lowercase words separated by single hyphens" },
+          { status: 400 }
+        );
+      }
+      updates.site_scene_key = `${JOB_KEY_PREFIX}${body.jobSlug}`;
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
@@ -67,7 +110,22 @@ export async function PATCH(
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Unique index on site_scene_key — another job already owns this slug.
+      if (error.code === "23505" && updates.site_scene_key) {
+        return NextResponse.json(
+          { error: "That slug is already used by another job" },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+
+    // Job edits change what the site renders — refresh its cache. Strictly
+    // scoped: only job sections reach here with these fields set.
+    if (updates.job_meta !== undefined || updates.site_scene_key !== undefined) {
+      scheduleSiteRevalidate();
+    }
 
     return NextResponse.json({
       section: {
@@ -77,6 +135,8 @@ export async function PATCH(
         isAuto: data.is_auto,
         sortOrder: data.sort_order,
         locked: data.locked,
+        siteSceneKey: data.site_scene_key ?? null,
+        jobMeta: data.job_meta ?? null,
       },
     });
   } catch (error) {

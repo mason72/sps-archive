@@ -208,6 +208,86 @@ curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" \
 Each returned `thumbUrl` / `fullUrl` must `200` with **no** auth header and must
 not expire.
 
+### `GET /api/site/jobs`
+
+The website's Featured Work is job-based: each tile is a job that opens an
+infosheet ("job sheet") with project data and quote CTAs. Jobs live in a
+second dedicated gallery, **TDP Work** (slug `tdp-work`,
+`settings.work = true`, scaffolded by migration 022), where **each section is
+one job**: its images are the job's gallery, the **first image by drag order
+is the cover**, and section order is the order jobs lead on the site.
+
+Job sections carry `site_scene_key = "job/<slug>"` — same column as scenes, so
+the whole public lane applies unchanged: membership = publication (public
+copies on add, deletion on remove), the focal tool, section locks, and the
+revalidate webhook all just work. The slug is **frozen at creation** (derived
+from the section name) so renaming a job never moves its site URL; the job
+form can still edit the slug deliberately (uniqueness enforced, 409 on
+collision).
+
+Job metadata is one editor form per job, stored as `sections.job_meta`
+(jsonb), validated by [`src/lib/site/jobs.ts`](../src/lib/site/jobs.ts) —
+the single source of truth shared by the form, the PATCH route, and the API.
+Fields: `client`, `anonymize` + `alias`, `eventName`, `city`, `venue`,
+`services` (multi-select of the site's 7 service slugs — note this is NOT
+`SITE_SERVICES`, which includes the non-bookable environmental-portraits),
+`eventSize` / `duration` / `teams` / `ballpark` / `industry`
+(+ `industryOther` when "other") / `year` as enums mirroring the website's
+`src/lib/jobs.ts`, and `touchups` (hair + makeup artists on site — a plain
+checkbox; always serialized as a boolean, false when unset, and the site
+shows a TOUCHUPS spec row when true).
+
+**Anonymity contract:** when `anonymize` is true the API returns the `alias`
+and a **null `client`** — the client name never leaves the server (enforced
+in one place, `serializeJob`). When false, `alias` is null (the site renders
+`alias ?? client`).
+
+**Draft state:** a job missing required fields (client — or alias when
+anonymized —, city, ≥1 service, event size, duration, teams, industry) or
+without a published image is **omitted** from the API. The editor shows a
+live/draft dot on the section row and a status banner with the exact missing
+fields; the form footer says the same.
+
+Auth, caching, and image shape are identical to the scene API:
+
+```bash
+curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" https://app.pixeltrunk.com/api/site/jobs
+```
+
+```jsonc
+{
+  "count": 1,
+  "jobs": [{
+    "slug": "servicenow-knowledge-25",
+    "client": "ServiceNow",          // null when anonymized
+    "alias": null,                    // set only when anonymized
+    "eventName": "Knowledge 25", "city": "Las Vegas", "venue": "MGM Grand",
+    "services": ["headshot-booth", "event-photography"],
+    "eventSize": "2000-10000", "duration": "2-3-days", "teams": "3",
+    "ballpark": "24-48k",             // null = row hidden on the site
+    "industry": "tech", "industryOther": null, "year": 2025,
+    "touchups": true,                 // never null — false when unset
+    "images": [ /* scene-shaped: id, event, city, service, featured,
+                   width, height, thumbUrl, fullUrl, focalX, focalY —
+                   first image = cover */ ]
+  }]
+}
+```
+
+The webhook fires on every job mutation: metadata/slug saves (sections
+PATCH), membership and image-order changes (the standard publication sync),
+and job reordering (`PUT /api/sections/reorder` pings only for the work
+gallery). Mutations in client galleries still never ping.
+`/api/site/scene/featured-work` is untouched — the site falls back to it
+until jobs exist.
+
+Editor affordances in the TDP Work gallery: the sidebar input reads "New
+job…" and creating one opens the job form immediately; the form prefills
+city/year from the job's own photos (source-event city, EXIF capture year)
+and suggests industry + an anonymized alias for well-known brands (a small
+curated map; composed from size + industry otherwise); the first tile shows
+a "Cover" chip.
+
 ### Team-facing: `POST` / `DELETE` / `GET /api/site/gallery`
 
 Programmatic curation (logged-in users only — no UI uses these anymore).
@@ -256,3 +336,17 @@ launch, revisit for high traffic.)
    re-curl that `slot/*` scene → `focalX`/`focalY` populated, `count: 1`.
 6. Remove the image from its website section(s) → re-curl → gone, and the
    `fullUrl` from step 4 now `404`s.
+
+## Verifying jobs end to end
+
+1. Apply `supabase/migrations/022_jobs_gallery.sql` (adds `sections.job_meta`,
+   scaffolds the TDP Work gallery).
+2. Open TDP Work, type a job name into "New job…" — the job form opens; fill
+   the required fields and Save (footer reports live/missing state).
+3. Add photos to the job section; drag your cover to position 1.
+4. `curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" .../api/site/jobs` → the job,
+   cover first, public URLs that `200` without auth.
+5. Toggle Anonymize (alias suggested) and Save → re-curl → `client: null`,
+   alias present, the client name nowhere in the payload.
+6. Clear a required field and Save → re-curl → the job is omitted (draft).
+7. `/api/site/scene/featured-work` still returns its curated set unchanged.

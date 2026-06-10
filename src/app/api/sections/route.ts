@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { JOB_KEY_PREFIX, jobSlugFromName } from "@/lib/site/jobs";
 
 /**
  * GET /api/sections?eventId=xxx
@@ -88,13 +89,34 @@ export async function POST(request: NextRequest) {
     // Verify event ownership
     const { data: event } = await supabase
       .from("events")
-      .select("id")
+      .select("id, settings")
       .eq("id", eventId)
       .eq("user_id", user!.id)
       .single();
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // In the TDP Work gallery every section IS a job: stamp a frozen
+    // site_scene_key ("job/<slug>", derived from the name once, unique-
+    // suffixed on collision). The job/ namespace is what plugs the section
+    // into the public lane — publication, revalidate webhook, focal tool.
+    let siteSceneKey: string | null = null;
+    const isWorkGallery =
+      (event.settings as Record<string, unknown> | null)?.work === true;
+    if (isWorkGallery) {
+      const base = jobSlugFromName(name);
+      const { data: taken } = await supabase
+        .from("sections")
+        .select("site_scene_key")
+        .like("site_scene_key", `${JOB_KEY_PREFIX}${base}%`);
+      const existing = new Set((taken ?? []).map((s) => s.site_scene_key));
+      let slug = base;
+      for (let n = 2; existing.has(`${JOB_KEY_PREFIX}${slug}`); n++) {
+        slug = `${base}-${n}`;
+      }
+      siteSceneKey = `${JOB_KEY_PREFIX}${slug}`;
     }
 
     // Append the new section at the END (max existing sort_order + 1) so the
@@ -118,6 +140,7 @@ export async function POST(request: NextRequest) {
         description: description || null,
         is_auto: false,
         sort_order: nextSortOrder,
+        site_scene_key: siteSceneKey,
       })
       .select()
       .single();
@@ -132,6 +155,8 @@ export async function POST(request: NextRequest) {
         isAuto: section.is_auto,
         sortOrder: section.sort_order,
         imageCount: 0,
+        siteSceneKey: section.site_scene_key ?? null,
+        jobMeta: section.job_meta ?? null,
       },
     }, { status: 201 });
   } catch (error) {

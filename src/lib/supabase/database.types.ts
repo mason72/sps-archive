@@ -290,6 +290,7 @@ export type Database = {
           filter_query: string | null;
           site_scene_key: string | null;
           locked: boolean;
+          job_meta: Json | null;
           created_at: string;
         };
         Insert: {
@@ -302,6 +303,7 @@ export type Database = {
           filter_query?: string | null;
           site_scene_key?: string | null;
           locked?: boolean;
+          job_meta?: Json | null;
           created_at?: string;
         };
         Update: {
@@ -314,6 +316,7 @@ export type Database = {
           filter_query?: string | null;
           site_scene_key?: string | null;
           locked?: boolean;
+          job_meta?: Json | null;
           created_at?: string;
         };
         Relationships: [];
