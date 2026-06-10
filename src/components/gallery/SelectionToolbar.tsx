@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   Globe,
   Crosshair,
+  Captions,
 } from "lucide-react";
 import { SITE_SCENES } from "@/lib/site/scenes";
 
@@ -43,6 +44,8 @@ interface SelectionToolbarProps {
   onRemoveFromWebsite?: () => void;
   /** Pick the focal point of the single selected slot-section image. */
   onSetFocalPoint?: () => void;
+  /** Edit website curation details (event, city, service, featured). */
+  onEditWebsiteDetails?: () => void;
   sections?: SectionOption[];
   activeSection?: string | null;
   /** Sidebar width in px — used to center toolbar over the content area */
@@ -69,6 +72,7 @@ export function SelectionToolbar({
   onAddToWebsite,
   onRemoveFromWebsite,
   onSetFocalPoint,
+  onEditWebsiteDetails,
   sections = [],
   activeSection,
   sidebarOffset = 0,
@@ -352,6 +356,15 @@ export function SelectionToolbar({
               icon={<Crosshair className="h-4 w-4" />}
               label="Set focal point"
               onClick={onSetFocalPoint}
+            />
+          )}
+
+          {/* Website curation details (event, city, service, featured) */}
+          {onEditWebsiteDetails && (
+            <ToolbarButton
+              icon={<Captions className="h-4 w-4" />}
+              label="Edit website details"
+              onClick={onEditWebsiteDetails}
             />
           )}
 

@@ -36,8 +36,11 @@ export async function GET(
     }
 
     // 2. Fetch ALL images for this event (paginated — Supabase defaults to 1000)
+    // The source-event join (name/city) and service/featured feed the website
+    // curation editor — the TDP Website gallery shows images that live in
+    // other events, and captions are sourced from those events.
     const IMAGE_FIELDS =
-      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at, focal_x, focal_y";
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at, focal_x, focal_y, service, featured, event_id, events!event_id(name, city)";
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -164,6 +167,11 @@ export async function GET(
           takenAt: img.taken_at,
           focalX: img.focal_x,
           focalY: img.focal_y,
+          service: img.service,
+          featured: img.featured ?? false,
+          eventId: img.event_id,
+          eventName: img.events?.name ?? null,
+          eventCity: img.events?.city ?? null,
           sectionIds: sectionIdsByImage.get(img.id) ?? [],
           isCover: coverImageId ? img.id === coverImageId : false,
         };
@@ -282,6 +290,8 @@ export async function PATCH(
     if (body.description !== undefined) updates.description = body.description;
     if (body.eventDate !== undefined) updates.event_date = body.eventDate;
     if (body.eventType !== undefined) updates.event_type = body.eventType;
+    // City feeds the website's "Event — City" captions via the site scene API.
+    if (body.city !== undefined) updates.city = body.city || null;
 
     // Settings: deep merge with existing
     if (body.settings !== undefined) {

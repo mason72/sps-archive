@@ -75,6 +75,18 @@ export const SITE_SCENES: SceneDef[] = [
 
 const SCENES_BY_KEY = new Map(SITE_SCENES.map((s) => [s.key, s]));
 
+/**
+ * Canonical service slugs, in registry order — the only valid values for
+ * images.service. The curation editor's service dropdown and the images PATCH
+ * validation both read this list, so a new service added to the registry is
+ * immediately editable everywhere.
+ */
+export const SITE_SERVICES: string[] = [
+  ...new Set(
+    SITE_SCENES.map((s) => s.service).filter((s): s is string => Boolean(s))
+  ),
+];
+
 /** Is this a known scene key? */
 export function isValidScene(key: string): boolean {
   return SCENES_BY_KEY.has(key);

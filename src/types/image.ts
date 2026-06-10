@@ -40,6 +40,17 @@ export interface ImageData {
    */
   focalX?: number | null;
   focalY?: number | null;
+  /** Website curation: canonical service slug (scene registry), null = unset. */
+  service?: string | null;
+  /** Website curation: pool scenes rank featured images first. */
+  featured?: boolean;
+  /**
+   * Source event (website-gallery sections hold images that live in other
+   * events; captions on the site read the source event's name/city).
+   */
+  eventId?: string;
+  eventName?: string | null;
+  eventCity?: string | null;
   /** Ids of every section this image belongs to (junction membership). */
   sectionIds?: string[];
   /**
@@ -65,6 +76,12 @@ export interface ImageDetail extends ImageData {
   sceneTags: string[] | null;
   isEyesOpen: boolean | null;
   downloadUrl: string;
+  /**
+   * Face-based focal suggestion (single confident subject, eye level) — the
+   * focal picker pre-places its marker here when no focal point is set.
+   */
+  suggestedFocalX?: number | null;
+  suggestedFocalY?: number | null;
 }
 
 /** Stack grouping with nested images */

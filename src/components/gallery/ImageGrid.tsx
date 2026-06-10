@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
-import { Check } from "lucide-react";
+import { Check, Crosshair } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -47,6 +47,11 @@ interface ImageGridProps {
    */
   dndEnabled?: boolean;
   onReorder?: (orderedImageIds: string[]) => void;
+  /**
+   * Show a corner dot on tiles that have a focal point set (website slot
+   * sections) — at a glance: art-directed crop vs default center crop.
+   */
+  showFocalBadge?: boolean;
 }
 
 /** Gap in px for each density — applied as column-gap + item margin-bottom. */
@@ -83,6 +88,7 @@ export function ImageGrid({
   showFilenames,
   dndEnabled,
   onReorder,
+  showFocalBadge,
 }: ImageGridProps) {
   const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
@@ -101,6 +107,7 @@ export function ImageGrid({
         style={style}
         showFilenames={showFilenames}
         onReorder={onReorder}
+        showFocalBadge={showFocalBadge}
       />
     );
   }
@@ -165,6 +172,7 @@ export function ImageGrid({
             uniform={style === "uniform"}
             showFilename={showFilenames}
             sizes={`${Math.round(100 / colCount)}vw`}
+            showFocalBadge={showFocalBadge}
           />
         )}
       </div>
@@ -196,6 +204,7 @@ function SortableImageGrid({
   style,
   showFilenames,
   onReorder,
+  showFocalBadge,
 }: {
   standalone: ImageData[];
   onToggleSelect?: (imageId: string) => void;
@@ -208,6 +217,7 @@ function SortableImageGrid({
   style?: "masonry" | "uniform";
   showFilenames?: boolean;
   onReorder?: (orderedImageIds: string[]) => void;
+  showFocalBadge?: boolean;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -309,6 +319,7 @@ function SortableImageGrid({
                     uniform={style === "uniform"}
                     showFilename={showFilenames}
                     sizes={`${Math.round(100 / colCount)}vw`}
+                    showFocalBadge={showFocalBadge}
                   />
                 </div>
               ))}
@@ -363,6 +374,7 @@ function SortableTile({
   uniform,
   showFilename,
   sizes,
+  showFocalBadge,
 }: {
   image: ImageData;
   isSelected: boolean;
@@ -375,6 +387,7 @@ function SortableTile({
   uniform?: boolean;
   showFilename?: boolean;
   sizes?: string;
+  showFocalBadge?: boolean;
 }) {
   const {
     attributes,
@@ -408,6 +421,7 @@ function SortableTile({
         showFilename={showFilename}
         dndManaged
         sizes={sizes}
+        showFocalBadge={showFocalBadge}
       />
     </div>
   );
@@ -428,6 +442,7 @@ function GridImage({
   showFilename,
   dndManaged,
   sizes,
+  showFocalBadge,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -442,6 +457,8 @@ function GridImage({
   dndManaged?: boolean;
   /** Rendered tile width hint for srcset selection (e.g. "20vw"). */
   sizes?: string;
+  /** Mark tiles whose focal point is set (website slot sections). */
+  showFocalBadge?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -525,6 +542,16 @@ function GridImage({
       {/* Selection overlay tint */}
       {isSelected && (
         <div className="absolute inset-0 bg-accent/10 z-[1] pointer-events-none" />
+      )}
+
+      {/* Focal point set — this slot crop is art-directed, not center-cropped */}
+      {showFocalBadge && image.focalX != null && image.focalY != null && (
+        <div
+          className="absolute top-2 right-2 z-[2] flex h-5 w-5 items-center justify-center border border-white/40 bg-black/30 backdrop-blur-sm pointer-events-none"
+          title="Focal point set"
+        >
+          <Crosshair className="h-3 w-3 text-white" />
+        </div>
       )}
 
       {/* Fixed-aspect box. Reserving the tile's FINAL height up front (from the

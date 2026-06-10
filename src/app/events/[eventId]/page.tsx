@@ -13,6 +13,7 @@ import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { FocalPointModal } from "@/components/gallery/FocalPointModal";
+import { CurationModal } from "@/components/gallery/CurationModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
@@ -204,6 +205,11 @@ export default function EventPage({
   const activeSectionData = sections.find((s) => s.id === activeSection) ?? null;
   const isSlotSection = !!activeSectionData?.siteSceneKey?.startsWith("slot/");
   const [focalImageId, setFocalImageId] = useState<string | null>(null);
+  // Website curation modal (event/city/service/featured) — offered where the
+  // team curates the site: the TDP Website gallery or any website section.
+  const isWebsiteContext =
+    event?.event_type === "website" || !!activeSectionData?.siteSceneKey;
+  const [showCuration, setShowCuration] = useState(false);
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
 
@@ -1367,6 +1373,7 @@ export default function EventPage({
                     showFilenames={gridSettings?.showFilenames}
                     dndEnabled={dndEnabled}
                     onReorder={handleReorder}
+                    showFocalBadge={isSlotSection}
                   />
                 </>
               ) : (
@@ -1428,6 +1435,9 @@ export default function EventPage({
               ? () => setFocalImageId(selectedArray[0])
               : undefined
           }
+          onEditWebsiteDetails={
+            isWebsiteContext ? () => setShowCuration(true) : undefined
+          }
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           activeSection={activeSection}
           sidebarOffset={sidebarOpen ? 320 : 48}
@@ -1485,6 +1495,47 @@ export default function EventPage({
             />
           );
         })()}
+
+      {/* ─── Website curation details (event, city, service, featured) ─── */}
+      {showCuration && (
+        <CurationModal
+          images={allImages.filter((i) => selection.selectedIds.has(i.id))}
+          onClose={() => setShowCuration(false)}
+          onSaved={(result) => {
+            const ids = new Set(result.imageIds);
+            const eventUpdates = new Map(
+              result.eventUpdates.map((u) => [u.eventId, u])
+            );
+            setAllImages((prev) =>
+              prev.map((img) => {
+                let next = img;
+                if (ids.has(img.id)) {
+                  next = {
+                    ...next,
+                    ...(result.service !== undefined
+                      ? { service: result.service }
+                      : {}),
+                    ...(result.featured !== undefined
+                      ? { featured: result.featured }
+                      : {}),
+                  };
+                }
+                const evt = img.eventId
+                  ? eventUpdates.get(img.eventId)
+                  : undefined;
+                if (evt) {
+                  next = {
+                    ...next,
+                    ...(evt.name !== undefined ? { eventName: evt.name } : {}),
+                    ...(evt.city !== undefined ? { eventCity: evt.city } : {}),
+                  };
+                }
+                return next;
+              })
+            );
+          }}
+        />
+      )}
 
       {/* ─── Keyboard Shortcuts Help ─── */}
       {showShortcutsHelp && (

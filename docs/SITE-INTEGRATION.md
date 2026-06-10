@@ -89,6 +89,20 @@ event.
 3. **Focal point** (slot sections): select a single image in a slot section →
    crosshair icon in the toolbar → click the subject → Save. The site maps it
    to CSS `object-position` so art-directed crops keep the subject in frame.
+   When face detection finds a single confident subject, the marker is
+   pre-placed at eye level — saving is one click.
+4. **Website details** (captions/ordering metadata): select image(s) in the
+   TDP Website gallery or any website section → captions icon in the toolbar
+   → edit source-event name + city (event-level — applies to every photo from
+   that event), service, and the featured flag. Multi-select applies
+   service/featured to all selected; when the selection spans several source
+   events, city can be set for all of them at once.
+
+Defaults keep editing rare: `images.service` auto-fills from the scene on add,
+and images added to a **slot** section with no focal point get one auto-filled
+from face detection (exactly one confident face → eye-level point; written
+into null only, never over a manual pick or deliberate clear). Slot tiles show
+a small crosshair badge when their focal point is set.
 
 Curation metadata:
 

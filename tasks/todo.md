@@ -269,3 +269,50 @@ Design decisions:
 - [ ] Website repo follow-ups: consume focalX/focalY (object-position); UI gesture
       spot-check (globe → add → remove) next time someone is logged into the app
 - [ ] Later: drop deprecated images.site_scene + v1 partial index once v2 soaks
+
+## Phase 13: Website curation editor (toolbar panel + face auto-focal)
+Scope agreed 2026-06-09. Focal picker already shipped in v2 — this adds the
+metadata editor, defaults, and face-based auto-focal.
+- [x] scenes.ts: export canonical SITE_SERVICES list (derived from registry)
+- [x] lib/site/focal.ts (new): computeAutoFocal(faces) — exactly one face above
+      quality bar → eye-level point (bbox top + 35% h), else null; + unit tests
+- [x] PATCH /api/images/[imageId]: accept service (canonical slug|null) +
+      featured (boolean); GET returns service/featured/suggestedFocalX/Y
+- [x] PATCH /api/events/[eventId]: accept city
+- [x] GET /api/events/[eventId]: image payload + service/featured/eventId/
+      eventName/eventCity (join source event)
+- [x] membership.ts syncSitePublication: auto-fill focal for slot-scene images
+      with focal unset (writes into null only, never overwrites)
+- [x] types/image.ts: extend ImageData
+- [x] SelectionToolbar: onEditWebsiteDetails action (website context only)
+- [x] CurationModal (new): event name+city (event-level, multi-event → city-
+      only bulk), service select, featured tri-state toggle
+- [x] events/[eventId]/page.tsx: wire action + modal + local state update
+- [x] ImageGrid: focal-point corner dot on slot-section tiles (prop-gated)
+- [x] FocalPointModal: pre-place suggested focal from faces, with hint
+- [x] lint + vitest + next build (build before commit — main auto-deploys)
+- [x] Live E2E: edit via API → curl /api/site/scene/featured-work with
+      X-SPS-Key → fields reflect; slot auto-focal verified
+- [x] Commit atomically; confirm with Mason before push
+
+### Phase 13 review (2026-06-09)
+- Shipped: CurationModal (toolbar "Edit website details" — event name/city at
+  event level, service, featured; multi-select bulk incl. multi-event city),
+  PATCH images service/featured (validated vs SITE_SERVICES), PATCH events
+  city, event GET payload + ImageData carry service/featured/eventId/
+  eventName/eventCity, slot auto-focal in syncSitePublication via new
+  lib/site/focal.ts (one confident face → eye-level point, writes into null
+  only), FocalPointModal pre-places the face suggestion, crosshair badge on
+  slot tiles. Docs updated (SITE-INTEGRATION.md workflow steps 3–4).
+- Tests 91/91 (was 74): focal unit tests, membership auto-focal matrix,
+  images PATCH route tests. Lint warnings-only (pre-existing); build green.
+- LIVE E2E (scripts/verify-curation-e2e.ts, local dev API + prod DB,
+  self-restoring): hero pool city/service/featured edits reflected in
+  /api/site/scene + restored; slot add → real sync auto-filled focal 50/25.3,
+  slot winner untouched, fully restored.
+- FINDING: prod faces table is EMPTY and 0/4468 images have clip_embedding
+  despite status "complete" — AI pipeline results never persisted. Auto-focal
+  is dormant (degrades to no-op) until that's fixed; spawned a follow-up task.
+  Slot E2E used a seeded synthetic face row (removed in teardown).
+- UI gesture spot-check (toolbar → modal → save) still needs a logged-in
+  session, same as the v2 handoff note.

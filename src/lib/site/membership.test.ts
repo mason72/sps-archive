@@ -12,18 +12,28 @@ interface ImageRow {
   id: string;
   r2_key: string;
   service: string | null;
+  focal_x: number | null;
   site_published_at: string | null;
   thumbnail_generated: boolean;
 }
 
+interface FaceRow {
+  image_id: string;
+  bbox_x: number;
+  bbox_y: number;
+  bbox_w: number;
+  bbox_h: number;
+  quality: number;
+}
+
 /**
- * Minimal fake of the two reads + image update the sync performs. Captures
+ * Minimal fake of the reads + image update the sync performs. Captures
  * update payloads per image id for assertions.
  */
 function fakeSupabase(
   links: { image_id: string; sections: { site_scene_key: string } }[],
   images: ImageRow[],
-  opts: { updateError?: boolean } = {}
+  opts: { updateError?: boolean; faces?: FaceRow[] } = {}
 ) {
   const updates: Record<string, Record<string, unknown>> = {};
 
@@ -38,6 +48,7 @@ function fakeSupabase(
   const client = {
     from: (table: string) => {
       if (table === "section_images") return thenable(links);
+      if (table === "faces") return thenable(opts.faces ?? []);
       if (table === "images") {
         const b = thenable(images) as Record<string, unknown>;
         b.update = vi.fn((payload: Record<string, unknown>) => ({
@@ -62,8 +73,19 @@ const img = (overrides: Partial<ImageRow>): ImageRow => ({
   id: "img-1",
   r2_key: "events/e1/originals/a.jpg",
   service: null,
+  focal_x: null,
   site_published_at: null,
   thumbnail_generated: true,
+  ...overrides,
+});
+
+const face = (overrides: Partial<FaceRow> = {}): FaceRow => ({
+  image_id: "img-1",
+  bbox_x: 0.4,
+  bbox_y: 0.2,
+  bbox_w: 0.2,
+  bbox_h: 0.15,
+  quality: 0.6,
   ...overrides,
 });
 
@@ -167,6 +189,57 @@ describe("syncSitePublication", () => {
 
     expect(updates["img-1"]).toBeUndefined();
     expect(result.failed).toEqual(["img-1"]);
+  });
+
+  it("auto-fills the focal point for a slot-scene image with one confident face", async () => {
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "slot/slice-1" } }],
+      [img({})],
+      { faces: [face()] }
+    );
+
+    await syncSitePublication(client, ["img-1"]);
+
+    // Eye level: x = (0.4 + 0.2/2)*100 = 50; y = (0.2 + 0.15*0.35)*100 → 25.3
+    expect(updates["img-1"].focal_x).toBe(50);
+    expect(updates["img-1"].focal_y).toBe(25.3);
+  });
+
+  it("does not auto-fill focal for pool-only membership, even with a face", async () => {
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "hero" } }],
+      [img({})],
+      { faces: [face()] }
+    );
+
+    await syncSitePublication(client, ["img-1"]);
+
+    expect(updates["img-1"].focal_x).toBeUndefined();
+  });
+
+  it("never overwrites an existing focal point", async () => {
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "slot/slice-1" } }],
+      [img({ focal_x: 12 })],
+      { faces: [face()] }
+    );
+
+    await syncSitePublication(client, ["img-1"]);
+
+    expect(updates["img-1"].focal_x).toBeUndefined();
+    expect(updates["img-1"].focal_y).toBeUndefined();
+  });
+
+  it("skips auto-focal when several confident faces are present (needs a human)", async () => {
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "slot/slice-1" } }],
+      [img({})],
+      { faces: [face(), face({ bbox_x: 0.7 })] }
+    );
+
+    await syncSitePublication(client, ["img-1"]);
+
+    expect(updates["img-1"].focal_x).toBeUndefined();
   });
 
   it("is a no-op for an empty id list", async () => {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
+import { computeAutoFocal } from "@/lib/site/focal";
+import { SITE_SERVICES } from "@/lib/site/scenes";
 
 /**
  * GET /api/images/[imageId]
@@ -37,11 +39,20 @@ export async function GET(
     // JPEG/PNG/etc., or the 800px JPEG for non-renderable formats (TIFF).
     // Download always serves the raw original.
     const thumbKey = getThumbnailKey(image.r2_key);
-    const [thumbnailUrl, originalUrl, downloadUrl] = await Promise.all([
-      getPresignedDownloadUrl(thumbKey, 14400),
-      getPresignedDownloadUrl(getDisplayKey(image.r2_key), 14400),
-      getPresignedDownloadUrl(image.r2_key, 3600),
-    ]);
+    const [thumbnailUrl, originalUrl, downloadUrl, facesResult] =
+      await Promise.all([
+        getPresignedDownloadUrl(thumbKey, 14400),
+        getPresignedDownloadUrl(getDisplayKey(image.r2_key), 14400),
+        getPresignedDownloadUrl(image.r2_key, 3600),
+        supabase
+          .from("faces")
+          .select("bbox_x, bbox_y, bbox_w, bbox_h, quality")
+          .eq("image_id", imageId),
+      ]);
+
+    // Face-based focal suggestion (single confident subject, eye level) — the
+    // focal point picker pre-places its marker here when none is set yet.
+    const suggestedFocal = computeAutoFocal(facesResult.data ?? []);
 
     return NextResponse.json({
       id: image.id,
@@ -72,6 +83,10 @@ export async function GET(
       isEyesOpen: image.is_eyes_open,
       focalX: image.focal_x,
       focalY: image.focal_y,
+      service: image.service,
+      featured: image.featured ?? false,
+      suggestedFocalX: suggestedFocal?.x ?? null,
+      suggestedFocalY: suggestedFocal?.y ?? null,
     });
   } catch (error) {
     console.error("Get image detail error:", error);
@@ -90,9 +105,12 @@ function isValidFocal(v: unknown): v is number | null {
 /**
  * PATCH /api/images/[imageId]
  *
- * Update per-image curation fields. Currently: the focal point ({focalX,
- * focalY}, 0–100 percentages or null to clear) used by website slot scenes —
- * the site maps it to CSS object-position so crops keep the subject.
+ * Update per-image website curation fields:
+ *  - focalX/focalY — 0–100 percentages or null to clear; website slot scenes
+ *    map them to CSS object-position so crops keep the subject
+ *  - service — canonical service slug (scene registry) or null to clear;
+ *    the site's caption/filter field
+ *  - featured — pool scenes rank featured images first
  */
 export async function PATCH(
   request: NextRequest,
@@ -106,9 +124,12 @@ export async function PATCH(
     const body = (await request.json()) as {
       focalX?: number | null;
       focalY?: number | null;
+      service?: string | null;
+      featured?: boolean;
     };
 
-    if (!("focalX" in body) && !("focalY" in body)) {
+    const fields = ["focalX", "focalY", "service", "featured"] as const;
+    if (!fields.some((f) => f in body)) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
     if (
@@ -117,6 +138,22 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         { error: "focalX/focalY must be 0-100 or null" },
+        { status: 400 }
+      );
+    }
+    if (
+      "service" in body &&
+      body.service !== null &&
+      !SITE_SERVICES.includes(body.service as string)
+    ) {
+      return NextResponse.json(
+        { error: `service must be one of ${SITE_SERVICES.join(", ")} or null` },
+        { status: 400 }
+      );
+    }
+    if ("featured" in body && typeof body.featured !== "boolean") {
+      return NextResponse.json(
+        { error: "featured must be a boolean" },
         { status: 400 }
       );
     }
@@ -132,15 +169,17 @@ export async function PATCH(
       return NextResponse.json({ error: "Image not found" }, { status: 404 });
     }
 
-    const updates: Record<string, number | null> = {};
+    const updates: Record<string, number | string | boolean | null> = {};
     if ("focalX" in body) updates.focal_x = body.focalX ?? null;
     if ("focalY" in body) updates.focal_y = body.focalY ?? null;
+    if ("service" in body) updates.service = body.service ?? null;
+    if (typeof body.featured === "boolean") updates.featured = body.featured;
 
     const { data, error } = await supabase
       .from("images")
       .update(updates)
       .eq("id", imageId)
-      .select("id, focal_x, focal_y")
+      .select("id, focal_x, focal_y, service, featured")
       .single();
 
     if (error) {
@@ -151,6 +190,8 @@ export async function PATCH(
       id: data.id,
       focalX: data.focal_x,
       focalY: data.focal_y,
+      service: data.service,
+      featured: data.featured,
     });
   } catch (error) {
     console.error("Update image error:", error);

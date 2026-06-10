@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { toast } from "sonner";
@@ -33,20 +33,37 @@ export function FocalPointModal({
   const [focal, setFocal] = useState<{ x: number; y: number } | null>(initialFocal);
   const [displayUrl, setDisplayUrl] = useState<string>(thumbnailUrl);
   const [isSaving, setIsSaving] = useState(false);
+  // True while the marker shows the face-detection suggestion (not a pick).
+  const [isSuggestion, setIsSuggestion] = useState(false);
+  // Don't clobber a click the user already made while the detail loaded.
+  const userPickedRef = useRef(false);
 
   // Swap in the sharper display rendition once it's signed — picking a focal
-  // point on a 400px thumb is guesswork on detailed shots.
+  // point on a 400px thumb is guesswork on detailed shots. The same payload
+  // carries the face-based focal suggestion: when nothing is set yet, pre-place
+  // the marker on the detected subject so saving is one click.
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/images/${imageId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((detail) => {
-        if (!cancelled && detail?.originalUrl) setDisplayUrl(detail.originalUrl);
+        if (cancelled || !detail) return;
+        if (detail.originalUrl) setDisplayUrl(detail.originalUrl);
+        if (
+          !initialFocal &&
+          !userPickedRef.current &&
+          detail.suggestedFocalX != null &&
+          detail.suggestedFocalY != null
+        ) {
+          setIsSuggestion(true);
+          setFocal({ x: detail.suggestedFocalX, y: detail.suggestedFocalY });
+        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageId]);
 
   useEffect(() => {
@@ -61,6 +78,8 @@ export function FocalPointModal({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
+    userPickedRef.current = true;
+    setIsSuggestion(false);
     setFocal({
       x: Math.round(Math.min(100, Math.max(0, x)) * 10) / 10,
       y: Math.round(Math.min(100, Math.max(0, y)) * 10) / 10,
@@ -143,7 +162,11 @@ export function FocalPointModal({
 
         <div className="flex items-center justify-between px-5 py-3 border-t border-stone-100">
           <p className="text-[11px] text-stone-400 tabular-nums">
-            {focal ? `${focal.x}%, ${focal.y}%` : "Not set — crops center on the image"}
+            {focal
+              ? isSuggestion
+                ? `${focal.x}%, ${focal.y}% — suggested from face detection`
+                : `${focal.x}%, ${focal.y}%`
+              : "Not set — crops center on the image"}
           </p>
           <div className="flex items-center gap-2">
             {initialFocal && (

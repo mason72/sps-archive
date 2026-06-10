@@ -1,6 +1,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
+import { autoFocalForImages } from "./focal";
 import { publishImageToLane, unpublishImageFromLane } from "./publish";
-import { deriveServiceFromScene } from "./scenes";
+import { deriveServiceFromScene, isSlotScene } from "./scenes";
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
 
@@ -64,9 +65,24 @@ export async function syncSitePublication(
 
   const { data: images, error: imagesError } = await supabase
     .from("images")
-    .select("id, r2_key, service, site_published_at, thumbnail_generated")
+    .select(
+      "id, r2_key, service, focal_x, site_published_at, thumbnail_generated"
+    )
     .in("id", imageIds);
   if (imagesError) throw imagesError;
+
+  // Slot scenes are art-directed crops — if an image landing in one has no
+  // focal point yet, suggest one from its detected faces (single confident
+  // subject only). Writes into null exclusively; a manual pick or deliberate
+  // clear is never overwritten.
+  const focalCandidates = (images ?? [])
+    .filter(
+      (img) =>
+        img.focal_x === null &&
+        (scenesByImage.get(img.id) ?? []).some(isSlotScene)
+    )
+    .map((img) => img.id);
+  const autoFocal = await autoFocalForImages(supabase, focalCandidates);
 
   await Promise.all(
     (images ?? []).map(async (img) => {
@@ -86,6 +102,11 @@ export async function syncSitePublication(
               .map(deriveServiceFromScene)
               .find((s) => s !== null);
             if (implied) update.service = implied;
+          }
+          const focal = autoFocal.get(img.id);
+          if (focal) {
+            update.focal_x = focal.x;
+            update.focal_y = focal.y;
           }
           const { error } = await supabase
             .from("images")
