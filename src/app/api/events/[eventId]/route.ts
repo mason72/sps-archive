@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
+import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
 /**
  * GET /api/events/[eventId]
@@ -320,6 +321,18 @@ export async function PATCH(
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Name/city feed the site's captions for this event's published images —
+    // refresh the site cache iff any of its images are on the website.
+    if ("name" in updates || "city" in updates) {
+      const { data: published } = await supabase
+        .from("images")
+        .select("id")
+        .eq("event_id", eventId)
+        .not("site_published_at", "is", null)
+        .limit(1);
+      if (published?.length) scheduleSiteRevalidate();
     }
 
     return NextResponse.json({ event: data });

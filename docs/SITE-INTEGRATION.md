@@ -78,20 +78,20 @@ event.
 
 ## Team workflow
 
-1. Open any event, select images, click the **globe** icon in the selection
-   toolbar → pick a Pool or Slot. This adds them to that section of the TDP
-   Website gallery and publishes them. "Remove from website" pulls the
-   selection out of **every** website section (and unpublishes).
-2. Or work inside the TDP Website gallery directly: the normal section tools
-   (copy/move/remove, drag to reorder) all maintain publication automatically.
-   Drag order is the site's display order; in slot sections the first image is
-   THE image.
-3. **Focal point** (slot sections): select a single image in a slot section →
+1. Work inside the TDP Website gallery: upload (or copy) images in, then the
+   normal section tools (copy/move/remove, drag to reorder) maintain
+   publication automatically. Drag order is the site's display order; in slot
+   sections the first image is THE image. The **globe** icon in the selection
+   toolbar (website context only) pulls the selection out of **every** website
+   section and unpublishes it. (The old globe → "Add to website…" picker was
+   retired with the curation editor; `POST /api/site/gallery` still exists for
+   programmatic adds.)
+2. **Focal point** (slot sections): select a single image in a slot section →
    crosshair icon in the toolbar → click the subject → Save. The site maps it
    to CSS `object-position` so art-directed crops keep the subject in frame.
    When face detection finds a single confident subject, the marker is
    pre-placed at eye level — saving is one click.
-4. **Website details** (captions/ordering metadata): select image(s) in the
+3. **Website details** (captions/ordering metadata): select image(s) in the
    TDP Website gallery or any website section → captions icon in the toolbar
    → edit source-event name + city (event-level — applies to every photo from
    that event), service, and the featured flag. Multi-select applies
@@ -103,6 +103,14 @@ and images added to a **slot** section with no focal point get one auto-filled
 from face detection (exactly one confident face → eye-level point; written
 into null only, never over a manual pick or deliberate clear). Slot tiles show
 a small crosshair badge when their focal point is set.
+
+Edits go live on their own: every website-gallery mutation (membership,
+reorder, metadata, focal) pings the site's revalidate webhook (trailing 4s
+debounce, after the public-bucket copy completes), and the site refetches
+within ~60s. Configured via `TDP_SITE_REVALIDATE_URL` +
+`TDP_SITE_REVALIDATE_SECRET` (unset = silently skipped, e.g. dev). Mutations
+in client galleries never ping — the gate is website-section membership
+(`site_published_at` / `site_scene_key`) at each call site.
 
 Curation metadata:
 

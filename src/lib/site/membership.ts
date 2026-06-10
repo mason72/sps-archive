@@ -1,6 +1,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 import { autoFocalForImages } from "./focal";
 import { publishImageToLane, unpublishImageFromLane } from "./publish";
+import { scheduleSiteRevalidate } from "./revalidate";
 import { deriveServiceFromScene, isSlotScene } from "./scenes";
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
@@ -139,6 +140,13 @@ export async function syncSitePublication(
       }
     })
   );
+
+  // Website content changed — refresh the marketing site's cache. After the
+  // R2 work above, so the site never refetches an image that isn't publicly
+  // readable yet. (Failed images are retried by a later sync, which pings.)
+  if (result.published.length > 0 || result.unpublished.length > 0) {
+    scheduleSiteRevalidate();
+  }
 
   return result;
 }

@@ -517,34 +517,6 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
-  // Add selected images to a TDP Website gallery section. Membership IS
-  // publication: the server copies public variants to the marketing lane
-  // (sps-public); private galleries are untouched.
-  const handleAddToWebsite = useCallback(
-    async (sceneKey: string) => {
-      try {
-        const res = await fetch("/api/site/gallery", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: selectedArray, sceneKey }),
-        });
-        if (!res.ok) throw new Error("Add to website failed");
-        const data = await res.json();
-        deselectAll();
-        toast.success(
-          data.failed > 0
-            ? `Added ${data.added} to ${data.sceneLabel} — ${data.failed} failed to publish`
-            : `Added ${data.added} to ${data.sceneLabel} — live on the website gallery`
-        );
-        fetchEvent();
-      } catch (err) {
-        console.error("Add to website failed:", err);
-        toast.error("Failed to add to the website");
-      }
-    },
-    [selectedArray, deselectAll, fetchEvent]
-  );
-
   // Pull selected images out of EVERY website section (unpublishes them).
   const handleRemoveFromWebsite = useCallback(async () => {
     try {
@@ -1428,8 +1400,9 @@ export default function EventPage({
               ? () => handleSetCover(selectedArray[0])
               : undefined
           }
-          onAddToWebsite={handleAddToWebsite}
-          onRemoveFromWebsite={handleRemoveFromWebsite}
+          onRemoveFromWebsite={
+            isWebsiteContext ? handleRemoveFromWebsite : undefined
+          }
           onSetFocalPoint={
             selection.count === 1 && isSlotSection
               ? () => setFocalImageId(selectedArray[0])

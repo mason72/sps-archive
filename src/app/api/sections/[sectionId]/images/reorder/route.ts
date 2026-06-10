@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
 /**
  * PUT /api/sections/[sectionId]/images/reorder
@@ -31,7 +32,7 @@ export async function PUT(
     // Verify section ownership through the event chain (mirrors POST/DELETE).
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id")
+      .select("id, event_id, site_scene_key")
       .eq("id", sectionId)
       .single();
 
@@ -87,6 +88,10 @@ export async function PUT(
       .upsert(rows, { onConflict: "section_id,image_id" });
 
     if (error) throw error;
+
+    // Drag order is the site's display order (and picks slot winners) —
+    // refresh the site cache when a website section was rearranged.
+    if (section.site_scene_key) scheduleSiteRevalidate();
 
     return NextResponse.json({ reordered: true, count: rows.length });
   } catch (error) {

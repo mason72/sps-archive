@@ -316,3 +316,37 @@ metadata editor, defaults, and face-based auto-focal.
   Slot E2E used a seeded synthetic face row (removed in teardown).
 - UI gesture spot-check (toolbar → modal → save) still needs a logged-in
   session, same as the v2 handoff note.
+
+## Phase 14: Retire "Add to website" + auto-revalidate the TDP site
+Per Mason 2026-06-09 + tdp-website/tasks/pt-auto-revalidate-brief.md.
+- [x] SelectionToolbar: globe "Add to website…" picker removed (page handler +
+      POST call gone; POST /api/site/gallery kept for programmatic use).
+      "Remove from website" promoted to a standalone globe button, gated to
+      website context. NOTE: the picker was functional, not dead — removing it
+      means no UI path publishes images from a CLIENT event anymore; the
+      workflow is now upload/curate inside the TDP Website gallery.
+- [x] lib/site/revalidate.ts: scheduleSiteRevalidate() — env-gated
+      (TDP_SITE_REVALIDATE_URL/SECRET, silent skip when unset), trailing 4s
+      per-process debounce (later calls supersede), next/server after() keeps
+      the serverless fn alive (detached-promise fallback outside request
+      scope), warns on failure, never blocks the user action. Optional
+      TDP_SITE_REVALIDATE_BYPASS → x-vercel-protection-bypass header.
+- [x] Call sites (all gated to website content at the source):
+      syncSitePublication (only when publish/unpublish work happened — after
+      the R2 public-lane copy, per the brief's ordering rule), images PATCH
+      (only when site_published_at set), events PATCH (name/city, only when
+      the event has published images), section reorder (only site_scene_key
+      sections). Client-gallery mutations never ping.
+- [x] Tests 96/96 (revalidate: env-gating, trailing debounce, burst-collapse,
+      bypass header, warn-not-throw); lint clean; build green.
+- [x] LIVE: found REVALIDATE_SECRET was NEVER set in the tdp-website Vercel
+      project (deployed webhook always 401'd — the brief assumed it existed).
+      Added it via vercel CLI (production), redeployed tdp-website → webhook
+      now 200 {ok:true} w/ key, 401 w/o. Added TDP_SITE_REVALIDATE_URL/SECRET
+      to pixeltrunk production env (applies on next deploy). Live demo: 5
+      rapid schedules → exactly 1 ping → HTTP 200. E2E driver re-run: ALL PASS.
+- [x] Caveat: tdp-website intermittently served a Vercel bot-challenge (403)
+      to non-browser requests earlier in the session. If prod pings start
+      logging 403, enable "Protection Bypass for Automation" on tdp-website
+      and set TDP_SITE_REVALIDATE_BYPASS in pixeltrunk — code already sends
+      the header.

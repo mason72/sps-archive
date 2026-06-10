@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
 import { computeAutoFocal } from "@/lib/site/focal";
+import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 import { SITE_SERVICES } from "@/lib/site/scenes";
 
 /**
@@ -179,12 +180,16 @@ export async function PATCH(
       .from("images")
       .update(updates)
       .eq("id", imageId)
-      .select("id, focal_x, focal_y, service, featured")
+      .select("id, focal_x, focal_y, service, featured, site_published_at")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // All PATCHable fields here render on the marketing site — refresh its
+    // cache, but only for published images (= in a website section).
+    if (data.site_published_at) scheduleSiteRevalidate();
 
     return NextResponse.json({
       id: data.id,
