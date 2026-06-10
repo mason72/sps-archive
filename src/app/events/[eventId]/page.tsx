@@ -528,25 +528,6 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
-  // Pull selected images out of EVERY website section (unpublishes them).
-  const handleRemoveFromWebsite = useCallback(async () => {
-    try {
-      const res = await fetch("/api/site/gallery", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: selectedArray }),
-      });
-      if (!res.ok) throw new Error("Remove from website failed");
-      const data = await res.json();
-      deselectAll();
-      toast.success(`Removed ${data.removed} from the website`);
-      fetchEvent();
-    } catch (err) {
-      console.error("Remove from website failed:", err);
-      toast.error("Failed to remove from the website");
-    }
-  }, [selectedArray, deselectAll, fetchEvent]);
-
   const handleBatchDownload = useCallback(async () => {
     const selectedImages = images.filter((img) => selectedIds.has(img.id));
     // Originals aren't in the list payload anymore — fetch each image's signed
@@ -1411,8 +1392,10 @@ export default function EventPage({
               ? () => handleSetCover(selectedArray[0])
               : undefined
           }
-          onRemoveFromWebsite={
-            isWebsiteContext ? handleRemoveFromWebsite : undefined
+          deleteHint={
+            isWebsiteContext
+              ? "Deletes the original photo from its source event — everywhere, not just the site. To take it off the website, use Remove from section instead."
+              : undefined
           }
           onSetFocalPoint={
             selection.count === 1 && isSlotSection

@@ -81,11 +81,14 @@ event.
 1. Work inside the TDP Website gallery: upload (or copy) images in, then the
    normal section tools (copy/move/remove, drag to reorder) maintain
    publication automatically. Drag order is the site's display order; in slot
-   sections the first image is THE image. The **globe** icon in the selection
-   toolbar (website context only) pulls the selection out of **every** website
-   section and unpublishes it. (The old globe → "Add to website…" picker was
-   retired with the curation editor; `POST /api/site/gallery` still exists for
-   programmatic adds.)
+   sections the first image is THE image. **Remove from section** is also how
+   an image comes OFF the site — leaving its last website section deletes the
+   public copies. There is no separate website gesture anymore (the v1 globe
+   tag picker and its v2 "remove from website" successor are both retired;
+   `POST`/`DELETE /api/site/gallery` remain for programmatic use). **Careful
+   with the trash icon here:** website sections reference the ORIGINAL photos
+   in their source events, so Delete removes the photo everywhere, not just
+   from the site — the confirm step calls this out.
 2. **Focal point** (slot sections): select a single image in a slot section →
    crosshair icon in the toolbar → click the subject → Save. The site maps it
    to CSS `object-position` so art-directed crops keep the subject in frame.
@@ -186,9 +189,10 @@ not expire.
 
 ### Team-facing: `POST` / `DELETE` / `GET /api/site/gallery`
 
-Used by the globe gesture (logged-in users only). `POST {sceneKey, imageIds}`
-adds to a scene's section and publishes; `DELETE {imageIds}` removes from every
-website section and unpublishes; `GET` returns the gallery's event id.
+Programmatic curation (logged-in users only — no UI uses these anymore).
+`POST {sceneKey, imageIds}` adds to a scene's section and publishes;
+`DELETE {imageIds}` removes from every website section and unpublishes;
+`GET` returns the gallery's event id.
 
 ## Environment variables
 
@@ -222,11 +226,12 @@ launch, revisit for high traffic.)
    `images.focal_x/focal_y`, scaffolds the TDP Website gallery, and migrates
    all v1 `site_scene` tags into section membership (publication state is
    preserved — already-published images stay live with no R2 churn).
-2. In the app, select an image in any event → globe → e.g. **Photo Booth**.
+2. In the app, copy an image into a TDP Website gallery section (e.g. **Photo
+   Booth**) via the section tools, or `POST /api/site/gallery`.
 3. `curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" .../api/site/scene/service/photo-booth`
    → expect the image, with source event/city and `focalX/focalY: null`.
 4. `curl -I` a returned `fullUrl` → `HTTP 200`, no auth.
 5. Set a focal point on a slot image (slot section → select → crosshair) →
    re-curl that `slot/*` scene → `focalX`/`focalY` populated, `count: 1`.
-6. Remove the image from the website (globe → Remove from website) → re-curl →
-   gone, and the `fullUrl` from step 4 now `404`s.
+6. Remove the image from its website section(s) → re-curl → gone, and the
+   `fullUrl` from step 4 now `404`s.

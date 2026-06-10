@@ -14,7 +14,6 @@ import {
   X,
   Check,
   Image as ImageIcon,
-  Globe,
   Crosshair,
   Captions,
 } from "lucide-react";
@@ -37,8 +36,12 @@ interface SelectionToolbarProps {
   onRename?: (pattern: string) => void;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
-  /** Pull selected images out of every website section (unpublishes them). */
-  onRemoveFromWebsite?: () => void;
+  /**
+   * Shown above the delete confirm. Used in website context, where the photos
+   * are the ORIGINALS from client events — delete removes them everywhere,
+   * which is rarely what "take it off the site" means.
+   */
+  deleteHint?: string;
   /** Pick the focal point of the single selected slot-section image. */
   onSetFocalPoint?: () => void;
   /** Edit website curation details (event, city, service, featured). */
@@ -66,7 +69,7 @@ export function SelectionToolbar({
   onRemoveFromSection,
   onRename,
   onSetCover,
-  onRemoveFromWebsite,
+  deleteHint,
   onSetFocalPoint,
   onEditWebsiteDetails,
   sections = [],
@@ -358,19 +361,15 @@ export function SelectionToolbar({
             />
           )}
 
-          {/* Pull the selection out of every website section (unpublishes) */}
-          {onRemoveFromWebsite && (
-            <ToolbarButton
-              icon={<Globe className="h-4 w-4" />}
-              label="Remove from website"
-              onClick={onRemoveFromWebsite}
-            />
-          )}
-
           <div className="w-px h-4 bg-stone-200" />
 
           {showDeleteConfirm ? (
-            <div className="flex items-center gap-1">
+            <div className="relative flex items-center gap-1">
+              {deleteHint && (
+                <div className="absolute bottom-full mb-3 right-0 w-[260px] bg-white text-stone-600 shadow-xl border border-stone-200 px-3 py-2 text-[12px] leading-relaxed scale-in">
+                  {deleteHint}
+                </div>
+              )}
               <button
                 onClick={handleDelete}
                 disabled={isDeleting}
