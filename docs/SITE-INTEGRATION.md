@@ -100,11 +100,13 @@ event.
    There is no separate website gesture anymore (the v1 globe tag picker and
    its v2 "remove from website" successor are both retired;
    `POST`/`DELETE /api/site/gallery` remain for programmatic use).
-3. **Focal point** (slot sections): select a single image in a slot section →
-   crosshair icon in the toolbar → click the subject → Save. The site maps it
-   to CSS `object-position` so art-directed crops keep the subject in frame.
-   When face detection finds a single confident subject, the marker is
-   pre-placed at eye level — saving is one click.
+3. **Focal point** (any website section): select a single image → crosshair
+   icon in the toolbar → click the subject → Save. The site maps it to CSS
+   `object-position` and crops focal-aware everywhere (hero, story, values,
+   benefits, quote — not just slots), so set it on anything that will be
+   cropped tight. When face detection finds a single confident subject, the
+   marker is pre-placed at eye level — saving is one click. (Face-based
+   AUTO-fill on add remains slot-only.)
 4. **Website details** (captions/ordering metadata): select image(s) in the
    TDP Website gallery or any website section → captions icon in the toolbar
    → edit source-event name + city (event-level — applies to every photo from

@@ -1350,7 +1350,7 @@ export default function EventPage({
                     showFilenames={gridSettings?.showFilenames}
                     dndEnabled={dndEnabled}
                     onReorder={handleReorder}
-                    showFocalBadge={isSlotSection}
+                    showFocalBadge={!!activeSectionData?.siteSceneKey}
                   />
                 </>
               ) : (
@@ -1412,7 +1412,9 @@ export default function EventPage({
               : "Permanently deletes the selected photos from your archive."
           }
           onSetFocalPoint={
-            selection.count === 1 && isSlotSection
+            // Any website section: the site crops focal-aware everywhere
+            // (hero, story, values, benefits, quote — not just slots).
+            selection.count === 1 && activeSectionData?.siteSceneKey
               ? () => setFocalImageId(selectedArray[0])
               : undefined
           }

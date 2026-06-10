@@ -9,8 +9,11 @@ Two kinds of section:
 - **Pools** — the site picks a rotating subset automatically (count/cadence
   noted below; featured images always make the cut first).
 - **Slots** — exactly ONE image is used: whichever is **first in the
-  section's drag order**. Extras are ignored. Set a focal point on slot
-  images (select → crosshair icon) so crops keep the subject.
+  section's drag order**. Extras are ignored.
+
+You can set a **focal point** on any image in any website section (select one
+→ crosshair icon → click the subject): the site crops focal-aware everywhere,
+so it's most important wherever the layout crops tight — slots especially.
 
 ## Pools (rotating sets)
 
