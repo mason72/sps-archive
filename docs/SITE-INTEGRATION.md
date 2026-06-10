@@ -98,8 +98,11 @@ X-SPS-Key: <SPS_INTEGRATION_KEY>
 ```
 
 The website is responsible for rotation/selection — it gets the full curated set
-and rotates client-side. The response is cacheable
-(`Cache-Control: public, max-age=60, s-maxage=300`).
+and rotates client-side. The response is cacheable by the authenticated consumer
+only (`Cache-Control: private, max-age=300`). It must never be `public` /
+`s-maxage`: shared caches (Vercel's edge CDN) don't key on `X-SPS-Key`, so a
+shared-cacheable 200 would be served to unauthenticated requests, silently
+bypassing the 401 contract.
 
 **Example:**
 

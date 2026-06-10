@@ -82,8 +82,11 @@ export async function GET(
 
     return NextResponse.json(
       { scene: sceneKey, count: images.length, images },
-      // Public, cacheable response — the site can cache and revalidate.
-      { headers: { "Cache-Control": "public, max-age=60, s-maxage=300" } }
+      // `private` is load-bearing: with `public, s-maxage`, Vercel's edge cache
+      // (which ignores X-SPS-Key in its cache key) served the authenticated
+      // site's 200 to unauthenticated requests, bypassing the 401 above. The
+      // authenticated consumer may cache locally; shared caches must not store.
+      { headers: { "Cache-Control": "private, max-age=300" } }
     );
   } catch (err) {
     console.error("Site scene error:", err);
