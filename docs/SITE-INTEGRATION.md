@@ -46,11 +46,15 @@ Sections hold **references to the original images in their source events**
 Featured Work captions: `event` name and `city` come from the image's home
 event.
 
-### Two kinds of section
+### Three kinds of section
 
 - **Pool** (rotating grids): the site gets the whole curated set and
   rotates/selects on its own. Ordering: `featured` first, then the section's
   drag order, then newest.
+- **Ordered** (position-mapped sets — benefits strips, story, about, quote):
+  image N fills position N on the page, so the API returns **exact drag
+  order** — no featured boost, no rotation. The registry's `positions` says
+  how many the page uses; the editor hints when a section holds extras.
 - **Slot** (`slot/*` — explicit single-image positions): the **first image by
   drag order wins** and is the only one the API returns. Extras are ignored
   (the editor shows a hint when a slot section holds more than one image).
@@ -75,6 +79,10 @@ event.
 | `service/drop-in-sessions` | pool | `drop-in-sessions` |
 | `slot/slice-1` … `slot/slice-6` | slot | the slice's service |
 | `slot/hero/{service-slug}` (all 8 services) | slot | that service |
+| `benefits/{service-slug}` (7 services, no environmental-portraits) | ordered ×6 | that service |
+| `story` | ordered ×3 | — |
+| `about-values` | ordered ×4 | — |
+| `quote` | ordered ×2 | — |
 
 ## Team workflow
 

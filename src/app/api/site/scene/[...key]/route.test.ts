@@ -141,6 +141,23 @@ describe("GET /api/site/scene/[...key]", () => {
     expect(body.images[1].focalY).toBeNull();
   });
 
+  it("returns ordered scenes in exact drag order — featured does not jump the queue", async () => {
+    const res = await GET(
+      makeRequest({ "x-sps-key": TEST_KEY }),
+      makeParams(["benefits", "photo-booth"])
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Position-mapped: image N fills position N, so a featured boost would
+    // scramble the page. img-b (drag order 0) must come first even though
+    // img-a is featured — and nothing is truncated.
+    expect(body.count).toBe(2);
+    expect(body.images.map((i: { id: string }) => i.id)).toEqual([
+      "img-b",
+      "img-a",
+    ]);
+  });
+
   it("returns only the first image (by drag order) for slot scenes", async () => {
     const res = await GET(
       makeRequest({ "x-sps-key": TEST_KEY }),

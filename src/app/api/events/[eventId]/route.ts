@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
+import { ensureWebsiteSections } from "@/lib/site/gallery";
 import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
 /**
@@ -34,6 +35,18 @@ export async function GET(
         { error: "Event not found" },
         { status: 404 }
       );
+    }
+
+    // 1b. The TDP Website gallery materializes newly registered scenes on
+    // open (idempotent; one indexed read when complete). With the globe
+    // picker retired, this is the path that keeps "adding a scene is a
+    // one-line registry change" true.
+    if ((event.settings as Record<string, unknown> | null)?.website === true) {
+      try {
+        await ensureWebsiteSections(supabase, event.id);
+      } catch (err) {
+        console.error("Website section scaffold failed:", err);
+      }
     }
 
     // 2. Fetch ALL images for this event (paginated — Supabase defaults to 1000)

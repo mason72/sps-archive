@@ -7,8 +7,11 @@
  * section IS publication. Open the gallery and you see the entire site's
  * imagery organized by where it appears; no per-image tags to backtrace.
  *
- * Two kinds of scene:
+ * Three kinds of scene:
  *  - pool: a rotating grid — the site picks a subset (featured-first) on its own
+ *  - ordered: a position-mapped set — the site assigns image N to position N,
+ *    so the API returns EXACT drag order (no featured boost, no rotation);
+ *    `positions` says how many the page uses (extras are ignored)
  *  - slot: an explicit single-image position — the FIRST image by the section's
  *    drag order (section_images.sort_order) wins; extras are ignored
  *
@@ -17,14 +20,14 @@
  * the section is scaffolded automatically — no migration required.
  */
 
-export type SceneKind = "pool" | "slot";
+export type SceneKind = "pool" | "ordered" | "slot";
 
 export interface SceneDef {
   /** Stable key stored in sections.site_scene_key and used in the API path. */
   key: string;
   /** Human label — also the scaffolded section's name in the website gallery. */
   label: string;
-  /** Rotating grid (pool) or explicit single-image assignment (slot). */
+  /** Rotating grid (pool), position-mapped set (ordered), or single image (slot). */
   kind: SceneKind;
   /**
    * Service this scene implies, if any. Used to auto-fill images.service when
@@ -32,6 +35,11 @@ export interface SceneDef {
    * fallback for the API's `service` caption field.
    */
   service?: string;
+  /**
+   * For `ordered` scenes: how many positions the page maps (drag position 1
+   * fills position 1, …). Drives the editor's "extras are ignored" hint.
+   */
+  positions?: number;
 }
 
 /**
@@ -71,6 +79,18 @@ export const SITE_SCENES: SceneDef[] = [
   { key: "slot/hero/environmental-portraits", label: "Hero — Environmental Portraits", kind: "slot", service: "environmental-portraits" },
   { key: "slot/hero/office-headshots", label: "Hero — Office Headshots", kind: "slot", service: "office-headshots" },
   { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", service: "drop-in-sessions" },
+
+  // ── Ordered: position-mapped page sets (image N → position N) ────────────
+  { key: "benefits/headshot-booth", label: "Benefits — Headshot Booth", kind: "ordered", service: "headshot-booth", positions: 6 },
+  { key: "benefits/photo-booth", label: "Benefits — Photo Booth", kind: "ordered", service: "photo-booth", positions: 6 },
+  { key: "benefits/anti-booth", label: "Benefits — Anti-Booth", kind: "ordered", service: "anti-booth", positions: 6 },
+  { key: "benefits/event-photography", label: "Benefits — Event Photography", kind: "ordered", service: "event-photography", positions: 6 },
+  { key: "benefits/video", label: "Benefits — Video", kind: "ordered", service: "video", positions: 6 },
+  { key: "benefits/office-headshots", label: "Benefits — Office Headshots", kind: "ordered", service: "office-headshots", positions: 6 },
+  { key: "benefits/drop-in-sessions", label: "Benefits — Drop-In Sessions", kind: "ordered", service: "drop-in-sessions", positions: 6 },
+  { key: "story", label: "Story / Crew", kind: "ordered", positions: 3 },
+  { key: "about-values", label: "About — Values", kind: "ordered", positions: 4 },
+  { key: "quote", label: "Quote Page", kind: "ordered", positions: 2 },
 ];
 
 const SCENES_BY_KEY = new Map(SITE_SCENES.map((s) => [s.key, s]));

@@ -107,10 +107,35 @@ describe("SITE_SCENES registry", () => {
         "office-headshots",
         "drop-in-sessions",
       ].map((slug) => `slot/hero/${slug}`),
+      ...[
+        "headshot-booth",
+        "photo-booth",
+        "anti-booth",
+        "event-photography",
+        "video",
+        "office-headshots",
+        "drop-in-sessions",
+      ].map((slug) => `benefits/${slug}`),
+      "story",
+      "about-values",
+      "quote",
     ];
     for (const key of required) {
       expect(isValidScene(key), `missing scene: ${key}`).toBe(true);
     }
+  });
+
+  it("ordered scenes declare their position count", () => {
+    const ordered = SITE_SCENES.filter((s) => s.kind === "ordered");
+    expect(ordered.length).toBeGreaterThanOrEqual(10);
+    for (const s of ordered) {
+      expect(s.positions, `${s.key} needs positions`).toBeGreaterThan(0);
+    }
+    // The page layouts these map to:
+    expect(sceneForKey("benefits/video")?.positions).toBe(6);
+    expect(sceneForKey("story")?.positions).toBe(3);
+    expect(sceneForKey("about-values")?.positions).toBe(4);
+    expect(sceneForKey("quote")?.positions).toBe(2);
   });
 
   it("exposes registry entries via sceneForKey", () => {

@@ -13,6 +13,7 @@ import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { FocalPointModal } from "@/components/gallery/FocalPointModal";
+import { sceneForKey } from "@/lib/site/scenes";
 import { CurationModal } from "@/components/gallery/CurationModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
@@ -211,10 +212,13 @@ export default function EventPage({
   // once sections exist, so uploads can never become orphans.
   const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
 
-  // Active website SLOT section (slot/* — explicit single-image positions):
-  // enables the focal-point action and the "first image wins" hint.
+  // Active website section's registry entry: drives the focal-point action
+  // (slots) and the "extras are ignored" hints (slots + position-mapped).
   const activeSectionData = sections.find((s) => s.id === activeSection) ?? null;
-  const isSlotSection = !!activeSectionData?.siteSceneKey?.startsWith("slot/");
+  const activeScene = activeSectionData?.siteSceneKey
+    ? sceneForKey(activeSectionData.siteSceneKey)
+    : undefined;
+  const isSlotSection = activeScene?.kind === "slot";
   const [focalImageId, setFocalImageId] = useState<string | null>(null);
   // Website curation modal (event/city/service/featured) — offered where the
   // team curates the site: the TDP Website gallery or any website section.
@@ -1301,6 +1305,15 @@ export default function EventPage({
                   your pick to the front; extras are ignored.
                 </p>
               )}
+              {activeScene?.kind === "ordered" &&
+                activeScene.positions !== undefined &&
+                (activeSectionData?.imageCount ?? 0) > activeScene.positions && (
+                  <p className="mb-3 text-[12px] text-amber-600">
+                    Position-mapped — the website shows the first{" "}
+                    {activeScene.positions} photos in drag order, one per spot;
+                    extras are ignored.
+                  </p>
+                )}
               {viewMode === "grid" ? (
                 <>
                   {(dndEnabled || manualMode) && (

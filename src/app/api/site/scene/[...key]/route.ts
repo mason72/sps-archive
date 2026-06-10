@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifySharedSecret } from "@/lib/sps-integration/auth";
-import { isValidScene, isSlotScene, deriveServiceFromScene } from "@/lib/site/scenes";
+import { isValidScene, sceneForKey, deriveServiceFromScene } from "@/lib/site/scenes";
 import { getPublicLaneUrl } from "@/lib/r2/public-lane";
 import { publicLaneKeys } from "@/lib/site/publish";
 
@@ -101,19 +101,20 @@ export async function GET(
       rows = (data ?? []) as unknown as SceneRow[];
     }
 
-    // Pool: featured first, then the team's drag order, then newest-first as a
-    // stable tiebreak. Slot: drag order only — first image wins, extras are
-    // ignored (curated sets are small, so sorting here beats a PostgREST
-    // order-by-embedded-column dependency).
-    const slot = isSlotScene(sceneKey);
+    // Pool: featured first, then the team's drag order, then newest-first as
+    // a stable tiebreak. Ordered (position-mapped) + slot: exact drag order —
+    // a featured boost would scramble positions. Slot additionally returns
+    // only the winner. (Curated sets are small, so sorting here beats a
+    // PostgREST order-by-embedded-column dependency.)
+    const kind = sceneForKey(sceneKey)?.kind ?? "pool";
     rows.sort((a, b) => {
-      if (!slot && a.images.featured !== b.images.featured) {
+      if (kind === "pool" && a.images.featured !== b.images.featured) {
         return a.images.featured ? -1 : 1;
       }
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       return b.images.created_at.localeCompare(a.images.created_at);
     });
-    if (slot) rows = rows.slice(0, 1);
+    if (kind === "slot") rows = rows.slice(0, 1);
 
     const sceneService = deriveServiceFromScene(sceneKey);
     const images = rows.map(({ images: img }) => {

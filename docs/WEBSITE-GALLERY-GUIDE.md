@@ -47,6 +47,24 @@ The six angled "slices" across the homepage, one per service, in row order:
 Slices are tall, narrow, angled crops — pick images that survive an aggressive
 vertical crop and always set the focal point.
 
+## Position-mapped sets (drag order = page position)
+
+These aren't rotations — the site places your **first photo in spot 1, second
+in spot 2,** and so on. Drag to arrange; photos beyond the count are ignored.
+
+| Section | What it feeds |
+|---|---|
+| **Benefits — Headshot Booth** | The 6 benefit images on the Headshot Booth page, in order. |
+| **Benefits — Photo Booth** | Same, Photo Booth page (6). |
+| **Benefits — Anti-Booth** | Same, Anti-Booth page (6). |
+| **Benefits — Event Photography** | Same, Event Photography page (6). |
+| **Benefits — Video** | Same, Video page (6). |
+| **Benefits — Office Headshots** | Same, Office Headshots page (6). |
+| **Benefits — Drop-In Sessions** | Same, Drop-In Sessions page (6). |
+| **Story / Crew** | The 3 story/crew images on the About page, in order. |
+| **About — Values** | The 4 values images on the About page, in order. |
+| **Quote Page** | The 2 images on the quote/booking page, in order. |
+
 ## Slots — service-page heroes (one image each)
 
 The full-width banner at the top of each service page:

@@ -46,11 +46,26 @@ export async function getOrCreateWebsiteGallery(
     gallery = created;
   }
 
-  // Scaffold any registry scenes that don't have a section yet.
+  await ensureWebsiteSections(supabase, gallery.id);
+
+  return { id: gallery.id };
+}
+
+/**
+ * Scaffold any registry scenes that don't have a section yet. Idempotent and
+ * cheap when complete (one indexed read). Called when the website gallery is
+ * created AND every time it's opened in the editor — since the globe picker
+ * was retired this is what materializes newly registered scenes, keeping
+ * "adding a scene is a one-line change" true.
+ */
+export async function ensureWebsiteSections(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<void> {
   const { data: existing, error: sectionsError } = await supabase
     .from("sections")
     .select("site_scene_key")
-    .eq("event_id", gallery.id)
+    .eq("event_id", eventId)
     .not("site_scene_key", "is", null);
   if (sectionsError) throw sectionsError;
 
@@ -62,7 +77,7 @@ export async function getOrCreateWebsiteGallery(
   if (missing.length > 0) {
     const { error: insertError } = await supabase.from("sections").insert(
       missing.map(({ scene, i }) => ({
-        event_id: gallery.id,
+        event_id: eventId,
         name: scene.label,
         // Registry order = section order in the gallery sidebar.
         sort_order: i,
@@ -72,8 +87,6 @@ export async function getOrCreateWebsiteGallery(
     );
     if (insertError) throw insertError;
   }
-
-  return { id: gallery.id };
 }
 
 /**
