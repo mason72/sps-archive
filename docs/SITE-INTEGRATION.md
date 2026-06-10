@@ -1,63 +1,109 @@
-# Site Integration — Public Marketing Lane
+# Site Integration — Public Marketing Lane (v2: the "TDP Website" gallery)
 
-How the **Two Dudes Photo** marketing website pulls rotating, curated imagery
-that the team manages inside Pixeltrunk — without ever exposing private client
-galleries.
+How the **Two Dudes Photo** marketing website pulls curated imagery the team
+manages inside Pixeltrunk — without ever exposing private client galleries.
+
+> **v2 (2026-06-09).** The v1 per-image `site_scene` tag model was retired —
+> tags were write-easy but read-impossible ("can't backtrace what's assigned
+> where"). The site is now **one dedicated gallery whose sections ARE the
+> site**: open the TDP Website gallery and you see the entire site's imagery,
+> organized by where it appears. **Membership = publication.** The site-facing
+> API contract is unchanged (plus `focalX`/`focalY`).
 
 ## Mental model: two lanes
 
 | | Private client galleries | Public marketing lane |
 |---|---|---|
 | Bucket | `sps-prism` (private) | `sps-public` (public) |
-| URLs | Per-request **presigned**, 4h expiry | **Public, non-expiring** via `cdn.pixeltrunk.com` |
+| URLs | Per-request **presigned**, 4h expiry | **Public, non-expiring** via `R2_PUBLIC_LANE_URL` |
 | Who sees it | Anyone with the share slug | Anyone (it's a public website) |
-| What's in it | Every client's photos | **Only** images tagged into a website scene |
+| What's in it | Every client's photos | **Only** images in a TDP Website gallery section |
 
 The two lanes are independent. Client-gallery sharing (permanent slug links +
 presigned image URLs) is unchanged. An image becomes publicly reachable **only**
-when a team member explicitly tags it into a scene — at which point its display
-and thumbnail variants are copied into `sps-public`. Untag it and those copies
-are removed.
+when a team member adds it to a section of the website gallery — at which point
+its display and thumbnail variants are copied into `sps-public` and
+`site_published_at` is stamped. Remove it from its last website section and the
+public copies are deleted. Deleting the image outright also cleans up its
+public copies.
 
-We never publish the raw full-resolution original to the public bucket — only the
-`thumb-md` (400px) and the display variant (the web-viewable original for
+We never publish the raw full-resolution original to the public bucket — only
+the `thumb-md` (400px) and the display variant (the web-viewable original for
 JPEG/PNG, or the 800px `thumb-lg` for non-web formats like TIFF).
 
-## Scene keys
+## The TDP Website gallery
 
-A "scene" is a named slot on the website. Source of truth:
-[`src/lib/site/scenes.ts`](../src/lib/site/scenes.ts).
+A regular Pixeltrunk event (slug `tdp-website`, `settings.website = true`)
+whose sections are the site's content slots. Each website section carries a
+`sections.site_scene_key` matching the registry in
+[`src/lib/site/scenes.ts`](../src/lib/site/scenes.ts) — the single source of
+truth. The gallery and any missing sections are scaffolded automatically on
+first use; **adding a scene is a one-line registry change, no migration**
+(coordinate with the website's `src/lib/scenes.ts`).
 
-| Key | Implied `service` |
-|---|---|
-| `hero` | — |
-| `featured-work` | — |
-| `backgrounds` | — |
-| `service/headshot-booth` | `headshot-booth` |
-| `service/photo-booth` | `photo-booth` |
-| `service/anti-booth` | `anti-booth` |
-| `service/event-photography` | `event-photography` |
-| `service/video` | `video` |
-| `service/environmental-portraits` | `environmental-portraits` |
+Sections hold **references to the original images in their source events**
+(cross-event membership, zero copies). That source pointer is what powers
+Featured Work captions: `event` name and `city` come from the image's home
+event.
 
-Adding a scene is a one-line change to that file — no migration needed.
+### Two kinds of section
 
-## Tagging images into a scene (team workflow)
+- **Pool** (rotating grids): the site gets the whole curated set and
+  rotates/selects on its own. Ordering: `featured` first, then the section's
+  drag order, then newest.
+- **Slot** (`slot/*` — explicit single-image positions): the **first image by
+  drag order wins** and is the only one the API returns. Extras are ignored
+  (the editor shows a hint when a slot section holds more than one image).
 
-1. Open an event in Pixeltrunk and select one or more images.
-2. In the selection toolbar (bottom bar), click the **globe** icon → **Add to
-   website scene** → pick a scene. "Remove from website" untags.
-3. Tagging copies the public variants into `sps-public` and stamps
-   `site_published_at`. For `service/*` scenes the image's `service` is
-   auto-filled from the scene.
+### Scene keys
 
-Curation metadata (single source of truth, per image unless noted):
+| Key | Kind | Implied `service` |
+|---|---|---|
+| `hero` | pool | — |
+| `featured-work` | pool | — |
+| `backgrounds` | pool | — |
+| `service/headshot-booth` | pool | `headshot-booth` |
+| `service/photo-booth` | pool | `photo-booth` |
+| `photo-booth/overhead` | pool | `photo-booth` |
+| `photo-booth/bw-glam` | pool | `photo-booth` |
+| `photo-booth/custom-sets` | pool | `photo-booth` |
+| `service/anti-booth` | pool | `anti-booth` |
+| `service/event-photography` | pool | `event-photography` |
+| `service/video` | pool | `video` |
+| `service/environmental-portraits` | pool | `environmental-portraits` |
+| `service/office-headshots` | pool | `office-headshots` |
+| `service/drop-in-sessions` | pool | `drop-in-sessions` |
+| `slot/slice-1` … `slot/slice-6` | slot | the slice's service |
+| `slot/hero/{service-slug}` (all 8 services) | slot | that service |
 
-- `images.site_scene` — which scene (null = not on the site)
-- `images.service` — auto-derived from `service/*` scenes, or set manually
-- `images.featured` — boolean; featured images sort first in the API
-- `images.display_order` — manual ordering within a scene (ascending)
-- `events.city` — the city, read per-image via the event (for "Recent Work")
+## Team workflow
+
+1. Open any event, select images, click the **globe** icon in the selection
+   toolbar → pick a Pool or Slot. This adds them to that section of the TDP
+   Website gallery and publishes them. "Remove from website" pulls the
+   selection out of **every** website section (and unpublishes).
+2. Or work inside the TDP Website gallery directly: the normal section tools
+   (copy/move/remove, drag to reorder) all maintain publication automatically.
+   Drag order is the site's display order; in slot sections the first image is
+   THE image.
+3. **Focal point** (slot sections): select a single image in a slot section →
+   crosshair icon in the toolbar → click the subject → Save. The site maps it
+   to CSS `object-position` so art-directed crops keep the subject in frame.
+
+Curation metadata:
+
+- `sections.site_scene_key` — which scene a website section feeds
+- `section_images.sort_order` — display order (drag in the editor)
+- `images.service` — auto-filled from the scene's implied service on add
+  (never overwrites a manual value); read-time fallback uses the scene's
+  implied service for captions
+- `images.featured` — featured images sort first in pool scenes
+- `images.focal_x` / `focal_y` — focal point, 0–100 percentages (null = unset)
+- `images.site_published_at` — when public variants were last copied
+  (null = not in the lane); the API only serves stamped images
+- `events.city` — read per-image via the image's **source** event
+- `images.site_scene` — **deprecated** (v1); ignored by app code, kept as an
+  audit trail until a future drop
 
 ## Site-facing API
 
@@ -65,7 +111,7 @@ Curation metadata (single source of truth, per image unless noted):
 
 Returns the curated images for a scene with **public, non-expiring** URLs.
 Catch-all path, so namespaced keys work directly:
-`/api/site/scene/service/photo-booth`.
+`/api/site/scene/slot/hero/photo-booth`.
 
 **Auth:** shared secret header.
 
@@ -73,9 +119,10 @@ Catch-all path, so namespaced keys work directly:
 X-SPS-Key: <SPS_INTEGRATION_KEY>
 ```
 
-**Ordering:** `featured` desc, then `display_order` asc, then newest first.
+**Ordering:** pools — `featured` desc, then drag order, then newest first.
+Slots — drag order only, and only the winning image is returned (`count` ≤ 1).
 
-**Response:**
+**Response** (v1 shape + `focalX`/`focalY`):
 
 ```jsonc
 {
@@ -84,22 +131,23 @@ X-SPS-Key: <SPS_INTEGRATION_KEY>
   "images": [
     {
       "id": "uuid",
-      "event": "Acme Holiday Party",
-      "city": "Boston",
+      "event": "Acme Holiday Party",   // source event name (caption)
+      "city": "Boston",                // source event city (caption)
       "service": "photo-booth",
       "featured": true,
       "width": 4000,
       "height": 6000,
-      "thumbUrl": "https://cdn.pixeltrunk.com/events/<id>/thumbnails/thumb-md/<file>.jpg",
-      "fullUrl": "https://cdn.pixeltrunk.com/events/<id>/originals/<file>.jpg"
+      "thumbUrl": "https://<public-lane>/events/<id>/thumbnails/thumb-md/<file>.jpg",
+      "fullUrl": "https://<public-lane>/events/<id>/originals/<file>.jpg",
+      "focalX": 33.3,                  // 0-100 % or null — CSS object-position
+      "focalY": 25
     }
   ]
 }
 ```
 
-The website is responsible for rotation/selection — it gets the full curated set
-and rotates client-side. The response is cacheable by the authenticated consumer
-only (`Cache-Control: private, max-age=300`). It must never be `public` /
+The response is cacheable by the authenticated consumer only
+(`Cache-Control: private, max-age=300`). It must never be `public` /
 `s-maxage`: shared caches (Vercel's edge CDN) don't key on `X-SPS-Key`, so a
 shared-cacheable 200 would be served to unauthenticated requests, silently
 bypassing the 401 contract.
@@ -112,12 +160,13 @@ curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" \
 ```
 
 Each returned `thumbUrl` / `fullUrl` must `200` with **no** auth header and must
-not expire:
+not expire.
 
-```bash
-curl -I "https://cdn.pixeltrunk.com/events/<id>/thumbnails/thumb-md/<file>.jpg"
-# → HTTP/2 200
-```
+### Team-facing: `POST` / `DELETE` / `GET /api/site/gallery`
+
+Used by the globe gesture (logged-in users only). `POST {sceneKey, imageIds}`
+adds to a scene's section and publishes; `DELETE {imageIds}` removes from every
+website section and unpublishes; `GET` returns the gallery's event id.
 
 ## Environment variables
 
@@ -137,32 +186,25 @@ R2_PUBLIC_LANE_URL=https://pub-d26e68845d7742259c52f68cbb95e72e.r2.dev
 
 ## One-time Cloudflare setup (human, dashboard)
 
-The bucket + public domain can't be created from this repo. In the Cloudflare
-dashboard (account `aa3ce5fa7edd5346e777d23a4c34fe17`):
+Done for launch (account `aa3ce5fa7edd5346e777d23a4c34fe17`): `sps-public`
+bucket ✅, r2.dev public URL ✅, R2 token broadened to both buckets ✅, Vercel
+env vars ✅. To upgrade to `cdn.pixeltrunk.com` later: add the zone to
+Cloudflare, connect it as a Custom Domain on the bucket, and update
+`R2_PUBLIC_LANE_URL` — no code change. (r2.dev is rate-limited; fine for
+launch, revisit for high traffic.)
 
-1. **R2 → Create bucket** → name `sps-public`. Same region as `sps-prism`. ✅ done
-2. **Public URL.** `pixeltrunk.com` is NOT a Cloudflare zone on this account, so
-   an R2 custom domain isn't available without moving the domain's nameservers to
-   Cloudflare. We use the **Public Development URL** (r2.dev) instead:
-   **sps-public → Settings → Public Development URL → Enable** (type `allow`).
-   Current value: `https://pub-d26e68845d7742259c52f68cbb95e72e.r2.dev` ✅ done.
-   To upgrade to `cdn.pixeltrunk.com` later: add the zone to Cloudflare, connect
-   it as a Custom Domain on this bucket, and update `R2_PUBLIC_LANE_URL` — no code
-   change. (r2.dev is rate-limited; fine for launch, revisit for high traffic.)
-3. **R2 API token:** ensure the token behind `R2_ACCESS_KEY_ID` /
-   `R2_SECRET_ACCESS_KEY` has **Object Read & Write** on **both** `sps-prism` and
-   `sps-public` (needed for the server-side bucket-to-bucket copy on tag). If
-   it's bucket-scoped to `sps-prism` only, broaden it to both buckets.
-4. Set `R2_PUBLIC_BUCKET_NAME` and `R2_PUBLIC_LANE_URL` in Vercel (Production +
-   Preview) and redeploy.
+## Verifying end to end (v2)
 
-## Verifying end to end
-
-After the Cloudflare setup + env are in place:
-
-1. Apply the migration `supabase/migrations/019_site_scenes.sql` (already applied
-   to the live project hfusdrtrizabzzcdhnyy).
-2. In the app, tag a few images into `service/photo-booth`.
+1. Apply `supabase/migrations/020_website_gallery.sql` to the live project
+   (hfusdrtrizabzzcdhnyy). It adds `sections.site_scene_key` +
+   `images.focal_x/focal_y`, scaffolds the TDP Website gallery, and migrates
+   all v1 `site_scene` tags into section membership (publication state is
+   preserved — already-published images stay live with no R2 churn).
+2. In the app, select an image in any event → globe → e.g. **Photo Booth**.
 3. `curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" .../api/site/scene/service/photo-booth`
-   → expect the tagged images.
-4. `curl -I` one of the returned `fullUrl`s → expect `HTTP 200` with no auth.
+   → expect the image, with source event/city and `focalX/focalY: null`.
+4. `curl -I` a returned `fullUrl` → `HTTP 200`, no auth.
+5. Set a focal point on a slot image (slot section → select → crosshair) →
+   re-curl that `slot/*` scene → `focalX`/`focalY` populated, `count: 1`.
+6. Remove the image from the website (globe → Remove from website) → re-curl →
+   gone, and the `fullUrl` from step 4 now `404`s.

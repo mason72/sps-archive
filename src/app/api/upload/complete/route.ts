@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
+import { syncSitePublication } from "@/lib/site/membership";
 
 // Large originals (>4MB direct uploads) are downloaded here for thumbnailing;
 // give sharp room and a node runtime.
@@ -116,6 +117,17 @@ export async function POST(request: NextRequest) {
       .eq("id", imageId);
 
     if (updateError) throw updateError;
+
+    // Direct uploads into a website section (TDP Website gallery) publish once
+    // their thumbnails exist — that's now. No-op otherwise; non-fatal because
+    // any later membership change re-syncs.
+    if (updateData.thumbnail_generated) {
+      try {
+        await syncSitePublication(supabase, [imageId]);
+      } catch (syncErr) {
+        console.error(`Site publication sync failed for ${imageId}:`, syncErr);
+      }
+    }
 
     return NextResponse.json({ success: true, imageId });
   } catch (error) {

@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import { createServiceClient } from "@/lib/supabase/server";
 import { uploadToR2 } from "@/lib/r2/client";
 import { generateThumbnailsFromBuffer } from "@/lib/thumbnails/generate";
+import { syncSitePublication } from "@/lib/site/membership";
 
 // Allow large file uploads (up to 100MB)
 export const runtime = "nodejs";
@@ -67,6 +68,15 @@ export async function PUT(
         .from("images")
         .update({ thumbnail_generated: true })
         .eq("id", imageId);
+
+      // Uploads straight into a website section (TDP Website gallery) can only
+      // publish once thumbnails exist — that's now. No-op for everything else;
+      // non-fatal because any later membership change re-syncs.
+      try {
+        await syncSitePublication(service, [imageId]);
+      } catch (syncErr) {
+        console.error(`Site publication sync failed for ${imageId}:`, syncErr);
+      }
     }
 
     return NextResponse.json({ success: true, imageId, thumbnailed });

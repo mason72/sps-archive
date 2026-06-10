@@ -15,6 +15,7 @@ import {
   Check,
   Image as ImageIcon,
   Globe,
+  Crosshair,
 } from "lucide-react";
 import { SITE_SCENES } from "@/lib/site/scenes";
 
@@ -36,8 +37,12 @@ interface SelectionToolbarProps {
   onRename?: (pattern: string) => void;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
-  /** Tag selected images into a website scene (null = remove from site). */
-  onSetScene?: (scene: string | null) => void;
+  /** Add selected images to a TDP Website gallery section (publishes them). */
+  onAddToWebsite?: (sceneKey: string) => void;
+  /** Pull selected images out of every website section (unpublishes them). */
+  onRemoveFromWebsite?: () => void;
+  /** Pick the focal point of the single selected slot-section image. */
+  onSetFocalPoint?: () => void;
   sections?: SectionOption[];
   activeSection?: string | null;
   /** Sidebar width in px — used to center toolbar over the content area */
@@ -61,7 +66,9 @@ export function SelectionToolbar({
   onRemoveFromSection,
   onRename,
   onSetCover,
-  onSetScene,
+  onAddToWebsite,
+  onRemoveFromWebsite,
+  onSetFocalPoint,
   sections = [],
   activeSection,
   sidebarOffset = 0,
@@ -339,49 +346,67 @@ export function SelectionToolbar({
             />
           )}
 
-          {/* Tag for the marketing website (publishes to the public lane) */}
-          {onSetScene && (
+          {/* Focal point (single slot-section image) */}
+          {onSetFocalPoint && (
+            <ToolbarButton
+              icon={<Crosshair className="h-4 w-4" />}
+              label="Set focal point"
+              onClick={onSetFocalPoint}
+            />
+          )}
+
+          {/* Add to the marketing website — membership in a TDP Website
+              gallery section publishes the image's public variants */}
+          {onAddToWebsite && (
             <div className="relative" ref={scenePickerRef}>
               <ToolbarButton
                 icon={<Globe className="h-4 w-4" />}
-                label="Tag for website…"
+                label="Add to website…"
                 onClick={() => setShowScenePicker((v) => !v)}
                 active={showScenePicker}
               />
               {showScenePicker && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[220px] py-1 scale-in max-h-[60vh] overflow-y-auto">
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
-                    Add to website scene
-                  </p>
-                  {SITE_SCENES.map((s) => (
-                    <button
-                      key={s.key}
-                      onClick={() => {
-                        onSetScene(s.key);
-                        setTaggedScene(s.key);
-                        setTimeout(() => {
-                          setTaggedScene(null);
-                          setShowScenePicker(false);
-                        }, 800);
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
-                    >
-                      <span className="flex-1 truncate">{s.label}</span>
-                      {taggedScene === s.key && (
-                        <Check size={14} className="text-accent shrink-0" />
-                      )}
-                    </button>
+                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[240px] py-1 scale-in max-h-[60vh] overflow-y-auto">
+                  {(["pool", "slot"] as const).map((kind) => (
+                    <div key={kind}>
+                      <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+                        {kind === "pool" ? "Pools — rotating grids" : "Slots — single image"}
+                      </p>
+                      {SITE_SCENES.filter((s) => s.kind === kind).map((s) => (
+                        <button
+                          key={s.key}
+                          onClick={() => {
+                            onAddToWebsite(s.key);
+                            setTaggedScene(s.key);
+                            setTimeout(() => {
+                              setTaggedScene(null);
+                              setShowScenePicker(false);
+                            }, 800);
+                          }}
+                          className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                        >
+                          <span className="flex-1 truncate">{s.label}</span>
+                          {taggedScene === s.key && (
+                            <Check size={14} className="text-accent shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   ))}
-                  <div className="h-px bg-stone-100 my-1" />
-                  <button
-                    onClick={() => {
-                      onSetScene(null);
-                      setShowScenePicker(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-[13px] text-stone-500 hover:bg-stone-50 transition-colors"
-                  >
-                    Remove from website
-                  </button>
+                  {onRemoveFromWebsite && (
+                    <>
+                      <div className="h-px bg-stone-100 my-1" />
+                      <button
+                        onClick={() => {
+                          onRemoveFromWebsite();
+                          setShowScenePicker(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-[13px] text-stone-500 hover:bg-stone-50 transition-colors"
+                      >
+                        Remove from website
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

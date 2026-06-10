@@ -70,11 +70,92 @@ export async function GET(
       gpsLng: image.gps_lng,
       sceneTags: image.scene_tags,
       isEyesOpen: image.is_eyes_open,
+      focalX: image.focal_x,
+      focalY: image.focal_y,
     });
   } catch (error) {
     console.error("Get image detail error:", error);
     return NextResponse.json(
       { error: "Failed to load image" },
+      { status: 500 }
+    );
+  }
+}
+
+/** Is this a valid focal coordinate — a 0–100 percentage, or null to clear? */
+function isValidFocal(v: unknown): v is number | null {
+  return v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100);
+}
+
+/**
+ * PATCH /api/images/[imageId]
+ *
+ * Update per-image curation fields. Currently: the focal point ({focalX,
+ * focalY}, 0–100 percentages or null to clear) used by website slot scenes —
+ * the site maps it to CSS object-position so crops keep the subject.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ imageId: string }> }
+) {
+  try {
+    const { user, supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
+
+    const { imageId } = await params;
+    const body = (await request.json()) as {
+      focalX?: number | null;
+      focalY?: number | null;
+    };
+
+    if (!("focalX" in body) && !("focalY" in body)) {
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    }
+    if (
+      ("focalX" in body && !isValidFocal(body.focalX)) ||
+      ("focalY" in body && !isValidFocal(body.focalY))
+    ) {
+      return NextResponse.json(
+        { error: "focalX/focalY must be 0-100 or null" },
+        { status: 400 }
+      );
+    }
+
+    // Verify ownership through the event chain.
+    const { data: image } = await supabase
+      .from("images")
+      .select("id, events!event_id(user_id)")
+      .eq("id", imageId)
+      .single();
+    const owner = (image?.events as { user_id?: string } | null)?.user_id;
+    if (!image || owner !== user!.id) {
+      return NextResponse.json({ error: "Image not found" }, { status: 404 });
+    }
+
+    const updates: Record<string, number | null> = {};
+    if ("focalX" in body) updates.focal_x = body.focalX ?? null;
+    if ("focalY" in body) updates.focal_y = body.focalY ?? null;
+
+    const { data, error } = await supabase
+      .from("images")
+      .update(updates)
+      .eq("id", imageId)
+      .select("id, focal_x, focal_y")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      id: data.id,
+      focalX: data.focal_x,
+      focalY: data.focal_y,
+    });
+  } catch (error) {
+    console.error("Update image error:", error);
+    return NextResponse.json(
+      { error: "Failed to update image" },
       { status: 500 }
     );
   }

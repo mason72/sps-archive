@@ -206,3 +206,61 @@ Separate PUBLIC R2 lane for curated marketing imagery. Private client galleries
 - [ ] Follow-up: reconcile supabase/migrations/ with remote history (remote has 013_subscriptions…018_section_atomicity not in repo)
 - [ ] Follow-up: .env.local — user attempted to add the 2 public-lane vars but parser shows them absent (local dev only)
 - [ ] Later: custom domain cdn.pixeltrunk.com (add zone to CF → connect on bucket → update env var)
+
+## Phase: Website Content Model v2 — "TDP Website" gallery [BUILT 2026-06-09 — pending migration + deploy]
+Spec: ~/Documents/Projects/TDP/tdp-website/tasks/pixeltrunk-content-model-v2.md
+Client rejected per-image site_scene tags ("impossible to backtrace"); the site is now
+ONE gallery whose sections ARE the content slots (pool = rotating grid, slot = explicit
+single-image position, first by sort_order wins).
+
+Design decisions:
+- Membership, not duplication: website sections hold section_images rows pointing at
+  ORIGINAL images in their source events (cross-event membership). images.r2_key is
+  UNIQUE so row-copying was never possible; the source pointer (event_id → name/city)
+  keeps Featured Work captions on the same join v1 used.
+- sections.site_scene_key (nullable, unique) marks website sections; registry stays in
+  code (scenes.ts v2 with kind: pool|slot); gallery + sections scaffold lazily.
+- Publication = membership: idempotent syncSitePublication(ids) reconciles desired
+  state (any website-section membership) → copy/delete public variants + maintain
+  site_published_at. Hooked into every membership mutation path; image DELETE
+  unpublishes directly (v1 leaked public copies on delete — fixed).
+- Ordering moves to section_images.sort_order (drag order in the gallery UI).
+- Focal point: images.focal_x/focal_y (0–100, null), toolbar action on slot sections,
+  API gains focalX/focalY. Contract otherwise byte-compatible with v1.
+
+- [x] Migration 020_website_gallery.sql (site_scene_key + partial unique idx, focal_x/y,
+      scaffold gallery + 28 sections, migrate v1 tags → membership preserving order;
+      idempotent, leaves deprecated images.site_scene as audit trail)
+- [x] scenes.ts v2 registry (28 scenes, kind pool|slot) + gallery.ts lazy scaffold +
+      membership.ts syncSitePublication (desired-state, idempotent, per-image failure
+      isolation, R2-success-before-DB-marker so failures self-heal on next sync)
+- [x] Scene API: membership-backed query, slot first-wins (count ≤ 1), focalX/focalY,
+      read-time service fallback; auth + response fields + Cache-Control byte-stable;
+      extra site_published_at gate so a failed R2 copy can't serve a broken URL
+- [x] POST/DELETE/GET /api/site/gallery (globe gesture v2 backend, getAuthUser +
+      ownership filters)
+- [x] Sync hooks: sections images POST/DELETE, section DELETE (after orphan rescue),
+      batch add/remove_from_section, batch DELETE (fixes v1 leak: deleting a published
+      image left public copies), upload/[imageId] + upload/complete + inngest
+      thumbnail-complete (direct uploads into website sections publish when thumbs exist)
+- [x] events/[eventId]: cross-event member images fetched into the payload (website
+      gallery renders curated images from source events) + sections.siteSceneKey +
+      focalX/Y; new PATCH /api/images/[imageId] {focalX, focalY} (0-100 or null)
+- [x] UI: globe v2 grouped Pools/Slots picker → /api/site/gallery; FocalPointModal
+      (click-to-set, display-res image, marker, clear); crosshair toolbar action when
+      1 selected in a slot section; "first image wins" hint on multi-image slots;
+      set_scene action + handler retired
+- [x] database.types.ts hand-updated; tests 74/74 (scenes v2, route contract incl.
+      slot semantics + cache regression, membership sync matrix); lint warnings-only
+      (pre-existing); next build green; docs/SITE-INTEGRATION.md rewritten for v2
+- [ ] HANDOFF (blocked here: no supabase login/psql/Docker this session):
+      1. Apply supabase/migrations/020_website_gallery.sql to hfusdrtrizabzzcdhnyy
+         (dashboard SQL editor or `npx supabase db push` after `supabase login`).
+         ORDER MATTERS: migration BEFORE deploy — new code selects focal_x/site_scene_key
+         and 500s without them; old code keeps working after the migration (additive).
+      2. Push to main (commit ready) → Vercel deploy.
+      3. Live E2E per docs/SITE-INTEGRATION.md "Verifying end to end (v2)" steps 2-6
+         (add → API serves with public URL+focal → remove → API drops + public copy 404).
+      4. Website repo follow-ups: consume focalX/focalY (object-position), new scene
+         keys already registered there per spec.
+      5. Later: drop deprecated images.site_scene + v1 partial index once v2 soaks.

@@ -90,6 +90,8 @@ export type Database = {
           featured: boolean;
           display_order: number;
           site_published_at: string | null;
+          focal_x: number | null;
+          focal_y: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -128,6 +130,8 @@ export type Database = {
           featured?: boolean;
           display_order?: number;
           site_published_at?: string | null;
+          focal_x?: number | null;
+          focal_y?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -166,6 +170,8 @@ export type Database = {
           featured?: boolean;
           display_order?: number;
           site_published_at?: string | null;
+          focal_x?: number | null;
+          focal_y?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -282,6 +288,7 @@ export type Database = {
           sort_order: number;
           is_auto: boolean;
           filter_query: string | null;
+          site_scene_key: string | null;
           created_at: string;
         };
         Insert: {
@@ -292,6 +299,7 @@ export type Database = {
           sort_order?: number;
           is_auto?: boolean;
           filter_query?: string | null;
+          site_scene_key?: string | null;
           created_at?: string;
         };
         Update: {
@@ -302,6 +310,7 @@ export type Database = {
           sort_order?: number;
           is_auto?: boolean;
           filter_query?: string | null;
+          site_scene_key?: string | null;
           created_at?: string;
         };
         Relationships: [];

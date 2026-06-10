@@ -28,6 +28,12 @@ export interface ImageData {
   height: number | null;
   createdAt: string;
   takenAt: string | null;
+  /**
+   * Focal point (0–100 percentages, null = unset). Set via the slot-section
+   * picker; the website maps it to CSS object-position.
+   */
+  focalX?: number | null;
+  focalY?: number | null;
   /** Ids of every section this image belongs to (junction membership). */
   sectionIds?: string[];
   /**
@@ -74,4 +80,6 @@ export interface SectionData {
   sortOrder?: number;
   /** Member image ids in manual (section_images.sort_order) order. */
   imageIds?: string[];
+  /** Website scene this section feeds (TDP Website gallery), else null. */
+  siteSceneKey?: string | null;
 }

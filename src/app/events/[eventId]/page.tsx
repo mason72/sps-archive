@@ -12,6 +12,7 @@ import { FilmStrip } from "@/components/gallery/FilmStrip";
 import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
+import { FocalPointModal } from "@/components/gallery/FocalPointModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
@@ -50,6 +51,8 @@ interface SectionData {
   sortOrder?: number;
   /** Member image ids in manual (section_images.sort_order) order. */
   imageIds?: string[];
+  /** Website scene this section feeds (TDP Website gallery), else null. */
+  siteSceneKey?: string | null;
 }
 
 export default function EventPage({
@@ -195,6 +198,12 @@ export default function EventPage({
   // Images" is the view (activeSection null) — the first section. Never null
   // once sections exist, so uploads can never become orphans.
   const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
+
+  // Active website SLOT section (slot/* — explicit single-image positions):
+  // enables the focal-point action and the "first image wins" hint.
+  const activeSectionData = sections.find((s) => s.id === activeSection) ?? null;
+  const isSlotSection = !!activeSectionData?.siteSceneKey?.startsWith("slot/");
+  const [focalImageId, setFocalImageId] = useState<string | null>(null);
   const uploadTargetName =
     sections.find((s) => s.id === uploadTargetId)?.name ?? null;
 
@@ -502,34 +511,52 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
-  // Tag selected images into a website scene (or remove them). Tagging
-  // publishes the image's public variants to the marketing lane (sps-public);
-  // private galleries are untouched. `scene === null` removes from the site.
-  const handleSetScene = useCallback(
-    async (scene: string | null) => {
+  // Add selected images to a TDP Website gallery section. Membership IS
+  // publication: the server copies public variants to the marketing lane
+  // (sps-public); private galleries are untouched.
+  const handleAddToWebsite = useCallback(
+    async (sceneKey: string) => {
       try {
-        const cnt = selectionCount;
-        const res = await fetch("/api/images/batch", {
-          method: "PATCH",
+        const res = await fetch("/api/site/gallery", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageIds: selectedArray,
-            action: "set_scene",
-            scene,
-          }),
+          body: JSON.stringify({ imageIds: selectedArray, sceneKey }),
         });
-        if (!res.ok) throw new Error("Scene tag failed");
+        if (!res.ok) throw new Error("Add to website failed");
+        const data = await res.json();
         deselectAll();
         toast.success(
-          scene ? `Tagged ${cnt} images for the website` : `Removed ${cnt} images from the website`
+          data.failed > 0
+            ? `Added ${data.added} to ${data.sceneLabel} — ${data.failed} failed to publish`
+            : `Added ${data.added} to ${data.sceneLabel} — live on the website gallery`
         );
+        fetchEvent();
       } catch (err) {
-        console.error("Set scene failed:", err);
-        toast.error("Failed to update website tag");
+        console.error("Add to website failed:", err);
+        toast.error("Failed to add to the website");
       }
     },
-    [selectedArray, selectionCount, deselectAll]
+    [selectedArray, deselectAll, fetchEvent]
   );
+
+  // Pull selected images out of EVERY website section (unpublishes them).
+  const handleRemoveFromWebsite = useCallback(async () => {
+    try {
+      const res = await fetch("/api/site/gallery", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageIds: selectedArray }),
+      });
+      if (!res.ok) throw new Error("Remove from website failed");
+      const data = await res.json();
+      deselectAll();
+      toast.success(`Removed ${data.removed} from the website`);
+      fetchEvent();
+    } catch (err) {
+      console.error("Remove from website failed:", err);
+      toast.error("Failed to remove from the website");
+    }
+  }, [selectedArray, deselectAll, fetchEvent]);
 
   const handleBatchDownload = useCallback(async () => {
     const selectedImages = images.filter((img) => selectedIds.has(img.id));
@@ -1298,6 +1325,12 @@ export default function EventPage({
 
             {/* ─── Gallery view ─── */}
             <div ref={gridAreaRef} className="relative">
+              {isSlotSection && (activeSectionData?.imageCount ?? 0) > 1 && (
+                <p className="mb-3 text-[12px] text-amber-600">
+                  Slot section — the website uses only the first image. Drag
+                  your pick to the front; extras are ignored.
+                </p>
+              )}
               {viewMode === "grid" ? (
                 <>
                   {(dndEnabled || manualMode) && (
@@ -1388,7 +1421,13 @@ export default function EventPage({
               ? () => handleSetCover(selectedArray[0])
               : undefined
           }
-          onSetScene={handleSetScene}
+          onAddToWebsite={handleAddToWebsite}
+          onRemoveFromWebsite={handleRemoveFromWebsite}
+          onSetFocalPoint={
+            selection.count === 1 && isSlotSection
+              ? () => setFocalImageId(selectedArray[0])
+              : undefined
+          }
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           activeSection={activeSection}
           sidebarOffset={sidebarOpen ? 320 : 48}
@@ -1418,6 +1457,34 @@ export default function EventPage({
           ]}
         />
       )}
+
+      {/* ─── Focal point picker (website slot sections) ─── */}
+      {focalImageId &&
+        (() => {
+          const img = allImages.find((i) => i.id === focalImageId);
+          if (!img) return null;
+          return (
+            <FocalPointModal
+              imageId={img.id}
+              thumbnailUrl={img.thumbnailUrl}
+              initialFocal={
+                img.focalX != null && img.focalY != null
+                  ? { x: img.focalX, y: img.focalY }
+                  : null
+              }
+              onClose={() => setFocalImageId(null)}
+              onSaved={(focal) =>
+                setAllImages((prev) =>
+                  prev.map((i) =>
+                    i.id === img.id
+                      ? { ...i, focalX: focal?.x ?? null, focalY: focal?.y ?? null }
+                      : i
+                  )
+                )
+              }
+            />
+          );
+        })()}
 
       {/* ─── Keyboard Shortcuts Help ─── */}
       {showShortcutsHelp && (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { syncSitePublication } from "@/lib/site/membership";
 
 /**
  * Helper: verify section ownership through event → user chain.
@@ -11,7 +12,7 @@ async function verifySectionOwnership(
 ) {
   const { data: section } = await supabase
     .from("sections")
-    .select("id, event_id")
+    .select("id, event_id, site_scene_key")
     .eq("id", sectionId)
     .single();
 
@@ -124,13 +125,13 @@ export async function DELETE(
       .limit(1)
       .maybeSingle();
 
-    if (fallback) {
-      const { data: links } = await supabase
-        .from("section_images")
-        .select("image_id")
-        .eq("section_id", sectionId);
-      const imageIds = (links ?? []).map((l) => l.image_id);
+    const { data: links } = await supabase
+      .from("section_images")
+      .select("image_id")
+      .eq("section_id", sectionId);
+    const imageIds = (links ?? []).map((l) => l.image_id);
 
+    if (fallback) {
       if (imageIds.length > 0) {
         const { data: otherLinks } = await supabase
           .from("section_images")
@@ -161,6 +162,12 @@ export async function DELETE(
       .eq("id", sectionId);
 
     if (error) throw error;
+
+    // Deleting a website section unpublishes members that aren't in any other
+    // website section (the rescue above may have moved orphans into one).
+    if (section.site_scene_key && imageIds.length > 0) {
+      await syncSitePublication(supabase, imageIds);
+    }
 
     return NextResponse.json({ deleted: true });
   } catch (error) {

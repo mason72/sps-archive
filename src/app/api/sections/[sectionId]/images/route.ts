@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { syncSitePublication } from "@/lib/site/membership";
 
 /**
  * GET /api/sections/[sectionId]/images?list=true
@@ -84,7 +85,7 @@ export async function POST(
     // Verify section ownership through event chain
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id")
+      .select("id, event_id, site_scene_key")
       .eq("id", sectionId)
       .single();
 
@@ -127,6 +128,11 @@ export async function POST(
 
     if (error) throw error;
 
+    // Website sections publish by membership: mirror public variants now.
+    if (section.site_scene_key) {
+      await syncSitePublication(supabase, imageIds);
+    }
+
     return NextResponse.json({ added: imageIds.length });
   } catch (error) {
     console.error("Add images to section error:", error);
@@ -164,7 +170,7 @@ export async function DELETE(
     // Verify section ownership
     const { data: section } = await supabase
       .from("sections")
-      .select("id, event_id")
+      .select("id, event_id, site_scene_key")
       .eq("id", sectionId)
       .single();
 
@@ -190,6 +196,12 @@ export async function DELETE(
       .in("image_id", imageIds);
 
     if (error) throw error;
+
+    // Leaving a website section may unpublish (sync checks for remaining
+    // membership in OTHER website sections before deleting public copies).
+    if (section.site_scene_key) {
+      await syncSitePublication(supabase, imageIds);
+    }
 
     return NextResponse.json({ removed: imageIds.length });
   } catch (error) {

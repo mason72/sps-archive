@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifySharedSecret } from "@/lib/sps-integration/auth";
-import { isValidScene } from "@/lib/site/scenes";
+import { isValidScene, isSlotScene, deriveServiceFromScene } from "@/lib/site/scenes";
 import { getPublicLaneUrl } from "@/lib/r2/public-lane";
 import { publicLaneKeys } from "@/lib/site/publish";
 
@@ -9,9 +9,16 @@ import { publicLaneKeys } from "@/lib/site/publish";
  * GET /api/site/scene/[...key]
  *
  * Site-facing endpoint for the Two Dudes Photo marketing website. Returns the
- * images the team has curated into a website scene, with PUBLIC, non-expiring
- * URLs (served from the sps-public bucket over the public custom domain). The
- * site rotates/selects from this set on its own.
+ * images curated into a website scene, with PUBLIC, non-expiring URLs (served
+ * from the sps-public bucket over the public custom domain).
+ *
+ * v2: a scene is a SECTION of the "TDP Website" gallery (matched on
+ * sections.site_scene_key) — membership is publication. Pool scenes return the
+ * whole set (featured first, then the section's drag order, then newest); the
+ * site rotates/selects on its own. Slot scenes (slot/*) are explicit
+ * single-image positions: the first image by drag order wins and is the only
+ * one returned. The response contract is unchanged from v1, plus focalX/focalY
+ * (0-100 percentages or null) which the site maps to CSS object-position.
  *
  * Catch-all segment so namespaced keys work: /api/site/scene/service/photo-booth
  * → "service/photo-booth"; /api/site/scene/hero → "hero".
@@ -19,8 +26,9 @@ import { publicLaneKeys } from "@/lib/site/publish";
  * Auth: shared secret header `X-SPS-Key: <SPS_INTEGRATION_KEY>`.
  *
  * NO presigning here — these URLs are meant to be cached and embedded publicly.
- * Only images explicitly tagged into a scene are ever returned, so private
- * client-gallery photos are never exposed.
+ * Only images published into a website section are ever returned (the
+ * site_published_at gate also keeps an image whose R2 copy failed from being
+ * served as a broken URL), so private client-gallery photos are never exposed.
  */
 export async function GET(
   request: NextRequest,
@@ -46,37 +54,83 @@ export async function GET(
 
     const supabase = createServiceClient();
 
-    // Curated, displayable images for this scene. Featured first, then the
-    // team's manual display_order, then newest-first as a stable tiebreak.
-    const { data: rows, error } = await supabase
-      .from("images")
-      .select(
-        "id, r2_key, width, height, service, featured, events!event_id(name, city)"
-      )
-      .eq("site_scene", sceneKey)
-      .eq("thumbnail_generated", true)
-      .order("featured", { ascending: false })
-      .order("display_order", { ascending: true })
-      .order("created_at", { ascending: false });
+    // The website-gallery section backing this scene. A known key whose
+    // section hasn't been scaffolded yet is just an empty scene, not a 404.
+    const { data: section, error: sectionError } = await supabase
+      .from("sections")
+      .select("id")
+      .eq("site_scene_key", sceneKey)
+      .maybeSingle();
 
-    if (error) {
-      console.error("Site scene query error:", error);
+    if (sectionError) {
+      console.error("Site scene section lookup error:", sectionError);
       return NextResponse.json({ error: "Failed to load scene" }, { status: 500 });
     }
 
-    const images = (rows || []).map((img) => {
-      const event = (img.events ?? {}) as { name?: string | null; city?: string | null };
+    type SceneRow = {
+      sort_order: number;
+      images: {
+        id: string;
+        r2_key: string;
+        width: number | null;
+        height: number | null;
+        service: string | null;
+        featured: boolean;
+        created_at: string;
+        focal_x: number | null;
+        focal_y: number | null;
+        events: { name: string | null; city: string | null } | null;
+      };
+    };
+
+    let rows: SceneRow[] = [];
+    if (section) {
+      const { data, error } = await supabase
+        .from("section_images")
+        .select(
+          "sort_order, images!inner(id, r2_key, width, height, service, featured, created_at, focal_x, focal_y, events!event_id(name, city))"
+        )
+        .eq("section_id", section.id)
+        .eq("images.thumbnail_generated", true)
+        .not("images.site_published_at", "is", null);
+
+      if (error) {
+        console.error("Site scene query error:", error);
+        return NextResponse.json({ error: "Failed to load scene" }, { status: 500 });
+      }
+      rows = (data ?? []) as unknown as SceneRow[];
+    }
+
+    // Pool: featured first, then the team's drag order, then newest-first as a
+    // stable tiebreak. Slot: drag order only — first image wins, extras are
+    // ignored (curated sets are small, so sorting here beats a PostgREST
+    // order-by-embedded-column dependency).
+    const slot = isSlotScene(sceneKey);
+    rows.sort((a, b) => {
+      if (!slot && a.images.featured !== b.images.featured) {
+        return a.images.featured ? -1 : 1;
+      }
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return b.images.created_at.localeCompare(a.images.created_at);
+    });
+    if (slot) rows = rows.slice(0, 1);
+
+    const sceneService = deriveServiceFromScene(sceneKey);
+    const images = rows.map(({ images: img }) => {
+      const event = img.events ?? { name: null, city: null };
       const { thumbKey, displayKey } = publicLaneKeys(img.r2_key);
       return {
         id: img.id,
         event: event.name ?? null,
         city: event.city ?? null,
-        service: img.service ?? null,
+        service: img.service ?? sceneService,
         featured: img.featured ?? false,
         width: img.width,
         height: img.height,
         thumbUrl: getPublicLaneUrl(thumbKey),
         fullUrl: getPublicLaneUrl(displayKey),
+        focalX: img.focal_x ?? null,
+        focalY: img.focal_y ?? null,
       };
     });
 

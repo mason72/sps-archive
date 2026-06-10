@@ -37,7 +37,7 @@ export async function GET(
 
     // 2. Fetch ALL images for this event (paginated — Supabase defaults to 1000)
     const IMAGE_FIELDS =
-      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at";
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at, focal_x, focal_y";
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -114,6 +114,25 @@ export async function GET(
       }
     }
 
+    // 2c. Sections may contain images from OTHER events — the TDP Website
+    // gallery is built this way (its sections hold curated images that live in
+    // their source events). Fetch any member images the event_id query above
+    // missed so they render in the grid like local ones.
+    {
+      const localIds = new Set(rawImages.map((img) => img.id as string));
+      const externalIds = [...sectionIdsByImage.keys()].filter(
+        (id) => !localIds.has(id)
+      );
+      for (let i = 0; i < externalIds.length; i += PAGE_SIZE) {
+        const { data: externals, error: extError } = await supabase
+          .from("images")
+          .select(IMAGE_FIELDS)
+          .in("id", externalIds.slice(i, i + PAGE_SIZE));
+        if (extError) throw extError;
+        rawImages = rawImages.concat(externals ?? []);
+      }
+    }
+
     // 3. Sign ONLY the grid thumbnail per image. The full-res original is
     // signed lazily by GET /api/images/[imageId] when the lightbox opens —
     // that halves presigning and the payload size, and it stays fully private
@@ -137,6 +156,8 @@ export async function GET(
           height: img.height,
           createdAt: img.created_at,
           takenAt: img.taken_at,
+          focalX: img.focal_x,
+          focalY: img.focal_y,
           sectionIds: sectionIdsByImage.get(img.id) ?? [],
           isCover: coverImageId ? img.id === coverImageId : false,
         };
@@ -183,7 +204,7 @@ export async function GET(
     // 5. Fetch sections with image counts
     const { data: rawSections, error: sectionsError } = await supabase
       .from("sections")
-      .select("id, name, is_auto, sort_order, created_at")
+      .select("id, name, is_auto, sort_order, created_at, site_scene_key")
       .eq("event_id", eventId)
       // created_at is a stable tiebreaker so equal sort_orders never shuffle
       // between reloads.
@@ -205,6 +226,8 @@ export async function GET(
       name: section.name,
       isAuto: section.is_auto,
       sortOrder: section.sort_order,
+      // Website scene this section feeds (TDP Website gallery), else null.
+      siteSceneKey: section.site_scene_key ?? null,
       imageCount: sectionCounts.get(section.id) ?? 0,
       // Members in manual (sort_order) order — drives the "Manual" sort.
       imageIds: orderedImageIdsBySection.get(section.id) ?? [],

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { deleteFromR2 } from "@/lib/r2/client";
-import { isValidScene, deriveServiceFromScene } from "@/lib/site/scenes";
-import { publishImageToLane, unpublishImageFromLane } from "@/lib/site/publish";
+import { unpublishImageFromLane } from "@/lib/site/publish";
+import { syncSitePublication } from "@/lib/site/membership";
 
 /** DELETE /api/images/batch — Delete multiple images */
 export async function DELETE(request: NextRequest) {
@@ -20,10 +20,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Max 500 images per batch" }, { status: 400 });
     }
 
-    // Fetch images to verify ownership and get R2 keys
+    // Fetch images to verify ownership and get R2 keys. site_published_at
+    // tells us which ones also have public marketing-lane copies to clean up.
     const { data: images, error: fetchError } = await supabase
       .from("images")
-      .select("id, r2_key, event_id, events!event_id(user_id)")
+      .select("id, r2_key, event_id, site_published_at, events!event_id(user_id)")
       .in("id", imageIds);
 
     if (fetchError) {
@@ -53,13 +54,20 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    // Delete from R2 (fire-and-forget, don't block response)
+    // Delete from R2 (fire-and-forget, don't block response). Published
+    // images also have public copies in the marketing lane — v1 leaked those
+    // on delete; remove them too.
     Promise.all(
-      ownedImages.map((img: Record<string, unknown>) =>
-        deleteFromR2(img.r2_key as string).catch((err) =>
+      ownedImages.map(async (img: Record<string, unknown>) => {
+        await deleteFromR2(img.r2_key as string).catch((err) =>
           console.error("R2 delete failed for", img.r2_key, err)
-        )
-      )
+        );
+        if (img.site_published_at) {
+          await unpublishImageFromLane(img.r2_key as string).catch((err) =>
+            console.error("Public lane delete failed for", img.r2_key, err)
+          );
+        }
+      })
     );
 
     return NextResponse.json({
@@ -83,15 +91,13 @@ export async function PATCH(request: NextRequest) {
 
     const body = (await request.json()) as {
       imageIds: string[];
-      action: "add_to_section" | "remove_from_section" | "favorite" | "rename" | "set_scene";
+      action: "add_to_section" | "remove_from_section" | "favorite" | "rename";
       sectionId?: string;
       shareId?: string;
       pattern?: string;
-      /** Scene key for set_scene; null/"" un-tags (removes from the public lane). */
-      scene?: string | null;
     };
 
-    const { imageIds, action, sectionId, shareId, pattern, scene } = body;
+    const { imageIds, action, sectionId, shareId, pattern } = body;
 
     if (!imageIds?.length || !action) {
       return NextResponse.json(
@@ -100,11 +106,10 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Verify ownership: check that images belong to user's events. r2_key is
-    // needed by set_scene to mirror variants into the public lane.
+    // Verify ownership: check that images belong to user's events.
     const { data: images } = await supabase
       .from("images")
-      .select("id, r2_key, event_id, events!event_id(user_id)")
+      .select("id, event_id, events!event_id(user_id)")
       .in("id", imageIds);
 
     const ownedImages = (images || []).filter((img: Record<string, unknown>) => {
@@ -122,6 +127,13 @@ export async function PATCH(request: NextRequest) {
         if (!sectionId) {
           return NextResponse.json({ error: "sectionId required" }, { status: 400 });
         }
+
+        // Adding into a website section publishes by membership.
+        const { data: targetSection } = await supabase
+          .from("sections")
+          .select("site_scene_key")
+          .eq("id", sectionId)
+          .maybeSingle();
 
         // Get current max sort_order
         const { data: existing } = await supabase
@@ -148,6 +160,10 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
+        if (targetSection?.site_scene_key) {
+          await syncSitePublication(supabase, ownedIds);
+        }
+
         return NextResponse.json({ updated: ownedIds.length, action });
       }
 
@@ -155,6 +171,12 @@ export async function PATCH(request: NextRequest) {
         if (!sectionId) {
           return NextResponse.json({ error: "sectionId required" }, { status: 400 });
         }
+
+        const { data: sourceSection } = await supabase
+          .from("sections")
+          .select("site_scene_key")
+          .eq("id", sectionId)
+          .maybeSingle();
 
         const { error } = await supabase
           .from("section_images")
@@ -164,6 +186,12 @@ export async function PATCH(request: NextRequest) {
 
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        // Leaving a website section may unpublish (sync re-checks remaining
+        // website membership before deleting public copies).
+        if (sourceSection?.site_scene_key) {
+          await syncSitePublication(supabase, ownedIds);
         }
 
         return NextResponse.json({ updated: ownedIds.length, action });
@@ -240,72 +268,8 @@ export async function PATCH(request: NextRequest) {
         });
       }
 
-      case "set_scene": {
-        // Tag (or un-tag) images into a website scene. Tagging publishes the
-        // image's public variants to the marketing lane (sps-public); un-tagging
-        // (scene null/empty) removes them. Private galleries are untouched.
-        const targetScene = scene?.trim() || null;
-        if (targetScene && !isValidScene(targetScene)) {
-          return NextResponse.json(
-            { error: `Unknown scene: ${targetScene}` },
-            { status: 400 }
-          );
-        }
-
-        if (targetScene) {
-          // Mirror variants into the public lane first; only mark published rows.
-          const derivedService = deriveServiceFromScene(targetScene);
-          const publishedAt = new Date().toISOString();
-          const failed: string[] = [];
-
-          await Promise.all(
-            ownedImages.map(async (img: Record<string, unknown>) => {
-              const id = img.id as string;
-              const r2Key = img.r2_key as string;
-              try {
-                await publishImageToLane(r2Key);
-                const update: Record<string, unknown> = {
-                  site_scene: targetScene,
-                  site_published_at: publishedAt,
-                };
-                // Auto-fill service from service/* scenes; never overwrite an
-                // existing manual service with null.
-                if (derivedService) update.service = derivedService;
-                await supabase.from("images").update(update).eq("id", id);
-              } catch (err) {
-                console.error("Publish to public lane failed for", r2Key, err);
-                failed.push(id);
-              }
-            })
-          );
-
-          return NextResponse.json({
-            updated: ownedIds.length - failed.length,
-            failed: failed.length,
-            action,
-            scene: targetScene,
-          });
-        }
-
-        // Un-tag: clear scene fields, then best-effort remove from the lane.
-        const { error } = await supabase
-          .from("images")
-          .update({ site_scene: null, site_published_at: null })
-          .in("id", ownedIds);
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        await Promise.all(
-          ownedImages.map((img: Record<string, unknown>) =>
-            unpublishImageFromLane(img.r2_key as string).catch((err) =>
-              console.error("Unpublish from public lane failed for", img.r2_key, err)
-            )
-          )
-        );
-
-        return NextResponse.json({ updated: ownedIds.length, action, scene: null });
-      }
+      // "set_scene" (v1 per-image website tagging) was retired in favor of the
+      // TDP Website gallery — see POST/DELETE /api/site/gallery.
 
       default:
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });

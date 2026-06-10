@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
+import { syncSitePublication } from "@/lib/site/membership";
 
 /**
  * AI PROCESSING IS DISABLED.
@@ -55,6 +56,13 @@ export const processUploadedImage = inngest.createFunction(
         .from("images")
         .update({ thumbnail_generated: true, processing_status: "complete" })
         .eq("id", imageId);
+    });
+
+    // Images imported straight into a website section (TDP Website gallery)
+    // publish once thumbnails exist. No-op for everything else.
+    await step.run("sync-site-publication", async () => {
+      const supabase = createServiceClient();
+      await syncSitePublication(supabase, [imageId]);
     });
 
     return { imageId, status: "complete" };
