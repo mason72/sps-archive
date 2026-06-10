@@ -9,7 +9,6 @@ import {
   Trash2,
   FolderPlus,
   ArrowRight,
-  FolderMinus,
   Pencil,
   X,
   Check,
@@ -32,7 +31,6 @@ interface SelectionToolbarProps {
   onDownload: () => void;
   onAddToSection?: (sectionId: string) => void;
   onMoveToSection?: (sectionId: string) => void;
-  onRemoveFromSection?: () => void;
   onRename?: (pattern: string) => void;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
@@ -66,7 +64,6 @@ export function SelectionToolbar({
   onDownload,
   onAddToSection,
   onMoveToSection,
-  onRemoveFromSection,
   onRename,
   onSetCover,
   deleteHint,
@@ -332,15 +329,6 @@ export function SelectionToolbar({
                 </div>
               )}
             </div>
-          )}
-
-          {/* Remove from section (only when a section is active) */}
-          {activeSection && onRemoveFromSection && (
-            <ToolbarButton
-              icon={<FolderMinus className="h-4 w-4" />}
-              label="Remove from section"
-              onClick={onRemoveFromSection}
-            />
           )}
 
           {/* Focal point (single slot-section image) */}

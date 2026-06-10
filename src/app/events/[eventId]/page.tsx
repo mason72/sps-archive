@@ -400,23 +400,40 @@ export default function EventPage({
   }, []);
 
   // ─── Selection actions ───
+  // Section-scoped "copies" delete: with a section open, photos that also
+  // live in other sections only lose this section's copy; photos in their
+  // last section are deleted for real. In "All Images" delete is permanent.
   const handleBatchDelete = useCallback(async () => {
     try {
-      const cnt = selectionCount;
       const res = await fetch("/api/images/batch", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: selectedArray }),
+        body: JSON.stringify({
+          imageIds: selectedArray,
+          sectionId: activeSectionRef.current ?? undefined,
+        }),
       });
       if (!res.ok) throw new Error("Delete failed");
+      const data = (await res.json()) as {
+        deleted: number;
+        removedFromSection?: number;
+      };
       deselectAll();
       fetchEvent();
-      toast.success(`Deleted ${cnt} images`);
+      const removed = data.removedFromSection ?? 0;
+      const deleted = data.deleted ?? 0;
+      toast.success(
+        removed && deleted
+          ? `Removed ${removed} from this section · ${deleted} deleted (last section)`
+          : removed
+          ? `Removed ${removed} from this section`
+          : `Deleted ${deleted} ${deleted === 1 ? "photo" : "photos"}`
+      );
     } catch (err) {
       console.error("Batch delete failed:", err);
       toast.error("Failed to delete images");
     }
-  }, [selectedArray, selectionCount, deselectAll, fetchEvent]);
+  }, [selectedArray, deselectAll, fetchEvent]);
 
   // Load client/team favorites for this event (from the active share) when the
   // Favorites filter is switched on. Favorites are per-share and shared across
@@ -601,23 +618,6 @@ export default function EventPage({
     },
     [activeSection, selectedArray, deselectAll, fetchEvent]
   );
-
-  const handleRemoveFromSection = useCallback(async () => {
-    if (!activeSection) return;
-    try {
-      await fetch(`/api/sections/${activeSection}/images`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: selectedArray }),
-      });
-      deselectAll();
-      fetchEvent();
-      toast.success("Removed from section");
-    } catch (err) {
-      console.error("Remove from section failed:", err);
-      toast.error("Failed to remove images");
-    }
-  }, [activeSection, selectedArray, deselectAll, fetchEvent]);
 
   const handleDropImagesToSection = useCallback(
     async (sectionId: string, imageIds: string[]) => {
@@ -1385,7 +1385,6 @@ export default function EventPage({
           onDownload={handleBatchDownload}
           onAddToSection={handleAddToSection}
           onMoveToSection={handleMoveToSection}
-          onRemoveFromSection={activeSection ? handleRemoveFromSection : undefined}
           onRename={handleBatchRename}
           onSetCover={
             selection.count === 1
@@ -1393,9 +1392,11 @@ export default function EventPage({
               : undefined
           }
           deleteHint={
-            isWebsiteContext
-              ? "Deletes the original photo from its source event — everywhere, not just the site. To take it off the website, use Remove from section instead."
-              : undefined
+            activeSection
+              ? `Removes the photos from this section${
+                  activeSectionData?.siteSceneKey ? " (and the live site)" : ""
+                }. A photo in no other section is deleted from your archive permanently.`
+              : "Permanently deletes the selected photos from your archive."
           }
           onSetFocalPoint={
             selection.count === 1 && isSlotSection

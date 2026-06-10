@@ -3,14 +3,26 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import { deleteFromR2 } from "@/lib/r2/client";
 import { unpublishImageFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
+import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
 
-/** DELETE /api/images/batch — Delete multiple images */
+/**
+ * DELETE /api/images/batch — Delete multiple images.
+ *
+ * With `sectionId` (a section is open in the editor), delete follows the
+ * "copies" mental model: an image that also lives in OTHER sections only
+ * loses its copy in this one; an image in its LAST section is deleted for
+ * real. Without `sectionId` ("All Images", search), delete is always
+ * permanent.
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
-    const { imageIds } = (await request.json()) as { imageIds: string[] };
+    const { imageIds, sectionId } = (await request.json()) as {
+      imageIds: string[];
+      sectionId?: string;
+    };
 
     if (!imageIds?.length) {
       return NextResponse.json({ error: "imageIds required" }, { status: 400 });
@@ -43,36 +55,117 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "No accessible images found" }, { status: 404 });
     }
 
-    // Delete from DB
     const ownedIds = ownedImages.map((img: Record<string, unknown>) => img.id as string);
-    const { error: deleteError } = await supabase
-      .from("images")
-      .delete()
-      .in("id", ownedIds);
 
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    // Partition by section context: unlink images that have copies elsewhere,
+    // hard-delete the rest. Membership is counted across ALL sections of ALL
+    // events — a photo in a client-event section AND a website section has two
+    // copies, even though the editor only shows this event's memberships.
+    let removeOnlyIds: string[] = [];
+    let hardDeleteIds = ownedIds;
+    if (sectionId) {
+      const { data: section } = await supabase
+        .from("sections")
+        .select("id, site_scene_key, events!event_id(user_id)")
+        .eq("id", sectionId)
+        .maybeSingle();
+      const sectionOwner = (section?.events as { user_id?: string } | null)
+        ?.user_id;
+      if (!section || sectionOwner !== user!.id) {
+        return NextResponse.json({ error: "Section not found" }, { status: 404 });
+      }
+
+      const membershipCounts = new Map<string, number>();
+      const currentSectionMembers = new Set<string>();
+      const PAGE_SIZE = 1000;
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data: links, error: linksError } = await supabase
+          .from("section_images")
+          .select("image_id, section_id")
+          .in("image_id", ownedIds)
+          .order("image_id", { ascending: true })
+          .order("section_id", { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (linksError) throw linksError;
+        if (!links || links.length === 0) break;
+        for (const link of links) {
+          membershipCounts.set(
+            link.image_id,
+            (membershipCounts.get(link.image_id) ?? 0) + 1
+          );
+          if (link.section_id === sectionId) {
+            currentSectionMembers.add(link.image_id);
+          }
+        }
+        if (links.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+
+      const partition = partitionSectionDelete(
+        ownedIds,
+        membershipCounts,
+        currentSectionMembers
+      );
+      removeOnlyIds = partition.removeFromSection;
+      hardDeleteIds = partition.hardDelete;
     }
 
-    // Delete from R2 (fire-and-forget, don't block response). Published
-    // images also have public copies in the marketing lane — v1 leaked those
-    // on delete; remove them too.
-    Promise.all(
-      ownedImages.map(async (img: Record<string, unknown>) => {
-        await deleteFromR2(img.r2_key as string).catch((err) =>
-          console.error("R2 delete failed for", img.r2_key, err)
-        );
-        if (img.site_published_at) {
-          await unpublishImageFromLane(img.r2_key as string).catch((err) =>
-            console.error("Public lane delete failed for", img.r2_key, err)
-          );
-        }
-      })
-    );
+    // 1. Unlink the section copies; if this was a website section the sync
+    // unpublishes images that just left their last website membership.
+    if (removeOnlyIds.length > 0) {
+      const { error: unlinkError } = await supabase
+        .from("section_images")
+        .delete()
+        .eq("section_id", sectionId!)
+        .in("image_id", removeOnlyIds);
+      if (unlinkError) {
+        return NextResponse.json({ error: unlinkError.message }, { status: 500 });
+      }
+      await syncSitePublication(supabase, removeOnlyIds);
+    }
+
+    // 2. Hard-delete the last copies.
+    if (hardDeleteIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("images")
+        .delete()
+        .in("id", hardDeleteIds);
+
+      if (deleteError) {
+        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      }
+
+      // Delete from R2 (fire-and-forget, don't block response). Published
+      // images also have public copies in the marketing lane — v1 leaked
+      // those on delete; remove them too.
+      const hardDeleteSet = new Set(hardDeleteIds);
+      Promise.all(
+        ownedImages
+          .filter((img: Record<string, unknown>) =>
+            hardDeleteSet.has(img.id as string)
+          )
+          .map(async (img: Record<string, unknown>) => {
+            await deleteFromR2(img.r2_key as string).catch((err) =>
+              console.error("R2 delete failed for", img.r2_key, err)
+            );
+            if (img.site_published_at) {
+              await unpublishImageFromLane(img.r2_key as string).catch((err) =>
+                console.error("Public lane delete failed for", img.r2_key, err)
+              );
+            }
+          })
+      );
+    }
 
     return NextResponse.json({
-      deleted: ownedIds.length,
-      message: `Deleted ${ownedIds.length} images`,
+      deleted: hardDeleteIds.length,
+      removedFromSection: removeOnlyIds.length,
+      message:
+        removeOnlyIds.length > 0
+          ? `Removed ${removeOnlyIds.length} from the section, deleted ${hardDeleteIds.length}`
+          : `Deleted ${hardDeleteIds.length} images`,
     });
   } catch (error) {
     console.error("Batch delete error:", error);

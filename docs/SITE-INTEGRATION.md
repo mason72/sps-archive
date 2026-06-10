@@ -79,22 +79,25 @@ event.
 ## Team workflow
 
 1. Work inside the TDP Website gallery: upload (or copy) images in, then the
-   normal section tools (copy/move/remove, drag to reorder) maintain
-   publication automatically. Drag order is the site's display order; in slot
-   sections the first image is THE image. **Remove from section** is also how
-   an image comes OFF the site — leaving its last website section deletes the
-   public copies. There is no separate website gesture anymore (the v1 globe
-   tag picker and its v2 "remove from website" successor are both retired;
-   `POST`/`DELETE /api/site/gallery` remain for programmatic use). **Careful
-   with the trash icon here:** website sections reference the ORIGINAL photos
-   in their source events, so Delete removes the photo everywhere, not just
-   from the site — the confirm step calls this out.
-2. **Focal point** (slot sections): select a single image in a slot section →
+   normal section tools (copy/move, drag to reorder) maintain publication
+   automatically. Drag order is the site's display order; in slot sections
+   the first image is THE image.
+2. **Delete follows the "copies" model** (one button, no separate
+   remove-from-section gesture): with a section open, deleting a photo that
+   also lives in other sections only removes THIS section's copy — in a
+   website section that takes it off the site (public copies cleaned up,
+   original untouched in its source event). Deleting a photo's LAST copy
+   deletes the photo itself. In "All Images" delete is always permanent. The
+   confirm step states which applies; the toast reports what happened.
+   There is no separate website gesture anymore (the v1 globe tag picker and
+   its v2 "remove from website" successor are both retired;
+   `POST`/`DELETE /api/site/gallery` remain for programmatic use).
+3. **Focal point** (slot sections): select a single image in a slot section →
    crosshair icon in the toolbar → click the subject → Save. The site maps it
    to CSS `object-position` so art-directed crops keep the subject in frame.
    When face detection finds a single confident subject, the marker is
    pre-placed at eye level — saving is one click.
-3. **Website details** (captions/ordering metadata): select image(s) in the
+4. **Website details** (captions/ordering metadata): select image(s) in the
    TDP Website gallery or any website section → captions icon in the toolbar
    → edit source-event name + city (event-level — applies to every photo from
    that event), service, and the featured flag. Multi-select applies
