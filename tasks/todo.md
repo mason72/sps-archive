@@ -369,7 +369,7 @@ Per Mason 2026-06-09 + tdp-website/tasks/pt-auto-revalidate-brief.md.
       401/404 contract intact. Tests 103/103.
 - [ ] Website repo: add the ten keys + position counts to its scenes.ts
 
-## Phase: Video support for the TDP Website pipeline [IN PROGRESS 2026-06-10]
+## Phase: Video support for the TDP Website pipeline [BUILT 2026-06-10, commit b7d951e]
 
 Mason's requirement: BOTH short muted loops AND multi-minute sound-on showcase
 reels. Routing rule: video needing Stream = `duration > 60s OR has_audio`;
@@ -395,26 +395,26 @@ otherwise it publishes through the existing R2 public lane.
   copy + public posters, symmetric with images.
 
 ### Checklist
-- [ ] 023_video_support.sql migration + database.types.ts
-- [ ] src/lib/upload/media.ts — shared mime/size validation + duration format
-- [ ] src/lib/r2/client.ts — isVideoKey/getVideoDisplayKey; getDisplayKey video-aware
-- [ ] src/lib/stream/client.ts — Cloudflare Stream copy/delete/URL builders
-- [ ] src/lib/site/publish.ts — assetLane + publishAssetToLane/unpublishAssetFromLane
-- [ ] src/lib/site/serialize.ts — shared site API payload (kind/videoUrl/posterUrl/duration)
-- [ ] src/lib/site/membership.ts — media-aware sync; stores/clears stream_uid
-- [ ] src/lib/video/process.ts + modal/video_pipeline.py — probe/poster/remux
-- [ ] Inngest: "video/uploaded" + processUploadedVideo + registration;
+- [x] 023_video_support.sql migration + database.types.ts
+- [x] src/lib/upload/media.ts — shared mime/size validation + duration format
+- [x] src/lib/r2/client.ts — isVideoKey/getVideoDisplayKey; getDisplayKey video-aware
+- [x] src/lib/stream/client.ts — Cloudflare Stream copy/delete/URL builders
+- [x] src/lib/site/publish.ts — assetLane + publishAssetToLane/unpublishAssetFromLane
+- [x] src/lib/site/serialize.ts — shared site API payload (kind/videoUrl/posterUrl/duration)
+- [x] src/lib/site/membership.ts — media-aware sync; stores/clears stream_uid
+- [x] src/lib/video/process.ts + modal/video_pipeline.py — probe/poster/remux
+- [x] Inngest: "video/uploaded" + processUploadedVideo + registration;
       processUploadedImage forwards videos (SPS import path)
-- [ ] Upload routes: presign validation + media_type; proxy skips sharp for
+- [x] Upload routes: presign validation + media_type; proxy skips sharp for
       video; complete dispatches video/uploaded; regenerate requeues poster
-- [ ] Site APIs (scene, jobs): kind/videoUrl/posterUrl/duration — image shape unchanged
-- [ ] Grid API + image detail API: mediaType/durationSeconds (+hasAudio/streamUid)
-- [ ] UploadZone: accept mp4/mov, 500MB video cap, skip EXIF for video,
+- [x] Site APIs (scene, jobs): kind/videoUrl/posterUrl/duration — image shape unchanged
+- [x] Grid API + image detail API: mediaType/durationSeconds (+hasAudio/streamUid)
+- [x] UploadZone: accept mp4/mov, 500MB video cap, skip EXIF for video,
       size-scaled XHR timeout, video placeholder tile, polite rejections
-- [ ] ImageGrid duration badge; Lightbox <video> playback
-- [ ] Tests: publish lanes, membership video sync, stream client, media validation
-- [ ] docs/SITE-INTEGRATION.md video section + env vars
-- [ ] npm run lint && npm test && npm run build
+- [x] ImageGrid duration badge; Lightbox <video> playback
+- [x] Tests: publish lanes, membership video sync, stream client, media validation
+- [x] docs/SITE-INTEGRATION.md video section + env vars
+- [x] npm run lint && npm test && npm run build
 
 ### New env vars
 - `VIDEO_PIPELINE_URL` — Modal endpoint (modal deploy modal/video_pipeline.py)
