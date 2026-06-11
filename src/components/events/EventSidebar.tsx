@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
+import { sceneForKey } from "@/lib/site/scenes";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
 import { TypographyTab } from "@/components/settings/TypographyTab";
 import { ColorTab } from "@/components/settings/ColorTab";
@@ -551,6 +552,13 @@ function SectionsPanel({
                 locked={section.locked ?? false}
                 onToggleLock={handleToggleLock}
                 jobStatus={jobStatusFor(section)}
+                sceneHint={
+                  // Website scene sections: where on the site this is used.
+                  // Jobs have their own status line; client sections none.
+                  section.siteSceneKey && !isJobSceneKey(section.siteSceneKey)
+                    ? sceneForKey(section.siteSceneKey)?.description
+                    : undefined
+                }
               />
             </div>
           ))

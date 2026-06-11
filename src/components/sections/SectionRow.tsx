@@ -29,6 +29,11 @@ interface SectionRowProps {
    * (missing metadata or photos — the title says which). Undefined = not a job.
    */
   jobStatus?: { live: boolean; title: string };
+  /**
+   * Website scene sections (TDP Website gallery): one-line "where this is
+   * used on the site" hint, shown under the name.
+   */
+  sceneHint?: string;
 }
 
 export function SectionRow({
@@ -48,6 +53,7 @@ export function SectionRow({
   locked = false,
   onToggleLock,
   jobStatus,
+  sceneHint,
 }: SectionRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -196,6 +202,14 @@ export function SectionRow({
             )}
             {/* AI_HIDDEN: Auto badge disabled — AI backend not configured */}
           </div>
+        )}
+        {!isEditing && sceneHint && (
+          <p
+            className="mt-0.5 truncate text-[11px] leading-snug text-stone-400"
+            title={sceneHint}
+          >
+            {sceneHint}
+          </p>
         )}
       </div>
 

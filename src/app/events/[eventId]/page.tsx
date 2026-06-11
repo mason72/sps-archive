@@ -13,7 +13,7 @@ import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { FocalPointModal } from "@/components/gallery/FocalPointModal";
-import { sceneForKey } from "@/lib/site/scenes";
+import { sceneForKey, sceneUsageHint, sceneUrl } from "@/lib/site/scenes";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CurationModal } from "@/components/gallery/CurationModal";
 import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
@@ -25,7 +25,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
@@ -1434,6 +1434,26 @@ export default function EventPage({
                 </button>
               </div>
             </div>
+
+            {/* ─── Where this scene lives on the site ─── */}
+            {activeScene && (
+              <div className="-mt-7 mb-10 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12px] text-stone-400">
+                <span>{activeScene.description}</span>
+                <span className="text-stone-300">·</span>
+                <span className="text-stone-500">
+                  {sceneUsageHint(activeScene)}
+                </span>
+                <a
+                  href={sceneUrl(activeScene)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-accent transition-colors hover:text-accent/80"
+                >
+                  View live
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            )}
 
             {/* ─── Gallery view ─── */}
             <div ref={gridAreaRef} className="relative">
