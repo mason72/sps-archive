@@ -91,6 +91,34 @@ export function LightboxImage({
     );
   }
 
+  // Video: native playback with controls — zoom/pan/double-click belong to
+  // stills. fullResUrl is the lazily-signed web-playable mp4 (the display
+  // key); until it arrives, the poster holds the frame.
+  if (image.mediaType === "video") {
+    return (
+      <div className="relative flex h-full w-full items-center justify-center lightbox-image-enter select-none">
+        {fullResUrl ? (
+          <video
+            src={fullResUrl}
+            poster={image.thumbnailLgUrl || image.thumbnailUrl}
+            controls
+            playsInline
+            className="max-h-[calc(100vh-120px)] max-w-full object-contain"
+            onError={() => setHasError(true)}
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image.thumbnailLgUrl || image.thumbnailUrl}
+            alt={image.originalFilename}
+            className="max-h-[calc(100vh-120px)] max-w-full object-contain opacity-60"
+            draggable={false}
+          />
+        )}
+      </div>
+    );
+  }
+
   const cursor = zoom.isZoomed
     ? isPanning
       ? "grabbing"

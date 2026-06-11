@@ -30,6 +30,12 @@ export interface ImageData {
   stackRank: number | null;
   parsedName: string | null;
   processingStatus: string;
+  /** Why processing failed (e.g. unsupported video codec), else null. */
+  processingError?: string | null;
+  /** "image" | "video" — videos render posters in the grid + play in the lightbox. */
+  mediaType?: "image" | "video";
+  /** Video duration in seconds (ffprobe); null/absent for images. */
+  durationSeconds?: number | null;
   width: number | null;
   height: number | null;
   createdAt: string;
@@ -76,6 +82,10 @@ export interface ImageDetail extends ImageData {
   sceneTags: string[] | null;
   isEyesOpen: boolean | null;
   downloadUrl: string;
+  /** Video has an audio track (sound-on videos publish via Stream). */
+  hasAudio?: boolean | null;
+  /** Cloudflare Stream UID once a long/sound-on video is published. */
+  streamUid?: string | null;
   /**
    * Face-based focal suggestion (single confident subject, eye level) — the
    * focal picker pre-places its marker here when no focal point is set.

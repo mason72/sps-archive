@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
-import { Check, Crosshair } from "lucide-react";
+import { Check, Crosshair, Play } from "lucide-react";
+import { formatDuration } from "@/lib/upload/media";
 import {
   DndContext,
   DragOverlay,
@@ -568,6 +569,18 @@ function GridImage({
         </div>
       )}
 
+      {/* Video — poster tile with a play marker + duration */}
+      {image.mediaType === "video" && (
+        <div className="absolute bottom-2 right-2 z-[2] flex items-center gap-1 border border-white/40 bg-black/40 backdrop-blur-sm px-1.5 py-0.5 pointer-events-none">
+          <Play className="h-2.5 w-2.5 text-white" fill="currentColor" />
+          {image.durationSeconds != null && (
+            <span className="text-[10px] font-medium tabular-nums text-white">
+              {formatDuration(image.durationSeconds)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Focal point set — this slot crop is art-directed, not center-cropped */}
       {showFocalBadge && image.focalX != null && image.focalY != null && (
         <div
@@ -635,6 +648,13 @@ function GridImage({
                   imgRef.current.src = thumbnailUrl;
                   return;
                 }
+              }
+              // Videos: regeneration re-queues the poster job (async) and the
+              // "original" is an mp4 an <img> can't render — keep the
+              // placeholder; the poster appears on the next refresh.
+              if (image.mediaType === "video") {
+                setLoaded(true);
+                return;
               }
               // Regeneration failed — fall back to the signed original.
               const res = await fetch(`/api/images/${image.id}`);

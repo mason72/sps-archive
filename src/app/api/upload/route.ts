@@ -6,6 +6,7 @@ import {
   getPresignedUploadUrl,
 } from "@/lib/r2/client";
 import { parseFilename } from "@/lib/upload/parse-filename";
+import { mediaTypeForMime, validateUploadFile } from "@/lib/upload/media";
 
 /**
  * POST /api/upload
@@ -37,6 +38,15 @@ export async function POST(request: NextRequest) {
         { error: "eventId and files are required" },
         { status: 400 }
       );
+    }
+
+    // Server-side guard on format + size (the dropzone enforces the same
+    // rules client-side; this catches anything that bypasses it).
+    for (const file of files) {
+      const problem = validateUploadFile(file);
+      if (problem) {
+        return NextResponse.json({ error: problem }, { status: 400 });
+      }
     }
 
     // Verify event exists
@@ -123,6 +133,7 @@ export async function POST(request: NextRequest) {
         r2_key: r.r2Key,
         file_size: r.file.size,
         mime_type: r.file.type,
+        media_type: mediaTypeForMime(r.file.type),
         parsed_name: r.parsed.name,
         processing_status: "pending",
       }))

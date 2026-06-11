@@ -15,6 +15,13 @@ type Events = {
       eventId: string;
     };
   };
+  "video/uploaded": {
+    data: {
+      imageId: string;
+      eventId: string;
+      r2Key: string;
+    };
+  };
   "event/imported": {
     data: {
       eventId: string;

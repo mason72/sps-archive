@@ -368,3 +368,57 @@ Per Mason 2026-06-09 + tdp-website/tasks/pt-auto-revalidate-brief.md.
 - [x] All deployed + live-verified: 10 scenes 200/count 0, hero intact (12 curated),
       401/404 contract intact. Tests 103/103.
 - [ ] Website repo: add the ten keys + position counts to its scenes.ts
+
+## Phase: Video support for the TDP Website pipeline [IN PROGRESS 2026-06-10]
+
+Mason's requirement: BOTH short muted loops AND multi-minute sound-on showcase
+reels. Routing rule: video needing Stream = `duration > 60s OR has_audio`;
+otherwise it publishes through the existing R2 public lane.
+
+### Architecture decisions
+- New `images` columns: `media_type` ('image'|'video'), `duration_seconds`,
+  `has_audio`, `stream_uid`, `processing_error`. Asset kind derived:
+  image → "image"; video + stream_uid → "stream"; video → "video".
+- Posters written into the EXISTING `thumbnails/{variant}/` key scheme
+  (thumb-sm/md/lg JPEGs) by a new Modal ffmpeg function, so the editor grid,
+  `thumbnail_generated` gate, and public-lane derivation work unchanged.
+- Modal function is credential-free: Next.js presigns GET (original) + PUT
+  (posters, display mp4) and POSTs them to `modal/video_pipeline.py`. Driven
+  by a new Inngest function (`video/uploaded`) so upload completion never
+  blocks; ffprobe validates H.264/AAC there (politely fails the row with
+  `processing_error` otherwise).
+- MOV remux: short muted .mov gets a lossless `-c copy` remux to
+  `events/{eventId}/video/{stem}.mp4` (Firefox won't play QuickTime
+  containers). MP4 originals pass through untouched.
+- Stream ingestion at PUBLISH time (membership sync), not upload time — only
+  website-published videos cost Stream minutes. Unpublish deletes the Stream
+  copy + public posters, symmetric with images.
+
+### Checklist
+- [ ] 023_video_support.sql migration + database.types.ts
+- [ ] src/lib/upload/media.ts — shared mime/size validation + duration format
+- [ ] src/lib/r2/client.ts — isVideoKey/getVideoDisplayKey; getDisplayKey video-aware
+- [ ] src/lib/stream/client.ts — Cloudflare Stream copy/delete/URL builders
+- [ ] src/lib/site/publish.ts — assetLane + publishAssetToLane/unpublishAssetFromLane
+- [ ] src/lib/site/serialize.ts — shared site API payload (kind/videoUrl/posterUrl/duration)
+- [ ] src/lib/site/membership.ts — media-aware sync; stores/clears stream_uid
+- [ ] src/lib/video/process.ts + modal/video_pipeline.py — probe/poster/remux
+- [ ] Inngest: "video/uploaded" + processUploadedVideo + registration;
+      processUploadedImage forwards videos (SPS import path)
+- [ ] Upload routes: presign validation + media_type; proxy skips sharp for
+      video; complete dispatches video/uploaded; regenerate requeues poster
+- [ ] Site APIs (scene, jobs): kind/videoUrl/posterUrl/duration — image shape unchanged
+- [ ] Grid API + image detail API: mediaType/durationSeconds (+hasAudio/streamUid)
+- [ ] UploadZone: accept mp4/mov, 500MB video cap, skip EXIF for video,
+      size-scaled XHR timeout, video placeholder tile, polite rejections
+- [ ] ImageGrid duration badge; Lightbox <video> playback
+- [ ] Tests: publish lanes, membership video sync, stream client, media validation
+- [ ] docs/SITE-INTEGRATION.md video section + env vars
+- [ ] npm run lint && npm test && npm run build
+
+### New env vars
+- `VIDEO_PIPELINE_URL` — Modal endpoint (modal deploy modal/video_pipeline.py)
+- `VIDEO_PIPELINE_KEY` — shared secret (Modal secret `video-pipeline`)
+- `CLOUDFLARE_STREAM_API_TOKEN` — Stream:Edit token (Mason to provision, ~$5/mo tier)
+- `CLOUDFLARE_STREAM_CUSTOMER_CODE` — customer-XXXX code for playback URLs
+- `CLOUDFLARE_ACCOUNT_ID` — optional; falls back to R2_ACCOUNT_ID (same account)

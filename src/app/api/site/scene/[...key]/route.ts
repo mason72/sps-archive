@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifySharedSecret } from "@/lib/sps-integration/auth";
 import { isValidScene, sceneForKey, deriveServiceFromScene } from "@/lib/site/scenes";
-import { getPublicLaneUrl } from "@/lib/r2/public-lane";
-import { publicLaneKeys } from "@/lib/site/publish";
+import {
+  SITE_ASSET_COLUMNS,
+  serializeSiteAsset,
+  type SiteAssetRow,
+} from "@/lib/site/serialize";
 
 /**
  * GET /api/site/scene/[...key]
@@ -69,27 +72,14 @@ export async function GET(
 
     type SceneRow = {
       sort_order: number;
-      images: {
-        id: string;
-        r2_key: string;
-        width: number | null;
-        height: number | null;
-        service: string | null;
-        featured: boolean;
-        created_at: string;
-        focal_x: number | null;
-        focal_y: number | null;
-        events: { name: string | null; city: string | null } | null;
-      };
+      images: SiteAssetRow;
     };
 
     let rows: SceneRow[] = [];
     if (section) {
       const { data, error } = await supabase
         .from("section_images")
-        .select(
-          "sort_order, images!inner(id, r2_key, width, height, service, featured, created_at, focal_x, focal_y, events!event_id(name, city))"
-        )
+        .select(`sort_order, images!inner(${SITE_ASSET_COLUMNS})`)
         .eq("section_id", section.id)
         .eq("images.thumbnail_generated", true)
         .not("images.site_published_at", "is", null);
@@ -116,24 +106,12 @@ export async function GET(
     });
     if (kind === "slot") rows = rows.slice(0, 1);
 
+    // Serialized via the shared site-asset shape: the image contract is
+    // unchanged, and videos add kind/duration/posterUrl/videoUrl.
     const sceneService = deriveServiceFromScene(sceneKey);
-    const images = rows.map(({ images: img }) => {
-      const event = img.events ?? { name: null, city: null };
-      const { thumbKey, displayKey } = publicLaneKeys(img.r2_key);
-      return {
-        id: img.id,
-        event: event.name ?? null,
-        city: event.city ?? null,
-        service: img.service ?? sceneService,
-        featured: img.featured ?? false,
-        width: img.width,
-        height: img.height,
-        thumbUrl: getPublicLaneUrl(thumbKey),
-        fullUrl: getPublicLaneUrl(displayKey),
-        focalX: img.focal_x ?? null,
-        focalY: img.focal_y ?? null,
-      };
-    });
+    const images = rows.map(({ images: img }) =>
+      serializeSiteAsset(img, sceneService)
+    );
 
     return NextResponse.json(
       { scene: sceneKey, count: images.length, images },

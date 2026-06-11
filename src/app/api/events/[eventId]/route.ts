@@ -54,7 +54,7 @@ export async function GET(
     // curation editor — the TDP Website gallery shows images that live in
     // other events, and captions are sourced from those events.
     const IMAGE_FIELDS =
-      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, width, height, created_at, taken_at, focal_x, focal_y, service, featured, event_id, events!event_id(name, city)";
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, processing_error, width, height, created_at, taken_at, focal_x, focal_y, service, featured, media_type, duration_seconds, event_id, events!event_id(name, city)";
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -175,6 +175,9 @@ export async function GET(
           stackRank: img.stack_rank,
           parsedName: img.parsed_name,
           processingStatus: img.processing_status,
+          processingError: img.processing_error ?? null,
+          mediaType: img.media_type ?? "image",
+          durationSeconds: img.duration_seconds ?? null,
           width: img.width,
           height: img.height,
           createdAt: img.created_at,

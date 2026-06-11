@@ -1,6 +1,10 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 import { autoFocalForImages } from "./focal";
-import { publishImageToLane, unpublishImageFromLane } from "./publish";
+import {
+  publishAssetToLane,
+  unpublishAssetFromLane,
+  type SiteAsset,
+} from "./publish";
 import { scheduleSiteRevalidate } from "./revalidate";
 import { deriveServiceFromScene, isSlotScene } from "./scenes";
 
@@ -67,7 +71,7 @@ export async function syncSitePublication(
   const { data: images, error: imagesError } = await supabase
     .from("images")
     .select(
-      "id, r2_key, service, focal_x, site_published_at, thumbnail_generated"
+      "id, r2_key, service, focal_x, site_published_at, thumbnail_generated, media_type, duration_seconds, has_audio, stream_uid, original_filename"
     )
     .in("id", imageIds);
   if (imagesError) throw imagesError;
@@ -88,16 +92,29 @@ export async function syncSitePublication(
   await Promise.all(
     (images ?? []).map(async (img) => {
       const sceneKeys = scenesByImage.get(img.id);
+      // Everything the lanes need to publish/unpublish this asset. For videos
+      // (poster pipeline) thumbnail_generated still gates, identically.
+      const asset: SiteAsset = {
+        r2Key: img.r2_key,
+        mediaType: img.media_type,
+        durationSeconds: img.duration_seconds,
+        hasAudio: img.has_audio,
+        streamUid: img.stream_uid,
+        name: img.original_filename,
+      };
 
       if (sceneKeys) {
-        // Desired: published. No thumbnails yet → nothing to copy; the
-        // upload-complete paths call sync again once they exist.
+        // Desired: published. No thumbnails/posters yet → nothing to copy;
+        // the upload-complete paths call sync again once they exist.
         if (!img.thumbnail_generated) return;
         try {
-          await publishImageToLane(img.r2_key);
+          const { streamUid } = await publishAssetToLane(asset);
           const update: Record<string, unknown> = {
             site_published_at: new Date().toISOString(),
           };
+          if (streamUid && streamUid !== img.stream_uid) {
+            update.stream_uid = streamUid;
+          }
           if (!img.service) {
             const implied = sceneKeys
               .map(deriveServiceFromScene)
@@ -123,13 +140,16 @@ export async function syncSitePublication(
       }
 
       if (img.site_published_at) {
-        // Desired: not published. Delete copies first; only clear the marker
-        // on success so a failed delete is retried by the next sync.
+        // Desired: not published. Delete copies first (including the Stream
+        // copy, for stream-lane videos); only clear the markers on success so
+        // a failed delete is retried by the next sync.
         try {
-          await unpublishImageFromLane(img.r2_key);
+          await unpublishAssetFromLane(asset);
+          const update: Record<string, unknown> = { site_published_at: null };
+          if (img.stream_uid) update.stream_uid = null;
           const { error } = await supabase
             .from("images")
-            .update({ site_published_at: null })
+            .update(update)
             .eq("id", img.id);
           if (error) throw error;
           result.unpublished.push(img.id);

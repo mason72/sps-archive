@@ -92,6 +92,11 @@ export type Database = {
           site_published_at: string | null;
           focal_x: number | null;
           focal_y: number | null;
+          media_type: string;
+          duration_seconds: number | null;
+          has_audio: boolean | null;
+          stream_uid: string | null;
+          processing_error: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -132,6 +137,11 @@ export type Database = {
           site_published_at?: string | null;
           focal_x?: number | null;
           focal_y?: number | null;
+          media_type?: string;
+          duration_seconds?: number | null;
+          has_audio?: boolean | null;
+          stream_uid?: string | null;
+          processing_error?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -172,6 +182,11 @@ export type Database = {
           site_published_at?: string | null;
           focal_x?: number | null;
           focal_y?: number | null;
+          media_type?: string;
+          duration_seconds?: number | null;
+          has_audio?: boolean | null;
+          stream_uid?: string | null;
+          processing_error?: string | null;
           created_at?: string;
           updated_at?: string;
         };

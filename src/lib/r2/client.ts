@@ -164,20 +164,51 @@ export function getThumbnailKey(
 /** Image formats a browser can render directly in an <img> tag. */
 const WEB_VIEWABLE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif"]);
 
+/** Video containers the upload pipeline accepts. */
+const VIDEO_EXTS = new Set(["mp4", "mov"]);
+
 /** Is this original directly renderable in the browser? (TIFF/etc. are not.) */
 export function isWebViewable(key: string): boolean {
   const ext = key.split(".").pop()?.toLowerCase() ?? "";
   return WEB_VIEWABLE_EXTS.has(ext);
 }
 
+/** Is this original a video, by container extension? */
+export function isVideoKey(key: string): boolean {
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  return VIDEO_EXTS.has(ext);
+}
+
 /**
- * The key to use for *displaying* an image (lightbox / full view).
+ * The key of a video's web-playable rendition.
+ *
+ * MP4 originals play everywhere, so they pass through 1:1. QuickTime (.mov)
+ * containers don't play in Firefox, so the video pipeline remuxes them
+ * losslessly (-c copy) to events/{eventId}/video/{filename}.mp4 and that
+ * rendition is what display/publish use. The raw original stays untouched
+ * for download fidelity.
+ */
+export function getVideoDisplayKey(r2Key: string): string {
+  if (r2Key.toLowerCase().endsWith(".mp4")) return r2Key;
+  const parts = r2Key.split("/");
+  // parts = ["events", eventId, "originals", filename]
+  if (parts.length < 4 || parts[2] !== "originals") return r2Key;
+  const eventId = parts[1];
+  const filename = parts.slice(3).join("/");
+  return `events/${eventId}/video/${filename.replace(/\.[^.]+$/, ".mp4")}`;
+}
+
+/**
+ * The key to use for *displaying* an asset (lightbox / full view / site).
  *
  * Browsers can't render TIFF (and other non-web formats) in an <img>, so for
  * those we fall back to the largest JPEG thumbnail (thumb-lg, 800px). The raw
  * original is still served separately for download. Web-viewable originals
- * (JPEG/PNG/WebP/…) display at full resolution as before.
+ * (JPEG/PNG/WebP/…) display at full resolution as before. Video originals
+ * resolve to their web-playable mp4 rendition (for a <video> tag — posters
+ * for <img> contexts come from the thumbnail variants instead).
  */
 export function getDisplayKey(r2Key: string): string {
+  if (isVideoKey(r2Key)) return getVideoDisplayKey(r2Key);
   return isWebViewable(r2Key) ? r2Key : getThumbnailKey(r2Key, "thumb-lg");
 }

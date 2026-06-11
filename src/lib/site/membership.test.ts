@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./publish", () => ({
-  publishImageToLane: vi.fn(() => Promise.resolve()),
-  unpublishImageFromLane: vi.fn(() => Promise.resolve()),
+  publishAssetToLane: vi.fn(() => Promise.resolve({ streamUid: null })),
+  unpublishAssetFromLane: vi.fn(() => Promise.resolve()),
 }));
 
-import { publishImageToLane, unpublishImageFromLane } from "./publish";
+import { publishAssetToLane, unpublishAssetFromLane } from "./publish";
 import { syncSitePublication } from "./membership";
 
 interface ImageRow {
@@ -15,6 +15,11 @@ interface ImageRow {
   focal_x: number | null;
   site_published_at: string | null;
   thumbnail_generated: boolean;
+  media_type: string;
+  duration_seconds: number | null;
+  has_audio: boolean | null;
+  stream_uid: string | null;
+  original_filename: string;
 }
 
 interface FaceRow {
@@ -76,6 +81,11 @@ const img = (overrides: Partial<ImageRow>): ImageRow => ({
   focal_x: null,
   site_published_at: null,
   thumbnail_generated: true,
+  media_type: "image",
+  duration_seconds: null,
+  has_audio: null,
+  stream_uid: null,
+  original_filename: "a.jpg",
   ...overrides,
 });
 
@@ -102,8 +112,15 @@ describe("syncSitePublication", () => {
 
     const result = await syncSitePublication(client, ["img-1"]);
 
-    expect(publishImageToLane).toHaveBeenCalledWith("events/e1/originals/a.jpg");
+    expect(publishAssetToLane).toHaveBeenCalledWith(
+      expect.objectContaining({
+        r2Key: "events/e1/originals/a.jpg",
+        mediaType: "image",
+      })
+    );
     expect(updates["img-1"].site_published_at).toBeTruthy();
+    // R2-lane assets never write a stream uid.
+    expect(updates["img-1"].stream_uid).toBeUndefined();
     expect(result.published).toEqual(["img-1"]);
     expect(result.failed).toEqual([]);
   });
@@ -131,9 +148,87 @@ describe("syncSitePublication", () => {
 
     const result = await syncSitePublication(client, ["img-1"]);
 
-    expect(publishImageToLane).not.toHaveBeenCalled();
+    expect(publishAssetToLane).not.toHaveBeenCalled();
     expect(updates["img-1"]).toBeUndefined();
     expect(result.published).toEqual([]);
+  });
+
+  it("persists the Stream UID when publishing routes a video to Stream", async () => {
+    vi.mocked(publishAssetToLane).mockResolvedValueOnce({
+      streamUid: "stream-abc",
+    });
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "featured-work" } }],
+      [
+        img({
+          r2_key: "events/e1/originals/reel.mp4",
+          media_type: "video",
+          duration_seconds: 180,
+          has_audio: true,
+          original_filename: "reel.mp4",
+        }),
+      ]
+    );
+
+    const result = await syncSitePublication(client, ["img-1"]);
+
+    expect(publishAssetToLane).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaType: "video",
+        durationSeconds: 180,
+        hasAudio: true,
+        streamUid: null,
+      })
+    );
+    expect(updates["img-1"].stream_uid).toBe("stream-abc");
+    expect(updates["img-1"].site_published_at).toBeTruthy();
+    expect(result.published).toEqual(["img-1"]);
+  });
+
+  it("does not rewrite an unchanged Stream UID on re-publish", async () => {
+    vi.mocked(publishAssetToLane).mockResolvedValueOnce({
+      streamUid: "stream-abc",
+    });
+    const { client, updates } = fakeSupabase(
+      [{ image_id: "img-1", sections: { site_scene_key: "featured-work" } }],
+      [
+        img({
+          media_type: "video",
+          duration_seconds: 180,
+          has_audio: true,
+          stream_uid: "stream-abc",
+          site_published_at: "2026-01-01T00:00:00Z",
+        }),
+      ]
+    );
+
+    await syncSitePublication(client, ["img-1"]);
+
+    expect(updates["img-1"].stream_uid).toBeUndefined();
+  });
+
+  it("clears the Stream UID when unpublishing a stream-lane video", async () => {
+    const { client, updates } = fakeSupabase(
+      [],
+      [
+        img({
+          media_type: "video",
+          duration_seconds: 180,
+          has_audio: true,
+          stream_uid: "stream-abc",
+          site_published_at: "2026-01-01T00:00:00Z",
+        }),
+      ]
+    );
+
+    const result = await syncSitePublication(client, ["img-1"]);
+
+    expect(unpublishAssetFromLane).toHaveBeenCalledWith(
+      expect.objectContaining({ streamUid: "stream-abc" })
+    );
+    expect(updates["img-1"].site_published_at).toBeNull();
+    expect(updates["img-1"].stream_uid).toBeNull();
+    expect(result.unpublished).toEqual(["img-1"]);
   });
 
   it("unpublishes previously-published images with no remaining website membership", async () => {
@@ -144,8 +239,8 @@ describe("syncSitePublication", () => {
 
     const result = await syncSitePublication(client, ["img-1"]);
 
-    expect(unpublishImageFromLane).toHaveBeenCalledWith(
-      "events/e1/originals/a.jpg"
+    expect(unpublishAssetFromLane).toHaveBeenCalledWith(
+      expect.objectContaining({ r2Key: "events/e1/originals/a.jpg" })
     );
     expect(updates["img-1"].site_published_at).toBeNull();
     expect(result.unpublished).toEqual(["img-1"]);
@@ -156,14 +251,14 @@ describe("syncSitePublication", () => {
 
     const result = await syncSitePublication(client, ["img-1"]);
 
-    expect(publishImageToLane).not.toHaveBeenCalled();
-    expect(unpublishImageFromLane).not.toHaveBeenCalled();
+    expect(publishAssetToLane).not.toHaveBeenCalled();
+    expect(unpublishAssetFromLane).not.toHaveBeenCalled();
     expect(updates["img-1"]).toBeUndefined();
     expect(result).toEqual({ published: [], unpublished: [], failed: [] });
   });
 
   it("keeps the published marker when the R2 delete fails, so the next sync retries", async () => {
-    vi.mocked(unpublishImageFromLane).mockRejectedValueOnce(
+    vi.mocked(unpublishAssetFromLane).mockRejectedValueOnce(
       new Error("R2 down")
     );
     const { client, updates } = fakeSupabase(
@@ -179,7 +274,7 @@ describe("syncSitePublication", () => {
   });
 
   it("reports publish failures without stamping the marker", async () => {
-    vi.mocked(publishImageToLane).mockRejectedValueOnce(new Error("R2 down"));
+    vi.mocked(publishAssetToLane).mockRejectedValueOnce(new Error("R2 down"));
     const { client, updates } = fakeSupabase(
       [{ image_id: "img-1", sections: { site_scene_key: "hero" } }],
       [img({})]

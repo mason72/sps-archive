@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
+import { inngest } from "@/lib/inngest/client";
 
 // Thumbnail regeneration downloads the original + runs sharp — needs Node.
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ export async function POST(
     // Load the image + verify the caller owns its event.
     const { data: image, error: imageError } = await supabase
       .from("images")
-      .select("id, r2_key, event_id, filename")
+      .select("id, r2_key, event_id, filename, media_type")
       .eq("id", imageId)
       .single();
 
@@ -48,6 +49,24 @@ export async function POST(
 
     if (!event) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    // Video posters come from the ffmpeg pipeline, not sharp — re-queue the
+    // job and let the tile keep its placeholder until the poster lands.
+    if (image.media_type === "video") {
+      try {
+        await inngest.send({
+          name: "video/uploaded",
+          data: { imageId, eventId: image.event_id, r2Key: image.r2_key },
+        });
+      } catch (sendErr) {
+        console.error(`Video poster re-queue failed for ${imageId}:`, sendErr);
+        return NextResponse.json(
+          { error: "Failed to re-queue video poster" },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ success: true, queued: true });
     }
 
     // Rebuild all three thumbnail sizes from the original.

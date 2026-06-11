@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { deleteFromR2 } from "@/lib/r2/client";
-import { unpublishImageFromLane } from "@/lib/site/publish";
+import { deleteFromR2, getVideoDisplayKey } from "@/lib/r2/client";
+import { unpublishAssetFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
 import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
 
@@ -36,7 +36,9 @@ export async function DELETE(request: NextRequest) {
     // tells us which ones also have public marketing-lane copies to clean up.
     const { data: images, error: fetchError } = await supabase
       .from("images")
-      .select("id, r2_key, event_id, site_published_at, events!event_id(user_id)")
+      .select(
+        "id, r2_key, event_id, site_published_at, media_type, duration_seconds, has_audio, stream_uid, events!event_id(user_id)"
+      )
       .in("id", imageIds);
 
     if (fetchError) {
@@ -183,12 +185,28 @@ export async function DELETE(request: NextRequest) {
             hardDeleteSet.has(img.id as string)
           )
           .map(async (img: Record<string, unknown>) => {
-            await deleteFromR2(img.r2_key as string).catch((err) =>
-              console.error("R2 delete failed for", img.r2_key, err)
+            const r2Key = img.r2_key as string;
+            await deleteFromR2(r2Key).catch((err) =>
+              console.error("R2 delete failed for", r2Key, err)
             );
+            // Videos may have a remuxed mp4 rendition alongside the original.
+            if (img.media_type === "video") {
+              const displayKey = getVideoDisplayKey(r2Key);
+              if (displayKey !== r2Key) {
+                await deleteFromR2(displayKey).catch((err) =>
+                  console.error("R2 delete failed for", displayKey, err)
+                );
+              }
+            }
             if (img.site_published_at) {
-              await unpublishImageFromLane(img.r2_key as string).catch((err) =>
-                console.error("Public lane delete failed for", img.r2_key, err)
+              await unpublishAssetFromLane({
+                r2Key,
+                mediaType: (img.media_type as string) ?? "image",
+                durationSeconds: (img.duration_seconds as number | null) ?? null,
+                hasAudio: (img.has_audio as boolean | null) ?? null,
+                streamUid: (img.stream_uid as string | null) ?? null,
+              }).catch((err) =>
+                console.error("Public lane delete failed for", r2Key, err)
               );
             }
           })

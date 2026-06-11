@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
+import { inngest } from "@/lib/inngest/client";
 
 // Large originals (>4MB direct uploads) are downloaded here for thumbnailing;
 // give sharp room and a node runtime.
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
     // or still needs generating (direct >4MB path), and where the original is.
     const { data: image, error: fetchError } = await supabase
       .from("images")
-      .select("r2_key, event_id, filename, thumbnail_generated")
+      .select("r2_key, event_id, filename, thumbnail_generated, media_type")
       .eq("id", imageId)
       .single();
 
@@ -88,6 +89,32 @@ export async function POST(request: NextRequest) {
       if (exif.iso) updateData.iso = exif.iso;
       if (exif.gpsLat) updateData.gps_lat = exif.gpsLat;
       if (exif.gpsLng) updateData.gps_lng = exif.gpsLng;
+    }
+
+    // Videos: the binary is safely in R2 (that's "complete" — display never
+    // gates on processing_status), but posters/metadata come from the ffmpeg
+    // pipeline, which runs async via Inngest (a 500MB probe + remux has no
+    // place inside an upload request). It sets thumbnail_generated and syncs
+    // site publication when it finishes.
+    if (image.media_type === "video") {
+      const { error: updateError } = await supabase
+        .from("images")
+        .update(updateData)
+        .eq("id", imageId);
+      if (updateError) throw updateError;
+
+      try {
+        await inngest.send({
+          name: "video/uploaded",
+          data: { imageId, eventId: image.event_id, r2Key: image.r2_key },
+        });
+      } catch (sendErr) {
+        // The retry path: /api/images/[id]/regenerate-thumbnail re-queues
+        // this same event when the grid meets a posterless video.
+        console.error(`Video pipeline dispatch failed for ${imageId}:`, sendErr);
+      }
+
+      return NextResponse.json({ success: true, imageId });
     }
 
     // Direct (>4MB) uploads never hit the server, so they have no thumbnail yet.

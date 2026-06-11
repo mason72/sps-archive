@@ -295,6 +295,61 @@ Programmatic curation (logged-in users only — no UI uses these anymore).
 `DELETE {imageIds}` removes from every website section and unpublishes;
 `GET` returns the gallery's event id.
 
+## Video
+
+Videos ride the same model as images — one library, one membership-is-
+publication lifecycle, the same locks/focal/revalidate machinery — with two
+publishing lanes chosen automatically at publish time:
+
+| Lane | Which videos | What's published | Playback |
+|---|---|---|---|
+| **R2 public lane** (`kind: "video"`) | ≤ 60s AND muted (loops) | poster `thumb-md`/`thumb-lg` + the web-playable mp4 | `videoUrl` = public mp4 |
+| **Cloudflare Stream** (`kind: "stream"`) | > 60s OR sound-on (showcase reels w/ voiceover) | posters via R2; the video is ingested into Stream on first publish (`stream_uid`) | `videoUrl` = HLS manifest, `iframeUrl` = hosted player |
+
+**Upload → poster pipeline.** The uploader accepts MP4/MOV (H.264, AAC-or-
+silent audio) up to 500 MB. On upload-complete an Inngest job
+(`video/uploaded`) calls the Modal ffmpeg function
+(`modal/video_pipeline.py`), which ffprobes the original (duration,
+rotation-aware dimensions, audio presence, codec validation) and writes the
+poster into the **normal thumbnail key scheme**
+(`events/{id}/thumbnails/{variant}/{file}.jpg`) — so `thumbnail_generated`
+keeps gating display and publication for both media types. `.mov` originals
+also get a lossless `-c copy` remux to `events/{id}/video/{file}.mp4`
+(Firefox won't play QuickTime containers). Unsupported codecs politely fail
+the row (`processing_status: failed` + human-readable `processing_error`).
+
+**Stream lifecycle.** Stream ingestion happens at *publish* time (membership
+sync), so only website videos cost Stream minutes; unpublishing deletes the
+Stream copy and clears `stream_uid`, symmetric with the R2 lane. If Stream
+env vars are missing, publishing a stream-lane video fails loudly (and is
+retried by the next sync) rather than silently serving a 400 MB mp4.
+
+**API shape.** Scene + jobs entries gain — image entries are unchanged, with
+inert nulls:
+
+```jsonc
+{
+  // ...existing image fields; for videos fullUrl = large poster (always <img>-safe)
+  "kind": "stream",          // "image" | "video" | "stream"
+  "duration": 182.5,         // seconds, null for images
+  "posterUrl": "https://<public-lane>/events/<id>/thumbnails/thumb-lg/<file>.jpg",
+  "videoUrl": "https://customer-<code>.cloudflarestream.com/<uid>/manifest/video.m3u8",
+  "iframeUrl": "https://customer-<code>.cloudflarestream.com/<uid>/iframe",  // stream only
+  "streamUid": "<uid>"       // stream only
+}
+```
+
+**One-time setup (human):**
+
+1. `modal secret create video-pipeline VIDEO_PIPELINE_KEY=<random>` then
+   `modal deploy modal/video_pipeline.py` → set the printed endpoint URL as
+   `VIDEO_PIPELINE_URL` (+ the same secret as `VIDEO_PIPELINE_KEY`).
+2. Enable Cloudflare Stream on the account (the $5/mo tier covers 1,000
+   minutes stored). Create an API token with **Stream:Edit** →
+   `CLOUDFLARE_STREAM_API_TOKEN`. The customer code (the `customer-XXXX`
+   playback subdomain, shown on any Stream video page) →
+   `CLOUDFLARE_STREAM_CUSTOMER_CODE`.
+
 ## Environment variables
 
 Add to `.env.local` and Vercel (the `.env.example` is git-protected — copy these
@@ -307,6 +362,15 @@ R2_PUBLIC_BUCKET_NAME=sps-public
 # Public base URL for sps-public (non-expiring). Currently the r2.dev dev URL;
 # swap for a custom domain later (e.g. https://cdn.pixeltrunk.com) with no code change.
 R2_PUBLIC_LANE_URL=https://pub-d26e68845d7742259c52f68cbb95e72e.r2.dev
+
+# Video: poster/probe pipeline (Modal) — see "Video" above.
+VIDEO_PIPELINE_URL=https://<workspace>--sps-archive-video-process-video.modal.run
+VIDEO_PIPELINE_KEY=<same value as the Modal video-pipeline secret>
+
+# Video: Cloudflare Stream (long / sound-on videos). Account id falls back to
+# R2_ACCOUNT_ID (same Cloudflare account), so only these two are required:
+CLOUDFLARE_STREAM_API_TOKEN=<token with Stream:Edit>
+CLOUDFLARE_STREAM_CUSTOMER_CODE=<customer-subdomain code>
 ```
 
 `SPS_INTEGRATION_KEY` already exists and is reused as the site API secret.
@@ -350,3 +414,21 @@ launch, revisit for high traffic.)
    alias present, the client name nowhere in the payload.
 6. Clear a required field and Save → re-curl → the job is omitted (draft).
 7. `/api/site/scene/featured-work` still returns its curated set unchanged.
+
+## Verifying video end to end
+
+1. Apply `supabase/migrations/023_video_support.sql`; deploy the Modal
+   pipeline and set the video env vars (see above).
+2. Upload a short muted mp4 (≤60s) to any event → within seconds the grid
+   tile shows its poster with a ▶ duration badge.
+3. Add it to a website section → `curl` that scene → entry has
+   `kind: "video"`, `videoUrl` is a public mp4 that `200`s without auth,
+   `posterUrl`/`thumbUrl` are poster JPEGs.
+4. Upload a multi-minute reel (or any clip with audio) and add it to a
+   section → re-curl → `kind: "stream"`, `videoUrl` is an HLS manifest on
+   `customer-<code>.cloudflarestream.com` (give Stream a minute to encode on
+   first publish), posters still on the public lane.
+5. Remove both from their sections → re-curl → gone; the mp4 URL `404`s and
+   the Stream video is deleted from the dashboard.
+6. Re-curl an image-only scene → byte-identical fields as before, plus inert
+   `kind: "image"` / null video fields.

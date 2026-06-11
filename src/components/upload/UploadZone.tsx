@@ -1,16 +1,22 @@
 "use client";
 
 import { useCallback, useState, useRef, useEffect, useMemo } from "react";
-import { useDropzone } from "react-dropzone";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import {
   Upload,
   Loader2,
   RotateCcw,
   ShieldAlert,
   Copy,
+  Film,
 } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { extractExif } from "@/lib/upload/parse-filename";
+import {
+  UPLOAD_ACCEPT,
+  isVideoMime,
+  validateUploadFile,
+} from "@/lib/upload/media";
 
 const PRESIGN_CHUNK = 50; // how many files we request presigned URLs for at once
 const MAX_CONCURRENT_UPLOADS = 12;
@@ -18,6 +24,18 @@ const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
 /** Hard ceiling on a single upload so a hung connection can't spin forever. */
 const R2_PUT_TIMEOUT_MS = 120_000;
+/**
+ * Large videos need more than the 2-minute ceiling: scale the timeout so any
+ * connection managing at least ~250 KB/s never gets cut off mid-upload (a
+ * 500 MB reel gets ~34 min). Images keep the original ceiling.
+ */
+const MIN_UPLOAD_BYTES_PER_SEC = 250 * 1024;
+function uploadTimeoutMs(fileSize: number): number {
+  return Math.max(
+    R2_PUT_TIMEOUT_MS,
+    Math.round((fileSize / MIN_UPLOAD_BYTES_PER_SEC) * 1000)
+  );
+}
 /**
  * Files at or below this size upload through our server proxy
  * (PUT /api/upload/[imageId]), which needs no R2 CORS and always works.
@@ -94,6 +112,24 @@ function putWithProgress(
 
     xhr.send(file);
   });
+}
+
+/**
+ * List-row preview. Object URLs render in an <img> for images only; videos
+ * (and rejected files with no preview) get a film placeholder instead.
+ */
+function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
+  if (!previewUrl || isVideoMime(file.type)) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-stone-200">
+        <Film className="h-4 w-4 text-stone-400" />
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+  );
 }
 
 export interface UploadProgress {
@@ -233,7 +269,7 @@ export function UploadZone({
         if (abortRef.current) return;
         try {
           const res = await putWithProgress(target, task.file, {
-            timeoutMs: R2_PUT_TIMEOUT_MS,
+            timeoutMs: uploadTimeoutMs(task.file.size),
             signal: { get aborted() { return abortRef.current; } },
             onProgress: (pct) => updateFile(task.fileId, { progress: pct }),
           });
@@ -284,14 +320,19 @@ export function UploadZone({
 
       corsFailureCount.current = 0;
 
-      // Extract EXIF (best-effort) and tell the server we're done.
+      // Extract EXIF (best-effort) and tell the server we're done. Videos
+      // skip it — exifr can't read them, and buffering a 500 MB reel into
+      // memory for nothing would hurt; their metadata (duration, dimensions,
+      // audio) comes from the server-side ffprobe pipeline instead.
       let exifData: Record<string, unknown> = {};
-      try {
-        const buf = await task.file.arrayBuffer();
-        const exif = await extractExif(buf);
-        if (exif) exifData = exif;
-      } catch {
-        // EXIF is non-critical
+      if (!isVideoMime(task.file.type)) {
+        try {
+          const buf = await task.file.arrayBuffer();
+          const exif = await extractExif(buf);
+          if (exif) exifData = exif;
+        } catch {
+          // EXIF is non-critical
+        }
       }
 
       const COMPLETE_RETRIES = 2;
@@ -494,16 +535,48 @@ export function UploadZone({
     };
   }, []);
 
+  // Politely surface rejected files (wrong format / over the size cap) as
+  // error rows instead of silently dropping them.
+  const onDropRejected = useCallback(
+    (rejections: readonly FileRejection[]) => {
+      if (rejections.length === 0) return;
+      const baseId = `rejected-${performance.now()}`;
+      setFiles((prev) => [
+        ...prev,
+        ...rejections.map((r, i) => ({
+          id: `${baseId}-${i}`,
+          file: r.file,
+          previewUrl: "",
+          status: "error" as FileStatus,
+          progress: 0,
+          error:
+            validateUploadFile({
+              name: r.file.name,
+              type: r.file.type,
+              size: r.file.size,
+            }) ||
+            r.errors[0]?.message ||
+            "Unsupported file",
+        })),
+      ]);
+    },
+    []
+  );
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      "image/jpeg": [".jpg", ".jpeg"],
-      "image/png": [".png"],
-      "image/tiff": [".tiff", ".tif"],
-      "image/webp": [".webp"],
-      "image/heic": [".heic", ".heif"],
+    onDropRejected,
+    accept: UPLOAD_ACCEPT,
+    // Per-type size caps (100 MB images / 500 MB videos) live in the shared
+    // validator, mirrored server-side in /api/upload.
+    validator: (file) => {
+      const problem = validateUploadFile({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      return problem ? { code: "invalid-file", message: problem } : null;
     },
-    maxSize: 100 * 1024 * 1024,
     useFsAccessApi: false, // traditional file dialog so CMD+A works in Finder
   });
 
@@ -716,14 +789,17 @@ export function UploadZone({
           )}
         />
         {isDragActive ? (
-          <p className="font-editorial text-lg text-accent">Drop images here</p>
+          <p className="font-editorial text-lg text-accent">
+            Drop images or video here
+          </p>
         ) : (
           <>
             <p className="font-editorial text-lg text-stone-700">
-              Drag &amp; drop images here
+              Drag &amp; drop images or video here
             </p>
             <p className="mt-2 text-[13px] text-stone-400 leading-relaxed">
-              or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB
+              or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB ·
+              MP4/MOV (H.264) up to 500 MB
             </p>
           </>
         )}
@@ -771,8 +847,7 @@ export function UploadZone({
                 className="flex items-center gap-3 border-b border-amber-100/70 py-1.5 text-[13px] last:border-b-0"
               >
                 <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-stone-100">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={f.previewUrl} alt={f.file.name} className="h-full w-full object-cover" />
+                  <FilePreview file={f.file} previewUrl={f.previewUrl} />
                 </div>
                 <span className="flex-1 truncate text-stone-700">{f.file.name}</span>
                 <button
@@ -860,15 +935,14 @@ export function UploadZone({
 
                 {/* Thumbnail preview */}
                 <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-stone-100">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={f.previewUrl}
-                    alt={f.file.name}
+                  <div
                     className={cn(
-                      "h-full w-full object-cover transition-opacity duration-300",
+                      "h-full w-full transition-opacity duration-300",
                       f.status === "error" ? "opacity-40" : "opacity-100"
                     )}
-                  />
+                  >
+                    <FilePreview file={f.file} previewUrl={f.previewUrl} />
+                  </div>
                   {(f.status === "pending" || f.status === "uploading") && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                       <Loader2 className="h-4 w-4 animate-spin text-white" />

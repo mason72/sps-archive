@@ -33,7 +33,7 @@ export async function PUT(
     // Look up the image record to get the r2_key + filename.
     const { data: image, error: imageError } = await supabase
       .from("images")
-      .select("id, r2_key, mime_type, filename, event_id")
+      .select("id, r2_key, mime_type, media_type, filename, event_id")
       .eq("id", imageId)
       .single();
 
@@ -52,12 +52,16 @@ export async function PUT(
     // 2. Generate thumbnails from the same buffer (awaited = reliable).
     //    Non-fatal: if thumbnailing fails the original is safe and the grid
     //    falls back to it; the backfill endpoint can retry later.
+    //    Videos skip this — sharp can't read them; their poster comes from
+    //    the ffmpeg pipeline that /api/upload/complete dispatches.
     let thumbnailed = false;
-    try {
-      await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
-      thumbnailed = true;
-    } catch (thumbErr) {
-      console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+    if (image.media_type !== "video") {
+      try {
+        await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
+        thumbnailed = true;
+      } catch (thumbErr) {
+        console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+      }
     }
 
     // 3. Record thumbnail success with the service client (bypasses RLS for

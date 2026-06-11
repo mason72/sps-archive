@@ -8,8 +8,11 @@ import {
   isJobComplete,
   serializeJob,
 } from "@/lib/site/jobs";
-import { getPublicLaneUrl } from "@/lib/r2/public-lane";
-import { publicLaneKeys } from "@/lib/site/publish";
+import {
+  SITE_ASSET_COLUMNS,
+  serializeSiteAsset,
+  type SiteAssetRow,
+} from "@/lib/site/serialize";
 
 /**
  * GET /api/site/jobs
@@ -69,27 +72,14 @@ export async function GET(request: NextRequest) {
     type MemberRow = {
       section_id: string;
       sort_order: number;
-      images: {
-        id: string;
-        r2_key: string;
-        width: number | null;
-        height: number | null;
-        service: string | null;
-        featured: boolean;
-        created_at: string;
-        focal_x: number | null;
-        focal_y: number | null;
-        events: { name: string | null; city: string | null } | null;
-      };
+      images: SiteAssetRow;
     };
 
     let rows: MemberRow[] = [];
     if (jobSections.length > 0) {
       const { data, error } = await supabase
         .from("section_images")
-        .select(
-          "section_id, sort_order, images!inner(id, r2_key, width, height, service, featured, created_at, focal_x, focal_y, events!event_id(name, city))"
-        )
+        .select(`section_id, sort_order, images!inner(${SITE_ASSET_COLUMNS})`)
         .in("section_id", jobSections.map((s) => s.id))
         .eq("images.thumbnail_generated", true)
         .not("images.site_published_at", "is", null);
@@ -119,24 +109,10 @@ export async function GET(request: NextRequest) {
 
     const jobs = jobSections
       .map((section) => {
+        // Shared site-asset shape — image contract unchanged, videos add
+        // kind/duration/posterUrl/videoUrl.
         const images = (rowsBySection.get(section.id) ?? []).map(
-          ({ images: img }) => {
-            const event = img.events ?? { name: null, city: null };
-            const { thumbKey, displayKey } = publicLaneKeys(img.r2_key);
-            return {
-              id: img.id,
-              event: event.name ?? null,
-              city: event.city ?? null,
-              service: img.service ?? null,
-              featured: img.featured ?? false,
-              width: img.width,
-              height: img.height,
-              thumbUrl: getPublicLaneUrl(thumbKey),
-              fullUrl: getPublicLaneUrl(displayKey),
-              focalX: img.focal_x ?? null,
-              focalY: img.focal_y ?? null,
-            };
-          }
+          ({ images: img }) => serializeSiteAsset(img)
         );
         return { ...serializeJob(section.slug, section.meta), images };
       })
