@@ -139,6 +139,16 @@ describe("SITE_SCENES registry", () => {
     expect(sceneForKey("quote")?.positions).toBe(2);
   });
 
+  it("rotating slots are exactly the service-page hero carousels", () => {
+    for (const s of SITE_SCENES) {
+      // rotates is a slot refinement — meaningless on pools/ordered, and the
+      // hero slots are the only carousels the site renders today.
+      expect(!!s.rotates, `${s.key} rotates`).toBe(
+        s.kind === "slot" && s.key.startsWith("slot/hero/")
+      );
+    }
+  });
+
   it("exposes registry entries via sceneForKey", () => {
     expect(sceneForKey("hero")?.label).toBe("Hero Pool");
     expect(sceneForKey("nope")).toBeUndefined();

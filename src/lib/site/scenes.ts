@@ -40,6 +40,13 @@ export interface SceneDef {
    * fills position 1, …). Drives the editor's "extras are ignored" hint.
    */
   positions?: number;
+  /**
+   * For `slot` scenes: the page auto-rotates through EVERY image in drag
+   * order (first image opens). The API returns the full set instead of just
+   * the winner, and the editor hint says so. Slot semantics otherwise apply
+   * (focal-point suggestions, art-directed crops).
+   */
+  rotates?: boolean;
 }
 
 /**
@@ -70,15 +77,15 @@ export const SITE_SCENES: SceneDef[] = [
   { key: "slot/slice-5", label: "Slice 05 — Video", kind: "slot", service: "video" },
   { key: "slot/slice-6", label: "Slice 06 — Environmental Portraits", kind: "slot", service: "environmental-portraits" },
 
-  // ── Slots: service-page heroes (one image each) ──────────────────────────
-  { key: "slot/hero/headshot-booth", label: "Hero — Headshot Booth", kind: "slot", service: "headshot-booth" },
-  { key: "slot/hero/photo-booth", label: "Hero — Photo Booth", kind: "slot", service: "photo-booth" },
-  { key: "slot/hero/anti-booth", label: "Hero — Anti-Booth", kind: "slot", service: "anti-booth" },
-  { key: "slot/hero/event-photography", label: "Hero — Event Photography", kind: "slot", service: "event-photography" },
-  { key: "slot/hero/video", label: "Hero — Video", kind: "slot", service: "video" },
-  { key: "slot/hero/environmental-portraits", label: "Hero — Environmental Portraits", kind: "slot", service: "environmental-portraits" },
-  { key: "slot/hero/office-headshots", label: "Hero — Office Headshots", kind: "slot", service: "office-headshots" },
-  { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", service: "drop-in-sessions" },
+  // ── Slots: service-page heroes (auto-rotating carousels, drag order) ─────
+  { key: "slot/hero/headshot-booth", label: "Hero — Headshot Booth", kind: "slot", rotates: true, service: "headshot-booth" },
+  { key: "slot/hero/photo-booth", label: "Hero — Photo Booth", kind: "slot", rotates: true, service: "photo-booth" },
+  { key: "slot/hero/anti-booth", label: "Hero — Anti-Booth", kind: "slot", rotates: true, service: "anti-booth" },
+  { key: "slot/hero/event-photography", label: "Hero — Event Photography", kind: "slot", rotates: true, service: "event-photography" },
+  { key: "slot/hero/video", label: "Hero — Video", kind: "slot", rotates: true, service: "video" },
+  { key: "slot/hero/environmental-portraits", label: "Hero — Environmental Portraits", kind: "slot", rotates: true, service: "environmental-portraits" },
+  { key: "slot/hero/office-headshots", label: "Hero — Office Headshots", kind: "slot", rotates: true, service: "office-headshots" },
+  { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", rotates: true, service: "drop-in-sessions" },
 
   // ── Slot: social link-preview image (Open Graph) ─────────────────────────
   { key: "slot/og", label: "OG / Link Preview", kind: "slot" },

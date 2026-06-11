@@ -1482,10 +1482,17 @@ export default function EventPage({
                   );
                 })()}
               {isSlotSection && (activeSectionData?.imageCount ?? 0) > 1 && (
-                <p className="mb-3 text-[12px] text-amber-600">
-                  Slot section — the website uses only the first image. Drag
-                  your pick to the front; extras are ignored.
-                </p>
+                activeScene?.rotates ? (
+                  <p className="mb-3 text-[12px] text-stone-500">
+                    Carousel slot — the page rotates through every photo here
+                    in drag order. Your first pick opens.
+                  </p>
+                ) : (
+                  <p className="mb-3 text-[12px] text-amber-600">
+                    Slot section — the website uses only the first image. Drag
+                    your pick to the front; extras are ignored.
+                  </p>
+                )
               )}
               {activeScene?.kind === "ordered" &&
                 activeScene.positions !== undefined &&

@@ -174,6 +174,23 @@ describe("GET /api/site/scene/[...key]", () => {
     expect(body.images[0].service).toBe("headshot-booth");
   });
 
+  it("returns the full set in drag order for rotating slots (hero carousels)", async () => {
+    const res = await GET(
+      makeRequest({ "x-sps-key": TEST_KEY }),
+      makeParams(["slot", "hero", "headshot-booth"])
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scene).toBe("slot/hero/headshot-booth");
+    // rotates: the carousel cycles every image — nothing is truncated, and
+    // drag order still wins (featured does not jump the queue).
+    expect(body.count).toBe(2);
+    expect(body.images.map((i: { id: string }) => i.id)).toEqual([
+      "img-b",
+      "img-a",
+    ]);
+  });
+
   it("never marks the authenticated 200 as shared-cacheable", async () => {
     // Regression: `public, s-maxage` let Vercel's edge cache (which doesn't
     // key on X-SPS-Key) replay the authenticated 200 to unauthenticated

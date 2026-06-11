@@ -20,7 +20,9 @@ import {
  * whole set (featured first, then the section's drag order, then newest); the
  * site rotates/selects on its own. Slot scenes (slot/*) are explicit
  * single-image positions: the first image by drag order wins and is the only
- * one returned. The response contract is unchanged from v1, plus focalX/focalY
+ * one returned — except rotating slots (SceneDef.rotates, the service-page
+ * hero carousels), which return the full set in exact drag order.
+ * The response contract is unchanged from v1, plus focalX/focalY
  * (0-100 percentages or null) which the site maps to CSS object-position.
  *
  * Catch-all segment so namespaced keys work: /api/site/scene/service/photo-booth
@@ -94,9 +96,11 @@ export async function GET(
     // Pool: featured first, then the team's drag order, then newest-first as
     // a stable tiebreak. Ordered (position-mapped) + slot: exact drag order —
     // a featured boost would scramble positions. Slot additionally returns
-    // only the winner. (Curated sets are small, so sorting here beats a
-    // PostgREST order-by-embedded-column dependency.)
-    const kind = sceneForKey(sceneKey)?.kind ?? "pool";
+    // only the winner, unless the scene rotates (service-page hero carousels
+    // cycle through the full set in drag order). (Curated sets are small, so
+    // sorting here beats a PostgREST order-by-embedded-column dependency.)
+    const scene = sceneForKey(sceneKey);
+    const kind = scene?.kind ?? "pool";
     rows.sort((a, b) => {
       if (kind === "pool" && a.images.featured !== b.images.featured) {
         return a.images.featured ? -1 : 1;
@@ -104,7 +108,7 @@ export async function GET(
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       return b.images.created_at.localeCompare(a.images.created_at);
     });
-    if (kind === "slot") rows = rows.slice(0, 1);
+    if (kind === "slot" && !scene?.rotates) rows = rows.slice(0, 1);
 
     // Serialized via the shared site-asset shape: the image contract is
     // unchanged, and videos add kind/duration/posterUrl/videoUrl.
