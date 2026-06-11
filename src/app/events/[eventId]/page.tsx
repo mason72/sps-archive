@@ -25,7 +25,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
@@ -1282,6 +1282,29 @@ export default function EventPage({
                 )}
               </span>
               <div className="flex items-center gap-3">
+                {/* Focal sweep — set focal points for the whole section, no
+                    selection needed. Starts at the first image without one. */}
+                {isWebsiteContext && images.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const firstUnset = flatImageList.find(
+                          (i) => i.focalX == null
+                        );
+                        setFocalImageId(
+                          (firstUnset ?? flatImageList[0])?.id ?? null
+                        );
+                      }}
+                      className="flex items-center gap-1.5 text-[12px] text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+                      title="Sweep through this section setting focal points"
+                    >
+                      <Crosshair className="h-3.5 w-3.5" />
+                      Focal points
+                    </button>
+                    <div className="w-px h-4 bg-stone-200" />
+                  </>
+                )}
+
                 {/* Select All / Deselect */}
                 <button
                   onClick={() => {
@@ -1604,8 +1627,9 @@ export default function EventPage({
           onSetFocalPoint={
             // Anywhere in the website gallery (sections AND All Images): the
             // site crops focal-aware everywhere, so the tool follows the
-            // image, not the view.
-            selection.count === 1 && isWebsiteContext
+            // image, not the view. Opens the sweep at the first selected
+            // image — ←/→ then reach the whole visible set.
+            selection.count >= 1 && isWebsiteContext
               ? () => setFocalImageId(selectedArray[0])
               : undefined
           }
@@ -1642,33 +1666,50 @@ export default function EventPage({
         />
       )}
 
-      {/* ─── Focal point picker (website slot sections) ─── */}
-      {focalImageId &&
-        (() => {
-          const img = allImages.find((i) => i.id === focalImageId);
-          if (!img) return null;
-          return (
-            <FocalPointModal
-              imageId={img.id}
-              thumbnailUrl={img.thumbnailUrl}
-              initialFocal={
-                img.focalX != null && img.focalY != null
-                  ? { x: img.focalX, y: img.focalY }
-                  : null
-              }
-              onClose={() => setFocalImageId(null)}
-              onSaved={(focal) =>
-                setAllImages((prev) =>
-                  prev.map((i) =>
-                    i.id === img.id
-                      ? { ...i, focalX: focal?.x ?? null, focalY: focal?.y ?? null }
-                      : i
-                  )
-                )
-              }
-            />
-          );
-        })()}
+      {/* ─── Focal point sweep (website sections) ─── */}
+      {focalImageId && flatImageList.length > 0 && (
+        <FocalPointModal
+          images={flatImageList}
+          initialImageId={focalImageId}
+          onClose={() => setFocalImageId(null)}
+          onSaved={(imageId, focal) =>
+            setAllImages((prev) =>
+              prev.map((i) =>
+                i.id === imageId
+                  ? { ...i, focalX: focal?.x ?? null, focalY: focal?.y ?? null }
+                  : i
+              )
+            )
+          }
+          onBulkSuggest={
+            activeSection
+              ? async () => {
+                  const res = await fetch(
+                    `/api/sections/${activeSection}/suggest-focal`,
+                    { method: "POST" }
+                  );
+                  if (!res.ok) {
+                    throw new Error(await apiError(res, "Bulk suggest failed"));
+                  }
+                  const data = (await res.json()) as {
+                    count: number;
+                    suggestions: Array<{ imageId: string; x: number; y: number }>;
+                  };
+                  const byId = new Map(
+                    data.suggestions.map((s) => [s.imageId, s])
+                  );
+                  setAllImages((prev) =>
+                    prev.map((i) => {
+                      const s = byId.get(i.id);
+                      return s ? { ...i, focalX: s.x, focalY: s.y } : i;
+                    })
+                  );
+                  return data.count;
+                }
+              : undefined
+          }
+        />
+      )}
 
       {/* ─── Website curation details (event, city, service, featured) ─── */}
       {showCuration && (

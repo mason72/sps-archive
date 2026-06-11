@@ -359,6 +359,13 @@ function SortableImageGrid({
                 src={activeImage.thumbnailUrl}
                 alt=""
                 className="absolute inset-0 h-full w-full object-cover"
+                style={
+                  activeImage.focalX != null && activeImage.focalY != null
+                    ? {
+                        objectPosition: `${activeImage.focalX}% ${activeImage.focalY}%`,
+                      }
+                    : undefined
+                }
               />
             </div>
             {moveSet.length > 1 && (
@@ -623,6 +630,13 @@ function GridImage({
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
+          // Cropped tiles (uniform mode, or the 3:4 fallback when dimensions
+          // are unknown) keep the subject in frame, same as the website.
+          style={
+            image.focalX != null && image.focalY != null
+              ? { objectPosition: `${image.focalX}% ${image.focalY}%` }
+              : undefined
+          }
           loading="lazy"
           onLoad={() => setLoaded(true)}
           onError={async () => {
