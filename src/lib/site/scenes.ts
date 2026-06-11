@@ -99,6 +99,12 @@ export const SITE_SCENES: SceneDef[] = [
     description: "“Recent frames” gallery on the service page (shows ~8)" },
   { key: "service/drop-in-sessions", label: "Drop-In Sessions", kind: "pool", service: "drop-in-sessions", path: "/services/drop-in-sessions",
     description: "“Recent frames” gallery on the service page (shows ~8)" },
+  { key: "bts/headshot-booth", label: "BTS — Headshot Booth", kind: "pool", service: "headshot-booth", path: "/services/headshot-booth",
+    description: "“What it looks like” BTS mosaic (up to 6 tiles; hidden until 3+ images)" },
+  { key: "bts/photo-booth", label: "BTS — Photo Booth", kind: "pool", service: "photo-booth", path: "/services/photo-booth",
+    description: "“What it looks like” BTS mosaic (up to 6 tiles; hidden until 3+ images)" },
+  { key: "bts/anti-booth", label: "BTS — Anti-Booth", kind: "pool", service: "anti-booth", path: "/services/anti-booth",
+    description: "“What it looks like” BTS mosaic (up to 6 tiles; hidden until 3+ images)" },
 
   // ── Slots: homepage angled services row (one image each) ────────────────
   { key: "slot/slice-1", label: "Slice 01 — Headshot Booth", kind: "slot", rotates: true, service: "headshot-booth", path: "/",

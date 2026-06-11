@@ -96,6 +96,9 @@ describe("SITE_SCENES registry", () => {
       "photo-booth/overhead",
       "photo-booth/bw-glam",
       "photo-booth/custom-sets",
+      "bts/headshot-booth",
+      "bts/photo-booth",
+      "bts/anti-booth",
       ...[1, 2, 3, 4, 5, 6].map((n) => `slot/slice-${n}`),
       ...[
         "headshot-booth",
