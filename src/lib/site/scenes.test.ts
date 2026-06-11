@@ -107,6 +107,7 @@ describe("SITE_SCENES registry", () => {
         "office-headshots",
         "drop-in-sessions",
       ].map((slug) => `slot/hero/${slug}`),
+      "slot/og",
       ...[
         "headshot-booth",
         "photo-booth",

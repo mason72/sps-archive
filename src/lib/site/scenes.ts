@@ -80,6 +80,9 @@ export const SITE_SCENES: SceneDef[] = [
   { key: "slot/hero/office-headshots", label: "Hero — Office Headshots", kind: "slot", service: "office-headshots" },
   { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", service: "drop-in-sessions" },
 
+  // ── Slot: social link-preview image (Open Graph) ─────────────────────────
+  { key: "slot/og", label: "OG / Link Preview", kind: "slot" },
+
   // ── Ordered: position-mapped page sets (image N → position N) ────────────
   { key: "benefits/headshot-booth", label: "Benefits — Headshot Booth", kind: "ordered", service: "headshot-booth", positions: 6 },
   { key: "benefits/photo-booth", label: "Benefits — Photo Booth", kind: "ordered", service: "photo-booth", positions: 6 },
