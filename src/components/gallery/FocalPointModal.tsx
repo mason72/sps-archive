@@ -16,10 +16,13 @@ interface FocalPointModalProps {
   onSaved: (imageId: string, focal: { x: number; y: number } | null) => void;
   /**
    * Bulk "suggest for all unset" (website sections). Writes face-detection
-   * suggestions server-side and returns how many were set; the parent updates
-   * its image state so the sweep reflects the new values.
+   * suggestions server-side (chunked) and returns how many were set; the
+   * parent updates its image state so the sweep reflects the new values.
+   * onProgress reports (imagesScanned, imagesToScan) for the live counter.
    */
-  onBulkSuggest?: () => Promise<number>;
+  onBulkSuggest?: (
+    onProgress: (done: number, total: number) => void
+  ) => Promise<number>;
 }
 
 interface ImageDetailLite {
@@ -64,6 +67,11 @@ export function FocalPointModal({
   const [isSuggestion, setIsSuggestion] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSuggestingAll, setIsSuggestingAll] = useState(false);
+  // Live "Scanning 12/24…" while the chunked bulk suggest runs.
+  const [scanProgress, setScanProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   // Signed full-res URLs + suggestions, cached per image for the session so
   // ←/→ never refetches. Prefetched one ahead.
   const detailCache = useRef<Map<string, ImageDetailLite>>(new Map());
@@ -241,7 +249,9 @@ export function FocalPointModal({
     if (!onBulkSuggest || isSuggestingAll) return;
     setIsSuggestingAll(true);
     try {
-      const count = await onBulkSuggest();
+      const count = await onBulkSuggest((done, total) =>
+        setScanProgress(total > 0 ? { done, total } : null)
+      );
       toast.success(
         count > 0
           ? `Suggested focal points for ${count} ${count === 1 ? "image" : "images"}`
@@ -251,6 +261,7 @@ export function FocalPointModal({
       toast.error("Bulk suggest failed");
     } finally {
       setIsSuggestingAll(false);
+      setScanProgress(null);
     }
   };
 
@@ -288,7 +299,11 @@ export function FocalPointModal({
                 title="Write face-detection suggestions to every image without a focal point"
               >
                 <Sparkles className="h-3 w-3" />
-                {isSuggestingAll ? "Suggesting…" : "Suggest all"}
+                {isSuggestingAll
+                  ? scanProgress
+                    ? `Scanning ${scanProgress.done}/${scanProgress.total}…`
+                    : "Suggesting…"
+                  : "Suggest all"}
               </button>
             )}
             <button

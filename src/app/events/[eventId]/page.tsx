@@ -1683,28 +1683,51 @@ export default function EventPage({
           }
           onBulkSuggest={
             activeSection
-              ? async () => {
-                  const res = await fetch(
-                    `/api/sections/${activeSection}/suggest-focal`,
-                    { method: "POST" }
-                  );
-                  if (!res.ok) {
-                    throw new Error(await apiError(res, "Bulk suggest failed"));
+              ? async (onProgress) => {
+                  // Chunked: ~10 scans per request so the button can show
+                  // real progress and no single call risks a timeout. The
+                  // exclude list carries already-attempted ids (a faceless
+                  // image writes no rows, so the server can't tell it apart
+                  // from a never-scanned one).
+                  let exclude: string[] = [];
+                  let total: number | null = null;
+                  let written = 0;
+                  for (;;) {
+                    const res = await fetch(
+                      `/api/sections/${activeSection}/suggest-focal`,
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ limit: 10, exclude }),
+                      }
+                    );
+                    if (!res.ok) {
+                      throw new Error(await apiError(res, "Bulk suggest failed"));
+                    }
+                    const data = (await res.json()) as {
+                      count: number;
+                      suggestions: Array<{ imageId: string; x: number; y: number }>;
+                      scannedIds?: string[];
+                      remaining?: number;
+                    };
+                    written += data.count;
+                    const byId = new Map(
+                      data.suggestions.map((s) => [s.imageId, s])
+                    );
+                    setAllImages((prev) =>
+                      prev.map((i) => {
+                        const s = byId.get(i.id);
+                        return s ? { ...i, focalX: s.x, focalY: s.y } : i;
+                      })
+                    );
+                    const attempted = data.scannedIds ?? [];
+                    exclude = exclude.concat(attempted);
+                    const remaining = data.remaining ?? 0;
+                    if (total === null) total = attempted.length + remaining;
+                    onProgress(exclude.length, total);
+                    if (remaining <= 0 || attempted.length === 0) break;
                   }
-                  const data = (await res.json()) as {
-                    count: number;
-                    suggestions: Array<{ imageId: string; x: number; y: number }>;
-                  };
-                  const byId = new Map(
-                    data.suggestions.map((s) => [s.imageId, s])
-                  );
-                  setAllImages((prev) =>
-                    prev.map((i) => {
-                      const s = byId.get(i.id);
-                      return s ? { ...i, focalX: s.x, focalY: s.y } : i;
-                    })
-                  );
-                  return data.count;
+                  return written;
                 }
               : undefined
           }

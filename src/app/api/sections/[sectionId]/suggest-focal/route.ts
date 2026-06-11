@@ -26,6 +26,14 @@ export const maxDuration = 120;
  * their boxes persisted, so subsequent calls — and the per-image suggestion
  * marker in the sweep — get them for free.
  *
+ * CHUNKED for client-side progress: the body's `limit` caps how many images
+ * are scanned per call, and `exclude` carries the ids already attempted this
+ * run (an image whose scan found no faces writes no rows, so the faces table
+ * alone can't tell "scanned, faceless" from "never scanned" — the client's
+ * exclude list closes that loop). The response reports what was attempted
+ * and how many remain, so the editor can show "Scanning 12/24…" and call
+ * again until remaining is 0.
+ *
  * Returns the written values so the editor can update its grid state and the
  * focal sweep can show what was set. Owner-only.
  */
@@ -38,6 +46,12 @@ export async function POST(
     if (authError) return authError;
 
     const { sectionId } = await params;
+    const body = (await request.json().catch(() => ({}))) as {
+      limit?: number;
+      exclude?: string[];
+    };
+    const limit = Math.min(Math.max(Number(body.limit) || 200, 1), 200);
+    const exclude = new Set(Array.isArray(body.exclude) ? body.exclude : []);
 
     // Verify the caller owns the section's event.
     const { data: section } = await supabase
@@ -72,17 +86,22 @@ export async function POST(
     // Detect faces on demand for candidates that have never been scanned.
     // Detection runs on the 800px thumbnail (works for video posters too) and
     // the boxes are persisted, so this is a one-time cost per image.
-    let detected = 0;
+    let attempted: string[] = [];
+    let remaining = 0;
     if (candidateIds.length > 0 && isFaceDetectionConfigured()) {
       const { data: existingFaces } = await supabase
         .from("faces")
         .select("image_id")
         .in("image_id", candidateIds);
       const scanned = new Set((existingFaces ?? []).map((f) => f.image_id));
-      const toScan = rows
-        .filter((r) => !scanned.has(r.image_id))
-        .map((r) => ({ id: r.image_id, r2Key: r.images.r2_key }))
-        .slice(0, 200);
+      const missing = rows.filter(
+        (r) => !scanned.has(r.image_id) && !exclude.has(r.image_id)
+      );
+      const toScan = missing
+        .slice(0, limit)
+        .map((r) => ({ id: r.image_id, r2Key: r.images.r2_key }));
+      remaining = missing.length - toScan.length;
+      attempted = toScan.map((t) => t.id);
 
       if (toScan.length > 0) {
         try {
@@ -97,7 +116,6 @@ export async function POST(
               quality: b.quality,
             }))
           );
-          detected = detections.size;
           if (faceRows.length > 0) {
             // Service client: ownership is verified above, and the faces
             // table has no insert policy for regular users.
@@ -144,6 +162,10 @@ export async function POST(
       count: written.length,
       candidates: candidateIds.length,
       suggestions: written,
+      // Chunking contract: what this call attempted to scan, and how many
+      // unscanned candidates are left for follow-up calls.
+      scannedIds: attempted,
+      remaining,
     });
   } catch (error) {
     console.error("Bulk focal suggest error:", error);

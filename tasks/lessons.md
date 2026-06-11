@@ -72,3 +72,12 @@ These cost real time and broke production twice. Do not repeat.
    - The event grid fetches ALL event images then filters by section client-side
      in an imperative effect → races to "No images yet". Fix: derive displayed
      images (useMemo) from allImages + section IDs; never imperatively set empty.
+
+## 2026-06-11 — Don't run `next build` while the dev server is running
+**Mistake**: Ran verification builds (`npm run build`) while the preview dev
+server was serving from the same `.next` directory — the build clobbered the
+dev server's incremental chunks ("Cannot find module './vendor-chunks/next.js'")
+and the user hit a broken page.
+**Rule**: Before `npm run build`, stop the dev server (preview_stop), or skip
+the local build when a dev server is up (CI/the pre-push build covers it).
+Recovery: stop server, remove `.next`, restart.
