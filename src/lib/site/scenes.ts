@@ -101,20 +101,20 @@ export const SITE_SCENES: SceneDef[] = [
     description: "“Recent frames” gallery on the service page (shows ~8)" },
 
   // ── Slots: homepage angled services row (one image each) ────────────────
-  { key: "slot/slice-1", label: "Slice 01 — Headshot Booth", kind: "slot", service: "headshot-booth", path: "/",
+  { key: "slot/slice-1", label: "Slice 01 — Headshot Booth", kind: "slot", rotates: true, service: "headshot-booth", path: "/",
     description: "Homepage “What we do” card — Headshot Booth" },
-  { key: "slot/slice-2", label: "Slice 02 — Photo Booth", kind: "slot", service: "photo-booth", path: "/",
+  { key: "slot/slice-2", label: "Slice 02 — Photo Booth", kind: "slot", rotates: true, service: "photo-booth", path: "/",
     description: "Homepage “What we do” card — Photo Booth" },
-  { key: "slot/slice-3", label: "Slice 03 — Anti-Booth", kind: "slot", service: "anti-booth", path: "/",
+  { key: "slot/slice-3", label: "Slice 03 — Anti-Booth", kind: "slot", rotates: true, service: "anti-booth", path: "/",
     description: "Homepage “What we do” card — Anti-Booth" },
-  { key: "slot/slice-4", label: "Slice 04 — Event Photography", kind: "slot", service: "event-photography", path: "/",
+  { key: "slot/slice-4", label: "Slice 04 — Event Photography", kind: "slot", rotates: true, service: "event-photography", path: "/",
     description: "Homepage “What we do” card — Event Photography" },
-  { key: "slot/slice-5", label: "Slice 05 — Video", kind: "slot", service: "video", path: "/",
+  { key: "slot/slice-5", label: "Slice 05 — Video", kind: "slot", rotates: true, service: "video", path: "/",
     description: "Homepage “What we do” card — Video" },
   // The site's sixth "What we do" card is Office Headshots (Services.tsx) —
   // the old Environmental Portraits label predated that rename. Existing
   // section names in the DB are unaffected; this fixes the service auto-fill.
-  { key: "slot/slice-6", label: "Slice 06 — Office Headshots", kind: "slot", service: "office-headshots", path: "/",
+  { key: "slot/slice-6", label: "Slice 06 — Office Headshots", kind: "slot", rotates: true, service: "office-headshots", path: "/",
     description: "Homepage “What we do” card — Office Headshots" },
 
   // ── Slots: service-page heroes (auto-rotating carousels, drag order) ─────

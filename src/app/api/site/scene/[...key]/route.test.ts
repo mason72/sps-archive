@@ -158,20 +158,19 @@ describe("GET /api/site/scene/[...key]", () => {
     ]);
   });
 
-  it("returns only the first image (by drag order) for slot scenes", async () => {
+  it("returns only the first image (by drag order) for non-rotating slots", async () => {
+    // slot/og is the one slot that must stay single-image — link previews
+    // want exactly one photo. (Slices + heroes rotate, covered below.)
     const res = await GET(
       makeRequest({ "x-sps-key": TEST_KEY }),
-      makeParams(["slot", "slice-1"])
+      makeParams(["slot", "og"])
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.scene).toBe("slot/slice-1");
+    expect(body.scene).toBe("slot/og");
     expect(body.count).toBe(1);
     // Drag order wins in slots — featured does not jump the queue.
     expect(body.images[0].id).toBe("img-b");
-    // No implied service on the image or a non-service slice? slice-1 implies
-    // headshot-booth, which fills the read-time fallback for img-b's null.
-    expect(body.images[0].service).toBe("headshot-booth");
   });
 
   it("returns the full set in drag order for rotating slots (hero carousels)", async () => {
