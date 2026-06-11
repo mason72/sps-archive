@@ -367,6 +367,12 @@ R2_PUBLIC_LANE_URL=https://pub-d26e68845d7742259c52f68cbb95e72e.r2.dev
 VIDEO_PIPELINE_URL=https://<workspace>--sps-archive-video-process-video.modal.run
 VIDEO_PIPELINE_KEY=<same value as the Modal video-pipeline secret>
 
+# Focal suggestions: on-demand face detection (modal deploy modal/face_pipeline.py).
+# Shares VIDEO_PIPELINE_KEY. Used by POST /api/sections/[id]/suggest-focal — the
+# editor's bulk "Suggest all" — which detects + persists faces for images the
+# shelved AI pipeline never scanned.
+FACE_PIPELINE_URL=https://<workspace>--sps-archive-faces-detect-faces.modal.run
+
 # Video: Cloudflare Stream (long / sound-on videos). Account id falls back to
 # R2_ACCOUNT_ID (same Cloudflare account), so only these two are required:
 CLOUDFLARE_STREAM_API_TOKEN=<token with Stream:Edit>
