@@ -86,7 +86,9 @@ export function SectionRow({
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = (e?: React.MouseEvent) => {
+    // Don't let the click bubble to the row's section-select handler.
+    e?.stopPropagation();
     if (confirmDelete) {
       onDelete(id);
       setConfirmDelete(false);
@@ -245,27 +247,59 @@ export function SectionRow({
         </button>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <button
-          onClick={() => setIsEditing(true)}
-          className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
-          title="Rename"
-        >
-          <Pencil size={13} />
-        </button>
-        {canDelete && !locked && (
-          <button
-            onClick={handleDelete}
-            className={`p-1 transition-colors ${
-              confirmDelete
-                ? "text-red-500 hover:text-red-700"
-                : "text-stone-400 hover:text-red-500"
-            }`}
-            title={confirmDelete ? "Click again to confirm" : "Delete section"}
-          >
-            <Trash2 size={13} />
-          </button>
+      {/* Actions. Confirming a delete forces the group visible (so it can't
+          vanish if the cursor drifts off the row) and swaps the ghost trash
+          icon for an unmistakable red "Delete?" button + cancel — the old
+          icon-only confirm was invisible because its red matched the hover
+          red. */}
+      <div
+        className={`flex items-center gap-1 transition-opacity duration-200 ${
+          confirmDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      >
+        {confirmDelete ? (
+          <>
+            <button
+              onClick={handleDelete}
+              className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+              title="Permanently delete this section"
+            >
+              <Trash2 size={11} />
+              Delete?
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(false);
+              }}
+              className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
+              title="Cancel"
+            >
+              <X size={13} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditing(true);
+              }}
+              className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
+              title="Rename"
+            >
+              <Pencil size={13} />
+            </button>
+            {canDelete && !locked && (
+              <button
+                onClick={handleDelete}
+                className="p-1 text-stone-400 hover:text-red-500 transition-colors"
+                title="Delete section"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
