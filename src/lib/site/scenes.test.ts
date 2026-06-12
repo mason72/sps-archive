@@ -11,7 +11,7 @@ describe("isValidScene", () => {
   it("accepts known flat and namespaced scene keys", () => {
     expect(isValidScene("hero")).toBe(true);
     expect(isValidScene("featured-work")).toBe(true);
-    expect(isValidScene("service/headshot-booth")).toBe(true);
+    expect(isValidScene("service/photo-booth")).toBe(true);
     expect(isValidScene("photo-booth/overhead")).toBe(true);
     expect(isValidScene("slot/slice-1")).toBe(true);
     expect(isValidScene("slot/hero/photo-booth")).toBe(true);
@@ -85,14 +85,10 @@ describe("SITE_SCENES registry", () => {
       "hero",
       "featured-work",
       "backgrounds",
-      "service/headshot-booth",
       "service/photo-booth",
       "service/anti-booth",
-      "service/event-photography",
       "service/video",
       "service/environmental-portraits",
-      "service/office-headshots",
-      "service/drop-in-sessions",
       "photo-booth/overhead",
       "photo-booth/bw-glam",
       "photo-booth/custom-sets",
