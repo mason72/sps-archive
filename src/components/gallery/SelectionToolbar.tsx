@@ -9,6 +9,7 @@ import {
   Download,
   Trash2,
   FolderPlus,
+  FolderOpen,
   ArrowRight,
   Pencil,
   X,
@@ -34,6 +35,10 @@ interface SelectionToolbarProps {
   onDownload: () => void;
   onAddToSection?: (sectionId: string) => void;
   onMoveToSection?: (sectionId: string) => void;
+  /** Open the cross-gallery picker in copy mode ("Another gallery…"). */
+  onCopyToGallery?: () => void;
+  /** Open the cross-gallery picker in move mode ("Another gallery…"). */
+  onMoveToGallery?: () => void;
   onRename?: (pattern: string) => void;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
@@ -67,6 +72,8 @@ export function SelectionToolbar({
   onDownload,
   onAddToSection,
   onMoveToSection,
+  onCopyToGallery,
+  onMoveToGallery,
   onRename,
   onSetCover,
   deleteHint,
@@ -294,13 +301,31 @@ export function SelectionToolbar({
                         )}
                       </button>
                     ))}
+                  {onMoveToGallery && (
+                    <>
+                      <div className="my-1 border-t border-stone-100" />
+                      <button
+                        onClick={() => {
+                          setShowMovePicker(false);
+                          onMoveToGallery();
+                        }}
+                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                      >
+                        <FolderOpen size={13} className="shrink-0 text-stone-400" />
+                        <span className="flex-1 truncate">Another gallery…</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Copy to section (secondary action) */}
-          {activeSection && onAddToSection && sections.length > 0 && (
+          {/* Copy to section (secondary action). From All Images the
+              within-gallery rows hide (copying is section-scoped there) but
+              "Another gallery…" stays reachable. */}
+          {((activeSection && onAddToSection && sections.length > 0) ||
+            onCopyToGallery) && (
             <div className="relative" ref={pickerRef}>
               <ToolbarButton
                 icon={<FolderPlus className="h-4 w-4" />}
@@ -313,12 +338,12 @@ export function SelectionToolbar({
                   <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
                     Copy to section
                   </p>
-                  {sections.map((s) => (
+                  {(activeSection && onAddToSection ? sections : []).map((s) => (
                     <button
                       key={s.id}
                       disabled={s.locked}
                       onClick={() => {
-                        onAddToSection(s.id);
+                        onAddToSection?.(s.id);
                         setAddedToSection(s.id);
                         setTimeout(() => {
                           setAddedToSection(null);
@@ -335,6 +360,21 @@ export function SelectionToolbar({
                       )}
                     </button>
                   ))}
+                  {onCopyToGallery && (
+                    <>
+                      <div className="my-1 border-t border-stone-100" />
+                      <button
+                        onClick={() => {
+                          setShowSectionPicker(false);
+                          onCopyToGallery();
+                        }}
+                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+                      >
+                        <FolderOpen size={13} className="shrink-0 text-stone-400" />
+                        <span className="flex-1 truncate">Another gallery…</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

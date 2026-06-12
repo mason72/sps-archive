@@ -13,6 +13,7 @@ import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
 import { SelectionToolbar } from "@/components/gallery/SelectionToolbar";
 import { FocalPointModal } from "@/components/gallery/FocalPointModal";
+import { GalleryTransferModal } from "@/components/gallery/GalleryTransferModal";
 import { sceneForKey, sceneUsageHint, sceneUrl } from "@/lib/site/scenes";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CurationModal } from "@/components/gallery/CurationModal";
@@ -273,6 +274,8 @@ export default function EventPage({
     : undefined;
   const isSlotSection = activeScene?.kind === "slot";
   const [focalImageId, setFocalImageId] = useState<string | null>(null);
+  // Cross-gallery copy/move picker ("Another gallery…" in the toolbar).
+  const [transferMode, setTransferMode] = useState<"copy" | "move" | null>(null);
   // Website curation modal (event/city/service/featured) — offered where the
   // team curates the site: the TDP Website gallery or any website section.
   const isWebsiteContext =
@@ -1644,6 +1647,8 @@ export default function EventPage({
                 }. A photo in no other section is deleted from your archive permanently.`
               : "Permanently deletes the selected photos from your archive."
           }
+          onCopyToGallery={() => setTransferMode("copy")}
+          onMoveToGallery={() => setTransferMode("move")}
           onSetFocalPoint={
             // Anywhere in the website gallery (sections AND All Images): the
             // site crops focal-aware everywhere, so the tool follows the
@@ -1683,6 +1688,25 @@ export default function EventPage({
           actions={[
             { icon: ImageIcon, label: "Make Cover", onClick: handleSetCover },
           ]}
+        />
+      )}
+
+      {/* ─── Cross-gallery copy/move picker ─── */}
+      {transferMode && selectedArray.length > 0 && (
+        <GalleryTransferModal
+          mode={transferMode}
+          imageIds={selectedArray}
+          currentEventId={eventId}
+          onClose={() => setTransferMode(null)}
+          onDone={({ mode, galleryName, sectionName }) => {
+            deselectAll();
+            fetchEvent();
+            toast.success(
+              `${mode === "copy" ? "Copied" : "Moved"} ${selectedArray.length} ${
+                selectedArray.length === 1 ? "image" : "images"
+              } to ${galleryName} › ${sectionName}`
+            );
+          }}
         />
       )}
 
