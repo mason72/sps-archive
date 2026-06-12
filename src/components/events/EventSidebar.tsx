@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Download,
   Upload,
+  Search,
+  X,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
@@ -334,6 +336,25 @@ function SectionsPanel({
   const [isGenerating, setIsGenerating] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
+  // ─── Section search + filters (long lists, e.g. the website gallery) ───
+  const [sectionQuery, setSectionQuery] = useState("");
+  const [lockFilter, setLockFilter] = useState<"all" | "locked" | "unlocked">("all");
+  const [emptyOnly, setEmptyOnly] = useState(false);
+  const filtersActive =
+    sectionQuery.trim() !== "" || lockFilter !== "all" || emptyOnly;
+  // Keep original indices: drag-reorder positions refer to the FULL list, so
+  // reordering is disabled while a filter hides rows (indices would lie).
+  const visibleSections = sections
+    .map((section, index) => ({ section, index }))
+    .filter(({ section }) => {
+      const q = sectionQuery.trim().toLowerCase();
+      if (q && !section.name.toLowerCase().includes(q)) return false;
+      if (lockFilter === "locked" && !section.locked) return false;
+      if (lockFilter === "unlocked" && section.locked) return false;
+      if (emptyOnly && section.imageCount > 0) return false;
+      return true;
+    });
+
   // New uploads always land in a real section: the selected one, or — when
   // "All Images" is the view — the first section. Surfaced as a "Target" badge.
   const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
@@ -510,6 +531,73 @@ function SectionsPanel({
           )}
         </button>
 
+        {/* ─── Section search + filters (shown once the list is long) ─── */}
+        {sections.length > 5 && (
+          <div className="border-b border-stone-50 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <Search size={13} className="shrink-0 text-stone-300" />
+              <input
+                type="text"
+                value={sectionQuery}
+                onChange={(e) => setSectionQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setSectionQuery("");
+                }}
+                placeholder="Find a section…"
+                className="w-full bg-transparent py-0.5 text-[12px] text-stone-900 outline-none placeholder:text-stone-300"
+              />
+              {sectionQuery && (
+                <button
+                  onClick={() => setSectionQuery("")}
+                  className="shrink-0 text-stone-300 hover:text-stone-600 transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              {(
+                [
+                  ["locked", "Locked"],
+                  ["unlocked", "Unlocked"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() =>
+                    setLockFilter((cur) => (cur === value ? "all" : value))
+                  }
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors",
+                    lockFilter === value
+                      ? "border-stone-900 bg-stone-900 text-white"
+                      : "border-stone-200 text-stone-400 hover:border-stone-300 hover:text-stone-600"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                onClick={() => setEmptyOnly((v) => !v)}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors",
+                  emptyOnly
+                    ? "border-stone-900 bg-stone-900 text-white"
+                    : "border-stone-200 text-stone-400 hover:border-stone-300 hover:text-stone-600"
+                )}
+              >
+                Empty
+              </button>
+              {filtersActive && (
+                <span className="ml-auto text-[10px] tabular-nums text-stone-300">
+                  {visibleSections.length}/{sections.length}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {sections.length === 0 ? (
           /* ─── Empty state ─── */
           <div className="px-5 py-10 text-center">
@@ -525,8 +613,12 @@ function SectionsPanel({
             </p>
             {/* AI_HIDDEN: "Generate from AI tags" button disabled — AI backend not configured */}
           </div>
+        ) : visibleSections.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[12px] text-stone-400">
+            No sections match
+          </p>
         ) : (
-          sections.map((section, index) => (
+          visibleSections.map(({ section, index }) => (
             <div
               key={section.id}
               onClick={() => onSetActiveSection(section.id)}
@@ -543,9 +635,12 @@ function SectionsPanel({
                 onRename={handleRename}
                 onDelete={handleDelete}
                 isDragging={dragIndex === index}
-                onDragStart={() => setDragIndex(index)}
-                onDragEnd={handleDragEnd}
-                onDragOver={() => handleDragOver(index)}
+                // Reorder positions refer to the full list — disabled while a
+                // search/filter hides rows, or drops would land in the wrong
+                // place relative to hidden neighbors.
+                onDragStart={filtersActive ? undefined : () => setDragIndex(index)}
+                onDragEnd={filtersActive ? undefined : handleDragEnd}
+                onDragOver={filtersActive ? undefined : () => handleDragOver(index)}
                 onDropImages={onDropImagesToSection}
                 isUploadTarget={section.id === uploadTargetId}
                 canDelete={sections.length > 1}

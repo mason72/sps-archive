@@ -52,6 +52,7 @@ export function GalleryTransferModal({
   const [query, setQuery] = useState("");
   const [selectedGallery, setSelectedGallery] = useState<GalleryOption | null>(null);
   const [sections, setSections] = useState<SectionOption[] | null>(null);
+  const [sectionQuery, setSectionQuery] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [newSectionName, setNewSectionName] = useState("");
   const [isWorking, setIsWorking] = useState(false);
@@ -96,6 +97,7 @@ export function GalleryTransferModal({
     if (!selectedGallery) return;
     let cancelled = false;
     setSections(null);
+    setSectionQuery("");
     setSelectedSectionId(null);
     fetch(`/api/events/${selectedGallery.id}/sections`)
       .then((res) => (res.ok ? res.json() : null))
@@ -122,6 +124,14 @@ export function GalleryTransferModal({
     const q = query.trim().toLowerCase();
     return q ? galleries.filter((g) => g.name.toLowerCase().includes(q)) : galleries;
   }, [galleries, query]);
+
+  const filteredSections = useMemo(() => {
+    if (!sections) return null;
+    const q = sectionQuery.trim().toLowerCase();
+    return q
+      ? sections.filter((s) => s.name.toLowerCase().includes(q))
+      : sections;
+  }, [sections, sectionQuery]);
 
   const handleTransfer = async () => {
     if (!selectedGallery || isWorking) return;
@@ -283,8 +293,25 @@ export function GalleryTransferModal({
               </div>
             ) : (
               <>
+                {sections.length > 5 && (
+                  <div className="flex items-center gap-2 border-b border-stone-100 px-4 py-2">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-stone-300" />
+                    <input
+                      type="text"
+                      value={sectionQuery}
+                      onChange={(e) => setSectionQuery(e.target.value)}
+                      placeholder="Find a section…"
+                      className="w-full bg-transparent py-1 text-[13px] text-stone-900 outline-none placeholder:text-stone-300"
+                    />
+                  </div>
+                )}
                 <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                  {sections.map((s) => (
+                  {filteredSections?.length === 0 && (
+                    <p className="px-4 py-6 text-center text-[12px] text-stone-400">
+                      No sections match
+                    </p>
+                  )}
+                  {(filteredSections ?? []).map((s) => (
                     <button
                       key={s.id}
                       disabled={s.locked}
