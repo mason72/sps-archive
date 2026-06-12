@@ -105,12 +105,18 @@ export function useMarqueeSelect({
       // Only start on left mouse button
       if (e.button !== 0) return;
 
-      // Don't start if clicking on non-image interactive elements (links, inputs)
+      // Only arm from EMPTY grid space. A mousedown on an image tile means a
+      // click/double-click or an image DRAG — and once a native drag starts,
+      // mouseup never fires (drags end with dragend), which left a stuck
+      // marquee drawn under the dragged image. Buttons cover the tiles plus
+      // every other interactive control in the grid area.
       const target = e.target as HTMLElement;
       if (
         target.closest("a") ||
+        target.closest("button") ||
         target.closest("input") ||
         target.closest("select") ||
+        target.closest("[data-image-id]") ||
         target.closest("[data-no-marquee]")
       ) {
         return;
