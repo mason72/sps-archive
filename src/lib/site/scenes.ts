@@ -92,7 +92,7 @@ export const SITE_SCENES: SceneDef[] = [
   { key: "service/event-photography", label: "Event Photography", kind: "pool", service: "event-photography", path: "/services/event-photography",
     description: "“Recent frames” gallery on the service page (shows ~8)" },
   { key: "service/video", label: "Video", kind: "pool", service: "video", path: "/services/video",
-    description: "“Recent frames” gallery on the service page (shows ~8)" },
+    description: "“Watch the work” reel grid — every video here, 16:9, drag order, plays in place" },
   { key: "service/environmental-portraits", label: "Environmental Portraits", kind: "pool", service: "environmental-portraits", path: "/services/office-headshots",
     description: "Environmental-portraits detail gallery on Office Headshots (shows 4; hidden until 3+ images)" },
   { key: "service/office-headshots", label: "Office Headshots", kind: "pool", service: "office-headshots", path: "/services/office-headshots",
