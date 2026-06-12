@@ -99,6 +99,7 @@ describe("SITE_SCENES registry", () => {
       "bts/headshot-booth",
       "bts/photo-booth",
       "bts/anti-booth",
+      "drop-in/actors",
       ...[1, 2, 3, 4, 5, 6].map((n) => `slot/slice-${n}`),
       ...[
         "headshot-booth",
