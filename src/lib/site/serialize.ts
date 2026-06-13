@@ -20,11 +20,12 @@ import { publicLaneKeys } from "./publish";
 
 /** The columns the site APIs select for each member asset. */
 export const SITE_ASSET_COLUMNS =
-  "id, r2_key, width, height, service, featured, created_at, focal_x, focal_y, media_type, duration_seconds, stream_uid, events!event_id(name, city)";
+  "id, r2_key, original_filename, width, height, service, featured, created_at, focal_x, focal_y, media_type, duration_seconds, stream_uid, events!event_id(name, city)";
 
 export interface SiteAssetRow {
   id: string;
   r2_key: string;
+  original_filename: string | null;
   width: number | null;
   height: number | null;
   service: string | null;
@@ -50,6 +51,9 @@ export function serializeSiteAsset(
 
   return {
     id: img.id,
+    /* Upload filename — catalog-style consumers (the backdrop picker) join
+       structured entries to images by basename. */
+    name: img.original_filename ?? null,
     event: event.name ?? null,
     city: event.city ?? null,
     service: img.service ?? fallbackService,

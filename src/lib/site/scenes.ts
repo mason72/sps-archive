@@ -130,8 +130,6 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Service-page hero carousel at the top of the page" },
   { key: "slot/hero/video", label: "Hero — Video", kind: "slot", rotates: true, service: "video", path: "/services/video",
     description: "Service-page hero carousel at the top of the page" },
-  { key: "slot/hero/environmental-portraits", label: "Hero — Environmental Portraits", kind: "slot", rotates: true, service: "environmental-portraits", path: "/services/office-headshots",
-    description: "Hero carousel for the environmental-portraits section" },
   { key: "slot/hero/office-headshots", label: "Hero — Office Headshots", kind: "slot", rotates: true, service: "office-headshots", path: "/services/office-headshots",
     description: "Service-page hero carousel at the top of the page" },
   { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", rotates: true, service: "drop-in-sessions", path: "/services/drop-in-sessions",
