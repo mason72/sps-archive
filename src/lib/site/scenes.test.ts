@@ -120,6 +120,9 @@ describe("SITE_SCENES registry", () => {
       "story",
       "about-values",
       "quote",
+      "portrait/styles",
+      "portrait/categories",
+      "portrait/finishing",
     ];
     for (const key of required) {
       expect(isValidScene(key), `missing scene: ${key}`).toBe(true);

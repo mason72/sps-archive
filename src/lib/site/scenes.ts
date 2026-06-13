@@ -160,6 +160,12 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Values tiles on the About page (4 photo-led tiles)" },
   { key: "quote", label: "Quote Page", kind: "ordered", positions: 2, path: "/quote",
     description: "Quote page — image 1 is the main photo, image 2 the inset" },
+  { key: "portrait/styles", label: "Portrait — Styles", kind: "ordered", positions: 3, path: "/portrait",
+    description: "Portrait builder style cards — image 1 Traditional, 2 Editorial B&W, 3 Environmental" },
+  { key: "portrait/categories", label: "Portrait — Backdrop Categories", kind: "ordered", positions: 5, path: "/portrait",
+    description: "Portrait builder backdrop cards — image 1 White, 2 Light gray, 3 Dark, 4 Color, 5 Gels (a real headshot on each)" },
+  { key: "portrait/finishing", label: "Portrait — Finishing", kind: "ordered", positions: 6, path: "/portrait",
+    description: "Portrait builder finishing thumbs — 1 Posing, 2 H&MU, 3 AI Retouch, 4 Lighting boost, 5 Posing table, 6 Close-up" },
 ];
 
 const SCENES_BY_KEY = new Map(SITE_SCENES.map((s) => [s.key, s]));
