@@ -199,7 +199,13 @@ export async function GET(
           // Lightbox/full view: web-viewable original, or the 800px JPEG for
           // non-renderable formats (TIFF). Download still gets the raw original.
           getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
-          share.allow_download ? getPresignedDownloadUrl(img.r2_key, 3600) : Promise.resolve(null),
+          share.allow_download
+            ? getPresignedDownloadUrl(
+                img.r2_key,
+                3600,
+                img.original_filename || "image"
+              )
+            : Promise.resolve(null),
         ]);
 
         const result: Record<string, unknown> = {

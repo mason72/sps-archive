@@ -44,7 +44,13 @@ export async function GET(
       await Promise.all([
         getPresignedDownloadUrl(thumbKey, 14400),
         getPresignedDownloadUrl(getDisplayKey(image.r2_key), 14400),
-        getPresignedDownloadUrl(image.r2_key, 3600),
+        // Save path: force a download (attachment) to the original filename,
+        // so it lands in Downloads instead of opening in a tab.
+        getPresignedDownloadUrl(
+          image.r2_key,
+          3600,
+          image.original_filename || "image"
+        ),
         supabase
           .from("faces")
           .select("bbox_x, bbox_y, bbox_w, bbox_h, quality")

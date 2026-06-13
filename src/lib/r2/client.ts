@@ -55,16 +55,41 @@ export async function getPresignedUploadUrl(
   );
 }
 
-/** Generate a presigned download URL */
+/**
+ * Build a `Content-Disposition: attachment` value that survives both ASCII
+ * and Unicode filenames (RFC 6266: ascii `filename=` for old clients, plus
+ * `filename*=UTF-8''` for the rest).
+ */
+function attachmentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(
+    filename
+  )}`;
+}
+
+/**
+ * Generate a presigned download URL.
+ *
+ * Pass `filename` for the SAVE path: it signs `ResponseContentDisposition:
+ * attachment`, so the browser downloads the file (to Downloads) on a plain
+ * navigation. Without it, the `download` attribute on an <a> is the only
+ * hint — and browsers IGNORE that for cross-origin URLs (R2 is a different
+ * origin), so the link just opens the image in a tab instead. Omit `filename`
+ * for display/lightbox URLs, which must render inline.
+ */
 export async function getPresignedDownloadUrl(
   key: string,
-  expiresIn = 3600
+  expiresIn = 3600,
+  filename?: string
 ): Promise<string> {
   return getSignedUrl(
     R2,
     new GetObjectCommand({
       Bucket: BUCKET,
       Key: key,
+      ...(filename
+        ? { ResponseContentDisposition: attachmentDisposition(filename) }
+        : {}),
     }),
     { expiresIn }
   );
