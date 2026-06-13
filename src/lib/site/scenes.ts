@@ -99,6 +99,8 @@ export const SITE_SCENES: SceneDef[] = [
     description: "“What it looks like” BTS mosaic (up to 6 tiles; hidden until 3+ images)" },
   { key: "drop-in/actors", label: "Drop-In — Actors", kind: "pool", service: "drop-in-sessions", path: "/services/drop-in-sessions",
     description: "Actor + theatrical mini-gallery on the Drop-In page (hidden until 3+ images)" },
+  { key: "samples/headshots", label: "Headshot Samples", kind: "pool", path: "/services/headshot-booth",
+    description: "Finished-headshot mosaic on Headshot Booth, Office Headshots, and Drop-In pages (hidden until 3+ images)" },
 
   // ── Slots: homepage angled services row (one image each) ────────────────
   { key: "slot/slice-1", label: "Slice 01 — Headshot Booth", kind: "slot", rotates: true, service: "headshot-booth", path: "/",
