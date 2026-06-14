@@ -7,7 +7,7 @@ import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
 import { SearchBar } from "@/components/search/SearchBar";
-import { ImageGrid } from "@/components/gallery/ImageGrid";
+import { ImageGrid, type TileBadge } from "@/components/gallery/ImageGrid";
 import { FilmStrip } from "@/components/gallery/FilmStrip";
 import { Lightbox } from "@/components/lightbox/Lightbox";
 import { ShareModal } from "@/components/shares/ShareModal";
@@ -817,6 +817,56 @@ export default function EventPage({
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
+  // Per-tile slot badges for TDP Website scenes: which live-site position each
+  // photo fills. Only truthful in Manual drag order (positions map to
+  // section_images.sort_order), so it's computed there and nowhere else.
+  const positionBadges = useMemo(() => {
+    const m = new Map<string, TileBadge>();
+    if (!activeScene || !activeSection || !manualMode) return m;
+
+    if (activeScene.kind === "ordered") {
+      const limit = activeScene.positions ?? sortedImages.length;
+      sortedImages.forEach((img, i) => {
+        const pos = i + 1;
+        if (pos <= limit) {
+          const label = activeScene.positionLabels?.[i];
+          m.set(img.id, {
+            variant: "position",
+            label: label ? `${pos} · ${label}` : String(pos),
+            title: label ? `Position ${pos} — ${label}` : `Position ${pos}`,
+          });
+        } else {
+          m.set(img.id, {
+            variant: "extra",
+            label: "Extra",
+            title: "Beyond the positions this page uses — not shown on the site",
+          });
+        }
+      });
+    } else if (activeScene.kind === "slot" && !activeScene.rotates) {
+      // Single-image slot (e.g. OG): the first by drag order is the one used.
+      sortedImages.forEach((img, i) =>
+        m.set(
+          img.id,
+          i === 0
+            ? { variant: "cover", label: "Live", title: "The image this slot uses on the site" }
+            : { variant: "extra", label: "Extra", title: "Slot uses only the first image — not shown" }
+        )
+      );
+    } else if (activeScene.pinned && activeScene.pinned > 0) {
+      // Rotating slots (service heroes, homepage slices) and any pinned pool:
+      // the first N always render every load; the rest sample at random.
+      sortedImages.slice(0, activeScene.pinned).forEach((img) =>
+        m.set(img.id, {
+          variant: "pinned",
+          label: "Always",
+          title: "Always shown — pinned; the rest rotate at random",
+        })
+      );
+    }
+    return m;
+  }, [activeScene, activeSection, manualMode, sortedImages]);
+
   // ─── Gallery keyboard shortcuts ───
   const { showHelp: showShortcutsHelp, setShowHelp: setShowShortcutsHelp } =
     useGalleryShortcuts({
@@ -1550,6 +1600,9 @@ export default function EventPage({
                     Position-mapped — the website shows the first{" "}
                     {activeScene.positions} photos in drag order, one per spot;
                     extras are ignored.
+                    {!manualMode && (
+                      <> Switch to Manual sort to see and arrange the positions.</>
+                    )}
                   </p>
                 )}
               {viewMode === "grid" ? (
@@ -1590,6 +1643,7 @@ export default function EventPage({
                     onReorder={handleReorder}
                     showFocalBadge={isWebsiteContext}
                     coverImageId={jobCoverImageId}
+                    positionBadges={positionBadges}
                   />
                 </>
               ) : (

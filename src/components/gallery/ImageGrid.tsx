@@ -58,6 +58,27 @@ interface ImageGridProps {
    * on the website — badge it so the team knows what leads.
    */
   coverImageId?: string | null;
+  /**
+   * Per-image slot badge keyed by image id (TDP Website scenes): which page
+   * position each photo fills. Computed by the page from the active scene +
+   * manual drag order — the grid just renders what it's given. See TileBadge.
+   */
+  positionBadges?: Map<string, TileBadge>;
+}
+
+/**
+ * A corner badge telling the team how a tile maps to the live site:
+ *  - position: this photo fills a specific, ordered page spot (label = the
+ *    position number, or the item name once the registry carries one)
+ *  - extra: beyond the page's used count — won't appear on the site (dimmed)
+ *  - cover: the single image the page uses (slot scenes / OG)
+ *  - pinned: a pinned-prefix pool tile that always renders
+ */
+export interface TileBadge {
+  label: string;
+  variant: "position" | "extra" | "cover" | "pinned";
+  /** Full text for the tooltip (e.g. "Position 3 — Touch-ups"). */
+  title?: string;
 }
 
 /** Gap in px for each density — applied as column-gap + item margin-bottom. */
@@ -96,6 +117,7 @@ export function ImageGrid({
   onReorder,
   showFocalBadge,
   coverImageId,
+  positionBadges,
 }: ImageGridProps) {
   const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
@@ -116,6 +138,7 @@ export function ImageGrid({
         onReorder={onReorder}
         showFocalBadge={showFocalBadge}
         coverImageId={coverImageId}
+        positionBadges={positionBadges}
       />
     );
   }
@@ -182,6 +205,7 @@ export function ImageGrid({
             sizes={`${Math.round(100 / colCount)}vw`}
             showFocalBadge={showFocalBadge}
             isCover={item.data.id === coverImageId}
+            badge={positionBadges?.get(item.data.id)}
           />
         )}
       </div>
@@ -215,6 +239,7 @@ function SortableImageGrid({
   onReorder,
   showFocalBadge,
   coverImageId,
+  positionBadges,
 }: {
   standalone: ImageData[];
   onToggleSelect?: (imageId: string) => void;
@@ -229,6 +254,7 @@ function SortableImageGrid({
   onReorder?: (orderedImageIds: string[]) => void;
   showFocalBadge?: boolean;
   coverImageId?: string | null;
+  positionBadges?: Map<string, TileBadge>;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -332,6 +358,7 @@ function SortableImageGrid({
                     sizes={`${Math.round(100 / colCount)}vw`}
                     showFocalBadge={showFocalBadge}
                     isCover={image.id === coverImageId}
+                    badge={positionBadges?.get(image.id)}
                   />
                 </div>
               ))}
@@ -395,6 +422,7 @@ function SortableTile({
   sizes,
   showFocalBadge,
   isCover,
+  badge,
 }: {
   image: ImageData;
   isSelected: boolean;
@@ -409,6 +437,7 @@ function SortableTile({
   sizes?: string;
   showFocalBadge?: boolean;
   isCover?: boolean;
+  badge?: TileBadge;
 }) {
   const {
     attributes,
@@ -444,6 +473,7 @@ function SortableTile({
         sizes={sizes}
         showFocalBadge={showFocalBadge}
         isCover={isCover}
+        badge={badge}
       />
     </div>
   );
@@ -466,6 +496,7 @@ function GridImage({
   sizes,
   showFocalBadge,
   isCover,
+  badge,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -484,6 +515,8 @@ function GridImage({
   showFocalBadge?: boolean;
   /** First image of a job section — the website cover for that job. */
   isCover?: boolean;
+  /** Slot-mapping badge for TDP Website scenes (position / cover / extra). */
+  badge?: TileBadge;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -574,6 +607,29 @@ function GridImage({
         <div className="absolute bottom-2 left-2 z-[2] border border-white/40 bg-black/40 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.15em] text-white pointer-events-none">
           Cover
         </div>
+      )}
+
+      {/* Slot mapping — where this photo lands on the live site (TDP Website
+          scenes). Position numbers/labels for ordered scenes, cover for slots,
+          and a dimmed "extra" for tiles past the page's used count. */}
+      {badge && (
+        <div
+          className={`absolute bottom-2 left-2 z-[2] max-w-[calc(100%-1rem)] truncate border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] backdrop-blur-sm pointer-events-none ${
+            badge.variant === "position"
+              ? "border-accent bg-accent/90 text-white"
+              : badge.variant === "extra"
+              ? "border-white/30 bg-stone-900/55 text-white/80"
+              : "border-white/40 bg-black/45 text-white"
+          }`}
+          title={badge.title ?? badge.label}
+        >
+          {badge.label}
+        </div>
+      )}
+      {/* "Extra" tiles won't appear on the site — wash them back so the used
+          set reads first. */}
+      {badge?.variant === "extra" && (
+        <div className="absolute inset-0 z-[1] bg-white/50 pointer-events-none" />
       )}
 
       {/* Video — poster tile with a play marker + duration */}
