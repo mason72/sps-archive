@@ -109,9 +109,12 @@ export default function EventPage({
 
   const [allImages, setAllImages] = useState<ImageData[]>([]);
   const [allStacks, setAllStacks] = useState<StackData[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  // Search results live in their own state; the displayed list is derived.
-  const [searchResults, setSearchResults] = useState<ImageData[] | null>(null);
+  // Filename search runs CLIENT-SIDE over the already-loaded images, scoped to
+  // the active section (search a section → that section; "All Images" → all).
+  // Deriving from the query (rather than separate isSearching/results state)
+  // is what keeps clearing the search from stranding you: empty query → the
+  // view falls straight back to the active section.
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareModalImageIds, setShareModalImageIds] = useState<string[] | undefined>(undefined);
@@ -141,6 +144,25 @@ export default function EventPage({
   // Favorites filter (client/team favorites from the event's active share).
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+
+  // ─── Client-side, section-scoped filename search ───
+  // Matches the server's filename search (original_filename / parsed_name,
+  // case-insensitive substring) but over the loaded images, so results carry
+  // real thumbnails/dimensions and the scope is just the active section.
+  const trimmedQuery = searchQuery.trim();
+  const isSearching = trimmedQuery.length > 0;
+  const searchResults = useMemo<ImageData[] | null>(() => {
+    if (!isSearching) return null;
+    const q = trimmedQuery.toLowerCase();
+    const base = activeSection
+      ? allImages.filter((img) => img.sectionIds?.includes(activeSection))
+      : allImages;
+    return base.filter(
+      (img) =>
+        (img.originalFilename ?? "").toLowerCase().includes(q) ||
+        (img.parsedName ?? "").toLowerCase().includes(q)
+    );
+  }, [isSearching, trimmedQuery, activeSection, allImages]);
 
   // ─── Derived displayed list (race-proof) ───
   // Pure function of (search, active section, section IDs, full set). Lives in
@@ -192,6 +214,9 @@ export default function EventPage({
     (id: string | null) => {
       if (id !== activeSectionRef.current) deselectAll();
       setActiveSection(id);
+      // Picking a section is a deliberate context change — exit any active
+      // search so you see the section, not stale filtered results.
+      setSearchQuery("");
     },
     [deselectAll]
   );
@@ -446,47 +471,12 @@ export default function EventPage({
     setRetryFiles([...files]);
   }, []);
 
-  const handleSearchResults = useCallback(
-    (
-      results: Array<{
-        id: string;
-        filename: string;
-        r2Key: string;
-        score: number;
-        thumbnailUrl?: string;
-        originalUrl?: string;
-      }>,
-      type: string
-    ) => {
-      setIsSearching(true);
-      setActiveSection(null); // Clear section filter when searching
-      const searchImages: ImageData[] = results.map((r) => ({
-        id: r.id,
-        r2Key: r.r2Key,
-        thumbnailUrl: r.thumbnailUrl || "",
-        originalUrl: r.originalUrl || r.thumbnailUrl || "",
-        originalFilename: r.filename,
-        aestheticScore: null,
-        sharpnessScore: null,
-        stackId: null,
-        stackRank: null,
-        parsedName: null,
-        processingStatus: "complete",
-        width: null,
-        height: null,
-        createdAt: new Date().toISOString(),
-        takenAt: null,
-      }));
-      setSearchResults(searchImages);
-    },
-    []
-  );
-
-  const handleSearchClear = useCallback(() => {
-    setIsSearching(false);
-    setSearchResults(null);
-    // The derived images/stacks fall back to the active section (or all).
-  }, []);
+  // Broaden a section-scoped search to the whole event: drop into "All Images"
+  // but keep the query, so the same search re-runs across everything.
+  const handleSearchAllImages = useCallback(() => {
+    deselectAll();
+    setActiveSection(null);
+  }, [deselectAll]);
 
   // ─── Selection actions ───
   // Section-scoped "copies" delete: with a section open, photos that also
@@ -1321,10 +1311,33 @@ export default function EventPage({
               style={{ animationDelay: "0.15s" }}
             >
               <SearchBar
-                eventId={eventId}
-                onResults={handleSearchResults}
-                onClear={handleSearchClear}
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onClear={() => setSearchQuery("")}
+                placeholder={
+                  activeSection
+                    ? `Search in ${
+                        sections.find((s) => s.id === activeSection)?.name ??
+                        "this section"
+                      }…`
+                    : "Search all images…"
+                }
               />
+              {/* Section-scoped search → offer to widen to the whole event,
+                  carrying the query into the All Images context. */}
+              {isSearching && activeSection && (
+                <p className="mt-2 text-[12px] text-stone-400">
+                  {images.length === 0
+                    ? "No matches in this section. "
+                    : `${images.length} in this section. `}
+                  <button
+                    onClick={handleSearchAllImages}
+                    className="text-accent hover:text-accent/80 transition-colors"
+                  >
+                    Search all images
+                  </button>
+                </p>
+              )}
             </div>
 
             {/* ─── Gallery divider ─── */}
@@ -1645,6 +1658,26 @@ export default function EventPage({
                     coverImageId={jobCoverImageId}
                     positionBadges={positionBadges}
                   />
+                  {/* Bottom-of-results escape hatch: widen a section search to
+                      the whole event without losing the query. */}
+                  {isSearching && activeSection && (
+                    <div className="mt-8 border-t border-stone-100 pt-5 text-center">
+                      <p className="text-[13px] text-stone-400">
+                        Searching{" "}
+                        <span className="text-stone-600">
+                          {sections.find((s) => s.id === activeSection)?.name ??
+                            "this section"}
+                        </span>
+                        .{" "}
+                        <button
+                          onClick={handleSearchAllImages}
+                          className="font-medium text-accent hover:text-accent/80 transition-colors"
+                        >
+                          Search all images instead
+                        </button>
+                      </p>
+                    </div>
+                  )}
                 </>
               ) : (
                 <FilmStrip

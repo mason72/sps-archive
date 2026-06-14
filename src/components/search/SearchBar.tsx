@@ -22,6 +22,14 @@ interface SearchBarProps {
   onClear?: () => void;
   /** Placeholder override */
   placeholder?: string;
+  /**
+   * Controlled mode: when `onChange` is provided the input is driven by
+   * `value` and the parent owns the search (the internal server fetch/debounce
+   * is skipped). The uncontrolled mode (no onChange) keeps the original
+   * server-backed behavior used by the global search page.
+   */
+  value?: string;
+  onChange?: (query: string) => void;
 }
 
 /* AI_HIDDEN: Search suggestions disabled — AI backend not configured
@@ -39,8 +47,14 @@ export function SearchBar({
   onResults,
   onClear,
   placeholder,
+  value,
+  onChange,
 }: SearchBarProps) {
-  const [query, setQuery] = useState("");
+  // Controlled when the parent passes onChange — it owns the query + search.
+  const controlled = onChange !== undefined;
+  const [internalQuery, setInternalQuery] = useState("");
+  const query = controlled ? value ?? "" : internalQuery;
+  const setQuery = controlled ? onChange! : setInternalQuery;
   const [isSearching, setIsSearching] = useState(false);
   // AI_HIDDEN: Force filename search — AI search backend not configured
   const [searchType] = useState<"auto" | "semantic" | "filename">("filename");
@@ -78,6 +92,9 @@ export function SearchBar({
   );
 
   useEffect(() => {
+    // Controlled mode: the parent does the searching off `value`; this input
+    // only reports keystrokes. Skip the server fetch entirely.
+    if (controlled) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (query.trim()) {
@@ -92,7 +109,7 @@ export function SearchBar({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, performSearch, onClear, searchType]);
+  }, [controlled, query, performSearch, onClear, searchType]);
 
   const handleClear = () => {
     setQuery("");
