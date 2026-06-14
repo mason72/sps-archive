@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Lock,
@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   Crosshair,
   Captions,
+  Search,
 } from "lucide-react";
 
 interface SectionOption {
@@ -273,50 +274,28 @@ export function SelectionToolbar({
                 active={showMovePicker}
               />
               {showMovePicker && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[180px] py-1 scale-in">
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
-                    Move to section
-                  </p>
-                  {sections
-                    .filter((s) => s.id !== activeSection)
-                    .map((s) => (
-                      <button
-                        key={s.id}
-                        disabled={s.locked}
-                        onClick={() => {
-                          onMoveToSection(s.id);
-                          setMovedToSection(s.id);
-                          setTimeout(() => {
-                            setMovedToSection(null);
-                            setShowMovePicker(false);
-                          }, 800);
-                        }}
-                        title={s.locked ? "Locked — unlock to move images here" : undefined}
-                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:text-stone-300 disabled:hover:bg-transparent"
-                      >
-                        <span className="flex-1 truncate">{s.name}</span>
-                        {s.locked && <Lock size={12} className="shrink-0 text-stone-300" />}
-                        {movedToSection === s.id && (
-                          <Check size={14} className="text-accent shrink-0" />
-                        )}
-                      </button>
-                    ))}
-                  {onMoveToGallery && (
-                    <>
-                      <div className="my-1 border-t border-stone-100" />
-                      <button
-                        onClick={() => {
+                <SectionFlyout
+                  title="Move to section"
+                  sections={sections.filter((s) => s.id !== activeSection)}
+                  pickedId={movedToSection}
+                  lockHint="Locked — unlock to move images here"
+                  onPick={(id) => {
+                    onMoveToSection(id);
+                    setMovedToSection(id);
+                    setTimeout(() => {
+                      setMovedToSection(null);
+                      setShowMovePicker(false);
+                    }, 800);
+                  }}
+                  onGallery={
+                    onMoveToGallery
+                      ? () => {
                           setShowMovePicker(false);
                           onMoveToGallery();
-                        }}
-                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
-                      >
-                        <FolderOpen size={13} className="shrink-0 text-stone-400" />
-                        <span className="flex-1 truncate">Another gallery…</span>
-                      </button>
-                    </>
-                  )}
-                </div>
+                        }
+                      : undefined
+                  }
+                />
               )}
             </div>
           )}
@@ -334,48 +313,28 @@ export function SelectionToolbar({
                 active={showSectionPicker}
               />
               {showSectionPicker && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 min-w-[180px] py-1 scale-in">
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
-                    Copy to section
-                  </p>
-                  {(activeSection && onAddToSection ? sections : []).map((s) => (
-                    <button
-                      key={s.id}
-                      disabled={s.locked}
-                      onClick={() => {
-                        onAddToSection?.(s.id);
-                        setAddedToSection(s.id);
-                        setTimeout(() => {
-                          setAddedToSection(null);
-                          setShowSectionPicker(false);
-                        }, 800);
-                      }}
-                      title={s.locked ? "Locked — unlock to copy images here" : undefined}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:text-stone-300 disabled:hover:bg-transparent"
-                    >
-                      <span className="flex-1 truncate">{s.name}</span>
-                      {s.locked && <Lock size={12} className="shrink-0 text-stone-300" />}
-                      {addedToSection === s.id && (
-                        <Check size={14} className="text-accent shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                  {onCopyToGallery && (
-                    <>
-                      <div className="my-1 border-t border-stone-100" />
-                      <button
-                        onClick={() => {
+                <SectionFlyout
+                  title="Copy to section"
+                  sections={activeSection && onAddToSection ? sections : []}
+                  pickedId={addedToSection}
+                  lockHint="Locked — unlock to copy images here"
+                  onPick={(id) => {
+                    onAddToSection?.(id);
+                    setAddedToSection(id);
+                    setTimeout(() => {
+                      setAddedToSection(null);
+                      setShowSectionPicker(false);
+                    }, 800);
+                  }}
+                  onGallery={
+                    onCopyToGallery
+                      ? () => {
                           setShowSectionPicker(false);
                           onCopyToGallery();
-                        }}
-                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
-                      >
-                        <FolderOpen size={13} className="shrink-0 text-stone-400" />
-                        <span className="flex-1 truncate">Another gallery…</span>
-                      </button>
-                    </>
-                  )}
-                </div>
+                        }
+                      : undefined
+                  }
+                />
               )}
             </div>
           )}
@@ -462,5 +421,99 @@ function ToolbarButton({
     >
       {icon}
     </button>
+  );
+}
+
+/**
+ * The Copy/Move section dropdown: a section label, a find-as-you-type search
+ * (once the list is long enough to bother), a height-capped scroll region so
+ * a long list never runs off the top of the screen, and an optional
+ * "Another gallery…" footer pinned below the scroll. Each open mounts fresh,
+ * so the query resets every time.
+ */
+function SectionFlyout({
+  title,
+  sections,
+  pickedId,
+  lockHint,
+  onPick,
+  onGallery,
+}: {
+  title: string;
+  sections: SectionOption[];
+  pickedId: string | null;
+  lockHint: string;
+  onPick: (sectionId: string) => void;
+  onGallery?: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const showSearch = sections.length > 5;
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? sections.filter((s) => s.name.toLowerCase().includes(q))
+    : sections;
+
+  return (
+    <div className="absolute bottom-full mb-2 right-0 w-60 bg-white text-stone-900 shadow-xl border border-stone-200 py-1 scale-in">
+      <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+        {title}
+      </p>
+
+      {sections.length > 0 && (
+        <>
+          {showSearch && (
+            <div className="flex items-center gap-2 border-b border-stone-100 px-3 pb-2 pt-1">
+              <Search className="h-3.5 w-3.5 shrink-0 text-stone-300" />
+              <input
+                autoFocus
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a section…"
+                className="w-full bg-transparent py-0.5 text-[12px] outline-none placeholder:text-stone-300"
+              />
+            </div>
+          )}
+          <div className="max-h-64 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-3 text-center text-[12px] text-stone-400">
+                No sections match
+              </p>
+            ) : (
+              filtered.map((s) => (
+                <button
+                  key={s.id}
+                  disabled={s.locked}
+                  onClick={() => onPick(s.id)}
+                  title={s.locked ? lockHint : undefined}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:text-stone-300 disabled:hover:bg-transparent"
+                >
+                  <span className="flex-1 truncate">{s.name}</span>
+                  {s.locked && (
+                    <Lock size={12} className="shrink-0 text-stone-300" />
+                  )}
+                  {pickedId === s.id && (
+                    <Check size={14} className="text-accent shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {onGallery && (
+        <>
+          {sections.length > 0 && <div className="my-1 border-t border-stone-100" />}
+          <button
+            onClick={onGallery}
+            className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+          >
+            <FolderOpen size={13} className="shrink-0 text-stone-400" />
+            <span className="flex-1 truncate">Another gallery…</span>
+          </button>
+        </>
+      )}
+    </div>
   );
 }
