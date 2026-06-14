@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,12 @@ interface FocalPointModalProps {
   images: ImageData[];
   /** Where the sweep starts (an id from `images`). */
   initialImageId: string;
+  /**
+   * Order images WITHOUT a focal point first (whole-section sweeps). You set
+   * the new ones up front and know you're done the moment already-set images
+   * start appearing. The order is frozen at open so saving doesn't reshuffle.
+   */
+  prioritizeUnset?: boolean;
   onClose: () => void;
   /** Called after each successful save (null = cleared). */
   onSaved: (imageId: string, focal: { x: number; y: number } | null) => void;
@@ -51,16 +57,41 @@ interface ImageDetailLite {
 export function FocalPointModal({
   images,
   initialImageId,
+  prioritizeUnset = false,
   onClose,
   onSaved,
   onBulkSuggest,
 }: FocalPointModalProps) {
+  // Freeze the sweep ORDER at open (ids only), optionally unset-first, so
+  // setting a focal point mid-sweep never reshuffles the list under you.
+  const [sweepOrder] = useState<string[]>(() => {
+    if (prioritizeUnset) {
+      const unset = images.filter((i) => i.focalX == null);
+      const set = images.filter((i) => i.focalX != null);
+      return [...unset, ...set].map((i) => i.id);
+    }
+    return images.map((i) => i.id);
+  });
+  // Map the frozen order to CURRENT image objects each render, so focal edits
+  // are reflected (fresh data) while the order stays put.
+  const imagesById = useMemo(
+    () => new Map(images.map((i) => [i.id, i])),
+    [images]
+  );
+  const sweepImages = useMemo(
+    () =>
+      sweepOrder
+        .map((id) => imagesById.get(id))
+        .filter((i): i is ImageData => !!i),
+    [sweepOrder, imagesById]
+  );
+
   const startIndex = Math.max(
     0,
-    images.findIndex((i) => i.id === initialImageId)
+    sweepImages.findIndex((i) => i.id === initialImageId)
   );
   const [index, setIndex] = useState(startIndex);
-  const image = images[index];
+  const image = sweepImages[index];
 
   const [focal, setFocal] = useState<{ x: number; y: number } | null>(null);
   // True while the marker shows the face-detection suggestion (not a pick).
@@ -80,7 +111,7 @@ export function FocalPointModal({
   const userPickedRef = useRef(false);
   const savedCountRef = useRef(0);
 
-  const unsetCount = images.filter((i) => i.focalX == null).length;
+  const unsetCount = sweepImages.filter((i) => i.focalX == null).length;
 
   const fetchDetail = useCallback(
     async (imageId: string): Promise<ImageDetailLite | null> => {
@@ -140,7 +171,7 @@ export function FocalPointModal({
     });
 
     // Prefetch the neighbor we're most likely to visit next.
-    const next = images[index + 1];
+    const next = sweepImages[index + 1];
     if (next) fetchDetail(next.id);
 
     return () => {
@@ -152,7 +183,7 @@ export function FocalPointModal({
   }, [image?.id, image?.focalX, image?.focalY]);
 
   const advance = useCallback(() => {
-    if (index + 1 < images.length) {
+    if (index + 1 < sweepImages.length) {
       setIndex(index + 1);
     } else {
       // End of the sweep.
@@ -165,7 +196,7 @@ export function FocalPointModal({
       }
       onClose();
     }
-  }, [index, images.length, onClose]);
+  }, [index, sweepImages.length, onClose]);
 
   const save = useCallback(
     async (value: { x: number; y: number } | null, andAdvance: boolean) => {
@@ -279,7 +310,7 @@ export function FocalPointModal({
         <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-stone-100">
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
-              Focal point · {index + 1} / {images.length}
+              Focal point · {index + 1} / {sweepImages.length}
               {unsetCount > 0 && (
                 <span className="ml-2 normal-case tracking-normal text-stone-300">
                   {unsetCount} unset

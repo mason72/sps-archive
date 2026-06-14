@@ -299,6 +299,10 @@ export default function EventPage({
     : undefined;
   const isSlotSection = activeScene?.kind === "slot";
   const [focalImageId, setFocalImageId] = useState<string | null>(null);
+  // When the focal sweep is opened for the whole section ("Focal points"
+  // button), order unset images first so you set the new ones and know you're
+  // done the moment already-set images start appearing.
+  const [focalUnsetFirst, setFocalUnsetFirst] = useState(false);
   // Cross-gallery copy/move picker ("Another gallery…" in the toolbar).
   const [transferMode, setTransferMode] = useState<"copy" | "move" | null>(null);
   // Website curation modal (event/city/service/featured) — offered where the
@@ -1360,6 +1364,7 @@ export default function EventPage({
                         const firstUnset = flatImageList.find(
                           (i) => i.focalX == null
                         );
+                        setFocalUnsetFirst(true);
                         setFocalImageId(
                           (firstUnset ?? flatImageList[0])?.id ?? null
                         );
@@ -1750,7 +1755,11 @@ export default function EventPage({
             // image, not the view. Opens the sweep at the first selected
             // image — ←/→ then reach the whole visible set.
             selection.count >= 1 && isWebsiteContext
-              ? () => setFocalImageId(selectedArray[0])
+              ? () => {
+                  // From a selection, keep display order and start at the pick.
+                  setFocalUnsetFirst(false);
+                  setFocalImageId(selectedArray[0]);
+                }
               : undefined
           }
           onEditWebsiteDetails={
@@ -1810,6 +1819,7 @@ export default function EventPage({
         <FocalPointModal
           images={flatImageList}
           initialImageId={focalImageId}
+          prioritizeUnset={focalUnsetFirst}
           onClose={() => setFocalImageId(null)}
           onSaved={(imageId, focal) =>
             setAllImages((prev) =>
