@@ -60,6 +60,24 @@ export interface SceneDef {
    * via sceneUsageHint() — keep this about PLACE, not mechanics.
    */
   description: string;
+  /**
+   * For `ordered` scenes: human label per position (index 0 = drag position
+   * 1), e.g. ["Fast turnaround", "Studio quality", …] for a benefits grid.
+   * When present the editor's position badge shows the label instead of a
+   * bare number, so the team sees exactly which item each photo fills. These
+   * strings come from the website repo's page copy — populate from the TDP
+   * Website session; absent = the badge falls back to the position number.
+   */
+  positionLabels?: string[];
+  /**
+   * Always-shown fixed prefix: the page renders these first N (by drag order)
+   * every load, then samples the rest at random. From the website's
+   * samplePool(pool, size, lead) — `lead` is this count. In practice it lives
+   * on the rotating `slot` scenes (service heroes pin 4 of 20, homepage slices
+   * pin 1 of 12); true pools currently pin nothing. Drives an "Always" badge
+   * on the leading tiles. Absent = fully rotating.
+   */
+  pinned?: number;
 }
 
 /**
@@ -166,7 +184,60 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Portrait builder backdrop cards — image 1 White, 2 Light gray, 3 Dark, 4 Color, 5 Gels (a real headshot on each)" },
   { key: "portrait/finishing", label: "Portrait — Finishing", kind: "ordered", positions: 6, path: "/portrait",
     description: "Portrait builder finishing thumbs — 1 Posing, 2 H&MU, 3 AI Retouch, 4 Lighting boost, 5 Posing table, 6 Close-up" },
+  { key: "portrait/backdrops", label: "Portrait — Backdrop Colors", kind: "pool", path: "/portrait",
+    description: "Per-color backdrop samples for the builder's live preview. Name each image by its Savage paper number (e.g. \"60.jpg\" = Focus Gray); the preview joins on it. Real where shot, AI color-shift for gaps." },
 ];
+
+/**
+ * Per-position labels for `ordered` scenes (index 0 = drag position 1), sourced
+ * from the live website's page copy. The editor's position badge shows the
+ * label instead of a bare number, so the team sees which item each photo fills.
+ * Source of truth is the tdp-website repo — see tasks/site-scene-labels-handoff.md.
+ * (`story` and `quote` are intentionally omitted — their photos are
+ * interchangeable, so they fall back to plain position numbers.)
+ */
+const POSITION_LABELS: Record<string, string[]> = {
+  "benefits/headshot-booth": ["Instant delivery", "Zero retouching", "Endless traffic", "Lead capture", "Scales to 10+ teams", "Branded to your event"],
+  "benefits/photo-booth": ["Real photographers", "Studio lighting", "80+ backdrops", "Props that land", "Instant sharing", "Hosted gallery"],
+  "benefits/anti-booth": ["The venue is the set", "Editorial lighting", "Never recreated", "Any light, any hour", "Instant sharing", "Gallery included"],
+  "benefits/event-photography": ["Conferences & expos", "Activations & launches", "Stadiums to boardrooms", "Fast turnaround", "Teams that scale", "Personality included"],
+  "benefits/video": ["Event recaps", "Behind the scenes", "Brand content", "Social-first cuts", "Same crew, same bar", "Fast delivery"],
+  "benefits/office-headshots": ["Real people, real best", "Done by lunch", "12–20 per hour", "A standing cadence", "One consistent look", "Three home regions"],
+  "benefits/drop-in-sessions": ["Your session, your pace", "Multiple looks", "Finished fast", "Retouching, optional", "The Studio WC", "Bring a friend"],
+  "about-values": ["People first", "No shortcuts", "Keep it fun", "Easy to work with"],
+  "portrait/styles": ["Traditional", "Editorial B&W", "Environmental"],
+  "portrait/categories": ["White (Super White)", "Light gray", "Dark", "Color", "Gels"],
+  "portrait/finishing": ["Posing", "H&MU", "AI Retouch", "Lighting boost", "Posing table", "Close-up"],
+};
+
+/**
+ * Always-shown fixed prefix per scene (samplePool `lead`). Service-page hero
+ * carousels pin the first 4 of 20; homepage slice cards pin the first 1 of 12.
+ * True pools pin nothing (fully random). See tasks/site-scene-labels-handoff.md.
+ */
+const PINNED: Record<string, number> = {
+  "slot/hero/headshot-booth": 4,
+  "slot/hero/photo-booth": 4,
+  "slot/hero/anti-booth": 4,
+  "slot/hero/event-photography": 4,
+  "slot/hero/video": 4,
+  "slot/hero/office-headshots": 4,
+  "slot/hero/drop-in-sessions": 4,
+  "slot/slice-1": 1,
+  "slot/slice-2": 1,
+  "slot/slice-3": 1,
+  "slot/slice-4": 1,
+  "slot/slice-5": 1,
+  "slot/slice-6": 1,
+};
+
+// Attach the verified data to the matching scene objects (same references the
+// SCENES_BY_KEY map below indexes), so consumers read scene.positionLabels /
+// scene.pinned directly.
+for (const s of SITE_SCENES) {
+  if (POSITION_LABELS[s.key]) s.positionLabels = POSITION_LABELS[s.key];
+  if (PINNED[s.key] != null) s.pinned = PINNED[s.key];
+}
 
 const SCENES_BY_KEY = new Map(SITE_SCENES.map((s) => [s.key, s]));
 
