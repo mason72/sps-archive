@@ -4,6 +4,7 @@ import { serializeSiteAsset, type SiteAssetRow } from "./serialize";
 const row = (overrides: Partial<SiteAssetRow> = {}): SiteAssetRow => ({
   id: "img-1",
   r2_key: "events/e1/originals/a.jpg",
+  original_filename: "a.jpg",
   width: 4000,
   height: 3000,
   service: null,
