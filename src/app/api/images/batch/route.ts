@@ -4,6 +4,7 @@ import { deleteFromR2, getVideoDisplayKey } from "@/lib/r2/client";
 import { unpublishAssetFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
 import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
+import { mediaExtension, stripMediaExtension } from "@/lib/upload/media";
 
 /**
  * DELETE /api/images/batch — Delete multiple images.
@@ -253,10 +254,12 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Verify ownership: check that images belong to user's events.
+    // Verify ownership: check that images belong to user's events. `filename`
+    // (the storage name, always "{uuid}.{ext}") is the reliable source of each
+    // image's true extension for rename.
     const { data: images } = await supabase
       .from("images")
-      .select("id, event_id, events!event_id(user_id)")
+      .select("id, event_id, filename, events!event_id(user_id)")
       .in("id", imageIds);
 
     const ownedImages = (images || []).filter((img: Record<string, unknown>) => {
@@ -264,6 +267,12 @@ export async function PATCH(request: NextRequest) {
       return events && events.user_id === user!.id;
     });
     const ownedIds = ownedImages.map((img: Record<string, unknown>) => img.id as string);
+    const filenameById = new Map(
+      ownedImages.map((img: Record<string, unknown>) => [
+        img.id as string,
+        (img.filename as string) ?? "",
+      ])
+    );
 
     if (ownedIds.length === 0) {
       return NextResponse.json({ error: "No accessible images" }, { status: 404 });
@@ -402,14 +411,19 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: "pattern required" }, { status: 400 });
         }
 
-        // Generate new filenames based on the pattern
-        // {N} → zero-padded (001, 002, ...), {n} → plain (1, 2, ...)
+        // Generate new filenames from the pattern.
+        // {N} → zero-padded (001, 002, ...), {n} → plain (1, 2, ...).
+        // The original extension is ALWAYS preserved per image (the user names
+        // files without one) — strip any extension they typed anyway, then
+        // re-append the image's real one from its storage filename.
         const updates = ownedIds.map((imageId, index) => {
           const num = index + 1;
           const padded = String(num).padStart(3, "0");
-          const newName = pattern
-            .replace(/\{N\}/g, padded)
-            .replace(/\{n\}/g, String(num));
+          const base = stripMediaExtension(
+            pattern.replace(/\{N\}/g, padded).replace(/\{n\}/g, String(num))
+          );
+          const ext = mediaExtension(filenameById.get(imageId) ?? "");
+          const newName = ext ? `${base}.${ext}` : base;
 
           return supabase
             .from("images")

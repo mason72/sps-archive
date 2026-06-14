@@ -75,3 +75,17 @@ export function formatDuration(seconds: number): string {
   const secs = total % 60;
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
+
+/** Trailing extension for the formats we accept (case-insensitive). */
+const MEDIA_EXT_RE = /\.(jpe?g|png|tiff?|webp|heic|heif|mp4|mov)$/i;
+
+/** Lowercase extension of a filename (no dot), or null if none recognized. */
+export function mediaExtension(name: string): string | null {
+  const m = name.match(MEDIA_EXT_RE);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** Drop a recognized trailing extension — the editable base of a filename. */
+export function stripMediaExtension(name: string): string {
+  return name.replace(MEDIA_EXT_RE, "");
+}

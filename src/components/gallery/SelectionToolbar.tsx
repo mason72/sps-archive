@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { mediaExtension, stripMediaExtension } from "@/lib/upload/media";
 import {
   Lock,
   Star,
@@ -41,6 +42,9 @@ interface SelectionToolbarProps {
   /** Open the cross-gallery picker in move mode ("Another gallery…"). */
   onMoveToGallery?: () => void;
   onRename?: (pattern: string) => void;
+  /** Current filename of the single selected image — pre-fills the rename
+   *  field (minus extension) and drives an accurate preview. */
+  singleImageName?: string | null;
   /** Set the single selected image as the gallery cover (only when 1 selected). */
   onSetCover?: () => void;
   /**
@@ -76,6 +80,7 @@ export function SelectionToolbar({
   onCopyToGallery,
   onMoveToGallery,
   onRename,
+  singleImageName,
   onSetCover,
   deleteHint,
   onSetFocalPoint,
@@ -114,6 +119,15 @@ export function SelectionToolbar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showSectionPicker, showMovePicker, showRenamePopover]);
 
+  // Pre-fill the field with the current name (minus extension) when the rename
+  // popover opens for a single image — so you edit, not retype. (Must stay
+  // above the early return below to satisfy rules-of-hooks.)
+  useEffect(() => {
+    if (showRenamePopover && count === 1 && singleImageName) {
+      setRenameBaseName(stripMediaExtension(singleImageName));
+    }
+  }, [showRenamePopover, count, singleImageName]);
+
   if (typeof window === "undefined") return null;
 
   const handleDelete = async () => {
@@ -131,6 +145,9 @@ export function SelectionToolbar({
   // and the numbering toggle is hidden. The counter only makes sense when a
   // batch needs unique names.
   const singleRename = count === 1;
+  // The original extension is always preserved by the server (you name files
+  // without one); show it in the single-rename preview so the result is honest.
+  const singleExt = singleImageName ? mediaExtension(singleImageName) : null;
 
   const handleRenameApply = () => {
     if (onRename && renameBaseName.trim()) {
@@ -145,10 +162,12 @@ export function SelectionToolbar({
     }
   };
 
-  // Generate preview filenames
+  // Generate preview filenames. Single rename shows the real extension that
+  // will be kept; batch shows base+number (each keeps its own extension —
+  // noted in the UI rather than faked with a single ".jpg").
   const renamePreview = renameBaseName.trim()
     ? singleRename
-      ? [renameBaseName.trim()]
+      ? [`${renameBaseName.trim()}${singleExt ? `.${singleExt}` : ""}`]
       : Array.from({ length: Math.min(count, 3) }, (_, i) => {
           const num = renameZeroPad
             ? String(i + 1).padStart(3, "0")
@@ -238,9 +257,14 @@ export function SelectionToolbar({
                     <div className="text-[11px] text-stone-400 mb-3 space-y-0.5 bg-stone-50 px-3 py-2 border border-stone-100">
                       <p className="text-[10px] text-stone-400 uppercase tracking-wider mb-1">Preview</p>
                       {renamePreview.map((name, i) => (
-                        <p key={i} className="text-stone-600">{name}.jpg</p>
+                        <p key={i} className="text-stone-600">{name}</p>
                       ))}
                       {count > 3 && <p className="text-stone-400">…and {count - 3} more</p>}
+                      {!singleRename && (
+                        <p className="pt-0.5 text-stone-400">
+                          Each keeps its original extension.
+                        </p>
+                      )}
                     </div>
                   )}
                   <button

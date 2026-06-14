@@ -1692,6 +1692,11 @@ export default function EventPage({
           onAddToSection={handleAddToSection}
           onMoveToSection={handleMoveToSection}
           onRename={handleBatchRename}
+          singleImageName={
+            selection.count === 1
+              ? allImages.find((i) => i.id === selectedArray[0])?.originalFilename
+              : null
+          }
           onSetCover={
             selection.count === 1
               ? () => handleSetCover(selectedArray[0])
