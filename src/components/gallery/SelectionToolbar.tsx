@@ -127,11 +127,19 @@ export function SelectionToolbar({
     setShowDeleteConfirm(false);
   };
 
+  // A single image renames to exactly what you type — no counter is appended,
+  // and the numbering toggle is hidden. The counter only makes sense when a
+  // batch needs unique names.
+  const singleRename = count === 1;
+
   const handleRenameApply = () => {
     if (onRename && renameBaseName.trim()) {
-      const pattern = renameZeroPad
-        ? `${renameBaseName.trim()} {N}`
-        : `${renameBaseName.trim()} {n}`;
+      const base = renameBaseName.trim();
+      const pattern = singleRename
+        ? base
+        : renameZeroPad
+        ? `${base} {N}`
+        : `${base} {n}`;
       onRename(pattern);
       setShowRenamePopover(false);
     }
@@ -139,12 +147,14 @@ export function SelectionToolbar({
 
   // Generate preview filenames
   const renamePreview = renameBaseName.trim()
-    ? Array.from({ length: Math.min(count, 3) }, (_, i) => {
-        const num = renameZeroPad
-          ? String(i + 1).padStart(3, "0")
-          : String(i + 1);
-        return `${renameBaseName.trim()} ${num}`;
-      })
+    ? singleRename
+      ? [renameBaseName.trim()]
+      : Array.from({ length: Math.min(count, 3) }, (_, i) => {
+          const num = renameZeroPad
+            ? String(i + 1).padStart(3, "0")
+            : String(i + 1);
+          return `${renameBaseName.trim()} ${num}`;
+        })
     : [];
 
   return createPortal(
@@ -180,9 +190,11 @@ export function SelectionToolbar({
               {showRenamePopover && (
                 <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 w-[280px] p-4 scale-in">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3">
-                    Batch rename
+                    {singleRename ? "Rename" : "Batch rename"}
                   </p>
-                  <label className="text-[11px] text-stone-500 mb-1 block">Base name</label>
+                  <label className="text-[11px] text-stone-500 mb-1 block">
+                    {singleRename ? "New name" : "Base name"}
+                  </label>
                   <input
                     type="text"
                     value={renameBaseName}
@@ -195,29 +207,33 @@ export function SelectionToolbar({
                       if (e.key === "Escape") setShowRenamePopover(false);
                     }}
                   />
-                  <label className="text-[11px] text-stone-500 mb-1.5 block">Numbering</label>
-                  <div className="flex gap-2 mb-3">
-                    <button
-                      onClick={() => setRenameZeroPad(true)}
-                      className={`flex-1 py-1.5 text-[12px] border transition-colors ${
-                        renameZeroPad
-                          ? "border-stone-900 bg-stone-900 text-white"
-                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                      }`}
-                    >
-                      001, 002, 003
-                    </button>
-                    <button
-                      onClick={() => setRenameZeroPad(false)}
-                      className={`flex-1 py-1.5 text-[12px] border transition-colors ${
-                        !renameZeroPad
-                          ? "border-stone-900 bg-stone-900 text-white"
-                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                      }`}
-                    >
-                      1, 2, 3
-                    </button>
-                  </div>
+                  {!singleRename && (
+                    <>
+                      <label className="text-[11px] text-stone-500 mb-1.5 block">Numbering</label>
+                      <div className="flex gap-2 mb-3">
+                        <button
+                          onClick={() => setRenameZeroPad(true)}
+                          className={`flex-1 py-1.5 text-[12px] border transition-colors ${
+                            renameZeroPad
+                              ? "border-stone-900 bg-stone-900 text-white"
+                              : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                          }`}
+                        >
+                          001, 002, 003
+                        </button>
+                        <button
+                          onClick={() => setRenameZeroPad(false)}
+                          className={`flex-1 py-1.5 text-[12px] border transition-colors ${
+                            !renameZeroPad
+                              ? "border-stone-900 bg-stone-900 text-white"
+                              : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                          }`}
+                        >
+                          1, 2, 3
+                        </button>
+                      </div>
+                    </>
+                  )}
                   {renamePreview.length > 0 && (
                     <div className="text-[11px] text-stone-400 mb-3 space-y-0.5 bg-stone-50 px-3 py-2 border border-stone-100">
                       <p className="text-[10px] text-stone-400 uppercase tracking-wider mb-1">Preview</p>
@@ -232,7 +248,7 @@ export function SelectionToolbar({
                     disabled={!renameBaseName.trim()}
                     className="w-full py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Rename {count} files
+                    {singleRename ? "Rename" : `Rename ${count} files`}
                   </button>
                 </div>
               )}
