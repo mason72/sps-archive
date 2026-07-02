@@ -1,27 +1,29 @@
 # Pixeltrunk - Build Plan
 
-## Phase 19: Backlog clear-out [IN PROGRESS 2026-07-02]
-Audit remainder:
-- [ ] #15 Lightbox: first-open arrow-key hint (localStorage-flagged) + square controls
-- [ ] #16 Duplicate photographer credit at gallery end — keep the end-of-gallery moment,
-      slim the footer to powered-by
-- [ ] #18 Mobile: clamp download dropdown to viewport; verify tab overflow via More ▾
-- [ ] #17 Favorite milestone toasts optional per share (sharing setting, default on)
-- [ ] #11 Presign fan-out: quantized signing windows for original/download URLs
-      (thumbnails already memoized) — public + preview gallery APIs
-- [ ] #12 Bundle: measure public gallery page; act only if it's actually heavy
-- [ ] #13/#14 verify shipped (download progress state; PIN modal labeling) and mark
-Delight roadmap:
-- [ ] Q4 OG cards — verify the existing /gallery/[slug]/opengraph-image route
-- [ ] D2 first-favorite celebration micro-burst
-- [ ] D3 cover entrance (Ken Burns settle + staggered title)
-- [ ] D1 animated stat counters + trend arrows
-- [ ] V3 dashboard welcome strip
-- [ ] D5 empty-state illustrations
-- [ ] A1 chart entrance animation; A2 activity feed timeline grouping
-- [ ] G1 dominant-color placeholders (needs pipeline: sharp stats at thumbnail time +
-      backfill) — assess scope, possibly split out
-- [ ] A3/A4, Q2/Q3: assess — some depend on dormant AI
+## Phase 19: Backlog clear-out [DONE 2026-07-02]
+- [x] #15 Lightbox: one-time "← → to navigate" hint (localStorage) + square controls
+      (public + preview). Verified live.
+- [x] #16 Credit dedupe: footer = powered-by only; end-of-gallery moment is THE credit.
+- [x] #18 Mobile: download menu clamped (verified 375px, no overflow); tab overflow was
+      already solved by More ▾.
+- [x] #17 "Milestone messages" toggle (Sharing settings, event-level, default on) gates
+      the you've-loved-N toasts; favoriteMilestones exposed via gallery API.
+- [x] #11 getCachedDownloadUrl: quantized deterministic signing for originalUrl +
+      downloadUrl (public + preview APIs) — byte-stable across lambdas, ≥½ validity.
+- [x] #12 closed by measurement: 133kB first load (102kB shared), no editor deps.
+- [x] #13/#14 verified already shipped (progress toast; "4-digit PIN" label).
+- [x] Q4 verified shipped (OG route 200 image/png in prod).
+- [x] D2 first-favorite pixel burst (grid + lightbox; 16 pixels observed live, then
+      unfavorited to keep the client share clean).
+- [x] A4 analytics milestone banner (100/1k/10k views, 100/1k downloads; localStorage).
+- [x] D5 analytics empty state (pixel elephant); gallery + events states already good.
+- [x] G1 dominant-color placeholders: sharp stats at thumbnail time (migration 032,
+      applied), persisted at 4 generation sites, in gallery payloads, painted in
+      GalleryCard + GalleryStackCard. Backfill over 7,658 existing images.
+- [x] Already-shipped discoveries (roadmap was stale): D1, D3, A1, A2, A3, V2, V3.
+      Q2 covered by editor rename; Q1/Q3/G2/V1 deferred as AI-gated. All statuses
+      written into tasks/improvement-ideas.md.
+- [x] Tests 190/190, build green, live QA on the College Board share.
 
 ## Phase 18: Background ZIP builds + backlog sweep [DONE 2026-07-02]
 - [x] PROD OOM (worse than the 300s timeout): with the fast producer, Vercel's response
