@@ -28,6 +28,43 @@ export function extractPersonName(filename: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1 $2").trim();
 }
 
+/**
+ * The name segment BEFORE a date/double-dash separator, or null when the
+ * filename has no such anchor. Unlike extractPersonName this never guesses
+ * from the first underscore segment — it only answers when the filename
+ * itself proves where the name ends.
+ */
+export function nameBeforeDate(filename: string): string | null {
+  const base = filename.replace(/\.\w+$/, "");
+  const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
+  if (!match) return null;
+  const name = match[1].replace(/_/g, " ").trim();
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").trim() || null;
+}
+
+/**
+ * Person name for stack display. Prefers the stored parsedName, EXCEPT when
+ * the upload parser absorbed trailing event tokens past the date segment
+ * ("Rushi Sheth_26-06-24_CollegeBoardSLC_1581.jpg" → "Rushi Sheth
+ * CollegeBoardSLC"): if the date-anchored filename split yields a strict
+ * prefix of parsedName, the shorter split is the person and the tail is
+ * event noise. Punctuation differences ("Smith, John") fail the prefix test
+ * and keep the parsed form.
+ */
+export function stackPersonName(img: GalleryImage): string {
+  const parsed = img.parsedName?.trim();
+  if (!parsed) return extractPersonName(img.originalFilename);
+  const dated = nameBeforeDate(img.originalFilename);
+  if (
+    dated &&
+    dated.length < parsed.length &&
+    parsed.toLowerCase().startsWith(dated.toLowerCase())
+  ) {
+    return dated;
+  }
+  return parsed;
+}
+
 export interface GalleryStack {
   /** Stable key for React lists (normalized person name). */
   key: string;
@@ -41,8 +78,7 @@ export interface GalleryStack {
 export function buildStacks(images: GalleryImage[]): GalleryStack[] {
   const groups = new Map<string, GalleryStack>();
   for (const img of images) {
-    const personName =
-      img.parsedName?.trim() || extractPersonName(img.originalFilename);
+    const personName = stackPersonName(img);
     const key = personName.toLowerCase();
     const existing = groups.get(key);
     if (existing) {

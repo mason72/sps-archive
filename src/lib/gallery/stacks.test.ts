@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { extractPersonName, buildStacks } from "./stacks";
+import {
+  extractPersonName,
+  nameBeforeDate,
+  stackPersonName,
+  buildStacks,
+} from "./stacks";
 import type { GalleryImage } from "@/types/gallery";
 
 function img(over: Partial<GalleryImage>): GalleryImage {
@@ -35,6 +40,48 @@ describe("extractPersonName", () => {
 
   it("handles double-dash separators", () => {
     expect(extractPersonName("Jane Doe--042.jpg")).toBe("Jane Doe");
+  });
+});
+
+describe("stackPersonName", () => {
+  it("trims event tokens the upload parser absorbed past the date segment", () => {
+    expect(
+      stackPersonName(
+        img({
+          parsedName: "Rushi Sheth CollegeBoardSLC",
+          originalFilename: "Rushi Sheth_26-06-24_CollegeBoardSLC_1581.jpg",
+        })
+      )
+    ).toBe("Rushi Sheth");
+  });
+
+  it("keeps punctuated parsed names (prefix test fails on the comma)", () => {
+    expect(
+      stackPersonName(
+        img({ parsedName: "Smith, John", originalFilename: "SmithJohn_001.jpg" })
+      )
+    ).toBe("Smith, John");
+  });
+
+  it("never shortens via the underscore-fallback path (no date anchor)", () => {
+    expect(
+      stackPersonName(
+        img({ parsedName: "Smith John", originalFilename: "Smith_John_001.jpg" })
+      )
+    ).toBe("Smith John");
+  });
+
+  it("falls back to filename extraction without a parsed name", () => {
+    expect(
+      stackPersonName(img({ parsedName: null, originalFilename: "JohnSmith_002.jpg" }))
+    ).toBe("John Smith");
+  });
+});
+
+describe("nameBeforeDate", () => {
+  it("answers only when a date/double-dash anchor exists", () => {
+    expect(nameBeforeDate("Amber Artis_24-01-30_Booth_527.jpg")).toBe("Amber Artis");
+    expect(nameBeforeDate("Smith_John_001.jpg")).toBeNull();
   });
 });
 

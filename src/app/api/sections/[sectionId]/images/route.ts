@@ -111,14 +111,15 @@ export async function POST(
       );
     }
 
-    // Get max sort_order in this section
+    // Get max sort_order in this section (maybeSingle — an empty section has
+    // no rows, and .single() treats zero rows as an error)
     const { data: maxSort } = await supabase
       .from("section_images")
       .select("sort_order")
       .eq("section_id", sectionId)
       .order("sort_order", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     let nextOrder = (maxSort?.sort_order ?? -1) + 1;
 

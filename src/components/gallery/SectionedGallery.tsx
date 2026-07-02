@@ -141,22 +141,29 @@ export function SectionedGallery({
     onVisibleImagesChange?.(visibleImages);
   }, [visibleImages, onVisibleImagesChange]);
 
-  const sectionCounts = useMemo(
-    () =>
-      new Map(
-        sections.map((s) => [
-          s.id,
-          s.imageIds.filter((id) => imageMap.has(id)).length,
-        ])
-      ),
-    [sections, imageMap]
-  );
+  // Counts follow the favorites filter: with it on, each tab shows how many
+  // FAVORITES it holds and zero-favorite tabs drop out (they used to keep
+  // their full counts and click through to an empty grid). With no favorites
+  // at all, filtering the tabs away would leave a bare toolbar — keep the
+  // unfiltered tabs and let the grid show its "No favorites" message.
+  const countsFollowFavorites = favoritesOnly && favoriteIds.size > 0;
+  const sectionCounts = useMemo(() => {
+    const counted = (ids: string[]) =>
+      ids.filter(
+        (id) =>
+          imageMap.has(id) && (!countsFollowFavorites || favoriteIds.has(id))
+      ).length;
+    return new Map(sections.map((s) => [s.id, counted(s.imageIds)]));
+  }, [sections, imageMap, countsFollowFavorites, favoriteIds]);
 
   const activeSection = sections.find((s) => s.id === activeTab);
-  const favCount = favoriteIds.size;
+
+  const allCount = countsFollowFavorites
+    ? images.filter((img) => favoriteIds.has(img.id)).length
+    : images.length;
 
   const tabs: Array<{ id: string; label: string; count: number }> = [
-    ...(showAllTab ? [{ id: "all", label: "All", count: images.length }] : []),
+    ...(showAllTab ? [{ id: "all", label: "All", count: allCount }] : []),
     ...sections
       .map((s) => ({
         id: s.id,
@@ -165,6 +172,15 @@ export function SectionedGallery({
       }))
       .filter((t) => t.count > 0),
   ];
+
+  // If the favorites filter just hid the active tab, land on the first tab
+  // that still has something to show instead of stranding the guest.
+  useEffect(() => {
+    if (tabs.length > 0 && !tabs.some((t) => t.id === activeTab)) {
+      setActiveTab(tabs[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countsFollowFavorites, tabs.map((t) => t.id).join("|")]);
 
   // Surface the active section to the page so it can render the header label.
   const activeTabInfo = tabs.find((t) => t.id === activeTab) ?? null;
