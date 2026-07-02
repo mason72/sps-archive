@@ -1,5 +1,28 @@
 # Pixeltrunk - Build Plan
 
+## Phase 16: Hardening round (audit top-three) [DONE 2026-07-01]
+- [x] Lightbox navigates the VISIBLE view: SectionedGallery reports its
+      tab+filter+sort list up (onVisibleImagesChange); page flattens stacks
+      person-adjacent; arrows/counter use it (fallback to full set if the open
+      image leaves view). Public + preview. Live-verified: counter "1 / 55"
+      (section, not event), ArrowRight follows filename sort.
+- [x] Rate limiting (migration 026, applied): auth_attempts + atomic
+      record_auth_attempt() RPC, 5 fails/15min per scope:slug:ip, success
+      resets the counter, fail-open on infra errors. Wired: gallery verify
+      (password), verify-pin, download bulk-PIN. Live-verified: 5×401 → 429
+      (even for the correct PIN while locked), reset-on-success deletes row.
+- [x] Password hashing → PBKDF2-SHA256 (310k iters, Web Crypto, no deps);
+      legacy salted-SHA-256 hashes still verify (upgrade on next password
+      set). PIN compares timing-safe. +5 hash tests.
+- [x] Silent-failure alarms (migration 027, applied): system_errors table +
+      reportSystemError() — logs always, emails ADMIN_ALERT_EMAIL (set in
+      Vercel prod+preview via API) max once/context/hour. Wired: favorites
+      POST/DELETE, emails.send, gallery verify/verify-pin. Client: favorite
+      write failures now toast + revert the optimistic heart (and localStorage).
+- [x] Tests 170/170, tsc clean, build green.
+- [ ] Favorites digest (close the proofing loop) — design sketched, awaiting
+      Mason's call before building.
+
 ## Phase 15: Client-share feedback round [DONE 2026-07-01]
 Feedback from a real client share of "College Board 2026 All Sports" + app audit.
 - [x] 1. Share email: cover image hero via durable `/api/gallery/[slug]/cover` 302
