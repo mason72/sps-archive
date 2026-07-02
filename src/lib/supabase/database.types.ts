@@ -697,6 +697,10 @@ export type Database = {
         Args: { p_key: string; p_max: number; p_window_seconds: number };
         Returns: boolean;
       };
+      first_image_per_event: {
+        Args: { p_event_ids: string[] };
+        Returns: { event_id: string; r2_key: string }[];
+      };
       get_activity_totals: {
         Args: { p_user_id: string };
         Returns: Json;

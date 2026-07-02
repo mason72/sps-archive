@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { enrichEvents } from "@/lib/events/enrich";
 import type { Json } from "@/lib/supabase/database.types";
 
 /** GET /api/events — List all events for the authenticated user */
@@ -26,63 +26,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Enrich events with cover thumbnails and share slugs
-  const enriched = await Promise.all(
-    (data || []).map(async (event) => {
-      let coverThumbnailUrl: string | null = null;
-
-      // Try cover image from settings, then fallback to first image
-      const settings = (event.settings ?? {}) as Record<string, unknown>;
-      const cover = settings.cover as { imageId?: string } | undefined;
-
-      if (cover?.imageId) {
-        const { data: coverImg } = await supabase
-          .from("images")
-          .select("r2_key")
-          .eq("id", cover.imageId)
-          .single();
-        if (coverImg) {
-          coverThumbnailUrl = await getPresignedDownloadUrl(
-            getThumbnailKey(coverImg.r2_key),
-            14400
-          );
-        }
-      }
-
-      if (!coverThumbnailUrl) {
-        const { data: firstImg } = await supabase
-          .from("images")
-          .select("r2_key")
-          .eq("event_id", event.id)
-          .neq("processing_status", "error")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        if (firstImg) {
-          coverThumbnailUrl = await getPresignedDownloadUrl(
-            getThumbnailKey(firstImg.r2_key),
-            14400
-          );
-        }
-      }
-
-      // Get active share slug (prefer "full" type)
-      let activeShareSlug: string | null = null;
-      const { data: shares } = await supabase
-        .from("shares")
-        .select("slug, share_type")
-        .eq("event_id", event.id)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-
-      if (shares && shares.length > 0) {
-        const fullShare = shares.find((s) => s.share_type === "full");
-        activeShareSlug = fullShare?.slug || shares[0].slug;
-      }
-
-      return { ...event, coverThumbnailUrl, activeShareSlug };
-    })
-  );
+  // Enrich cover thumbnails + share slugs with a FIXED number of batched
+  // queries (the old per-event fan-out was an N+1 — ~3 queries per event — that
+  // made the dashboard crawl for photographers with many events).
+  const events = data || [];
+  const enrichment = await enrichEvents(supabase, events);
+  const enriched = events.map((event) => ({
+    ...event,
+    ...(enrichment.get(event.id) ?? {
+      coverThumbnailUrl: null,
+      activeShareSlug: null,
+    }),
+  }));
 
   return NextResponse.json({
     events: enriched,
