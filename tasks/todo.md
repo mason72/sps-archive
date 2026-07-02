@@ -1,5 +1,44 @@
 # Pixeltrunk - Build Plan
 
+## Phase 15: Client-share feedback round [DONE 2026-07-01]
+Feedback from a real client share of "College Board 2026 All Sports" + app audit.
+- [x] 1. Share email: cover image hero via durable `/api/gallery/[slug]/cover` 302
+      redirect (presigns die in hours; emails are opened days later). Hero in
+      renderEmailShell + truthful EmailPreview. E2E: 302→200 image/jpeg, 404 no-cover.
+- [x] 2. Section heading: dropped `italic`, clamp 24-40px → 20-32px (it WAS the
+      italics — Playfair italic reads flowery; upright reads as wayfinding).
+- [x] 3. Sort bug: API honored settings.grid.sortBy but SectionedGallery hard-coded
+      sortBy="manual". Now GallerySettings.gridSort seeds the dropdown (public +
+      preview). Verified live: filename-sorted event shows "Filename".
+- [x] 4. Smart stacks: lib/gallery/stacks.ts (parsedName ?? extractPersonName port
+      from spsv2, 9 tests), GalleryStackCard (jittered 4-8s crossfade, IO-gated,
+      reduced-motion aware, stacked-paper layers, count badge, name on Names toggle,
+      heart-all via new batch handleFavoriteMany — looping handleFavorite would
+      clobber its stale closure). Gate: settings.grid.smartStacks, toggle in GridTab.
+      Verified live on Two Dudes Sample Images (then reverted the toggle).
+- [x] 5. Send-me-a-copy: BCC sender (default ON, checkbox in composer).
+- [x] 6. Pinned galleries: 024 migration (events.pinned_at, applied), pinned-first
+      order, Pin/Unpin in card menu, Pinned strip + badge. TDP Work + TDP Website
+      pinned in prod via SQL.
+- [x] 7. Audit (3 agents + hands-on verify) — fixed the criticals, rest reported:
+      FIXED: favorites 42P10 (ON CONFLICT vs unique(share_id,image_id,client_email)
+      mismatch — EVERY guest favorite 500'd in prod, invisible due to optimistic UI;
+      migration 025 applied), shares IDOR (POST/GET/PUT/DELETE had no ownership
+      check over service client), event_date UTC off-by-one (4 sites), timing-safe
+      secret/password-hash comparison.
+      REPORTED (tasks/audit-2026-07-01.md): no rate limit on password/PIN verify,
+      SHA-256 (no work factor) for share passwords, lightbox navigates full set not
+      filtered view, /api/events N+1 (3 queries/event), download PIN in query string,
+      silent favorite failures (no toast), + UX/delight list.
+
+### Phase 15 review
+Tests 165/165 (+9 stacks), tsc clean, next build green, lint pre-existing warnings
+only. Live verify on dev server against prod DB: font/sort/stacks/cover/favorites.
+Dashboard pinned strip not E2E'd (auth-gated) — needs a logged-in spot-check.
+Gotcha: `npm run build` while dev server runs clobbers .next → dev 500s (restart).
+
+
+
 ## Phase 1: Project Foundation [DONE]
 - [x] Initialize Next.js project (TypeScript, Tailwind, App Router)
 - [x] Database schema (Supabase + pgvector)

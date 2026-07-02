@@ -81,3 +81,19 @@ and the user hit a broken page.
 **Rule**: Before `npm run build`, stop the dev server (preview_stop), or skip
 the local build when a dev server is up (CI/the pre-push build covers it).
 Recovery: stop server, remove `.next`, restart.
+
+## 13. Verify upsert ON CONFLICT targets against the LIVE schema
+**Mistake**: Guest favorites upserted with `onConflict: "share_id,image_id"` but the table's unique key was `(share_id, image_id, client_email)` — Postgres 42P10, so EVERY guest favorite since launch returned 500. Nobody noticed for months because the optimistic UI + localStorage made favorites look saved.
+**Rule**: An upsert's `onConflict` columns must exactly match an existing unique constraint/index — check `pg_constraint` on the live DB, not just the migration file. And any write that's masked by optimistic UI needs at least one E2E check that the ROW actually exists afterward.
+
+## 14. Lesson 2 (service client + explicit filters) applies to EVERY route — audit new ones
+**Mistake**: The shares routes (POST/GET/PUT/DELETE) shipped without ownership filters over the service client — any logged-in user could create or revoke shares on any event (IDOR). Same class of bug as lesson 2, different route.
+**Rule**: `getAuthUser()` hands back the SERVICE client. Every query in every route it feeds must carry `.eq("user_id", ...)` or an `events!inner(user_id)` join filter. When touching an API file, scan its siblings for the same omission.
+
+## 15. DATE columns need timeZone:"UTC" at display time
+**Mistake**: `new Date("2026-06-23").toLocaleDateString("en-US", ...)` shows June 22 for US viewers (DATE parses as UTC midnight, formats in local TZ).
+**Rule**: For date-only columns (event_date), always pass `timeZone: "UTC"` to toLocaleDateString. Timestamps (created_at) format local, dates format UTC.
+
+## 16. Don't run `next build` while the dev server is up
+**Mistake**: `npm run build` during a live `next dev` clobbered `.next` — the dev server started 500ing (ENOENT route.js) mid-verification, which briefly looked like a data bug.
+**Rule**: Stop the dev server before production builds, or build first and start dev after. If dev suddenly 500s with ENOENT under .next, restart it before debugging anything else.
