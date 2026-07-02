@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
-import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
+import { ArrowUpDown, Heart, Tag, Check, ChevronDown, Layers } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderByPrimarySection } from "@/lib/gallery/order-manual";
+import type { GalleryStack } from "@/lib/gallery/stacks";
 import type { GalleryImage, GallerySection } from "@/types/gallery";
 
 /**
@@ -32,6 +33,9 @@ export function SectionedGallery({
   showAllTab = false,
   defaultSort = "manual",
   smartStacks = false,
+  stacksToggle,
+  onOpenStack,
+  onDownloadStack,
   onActiveSectionChange,
   onVisibleImagesChange,
 }: {
@@ -50,6 +54,15 @@ export function SectionedGallery({
   gridGap?: "tight" | "normal" | "loose";
   /** Group same-person photos into rotating stacks (event setting). */
   smartStacks?: boolean;
+  /**
+   * Guest-side stacks on/off control (shown only when the event enables
+   * Smart Stacks). Local to the visitor — never changes the event setting.
+   */
+  stacksToggle?: { on: boolean; onToggle: () => void };
+  /** Clicking a stack card opens its mini gallery (page-level modal). */
+  onOpenStack?: (stack: GalleryStack) => void;
+  /** Hover pill on stack cards — download the stack as one ZIP. */
+  onDownloadStack?: (stack: GalleryStack) => void;
   colors: { primary: string; secondary: string; accent: string; background: string };
   /** Show "All" tab — true for preview/edit, false for public galleries */
   showAllTab?: boolean;
@@ -354,6 +367,23 @@ export function SectionedGallery({
             )}
           </div>
 
+          {/* Guest stacks toggle — only when the event has Smart Stacks on */}
+          {stacksToggle && (
+            <button
+              onClick={stacksToggle.onToggle}
+              className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+              style={{ color: stacksToggle.on ? colors.accent : colors.secondary }}
+              title={
+                stacksToggle.on
+                  ? "Show every photo individually"
+                  : "Group photos of the same person into stacks"
+              }
+            >
+              <Layers size={13} />
+              <span className="hidden sm:inline">Stacks</span>
+            </button>
+          )}
+
           {/* Favorites filter */}
           {allowFavorites && (
             <button
@@ -398,6 +428,8 @@ export function SectionedGallery({
           onFavoriteMany={onFavoriteMany}
           onImageClick={onImageClick}
           onDownloadClick={onDownloadClick}
+          onOpenStack={onOpenStack}
+          onDownloadStack={onDownloadStack}
           gridStyle={gridStyle}
           gridColumns={gridColumns}
           gridGap={gridGap}

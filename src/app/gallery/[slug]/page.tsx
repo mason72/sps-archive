@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
 import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
-import { buildStacks } from "@/lib/gallery/stacks";
+import { StackModal } from "@/components/gallery/StackModal";
+import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
@@ -91,8 +92,22 @@ export default function GalleryPage({
   const [showPinModal, setShowPinModal] = useState(false);
   // G5: Favorite milestone thresholds
   const favoriteThresholdsRef = useRef(new Set<number>());
-  const [pinAction, setPinAction] = useState<{ type: "bulk" } | { type: "individual"; image: GalleryImage } | null>(null);
-  const [pinVerified, setPinVerified] = useState(false);
+  // Bulk actions carry their download query through the PIN flow so "Download
+  // favorites"/section/stack survive verification intact. The verified PIN is
+  // kept (not just a boolean) because the server checks it on EVERY bulk
+  // download — later downloads must re-send it or they'd 403.
+  const [pinAction, setPinAction] = useState<
+    | { type: "bulk"; query: Record<string, string> }
+    | { type: "individual"; image: GalleryImage }
+    | null
+  >(null);
+  const [verifiedPin, setVerifiedPin] = useState<string | null>(null);
+
+  // Guest-side Smart Stacks preference — local to this visitor, persisted per
+  // share. Only meaningful when the event has stacks enabled.
+  const [guestStacks, setGuestStacks] = useState(true);
+  // Open stack mini-gallery (click a stack card → its members in a modal).
+  const [openStack, setOpenStack] = useState<GalleryStack | null>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -130,11 +145,11 @@ export default function GalleryPage({
     } else {
       list = gallery?.images ?? [];
     }
-    if (gallery?.settings?.smartStacks) {
+    if (gallery?.settings?.smartStacks && guestStacks) {
       list = buildStacks(list).flatMap((stack) => stack.images);
     }
     return list;
-  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages, guestStacks]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -166,6 +181,15 @@ export default function GalleryPage({
 
       // Load favorites from localStorage
       loadFavorites(data.shareId);
+
+      // Restore this visitor's stacks preference for this share
+      try {
+        if (localStorage.getItem(`stacks_${data.shareId}`) === "off") {
+          setGuestStacks(false);
+        }
+      } catch {
+        // localStorage not available
+      }
     } catch {
       setError("Failed to load gallery.");
     } finally {
@@ -294,12 +318,17 @@ export default function GalleryPage({
     fetchGallery();
   };
 
-  /** Attempt bulk download (all or favorites) -- shows PIN prompt if required */
-  const handleDownloadAll = (favoritesOnly = false) => {
+  /**
+   * Start a bulk ZIP download (all / favorites / one section / one stack).
+   * The query is what varies; PIN gating, the double-click guard, and the
+   * "preparing" toast are shared. Shows the PIN prompt first when required,
+   * carrying the query through verification.
+   */
+  const startBulkDownload = (query: Record<string, string>) => {
     if (!gallery) return;
     setDownloadMenuOpen(false);
-    if (gallery.requirePinBulk && !pinVerified) {
-      setPinAction({ type: "bulk" });
+    if (gallery.requirePinBulk && !verifiedPin) {
+      setPinAction({ type: "bulk", query });
       setShowPinModal(true);
       return;
     }
@@ -308,14 +337,36 @@ export default function GalleryPage({
     if (preparingDownload) return;
     setPreparingDownload(true);
     toast.success("Preparing your download — this can take a moment for large galleries.");
-    window.location.href = `/api/gallery/${slug}/download${favoritesOnly ? "?favorites=true" : ""}`;
+    const params = new URLSearchParams(query);
+    if (verifiedPin) params.set("pin", verifiedPin);
+    const qs = params.toString();
+    window.location.href = `/api/gallery/${slug}/download${qs ? `?${qs}` : ""}`;
     setTimeout(() => setPreparingDownload(false), 8000);
+  };
+
+  /** Attempt bulk download (all or favorites) -- shows PIN prompt if required */
+  const handleDownloadAll = (favoritesOnly = false) => {
+    startBulkDownload(favoritesOnly ? { favorites: "true" } : {});
+  };
+
+  /** Download every photo in a smart stack as one ZIP */
+  const handleStackDownload = (stack: GalleryStack) => {
+    startBulkDownload({
+      images: stack.images.map((img) => img.id).join(","),
+      name: stack.personName,
+    });
+  };
+
+  /** Download the section the guest is currently viewing as one ZIP */
+  const handleSectionDownload = () => {
+    if (!activeSectionInfo || activeSectionInfo.id === "all") return;
+    startBulkDownload({ section: activeSectionInfo.id });
   };
 
   /** Attempt individual download -- shows PIN prompt if required */
   const handleIndividualDownload = (image: GalleryImage) => {
     if (!gallery) return;
-    if (gallery.requirePinIndividual && !pinVerified) {
+    if (gallery.requirePinIndividual && !verifiedPin) {
       setPinAction({ type: "individual", image });
       setShowPinModal(true);
       return;
@@ -355,14 +406,17 @@ export default function GalleryPage({
         return;
       }
 
-      // PIN verified -- remember for this session
-      setPinVerified(true);
+      // PIN verified -- remember it for this session (bulk downloads must
+      // re-send it; the server re-checks on every request)
+      setVerifiedPin(pin);
       setShowPinModal(false);
 
-      // Execute the pending action
+      // Execute the pending action with its original query intact
       if (pinAction?.type === "bulk") {
         toast.success("Preparing download...");
-        window.location.href = `/api/gallery/${slug}/download?pin=${pin}`;
+        const params = new URLSearchParams(pinAction.query);
+        params.set("pin", pin);
+        window.location.href = `/api/gallery/${slug}/download?${params.toString()}`;
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");
         link.href = pinAction.image.downloadUrl;
@@ -377,13 +431,22 @@ export default function GalleryPage({
 
   // Simple lightbox for gallery (no metadata panel)
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
-  // Navigate the on-screen list; if the open image just left the visible set
-  // (e.g. a filter changed under the lightbox), fall back to the full gallery
-  // so the arrows never dead-end.
+  // Opened from a stack's mini gallery: navigate (and filmstrip) just that
+  // stack, so the guest clearly stays inside one person's set.
+  const stackNav =
+    openStack &&
+    selectedImageId &&
+    openStack.images.some((img) => img.id === selectedImageId)
+      ? openStack.images
+      : null;
+  // Otherwise navigate the on-screen list; if the open image just left the
+  // visible set (e.g. a filter changed under the lightbox), fall back to the
+  // full gallery so the arrows never dead-end.
   const navImages =
-    selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
+    stackNav ??
+    (selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
       ? gallery?.images ?? []
-      : lightboxImages;
+      : lightboxImages);
   const selectedIndex = navImages.findIndex((img) => img.id === selectedImageId);
 
   // Loading state
@@ -429,6 +492,21 @@ export default function GalleryPage({
 
   const b = gallery.branding;
   const s = gallery.settings;
+
+  // Stacks render only when the event enables them AND this guest hasn't
+  // turned them off for themselves.
+  const stacksActive = !!s?.smartStacks && guestStacks;
+  const toggleGuestStacks = () => {
+    setGuestStacks((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(`stacks_${gallery.shareId}`, next ? "on" : "off");
+      } catch {
+        // localStorage not available
+      }
+      return next;
+    });
+  };
 
   // Resolve font classes
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
@@ -652,6 +730,19 @@ export default function GalleryPage({
                   >
                     Download all
                   </button>
+                  {/* Current section — only while a real section tab is active */}
+                  {!searchQuery.trim() &&
+                    activeSectionInfo &&
+                    activeSectionInfo.id !== "all" && (
+                      <button
+                        onMouseDown={handleSectionDownload}
+                        className="block w-full max-w-[260px] truncate px-4 py-2 text-left text-[13px] hover:bg-stone-50"
+                        style={{ color: colors.primary }}
+                        title={`Download the ${activeSectionInfo.count} photos in “${activeSectionInfo.name}” as a ZIP`}
+                      >
+                        Download &ldquo;{activeSectionInfo.name}&rdquo;
+                      </button>
+                    )}
                   {gallery.allowFavorites && (
                     <button
                       onMouseDown={() => handleDownloadAll(true)}
@@ -724,10 +815,12 @@ export default function GalleryPage({
               onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
               onImageClick={(id) => setSelectedImageId(id)}
               onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+              onOpenStack={setOpenStack}
+              onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
               gridStyle={s?.gridStyle}
               gridColumns={s?.gridColumns}
               gridGap={s?.gridGap}
-              smartStacks={s?.smartStacks}
+              smartStacks={stacksActive}
             />
           ) : (
             <p
@@ -748,11 +841,18 @@ export default function GalleryPage({
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onOpenStack={setOpenStack}
+            onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
             defaultSort={s?.gridSort}
-            smartStacks={s?.smartStacks}
+            smartStacks={stacksActive}
+            stacksToggle={
+              s?.smartStacks
+                ? { on: guestStacks, onToggle: toggleGuestStacks }
+                : undefined
+            }
             colors={colors}
             onActiveSectionChange={setActiveSectionInfo}
             onVisibleImagesChange={setSectionVisibleImages}
@@ -767,13 +867,31 @@ export default function GalleryPage({
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onOpenStack={setOpenStack}
+            onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
-            smartStacks={s?.smartStacks}
+            smartStacks={stacksActive}
           />
         )}
       </main>
+
+      {/* ─── Stack mini gallery (lightbox stacks on top at z-50) ─── */}
+      {openStack && (
+        <StackModal
+          stack={openStack}
+          colors={colors}
+          headingClass={headingClass}
+          allowFavorites={gallery.allowFavorites}
+          favoriteIds={favoriteIds}
+          onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+          onDownloadAll={gallery.allowDownload ? handleStackDownload : undefined}
+          onImageClick={(id) => setSelectedImageId(id)}
+          onClose={() => setOpenStack(null)}
+          keyboardEnabled={!selectedImageId}
+        />
+      )}
 
       {/* ─── Simple gallery lightbox ─── */}
       {selectedImage && (
@@ -851,8 +969,48 @@ export default function GalleryPage({
             onClick={(e) => e.stopPropagation()}
           />
 
-          {/* Bottom bar */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
+          {/* Stack filmstrip — thumbnails of the person's other shots, so it's
+              clear you're browsing inside a stack. Click to jump. */}
+          {stackNav && (
+            <div
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex max-w-[90vw] gap-1.5 overflow-x-auto px-2 py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {stackNav.map((img) => {
+                const isActive = img.id === selectedImageId;
+                return (
+                  <button
+                    key={img.id}
+                    ref={(el) => {
+                      if (el && isActive)
+                        el.scrollIntoView({ block: "nearest", inline: "center" });
+                    }}
+                    onClick={() => setSelectedImageId(img.id)}
+                    className="h-14 w-11 flex-shrink-0 overflow-hidden transition-opacity duration-200"
+                    style={{
+                      opacity: isActive ? 1 : 0.45,
+                      outline: isActive ? `2px solid ${colors.accent}` : "none",
+                      outlineOffset: "-2px",
+                    }}
+                    aria-label={`View photo ${img.originalFilename}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.thumbnailUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Bottom bar — lifted above the filmstrip when inside a stack */}
+          <div
+            className={`absolute ${stackNav ? "bottom-24" : "bottom-4"} left-1/2 -translate-x-1/2 flex items-center gap-4 z-10`}
+          >
             {gallery.allowFavorites && (
               <button
                 className="p-2.5 rounded-full backdrop-blur-sm transition-opacity hover:opacity-100"
@@ -885,10 +1043,13 @@ export default function GalleryPage({
             )}
           </div>
 
-          {/* Counter + filename */}
+          {/* Counter + filename (+ stack context when inside one) */}
           <div className="absolute top-4 left-4">
             <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
               {selectedIndex + 1} / {navImages.length}
+              {stackNav && openStack && (
+                <span className="ml-2 not-italic">· {openStack.personName}</span>
+              )}
             </p>
             {selectedImage.originalFilename && (
               <p className="text-[13px] mt-1 max-w-[280px] truncate" style={{ color: lbFgMuted }}>

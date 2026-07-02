@@ -5,7 +5,8 @@ import { Download, ChevronLeft, ChevronRight, X, Eye, Search } from "lucide-reac
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
-import { buildStacks } from "@/lib/gallery/stacks";
+import { StackModal } from "@/components/gallery/StackModal";
+import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
@@ -36,6 +37,11 @@ export default function PreviewGalleryPage({
   const [error, setError] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
+
+  // Mirror the guest experience: per-visitor stacks toggle (not persisted in
+  // preview) and the stack mini-gallery modal.
+  const [guestStacks, setGuestStacks] = useState(true);
+  const [openStack, setOpenStack] = useState<GalleryStack | null>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,17 +118,26 @@ export default function PreviewGalleryPage({
     } else {
       list = gallery?.images ?? [];
     }
-    if (gallery?.settings?.smartStacks) {
+    if (gallery?.settings?.smartStacks && guestStacks) {
       list = buildStacks(list).flatMap((stack) => stack.images);
     }
     return list;
-  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages, guestStacks]);
 
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
+  // Opened from a stack's mini gallery: navigate just that stack (same as the
+  // public gallery).
+  const stackNav =
+    openStack &&
+    selectedImageId &&
+    openStack.images.some((img) => img.id === selectedImageId)
+      ? openStack.images
+      : null;
   const navImages =
-    selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
+    stackNav ??
+    (selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
       ? gallery?.images ?? []
-      : lightboxImages;
+      : lightboxImages);
   const selectedIndex = navImages.findIndex((img) => img.id === selectedImageId);
 
   // Loading state
@@ -394,11 +409,22 @@ export default function PreviewGalleryPage({
             favoriteIds={new Set()}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={handleIndividualDownload}
+            onOpenStack={setOpenStack}
+            onDownloadStack={
+              gallery.allowDownload
+                ? () => toast.info("Download is available when the gallery is published.")
+                : undefined
+            }
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
             defaultSort={s?.gridSort}
-            smartStacks={s?.smartStacks}
+            smartStacks={s?.smartStacks && guestStacks}
+            stacksToggle={
+              s?.smartStacks
+                ? { on: guestStacks, onToggle: () => setGuestStacks((v) => !v) }
+                : undefined
+            }
             colors={colors}
             showAllTab
             onVisibleImagesChange={setSectionVisibleImages}
@@ -417,6 +443,25 @@ export default function PreviewGalleryPage({
           />
         )}
       </main>
+
+      {/* ─── Stack mini gallery (lightbox stacks on top at z-50) ─── */}
+      {openStack && (
+        <StackModal
+          stack={openStack}
+          colors={colors}
+          headingClass={headingClass}
+          allowFavorites={false}
+          favoriteIds={new Set()}
+          onDownloadAll={
+            gallery.allowDownload
+              ? () => toast.info("Download is available when the gallery is published.")
+              : undefined
+          }
+          onImageClick={(id) => setSelectedImageId(id)}
+          onClose={() => setOpenStack(null)}
+          keyboardEnabled={!selectedImageId}
+        />
+      )}
 
       {/* ─── Lightbox ─── */}
       {selectedImage && (
@@ -485,7 +530,46 @@ export default function PreviewGalleryPage({
             onClick={(e) => e.stopPropagation()}
           />
 
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
+          {/* Stack filmstrip — same affordance as the public gallery */}
+          {stackNav && (
+            <div
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex max-w-[90vw] gap-1.5 overflow-x-auto px-2 py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {stackNav.map((img) => {
+                const isActive = img.id === selectedImageId;
+                return (
+                  <button
+                    key={img.id}
+                    ref={(el) => {
+                      if (el && isActive)
+                        el.scrollIntoView({ block: "nearest", inline: "center" });
+                    }}
+                    onClick={() => setSelectedImageId(img.id)}
+                    className="h-14 w-11 flex-shrink-0 overflow-hidden transition-opacity duration-200"
+                    style={{
+                      opacity: isActive ? 1 : 0.45,
+                      outline: isActive ? `2px solid ${colors.accent}` : "none",
+                      outlineOffset: "-2px",
+                    }}
+                    aria-label={`View photo ${img.originalFilename}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.thumbnailUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div
+            className={`absolute ${stackNav ? "bottom-24" : "bottom-4"} left-1/2 -translate-x-1/2 flex items-center gap-4 z-10`}
+          >
             {gallery.allowDownload && selectedImage.downloadUrl && (
               <button
                 className="p-2.5 rounded-full bg-white/10 text-white/70 hover:text-white backdrop-blur-sm transition-colors"

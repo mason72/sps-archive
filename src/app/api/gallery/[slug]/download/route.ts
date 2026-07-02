@@ -121,6 +121,9 @@ export async function GET(
     );
   }
 
+  const safeFolder = (n: string) =>
+    n.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "-").trim() || "Section";
+
   // 2a. Favorites-only download: keep just the favorited images for this share.
   const favoritesOnly = request.nextUrl.searchParams.get("favorites") === "true";
   let images = allImages;
@@ -139,37 +142,91 @@ export async function GET(
     }
   }
 
-  // 2b. Build per-image section membership so the ZIP can be foldered by
-  // section. An image in multiple sections is placed in each. Images in no
-  // section go to the root. Section names are sanitized for use as folders.
-  const imageIds = images.map((i) => i.id);
-  const { data: sectionRows } = await supabase
-    .from("sections")
-    .select("id, name")
-    .eq("event_id", share.event_id);
-  const sectionName = new Map(
-    (sectionRows ?? []).map((s) => [s.id, s.name as string])
-  );
-  const sectionsByImage = new Map<string, string[]>();
-  // Page through links so large galleries aren't truncated at 1000.
-  for (let from = 0; ; from += 1000) {
-    const { data: links } = await supabase
-      .from("section_images")
-      .select("image_id, section_id")
-      .in("image_id", imageIds)
-      .range(from, from + 999);
-    if (!links || links.length === 0) break;
-    for (const l of links) {
-      const folder = sectionName.get(l.section_id);
-      if (!folder) continue;
-      const arr = sectionsByImage.get(l.image_id);
-      if (arr) arr.push(folder);
-      else sectionsByImage.set(l.image_id, [folder]);
+  // 2a-ii. Scoped downloads: a single section (?section=<id>) or an explicit
+  // image set (?images=<id,...> — smart-stack "download all N"). Both only
+  // ever narrow allImages, which is already scoped to this share's event, so
+  // foreign ids simply don't match. Scoped ZIPs are flat (no section folders).
+  const sectionParam = request.nextUrl.searchParams.get("section");
+  const imagesParam = request.nextUrl.searchParams.get("images");
+  let zipSuffix = favoritesOnly ? "-favorites" : "";
+  let scopedFlat = false;
+
+  if (sectionParam) {
+    const { data: section } = await supabase
+      .from("sections")
+      .select("id, name")
+      .eq("id", sectionParam)
+      .eq("event_id", share.event_id)
+      .single();
+    if (!section) {
+      return NextResponse.json({ error: "Section not found" }, { status: 404 });
     }
-    if (links.length < 1000) break;
+    const memberIds = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data: links } = await supabase
+        .from("section_images")
+        .select("image_id")
+        .eq("section_id", section.id)
+        .range(from, from + 999);
+      if (!links || links.length === 0) break;
+      for (const l of links) memberIds.add(l.image_id);
+      if (links.length < 1000) break;
+    }
+    images = images.filter((img) => memberIds.has(img.id));
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "No images in this section" },
+        { status: 404 }
+      );
+    }
+    zipSuffix = `-${safeFolder(section.name)}`;
+    scopedFlat = true;
+  } else if (imagesParam) {
+    const requested = new Set(imagesParam.split(",").filter(Boolean));
+    images = images.filter((img) => requested.has(img.id));
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "No matching images" },
+        { status: 404 }
+      );
+    }
+    const label = request.nextUrl.searchParams.get("name");
+    zipSuffix = `-${label ? safeFolder(label) : "selection"}`;
+    scopedFlat = true;
   }
-  const safeFolder = (n: string) =>
-    n.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "-").trim() || "Section";
+
+  // 2b. Build per-image section membership so the full-gallery ZIP can be
+  // foldered by section. An image in multiple sections is placed in each.
+  // Images in no section go to the root. Skipped for scoped downloads — a
+  // one-section or one-stack ZIP reads better flat.
+  const sectionsByImage = new Map<string, string[]>();
+  if (!scopedFlat) {
+    const imageIds = images.map((i) => i.id);
+    const { data: sectionRows } = await supabase
+      .from("sections")
+      .select("id, name")
+      .eq("event_id", share.event_id);
+    const sectionName = new Map(
+      (sectionRows ?? []).map((s) => [s.id, s.name as string])
+    );
+    // Page through links so large galleries aren't truncated at 1000.
+    for (let from = 0; ; from += 1000) {
+      const { data: links } = await supabase
+        .from("section_images")
+        .select("image_id, section_id")
+        .in("image_id", imageIds)
+        .range(from, from + 999);
+      if (!links || links.length === 0) break;
+      for (const l of links) {
+        const folder = sectionName.get(l.section_id);
+        if (!folder) continue;
+        const arr = sectionsByImage.get(l.image_id);
+        if (arr) arr.push(folder);
+        else sectionsByImage.set(l.image_id, [folder]);
+      }
+      if (links.length < 1000) break;
+    }
+  }
 
   // 3. Fetch event name for ZIP filename
   const { data: event } = await supabase
@@ -180,7 +237,7 @@ export async function GET(
 
   const zipFilename = `${(event?.name || "gallery")
     .replace(/[^a-zA-Z0-9-_ ]/g, "")
-    .replace(/\s+/g, "-")}${favoritesOnly ? "-favorites" : ""}.zip`;
+    .replace(/\s+/g, "-")}${zipSuffix}.zip`;
 
   // 4. Stream ZIP
   const { readable, writable } = new TransformStream();
@@ -265,7 +322,16 @@ export async function GET(
       action: "gallery_download",
       eventId: share.event_id,
       shareId: share.id,
-      metadata: { imageCount: images.length },
+      metadata: {
+        imageCount: images.length,
+        scope: favoritesOnly
+          ? "favorites"
+          : sectionParam
+          ? "section"
+          : imagesParam
+          ? "selection"
+          : "all",
+      },
     });
   }
 

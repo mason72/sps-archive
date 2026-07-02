@@ -1,5 +1,32 @@
 # Pixeltrunk - Build Plan
 
+## Phase 17: Smart Stacks — toggle fix + guest experience [DONE 2026-07-02]
+- [x] Settings toggle fix: EventSidebar DesignPanel never passed `smartStacks` into GridTab
+      (switch always rendered off; every click saved `true`, impossible to turn off). The
+      correctly-wired EventSettingsPanel is DEAD CODE — flagged for removal (lesson 17).
+- [x] Download route: `?section=<id>` and `?images=<id,...>&name=<label>` scope params
+      (validated against the share's event; scoped ZIPs flat, full ZIP keeps section
+      folders; activity log gains scope). Live-verified against the College Board share:
+      stack ZIP = exactly 2 requested originals, section ZIP = all 60 Highlights, correct
+      filenames (`…-Rushi-Sheth.zip`, `…-Highlights.zip`); bogus section/image ids → 404;
+      empty favorites still 404.
+- [x] Public gallery: guest "Stacks" toggle in section toolbar (per-visitor,
+      `localStorage stacks_<shareId>`, only shown when event enables stacks; verified
+      3→1 layers icons + persisted "off"); "Download “<section>”" menu item (verified in
+      menu); stack mini-gallery StackModal (verified: header, count, download-all, body
+      scroll lock); lightbox filmstrip + nav constrained to stack (verified: "1/2 ·
+      Rushi Sheth…", accent outline on active thumb, thumb click switches); Escape
+      layering verified (closes lightbox first, modal second, scroll restored).
+- [x] PIN-flow fixes (found in passing): bulk PIN actions now carry their full download
+      query through verification (favorites/section/stack no longer degrade to
+      "download all"), and the verified PIN string is re-sent on every bulk request
+      (server re-checks each; boolean-only state 403'd the second download). Lesson 18.
+- [x] GalleryStackCard: hover "⬇ N" pill + click opens the mini gallery.
+- [x] Preview page parity (modal + toggle + filmstrip; downloads stay stubbed).
+- [x] tsc clean, build green, eslint 0 errors on changed files (warnings pre-existing).
+      Dashboard toggle UI not exercised live (needs auth session) — same prop pattern as
+      the adjacent working `showFilenames`; save path already proven (DB had `true`).
+
 ## Phase 16: Hardening round (audit top-three) [DONE 2026-07-01]
 - [x] Lightbox navigates the VISIBLE view: SectionedGallery reports its
       tab+filter+sort list up (onVisibleImagesChange); page flattens stacks

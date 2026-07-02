@@ -240,6 +240,21 @@ Sections (see §6):
 Sharing & public galleries:
 - `GET/POST /api/shares`, `PATCH/DELETE /api/shares/[shareId]`, `GET/POST /api/events/[eventId]/shares`
 - Public: `GET /api/gallery/[slug]`, `/verify`, `/verify-pin`, `/favorites`, `/download`, `/track`, `GET /api/gallery/preview/[eventId]`
+- `/download` streams one ZIP; scope params (all optional, bulk-PIN-gated as a group):
+  `?favorites=true` (this share's favorites), `?section=<id>` (one section, validated
+  against the share's event), `?images=<id,id,...>&name=<label>` (explicit set — used by
+  gallery Smart Stacks "download all N"; foreign ids simply don't match). Scoped ZIPs are
+  flat; the full-gallery ZIP folders by section. When `require_pin_bulk` is on, the
+  verified PIN must be re-sent as `?pin=` on EVERY bulk request (server re-checks each).
+
+**Gallery Smart Stacks (live, filename-based — distinct from the dormant AI stacks):**
+`grid.smartStacks` in event settings (Design → Grid) groups same-person photos in the
+*shared gallery* into rotating stack cards, keyed on `parsedName`/`extractPersonName`
+(`src/lib/gallery/stacks.ts`). Guest-side: a per-visitor "Stacks" toggle in the section
+toolbar (persisted in `localStorage` as `stacks_<shareId>`, never global), stack cards
+hover-offer "⬇ N" (single ZIP via `?images=`), clicking a stack opens a full-screen mini
+gallery (`StackModal`), and the lightbox shows a member filmstrip with navigation
+constrained to the stack. Preview mirrors all of it with downloads stubbed.
 
 Email templates, analytics, stats, search, SPS, stacks, Inngest:
 - `/api/emails/send`, `/api/emails/templates`, `/api/templates`

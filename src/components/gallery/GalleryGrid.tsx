@@ -17,6 +17,10 @@ interface GalleryGridProps {
   onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
   onImageClick: (imageId: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
+  /** Clicking a multi-image stack opens its mini gallery (page-level modal). */
+  onOpenStack?: (stack: GalleryStack) => void;
+  /** Hover pill on stack cards — download the whole stack as one ZIP. */
+  onDownloadStack?: (stack: GalleryStack) => void;
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
@@ -63,6 +67,8 @@ export function GalleryGrid({
   onFavoriteMany,
   onImageClick,
   onDownloadClick,
+  onOpenStack,
+  onDownloadStack,
   gridStyle = "masonry",
   gridColumns = 4,
   gridGap = "normal",
@@ -142,6 +148,8 @@ export function GalleryGrid({
               favoriteIds={favoriteIds}
               onFavoriteMany={onFavoriteMany}
               onImageClick={onImageClick}
+              onOpenStack={onOpenStack}
+              onDownloadStack={onDownloadStack}
               showName={showFilenames}
               uniform
               sizes={`${Math.round(100 / gridColumns)}vw`}
@@ -180,6 +188,8 @@ export function GalleryGrid({
                 favoriteIds={favoriteIds}
                 onFavoriteMany={onFavoriteMany}
                 onImageClick={onImageClick}
+                onOpenStack={onOpenStack}
+                onDownloadStack={onDownloadStack}
                 showName={showFilenames}
                 sizes={`${Math.round(100 / colCount)}vw`}
               />

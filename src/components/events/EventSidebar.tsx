@@ -815,6 +815,7 @@ function DesignPanel({
             gap={settings.grid?.gap || "normal"}
             style={settings.grid?.style || "masonry"}
             showFilenames={settings.grid?.showFilenames}
+            smartStacks={settings.grid?.smartStacks}
             onChange={(updates) =>
               handleChange({ grid: { ...settings.grid, ...updates } })
             }

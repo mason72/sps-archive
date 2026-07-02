@@ -97,3 +97,11 @@ Recovery: stop server, remove `.next`, restart.
 ## 16. Don't run `next build` while the dev server is up
 **Mistake**: `npm run build` during a live `next dev` clobbered `.next` — the dev server started 500ing (ENOENT route.js) mid-verification, which briefly looked like a data bug.
 **Rule**: Stop the dev server before production builds, or build first and start dev after. If dev suddenly 500s with ENOENT under .next, restart it before debugging anything else.
+
+## 17. New settings fields must be wired into the LIVE settings panel (there are two)
+**Mistake**: The Smart Stacks toggle was added to `GridTab` and wired in `EventSettingsPanel` — but that component is dead code. The live panel is `EventSidebar`'s `DesignPanel`, which never passed `smartStacks` down, so the switch always rendered off and every click saved `true` (impossible to turn off, looked "broken" while the DB value was fine).
+**Rule**: After adding a prop to a shared tab component, grep for EVERY render site (`grep -rn "<GridTab"`) and wire them all — or better, delete the dead duplicate. A toggle that "won't turn off" usually means display state and saved state have different sources.
+
+## 18. Client PIN state must mirror what the server re-checks
+**Mistake**: The gallery kept a boolean `pinVerified` after bulk-PIN entry, then issued later bulk downloads WITHOUT the `pin` param — but the server re-validates the PIN on every `/download` request, so the second download 403'd. A related bug dropped the `favorites=true` param when re-issuing the URL after PIN verify.
+**Rule**: When a server endpoint re-checks a credential per request, the client must store the credential (the PIN string), not a boolean, and re-send it every time. When an action is deferred behind a verification modal, carry the action's FULL query through the modal, not a hardcoded reconstruction.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Heart, Layers } from "lucide-react";
+import { Download, Heart, Layers } from "lucide-react";
 import type { GalleryStack } from "@/lib/gallery/stacks";
 
 /**
@@ -10,7 +10,9 @@ import type { GalleryStack } from "@/lib/gallery/stacks";
  * The card slowly rotates through its members (gentle crossfade, jittered
  * timing so neighboring stacks don't cycle in lockstep), wears a subtle
  * stacked-paper treatment, and its heart favorites the entire stack at once.
- * Clicking opens the lightbox on whichever photo is showing.
+ * Clicking opens the stack's mini gallery (when onOpenStack is wired),
+ * otherwise the lightbox on whichever photo is showing. A hover "⬇ N" pill
+ * downloads the whole stack as one ZIP.
  *
  * Rotation is paused on hover, while selected/favorited-all, off-screen
  * (IntersectionObserver), and under prefers-reduced-motion.
@@ -21,6 +23,8 @@ export function GalleryStackCard({
   favoriteIds,
   onFavoriteMany,
   onImageClick,
+  onOpenStack,
+  onDownloadStack,
   showName,
   uniform,
   sizes,
@@ -30,6 +34,10 @@ export function GalleryStackCard({
   favoriteIds: Set<string>;
   onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
   onImageClick: (imageId: string) => void;
+  /** When provided, clicking the card opens the stack mini gallery instead of the lightbox. */
+  onOpenStack?: (stack: GalleryStack) => void;
+  /** When provided, a hover pill downloads the whole stack as a single ZIP. */
+  onDownloadStack?: (stack: GalleryStack) => void;
   showName?: boolean;
   uniform?: boolean;
   sizes?: string;
@@ -119,7 +127,9 @@ export function GalleryStackCard({
       <div
         className="relative group cursor-pointer overflow-hidden bg-stone-100"
         style={aspectStyle}
-        onClick={() => onImageClick(active.id)}
+        onClick={() =>
+          onOpenStack ? onOpenStack(stack) : onImageClick(active.id)
+        }
         onMouseEnter={() => (isPaused.current = true)}
         onMouseLeave={() => (isPaused.current = false)}
       >
@@ -168,28 +178,45 @@ export function GalleryStackCard({
           </div>
         )}
 
-        {/* Favorite the whole stack */}
-        {allowFavorites && (
-          <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            <button
-              onClick={handleFavorite}
-              className={`p-2 rounded-full backdrop-blur-sm transition-colors ${
-                allFavorited
-                  ? "bg-white/90 text-red-500"
-                  : "bg-black/30 text-white hover:bg-black/50"
-              }`}
-              title={
-                allFavorited
-                  ? `Remove all ${count} from favorites`
-                  : `Add all ${count} to favorites`
-              }
-            >
-              <Heart
-                className={`h-4 w-4 ${heartPop ? "heart-pop" : ""}`}
-                fill={allFavorited ? "currentColor" : "none"}
-                onAnimationEnd={() => setHeartPop(false)}
-              />
-            </button>
+        {/* Stack-wide actions: heart-all + download-all-as-ZIP */}
+        {(allowFavorites || onDownloadStack) && (
+          <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            {allowFavorites && (
+              <button
+                onClick={handleFavorite}
+                className={`p-2 rounded-full backdrop-blur-sm transition-colors ${
+                  allFavorited
+                    ? "bg-white/90 text-red-500"
+                    : "bg-black/30 text-white hover:bg-black/50"
+                }`}
+                title={
+                  allFavorited
+                    ? `Remove all ${count} from favorites`
+                    : `Add all ${count} to favorites`
+                }
+              >
+                <Heart
+                  className={`h-4 w-4 ${heartPop ? "heart-pop" : ""}`}
+                  fill={allFavorited ? "currentColor" : "none"}
+                  onAnimationEnd={() => setHeartPop(false)}
+                />
+              </button>
+            )}
+            {onDownloadStack && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownloadStack(stack);
+                }}
+                className="flex items-center gap-1 pl-2 pr-2.5 py-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors"
+                title={`Download all ${count} photos as a single ZIP`}
+              >
+                <Download className="h-4 w-4" />
+                <span className="text-[11px] font-medium tabular-nums leading-none">
+                  {count}
+                </span>
+              </button>
+            )}
           </div>
         )}
       </div>
