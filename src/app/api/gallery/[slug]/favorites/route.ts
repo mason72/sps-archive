@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/analytics/log";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/gallery/[slug]/favorites — Add a favorite.
@@ -89,6 +90,9 @@ export async function POST(
     return NextResponse.json({ favorite: data }, { status: 201 });
   } catch (error) {
     console.error("Add favorite error:", error);
+    // Guest-facing write behind an optimistic UI — exactly the class of
+    // failure that once ran silently for months. Alert the admin.
+    void reportSystemError("favorites.post", error);
     return NextResponse.json(
       { error: "Failed to add favorite" },
       { status: 500 }
@@ -203,6 +207,7 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Remove favorite error:", error);
+    void reportSystemError("favorites.delete", error);
     return NextResponse.json(
       { error: "Failed to remove favorite" },
       { status: 500 }

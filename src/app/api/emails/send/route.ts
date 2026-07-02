@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { renderEmailShell } from "@/lib/email/shell";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 
 /**
@@ -117,10 +118,12 @@ export async function POST(request: NextRequest) {
         if (!res.ok) {
           const err = await res.json();
           console.error("Resend API error:", err);
+          void reportSystemError("emails.send", JSON.stringify(err));
           status = "failed";
         }
       } catch (err) {
         console.error("Resend send failed:", err);
+        void reportSystemError("emails.send", err);
         status = "failed";
       }
     } else {

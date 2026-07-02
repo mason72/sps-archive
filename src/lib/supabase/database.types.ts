@@ -642,9 +642,58 @@ export type Database = {
         };
         Relationships: [];
       };
+      auth_attempts: {
+        Row: {
+          key: string;
+          attempts: number;
+          window_start: string;
+        };
+        Insert: {
+          key: string;
+          attempts?: number;
+          window_start?: string;
+        };
+        Update: {
+          key?: string;
+          attempts?: number;
+          window_start?: string;
+        };
+        Relationships: [];
+      };
+      system_errors: {
+        Row: {
+          id: string;
+          context: string;
+          message: string;
+          detail: Json | null;
+          notified: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          context: string;
+          message: string;
+          detail?: Json | null;
+          notified?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          context?: string;
+          message?: string;
+          detail?: Json | null;
+          notified?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
+      record_auth_attempt: {
+        Args: { p_key: string; p_max: number; p_window_seconds: number };
+        Returns: boolean;
+      };
       get_activity_totals: {
         Args: { p_user_id: string };
         Returns: Json;
