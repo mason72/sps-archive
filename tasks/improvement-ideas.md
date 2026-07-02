@@ -21,7 +21,7 @@
 **Current:** Static render
 **Upgrade:** Cover image fades in with a subtle 3% zoom-out (Ken Burns settle). Photographer logo fades in 200ms after. Event title types in or reveals from below.
 
-### D4: SmartStack Expand Animation
+### D4: SmartStack Expand Animation — SHIPPED (staggered scale-in via .stack-expand-item)
 **Where:** `SmartStack.tsx` toggle
 **Current:** Instant toggle between collapsed/expanded
 **Upgrade:** Smooth height transition, items scale-in with staggered delay (50ms between items). "Best shot" badge pulses briefly on expand.
@@ -66,16 +66,16 @@
 **Current:** Score bars are neutral colored
 **Upgrade:** Images with aesthetic score ≥ 8.0 get a subtle warm glow border in the lightbox. Scene tags become emerald-tinted. Makes high-quality shots feel special.
 
-### G3: Download Progress Feedback
+### G3: Download Progress Feedback — PARTIAL (bulk: preparing-toast + double-click guard; individual: success toast; no live progress %)
 **Where:** Gallery download button (individual + bulk)
 **Current:** Silent — no feedback until complete
 **Upgrade:** Individual: brief checkmark animation on the download icon. Bulk: progress toast showing "Preparing 47 images…" → "Download ready!" with elapsed time.
 
-### G4: Gallery Finish Moment
+### G4: Gallery Finish Moment — SHIPPED (end-of-gallery credit block + portfolio link)
 **Where:** Gallery public view — when viewer reaches end
 **Upgrade:** Subtle "end of gallery" moment with photographer's logo + "Photographed by [name]" + website link. Feels like closing a book. Optional CTA: "Book a session".
 
-### G5: Favorite Summary Toast
+### G5: Favorite Summary Toast — SHIPPED (milestones 5/10/20; audit #17 wants a per-share opt-out)
 **Where:** Gallery favorites
 **Upgrade:** After favoriting 5+ images, show a warm toast: "You've loved 12 moments ❤️". Encourages engagement and feels rewarding.
 
@@ -103,7 +103,7 @@
 **Current:** No og:image or rich preview
 **Upgrade:** Auto-generate og:image from cover photo + photographer branding. When shared on social media or messaging, shows a beautiful preview card.
 
-### Q5: Bulk Select UX
+### Q5: Bulk Select UX — SHIPPED (select-all-in-stack + animated counter pill)
 **Where:** Gallery/event grid selection
 **Current:** Select individual images
 **Upgrade:** "Select all in stack" button when a SmartStack is expanded. Running counter: "47 selected" with a pill badge that animates when count changes.
@@ -127,7 +127,7 @@
 **Current:** Straight to event list
 **Upgrade:** "Good morning, [name]" with a gentle fade. Quick stats strip: "3 galleries active · 127 views today · 12 new favorites". Warm, not corporate.
 
-### V4: Photographer Signature Footer
+### V4: Photographer Signature Footer — SHIPPED
 **Where:** Gallery public view footer
 **Current:** Small text
 **Upgrade:** Elegant signature-style footer with photographer's logo, business name, and a "View portfolio" link. Feels like signing a print.
