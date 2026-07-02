@@ -5,6 +5,7 @@ import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import archiver from "archiver";
 import { logActivity } from "@/lib/analytics/log";
 import { timingSafeEqualStr } from "@/lib/shares/hash";
+import { verifyDownloadToken } from "@/lib/shares/download-token";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
 
@@ -85,21 +86,26 @@ export async function GET(
     }
   }
 
-  // Check PIN protection for bulk download (rate-limited — this endpoint is
-  // just as brute-forceable as verify-pin)
+  // Check PIN protection for bulk download. The client sends a short-lived
+  // download token minted by verify-pin (?dt=) so the raw PIN stays out of
+  // URLs/access logs; a bare ?pin= is still honored for in-flight old tabs
+  // (rate-limited — this endpoint is just as brute-forceable as verify-pin).
   if (share.require_pin_bulk && share.download_pin) {
-    if (!(await checkAuthRateLimit(supabase, "pin", slug, clientIp(request)))) {
-      return NextResponse.json(
-        { error: "Too many attempts — try again in a few minutes" },
-        { status: 429 }
-      );
-    }
-    const pinParam = request.nextUrl.searchParams.get("pin");
-    if (!pinParam || !timingSafeEqualStr(pinParam, share.download_pin)) {
-      return NextResponse.json(
-        { error: "PIN required" },
-        { status: 403 }
-      );
+    const tokenParam = request.nextUrl.searchParams.get("dt");
+    const tokenOk = tokenParam
+      ? verifyDownloadToken(tokenParam, share.id)
+      : false;
+    if (!tokenOk) {
+      if (!(await checkAuthRateLimit(supabase, "pin", slug, clientIp(request)))) {
+        return NextResponse.json(
+          { error: "Too many attempts — try again in a few minutes" },
+          { status: 429 }
+        );
+      }
+      const pinParam = request.nextUrl.searchParams.get("pin");
+      if (!pinParam || !timingSafeEqualStr(pinParam, share.download_pin)) {
+        return NextResponse.json({ error: "PIN required" }, { status: 403 });
+      }
     }
   }
 

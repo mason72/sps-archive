@@ -93,15 +93,15 @@ export default function GalleryPage({
   // G5: Favorite milestone thresholds
   const favoriteThresholdsRef = useRef(new Set<number>());
   // Bulk actions carry their download query through the PIN flow so "Download
-  // favorites"/section/stack survive verification intact. The verified PIN is
-  // kept (not just a boolean) because the server checks it on EVERY bulk
-  // download — later downloads must re-send it or they'd 403.
+  // favorites"/section/stack survive verification intact. verify-pin returns a
+  // short-lived download token; bulk URLs send the TOKEN (?dt=) so the raw
+  // PIN never appears in a URL, and the server re-checks it on EVERY request.
   const [pinAction, setPinAction] = useState<
     | { type: "bulk"; query: Record<string, string> }
     | { type: "individual"; image: GalleryImage }
     | null
   >(null);
-  const [verifiedPin, setVerifiedPin] = useState<string | null>(null);
+  const [downloadToken, setDownloadToken] = useState<string | null>(null);
 
   // Guest-side Smart Stacks preference — local to this visitor, persisted per
   // share. Only meaningful when the event has stacks enabled.
@@ -327,7 +327,7 @@ export default function GalleryPage({
   const startBulkDownload = (query: Record<string, string>) => {
     if (!gallery) return;
     setDownloadMenuOpen(false);
-    if (gallery.requirePinBulk && !verifiedPin) {
+    if (gallery.requirePinBulk && !downloadToken) {
       setPinAction({ type: "bulk", query });
       setShowPinModal(true);
       return;
@@ -338,7 +338,7 @@ export default function GalleryPage({
     setPreparingDownload(true);
     toast.success("Preparing your download — this can take a moment for large galleries.");
     const params = new URLSearchParams(query);
-    if (verifiedPin) params.set("pin", verifiedPin);
+    if (downloadToken) params.set("dt", downloadToken);
     const qs = params.toString();
     window.location.href = `/api/gallery/${slug}/download${qs ? `?${qs}` : ""}`;
     setTimeout(() => setPreparingDownload(false), 8000);
@@ -366,7 +366,7 @@ export default function GalleryPage({
   /** Attempt individual download -- shows PIN prompt if required */
   const handleIndividualDownload = (image: GalleryImage) => {
     if (!gallery) return;
-    if (gallery.requirePinIndividual && !verifiedPin) {
+    if (gallery.requirePinIndividual && !downloadToken) {
       setPinAction({ type: "individual", image });
       setShowPinModal(true);
       return;
@@ -406,16 +406,20 @@ export default function GalleryPage({
         return;
       }
 
-      // PIN verified -- remember it for this session (bulk downloads must
-      // re-send it; the server re-checks on every request)
-      setVerifiedPin(pin);
+      // PIN verified — keep the returned token for this session (bulk
+      // downloads re-send it; the server re-checks on every request)
+      const { downloadToken: token } = (await res.json()) as {
+        downloadToken?: string;
+      };
+      if (token) setDownloadToken(token);
       setShowPinModal(false);
 
       // Execute the pending action with its original query intact
       if (pinAction?.type === "bulk") {
         toast.success("Preparing download...");
         const params = new URLSearchParams(pinAction.query);
-        params.set("pin", pin);
+        if (token) params.set("dt", token);
+        else params.set("pin", pin); // server still honors raw PIN as fallback
         window.location.href = `/api/gallery/${slug}/download?${params.toString()}`;
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");

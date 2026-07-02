@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { timingSafeEqualStr } from "@/lib/shares/hash";
+import { createDownloadToken } from "@/lib/shares/download-token";
 import {
   checkAuthRateLimit,
   resetAuthRateLimit,
@@ -54,7 +55,12 @@ export async function POST(
     // Success clears the counter — only failures accumulate.
     void resetAuthRateLimit(supabase, "pin", slug, clientIp(request));
 
-    return NextResponse.json({ success: true });
+    // Bulk downloads authenticate with this token from here on, so the raw
+    // PIN never rides a URL again (audit #3: PINs were landing in access logs).
+    return NextResponse.json({
+      success: true,
+      downloadToken: createDownloadToken(share.id),
+    });
   } catch (error) {
     console.error("Gallery verify-pin error:", error);
     void reportSystemError("gallery.verify-pin", error);
