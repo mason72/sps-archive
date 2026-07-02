@@ -84,6 +84,7 @@ export default function GalleryPage({
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [preparingDownload, setPreparingDownload] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
 
   // PIN prompt state
@@ -302,8 +303,13 @@ export default function GalleryPage({
       setShowPinModal(true);
       return;
     }
-    toast.success("Preparing download...");
+    // Guard against double-clicks firing two ZIP builds. The attachment
+    // response doesn't unmount the page, so re-enable after a short cooldown.
+    if (preparingDownload) return;
+    setPreparingDownload(true);
+    toast.success("Preparing your download — this can take a moment for large galleries.");
     window.location.href = `/api/gallery/${slug}/download${favoritesOnly ? "?favorites=true" : ""}`;
+    setTimeout(() => setPreparingDownload(false), 8000);
   };
 
   /** Attempt individual download -- shows PIN prompt if required */

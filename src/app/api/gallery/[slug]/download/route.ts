@@ -5,6 +5,24 @@ import archiver from "archiver";
 import { logActivity } from "@/lib/analytics/log";
 import { timingSafeEqualStr } from "@/lib/shares/hash";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
+import { reportSystemError } from "@/lib/monitoring/report";
+
+/** Fetch an image's bytes with a couple retries for transient R2/network blips. */
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok && response.body) {
+        return Buffer.from(await response.arrayBuffer());
+      }
+    } catch {
+      // fall through to retry
+    }
+    // Small backoff before the next try (0, 250, 500ms).
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+  }
+  return null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -182,17 +200,20 @@ export async function GET(
     writer.abort(err);
   });
 
-  // Fetch each image and add to archive (don't await - let it stream)
+  // Fetch each image and add to archive (don't await - let it stream).
+  // A per-image fetch failure must never silently shrink the ZIP: we retry,
+  // and anything that still won't download is recorded in a manifest appended
+  // to the archive so the client can SEE what's missing instead of guessing.
   (async () => {
+    const failed: string[] = [];
     try {
       for (const img of images) {
         const url = await getPresignedDownloadUrl(img.r2_key, 3600);
-        if (!url) continue;
-
-        const response = await fetch(url);
-        if (!response.ok || !response.body) continue;
-
-        const buffer = Buffer.from(await response.arrayBuffer());
+        const buffer = url ? await fetchImageBuffer(url) : null;
+        if (!buffer) {
+          failed.push(img.original_filename);
+          continue;
+        }
 
         // Place the file in a folder per section it belongs to (in each, if
         // multiple); root if it belongs to none.
@@ -208,10 +229,32 @@ export async function GET(
         }
       }
 
+      // Surface any drops: a manifest inside the ZIP + an admin alarm. The
+      // client gets a complete-as-possible, VALID archive either way.
+      if (failed.length > 0) {
+        archive.append(
+          `These ${failed.length} of ${images.length} photos couldn't be included ` +
+            `and may need to be re-downloaded individually:\n\n${failed.join("\n")}\n`,
+          { name: "_MISSING_FILES.txt" }
+        );
+        void reportSystemError(
+          "gallery.download",
+          `${failed.length}/${images.length} images failed to fetch`,
+          { slug, shareId: share.id }
+        );
+      }
+
       await archive.finalize();
     } catch (err) {
       console.error("ZIP streaming error:", err);
-      archive.abort();
+      void reportSystemError("gallery.download", err, { slug, shareId: share.id });
+      // Finalize (not abort) so the client still receives a valid ZIP of
+      // whatever was appended before the error, rather than a corrupt stream.
+      try {
+        await archive.finalize();
+      } catch {
+        archive.abort();
+      }
     }
   })();
 
