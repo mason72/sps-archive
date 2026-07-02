@@ -42,12 +42,30 @@ async function main() {
   if (error || !job) throw new Error(`insert failed: ${error?.message}`);
   console.log(`job inserted: ${job.id}`);
 
+  // Watch progress ticks while the build runs (images_done should move).
+  const progressSeen: number[] = [];
+  const watcher = setInterval(async () => {
+    const { data } = await supabase
+      .from("zip_jobs")
+      .select("images_done, image_count, status")
+      .eq("id", job.id)
+      .single();
+    if (data && data.images_done > 0 && data.status === "building") {
+      progressSeen.push(data.images_done);
+      console.log(`  progress: ${data.images_done}/${data.image_count}`);
+    }
+  }, 2000);
+
   const t0 = Date.now();
   const result = await buildShareZip(job.id);
+  clearInterval(watcher);
   console.log(
     `build finished in ${((Date.now() - t0) / 1000).toFixed(1)}s:`,
     result
   );
+  if (progressSeen.length === 0) {
+    console.warn("  (no intermediate progress observed — build may be too fast)");
+  }
 
   const { data: after } = await supabase
     .from("zip_jobs")

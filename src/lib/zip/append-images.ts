@@ -44,7 +44,9 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
 export async function appendImagesToArchive(
   archive: Archiver,
   images: DownloadImage[],
-  sectionsByImage: Map<string, string[]>
+  sectionsByImage: Map<string, string[]>,
+  /** Called every ~25 appended images with the running count (build progress). */
+  onProgress?: (done: number) => void
 ): Promise<string[]> {
   const failed: string[] = [];
   const pending = new Map<number, Promise<Buffer | null>>();
@@ -89,6 +91,8 @@ export async function appendImagesToArchive(
     } else {
       archive.append(buffer, { name: img.original_filename });
     }
+
+    if ((i + 1) % 25 === 0) onProgress?.(i + 1);
   }
 
   return failed;

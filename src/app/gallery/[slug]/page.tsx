@@ -324,15 +324,25 @@ export default function GalleryPage({
    * Poll a background ZIP build until it's ready, then hand the browser the
    * presigned R2 URL. One persistent toast tracks the whole wait.
    */
-  const pollZipJob = (jobId: string, token: string | null) => {
+  const pollZipJob = (jobId: string, token: string | null, imageTotal?: number) => {
     if (zipPollRef.current) return; // one poller at a time
     zipPollRef.current = jobId;
     const toastId = `zip-${jobId}`;
     const startedAt = Date.now();
-    toast.loading(
-      "Preparing your gallery — large downloads take a few minutes. Keep this tab open.",
-      { id: toastId, duration: Infinity }
-    );
+    // The build is server-side — the tab is only needed for the auto-start.
+    const progressLabel = (done?: number, total?: number | null) => {
+      const counts =
+        total && done
+          ? ` — ${done.toLocaleString()} of ${total.toLocaleString()} photos`
+          : total
+          ? ` — ${total.toLocaleString()} photos`
+          : "";
+      return `Preparing your gallery${counts}… You can keep browsing; the download starts automatically when it's ready.`;
+    };
+    toast.loading(progressLabel(undefined, imageTotal), {
+      id: toastId,
+      duration: Infinity,
+    });
     const poll = async () => {
       if (zipPollRef.current !== jobId) return;
       try {
@@ -342,6 +352,12 @@ export default function GalleryPage({
           `/api/gallery/${slug}/download/status?${params.toString()}`
         );
         const data = await res.json();
+        if (data.status === "building" || data.status === "pending") {
+          toast.loading(
+            progressLabel(data.imagesDone, data.imageTotal ?? imageTotal),
+            { id: toastId, duration: Infinity }
+          );
+        }
         if (data.status === "ready" && data.url) {
           zipPollRef.current = null;
           toast.success("Your download is starting", { id: toastId, duration: 5000 });
@@ -422,7 +438,7 @@ export default function GalleryPage({
         window.location.href = data.url;
         return;
       }
-      pollZipJob(data.jobId, token);
+      pollZipJob(data.jobId, token, data.imageCount);
     } catch {
       toast.error("Download failed — please try again.");
     }

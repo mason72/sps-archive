@@ -41,17 +41,23 @@ export async function buildShareZip(jobId: string): Promise<{
     .single();
   if (!share) throw new Error(`share ${job.share_id} gone for zip job ${jobId}`);
 
-  await supabase
-    .from("zip_jobs")
-    .update({ status: "building" })
-    .eq("id", jobId);
-
   try {
     // Re-select at build time (authorization already happened at prepare;
     // the image set is re-derived so a between-click gallery edit is honored).
     const scope = scopeFrom(job.scope as DownloadScope);
     const selection = await selectDownloadImages(supabase, share, scope);
     if (!selection.ok) throw new Error(selection.message);
+
+    // image_count is written at build START so the gallery's progress toast
+    // can show "N of TOTAL" while building, not only after.
+    await supabase
+      .from("zip_jobs")
+      .update({
+        status: "building",
+        image_count: selection.images.length,
+        images_done: 0,
+      })
+      .eq("id", jobId);
 
     const r2Key = `zips/${share.id}/${jobId}.zip`;
     const archive = archiver("zip", { store: true });
@@ -66,7 +72,16 @@ export async function buildShareZip(jobId: string): Promise<{
     const failed = await appendImagesToArchive(
       archive,
       selection.images,
-      selection.sectionsByImage
+      selection.sectionsByImage,
+      (done) => {
+        // Fire-and-forget progress tick (issued in order; a lost/reordered
+        // update self-corrects on the next tick and at completion).
+        supabase
+          .from("zip_jobs")
+          .update({ images_done: done })
+          .eq("id", jobId)
+          .then(undefined, () => {});
+      }
     );
     if (failed.length > 0) {
       archive.append(missingFilesManifest(failed, selection.images.length), {
@@ -93,6 +108,7 @@ export async function buildShareZip(jobId: string): Promise<{
         r2_key: r2Key,
         size_bytes: sizeBytes,
         image_count: selection.images.length,
+        images_done: selection.images.length,
         ready_at: new Date().toISOString(),
         expires_at: expiresAt,
         error: null,

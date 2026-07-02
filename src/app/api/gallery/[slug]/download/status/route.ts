@@ -61,5 +61,10 @@ export async function GET(
     return NextResponse.json({ status: "error" });
   }
 
-  return NextResponse.json({ status: job.status });
+  // pending/building — include build progress for the client's toast.
+  return NextResponse.json({
+    status: job.status,
+    imagesDone: job.images_done ?? 0,
+    imageTotal: job.image_count,
+  });
 }

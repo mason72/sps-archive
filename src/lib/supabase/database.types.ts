@@ -674,6 +674,7 @@ export type Database = {
           r2_key: string | null;
           size_bytes: number | null;
           image_count: number | null;
+          images_done: number;
           error: string | null;
           created_at: string;
           ready_at: string | null;
@@ -689,6 +690,7 @@ export type Database = {
           r2_key?: string | null;
           size_bytes?: number | null;
           image_count?: number | null;
+          images_done?: number;
           error?: string | null;
           created_at?: string;
           ready_at?: string | null;
@@ -704,6 +706,7 @@ export type Database = {
           r2_key?: string | null;
           size_bytes?: number | null;
           image_count?: number | null;
+          images_done?: number;
           error?: string | null;
           created_at?: string;
           ready_at?: string | null;
