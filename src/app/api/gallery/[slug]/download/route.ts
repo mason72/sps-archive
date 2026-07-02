@@ -3,6 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import archiver from "archiver";
 import { logActivity } from "@/lib/analytics/log";
+import { timingSafeEqualStr } from "@/lib/shares/hash";
+import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 
 export async function GET(
   request: NextRequest,
@@ -47,10 +49,17 @@ export async function GET(
     }
   }
 
-  // Check PIN protection for bulk download
+  // Check PIN protection for bulk download (rate-limited — this endpoint is
+  // just as brute-forceable as verify-pin)
   if (share.require_pin_bulk && share.download_pin) {
+    if (!(await checkAuthRateLimit(supabase, "pin", slug, clientIp(request)))) {
+      return NextResponse.json(
+        { error: "Too many attempts — try again in a few minutes" },
+        { status: 429 }
+      );
+    }
     const pinParam = request.nextUrl.searchParams.get("pin");
-    if (!pinParam || pinParam !== share.download_pin) {
+    if (!pinParam || !timingSafeEqualStr(pinParam, share.download_pin)) {
       return NextResponse.json(
         { error: "PIN required" },
         { status: 403 }

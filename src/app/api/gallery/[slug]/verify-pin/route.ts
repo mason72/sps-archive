@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { timingSafeEqualStr } from "@/lib/shares/hash";
+import {
+  checkAuthRateLimit,
+  resetAuthRateLimit,
+  clientIp,
+} from "@/lib/security/rate-limit";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/gallery/[slug]/verify-pin
  *
  * Public endpoint -- verifies a 4-digit download PIN for a share.
- * Returns { success: true } if the PIN matches.
+ * Returns { success: true } if the PIN matches. Rate-limited per slug + IP
+ * (a 4-digit PIN is 10k combinations — unlimited attempts would fall fast).
  */
 export async function POST(
   request: NextRequest,
@@ -21,6 +29,13 @@ export async function POST(
 
     const supabase = createServiceClient();
 
+    if (!(await checkAuthRateLimit(supabase, "pin", slug, clientIp(request)))) {
+      return NextResponse.json(
+        { error: "Too many attempts — try again in a few minutes" },
+        { status: 429 }
+      );
+    }
+
     const { data: share, error } = await supabase
       .from("shares")
       .select("id, download_pin")
@@ -32,13 +47,17 @@ export async function POST(
       return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
     }
 
-    if (pin !== share.download_pin) {
+    if (!timingSafeEqualStr(pin, share.download_pin)) {
       return NextResponse.json({ error: "Incorrect PIN" }, { status: 401 });
     }
+
+    // Success clears the counter — only failures accumulate.
+    void resetAuthRateLimit(supabase, "pin", slug, clientIp(request));
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Gallery verify-pin error:", error);
+    void reportSystemError("gallery.verify-pin", error);
     return NextResponse.json({ error: "Verification failed" }, { status: 500 });
   }
 }

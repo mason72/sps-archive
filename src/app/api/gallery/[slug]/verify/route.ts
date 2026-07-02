@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifyPassword } from "@/lib/shares/hash";
+import {
+  checkAuthRateLimit,
+  resetAuthRateLimit,
+  clientIp,
+} from "@/lib/security/rate-limit";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/gallery/[slug]/verify
  *
  * Public endpoint — verifies password for a protected gallery.
- * Sets an auth cookie on success.
+ * Sets an auth cookie on success. Rate-limited per slug + IP.
  */
 export async function POST(
   request: NextRequest,
@@ -21,6 +27,13 @@ export async function POST(
     }
 
     const supabase = createServiceClient();
+
+    if (!(await checkAuthRateLimit(supabase, "password", slug, clientIp(request)))) {
+      return NextResponse.json(
+        { error: "Too many attempts — try again in a few minutes" },
+        { status: 429 }
+      );
+    }
 
     const { data: share, error } = await supabase
       .from("shares")
@@ -39,6 +52,9 @@ export async function POST(
       return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
     }
 
+    // Success clears the counter — only failures accumulate.
+    void resetAuthRateLimit(supabase, "password", slug, clientIp(request));
+
     // Set auth cookie — lasts 7 days
     const response = NextResponse.json({ success: true });
     response.cookies.set(`gallery_auth_${slug}`, share.id, {
@@ -52,6 +68,7 @@ export async function POST(
     return response;
   } catch (error) {
     console.error("Gallery verify error:", error);
+    void reportSystemError("gallery.verify", error);
     return NextResponse.json({ error: "Verification failed" }, { status: 500 });
   }
 }
