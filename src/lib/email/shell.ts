@@ -18,14 +18,14 @@ const INK = "#1c1917"; // stone-900
 const MUTED = "#78716c"; // stone-500
 const HAIRLINE = "#e7e5e4"; // stone-200
 
-function galleryButton(url: string): string {
+function galleryButton(url: string, label = "View Gallery"): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px auto 4px;">
     <tr>
       <td align="center" bgcolor="${ACCENT}" style="border-radius:6px;">
         <a href="${url}"
            style="display:inline-block;padding:14px 32px;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;letter-spacing:0.02em;color:#ffffff;text-decoration:none;border-radius:6px;">
-          View Gallery
+          ${escapeHtml(label)}
         </a>
       </td>
     </tr>
@@ -47,6 +47,8 @@ export interface EmailShellOptions {
   coverImageUrl?: string | null;
   /** Event name — used as the hero image's alt text. */
   eventName?: string | null;
+  /** CTA button label (defaults to "View Gallery"). */
+  buttonLabel?: string;
 }
 
 export function renderEmailShell({
@@ -55,12 +57,13 @@ export function renderEmailShell({
   fromName,
   coverImageUrl,
   eventName,
+  buttonLabel,
 }: EmailShellOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
   let content = looksHtml ? body : body.replace(/\n/g, "<br/>");
 
-  const button = galleryUrl ? galleryButton(galleryUrl) : "";
+  const button = galleryUrl ? galleryButton(galleryUrl, buttonLabel) : "";
 
   // Replace an explicit {gallery_button} token; otherwise append the button.
   if (content.includes("{gallery_button}")) {

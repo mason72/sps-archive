@@ -382,6 +382,7 @@ export type Database = {
           require_pin_individual: boolean;
           view_count: number;
           last_viewed_at: string | null;
+          digested_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -405,6 +406,7 @@ export type Database = {
           require_pin_individual?: boolean;
           view_count?: number;
           last_viewed_at?: string | null;
+          digested_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -428,6 +430,7 @@ export type Database = {
           require_pin_individual?: boolean;
           view_count?: number;
           last_viewed_at?: string | null;
+          digested_at?: string | null;
           created_at?: string;
         };
         Relationships: [];

@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
 import { processVideoViaModal } from "@/lib/video/process";
+import { findDigestCandidates, sendShareDigest } from "@/lib/favorites/digest-send";
 
 /**
  * AI PROCESSING IS DISABLED.
@@ -195,5 +196,36 @@ export const processImportedEvent = inngest.createFunction(
     }
 
     return { eventId, imageCount: pendingImages.length };
+  }
+);
+
+/**
+ * Function 4: Favorites digest cron.
+ *
+ * Every 30 minutes, find shares whose favoriting has gone quiet for 2h with
+ * undigested picks, and email the photographer a summary (preview strip +
+ * "View Favorites"). shares.digested_at is the high-watermark: it advances
+ * only after a successful send, so failures retry on the next tick, and a
+ * client's later session digests again with just the new favorites.
+ */
+export const favoritesDigest = inngest.createFunction(
+  { id: "favorites-digest", retries: 1 },
+  { cron: "*/30 * * * *" },
+  async ({ step }) => {
+    const candidates = await step.run("find-candidates", async () => {
+      const supabase = createServiceClient();
+      return findDigestCandidates(supabase, new Date());
+    });
+
+    let sent = 0;
+    for (const candidate of candidates) {
+      const result = await step.run(`digest-${candidate.shareId}`, async () => {
+        const supabase = createServiceClient();
+        return sendShareDigest(supabase, candidate, new Date());
+      });
+      if (result === "sent") sent++;
+    }
+
+    return { candidates: candidates.length, sent };
   }
 );

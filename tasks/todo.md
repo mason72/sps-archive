@@ -20,8 +20,21 @@
       POST/DELETE, emails.send, gallery verify/verify-pin. Client: favorite
       write failures now toast + revert the optimistic heart (and localStorage).
 - [x] Tests 170/170, tsc clean, build green.
-- [ ] Favorites digest (close the proofing loop) — design sketched, awaiting
-      Mason's call before building.
+- [x] Favorites digest [BUILT 2026-07-01, decisions confirmed by Mason]:
+      2h quiet period, 4-image preview, no per-share toggle (digest only fires
+      when favorites exist — 99% of galleries never will), no zero-favorite
+      nudge. Inngest cron */30 (favoritesDigest) → findDigestCandidates
+      (lib/favorites/digest-send.ts) → selectDigestCandidates (pure,
+      lib/favorites/digest.ts, 9 tests) → sendShareDigest: email to the event
+      owner (auth.admin lookup), preview strip via durable
+      /api/gallery/[slug]/fav-thumb/[imageId] 302s (favorite row = authz),
+      "View Favorites" → /events/{id}. shares.digested_at watermark (migration
+      028, applied) advances ONLY on successful send; re-sessions digest again
+      with just the new picks. Live E2E (scripts/verify-favorites-digest.ts):
+      seeded 6 favs 3h old → 1 candidate, 4 previews, sent (real email),
+      watermark set, second run empty, cleaned up. NOTE: that test email's
+      image links point at localhost (local env URL) — expected; prod env has
+      the real NEXT_PUBLIC_APP_URL. Tests 179/179.
 
 ## Phase 15: Client-share feedback round [DONE 2026-07-01]
 Feedback from a real client share of "College Board 2026 All Sports" + app audit.

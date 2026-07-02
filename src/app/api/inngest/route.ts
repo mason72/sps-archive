@@ -4,9 +4,10 @@ import {
   processUploadedImage,
   processUploadedVideo,
   processImportedEvent,
+  favoritesDigest,
 } from "@/lib/inngest/functions";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [processUploadedImage, processUploadedVideo, processImportedEvent],
+  functions: [processUploadedImage, processUploadedVideo, processImportedEvent, favoritesDigest],
 });
