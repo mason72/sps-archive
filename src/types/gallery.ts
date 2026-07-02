@@ -10,6 +10,8 @@ export interface GalleryImage {
   parsedName: string | null;
   width: number | null;
   height: number | null;
+  /** "#RRGGBB" loading-placeholder hue (G1); null for pre-pipeline uploads. */
+  dominantColor?: string | null;
   takenAt?: string | null;
   downloadUrl?: string;
 }
@@ -46,6 +48,8 @@ export interface GallerySettings {
   gridSort?: "manual" | "upload" | "filename" | "date-taken";
   /** Group same-person photos (by filename) into rotating smart stacks. */
   smartStacks?: boolean;
+  /** "You've loved N moments" toasts (event sharing setting; default on). */
+  favoriteMilestones?: boolean;
 }
 
 export interface GallerySection {

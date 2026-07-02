@@ -126,7 +126,10 @@ export function GalleryStackCard({
 
       <div
         className="relative group cursor-pointer overflow-hidden bg-stone-100"
-        style={aspectStyle}
+        style={{
+          ...aspectStyle,
+          backgroundColor: first.dominantColor || undefined, // G1 placeholder hue
+        }}
         onClick={() =>
           onOpenStack ? onOpenStack(stack) : onImageClick(active.id)
         }
@@ -160,7 +163,16 @@ export function GalleryStackCard({
             />
           );
         })}
-        {!isLoaded && <div className="absolute inset-0 bg-stone-100" />}
+        {!isLoaded && (
+          <div
+            className="absolute inset-0 bg-stone-100"
+            style={
+              first.dominantColor
+                ? { backgroundColor: first.dominantColor }
+                : undefined
+            }
+          />
+        )}
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

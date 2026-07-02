@@ -71,7 +71,13 @@ export async function POST(
 
     // Rebuild all three thumbnail sizes from the original.
     try {
-      await generateThumbnails(image.r2_key, image.event_id, image.filename);
+      const thumbs = await generateThumbnails(image.r2_key, image.event_id, image.filename);
+      if (thumbs.dominantColor) {
+        await supabase
+          .from("images")
+          .update({ dominant_color: thumbs.dominantColor })
+          .eq("id", imageId);
+      }
     } catch (genErr) {
       console.error(`Regenerate thumbnail failed for ${imageId}:`, genErr);
       return NextResponse.json(

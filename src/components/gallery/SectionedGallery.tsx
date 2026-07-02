@@ -36,6 +36,7 @@ export function SectionedGallery({
   stacksToggle,
   onOpenStack,
   onDownloadStack,
+  celebrateFirstFavorite,
   onActiveSectionChange,
   onVisibleImagesChange,
 }: {
@@ -63,6 +64,8 @@ export function SectionedGallery({
   onOpenStack?: (stack: GalleryStack) => void;
   /** Hover pill on stack cards — download the stack as one ZIP. */
   onDownloadStack?: (stack: GalleryStack) => void;
+  /** D2: first-favorite celebration flag, threaded to the grid. */
+  celebrateFirstFavorite?: boolean;
   colors: { primary: string; secondary: string; accent: string; background: string };
   /** Show "All" tab — true for preview/edit, false for public galleries */
   showAllTab?: boolean;
@@ -446,6 +449,7 @@ export function SectionedGallery({
           onDownloadClick={onDownloadClick}
           onOpenStack={onOpenStack}
           onDownloadStack={onDownloadStack}
+          celebrateFirstFavorite={celebrateFirstFavorite}
           gridStyle={gridStyle}
           gridColumns={gridColumns}
           gridGap={gridGap}

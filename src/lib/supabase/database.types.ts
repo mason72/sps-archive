@@ -88,6 +88,7 @@ export type Database = {
           stack_rank: number | null;
           processing_status: string;
           thumbnail_generated: boolean;
+          dominant_color: string | null;
           site_scene: string | null;
           service: string | null;
           featured: boolean;
@@ -133,6 +134,7 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          dominant_color?: string | null;
           site_scene?: string | null;
           service?: string | null;
           featured?: boolean;
@@ -178,6 +180,7 @@ export type Database = {
           stack_rank?: number | null;
           processing_status?: string;
           thumbnail_generated?: boolean;
+          dominant_color?: string | null;
           site_scene?: string | null;
           service?: string | null;
           featured?: boolean;

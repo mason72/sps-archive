@@ -22,6 +22,8 @@ export type GridStyle = "masonry" | "uniform";
 export interface SharingSettings {
   allowDownload: boolean;
   allowFavorites: boolean;
+  /** "You've loved N moments" toasts — off for corporate-flavored galleries. */
+  favoriteMilestones?: boolean;
   password: string;
   expiresAt: string;
   customMessage: string;
@@ -63,6 +65,7 @@ export interface EventSettings {
 export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   allowDownload: true,
   allowFavorites: true,
+  favoriteMilestones: true,
   password: "",
   expiresAt: "",
   customMessage: "",

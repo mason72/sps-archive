@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Download, Heart } from "lucide-react";
+import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { GalleryStackCard } from "@/components/gallery/GalleryStackCard";
@@ -21,6 +22,8 @@ interface GalleryGridProps {
   onOpenStack?: (stack: GalleryStack) => void;
   /** Hover pill on stack cards — download the whole stack as one ZIP. */
   onDownloadStack?: (stack: GalleryStack) => void;
+  /** D2: the guest's very first favorite gets a tiny mosaic celebration. */
+  celebrateFirstFavorite?: boolean;
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
@@ -69,6 +72,7 @@ export function GalleryGrid({
   onDownloadClick,
   onOpenStack,
   onDownloadStack,
+  celebrateFirstFavorite = false,
   gridStyle = "masonry",
   gridColumns = 4,
   gridGap = "normal",
@@ -162,6 +166,7 @@ export function GalleryGrid({
               allowFavorites={allowFavorites}
               isFavorited={favoriteIds.has(item.images[0].id)}
               onFavorite={onFavorite}
+              celebrateFirstFavorite={celebrateFirstFavorite}
               onClick={() => onImageClick(item.images[0].id)}
               onDownloadClick={onDownloadClick}
               showFilename={showFilenames}
@@ -201,6 +206,7 @@ export function GalleryGrid({
                 allowFavorites={allowFavorites}
                 isFavorited={favoriteIds.has(item.images[0].id)}
                 onFavorite={onFavorite}
+                celebrateFirstFavorite={celebrateFirstFavorite}
                 onClick={() => onImageClick(item.images[0].id)}
                 onDownloadClick={onDownloadClick}
                 showFilename={showFilenames}
@@ -221,6 +227,7 @@ function GalleryCard({
   allowFavorites,
   isFavorited,
   onFavorite,
+  celebrateFirstFavorite,
   onClick,
   onDownloadClick,
   showFilename,
@@ -232,6 +239,7 @@ function GalleryCard({
   allowFavorites: boolean;
   isFavorited: boolean;
   onFavorite?: (imageId: string) => void;
+  celebrateFirstFavorite?: boolean;
   onClick: () => void;
   onDownloadClick?: (image: GalleryImage) => void;
   showFilename?: boolean;
@@ -267,6 +275,10 @@ function GalleryCard({
 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // D2: a guest's very first favorite earns a mosaic micro-burst.
+    if (celebrateFirstFavorite && !isFavorited) {
+      pixelBurstAt(e.clientX, e.clientY);
+    }
     onFavorite?.(image.id);
   };
 
@@ -275,10 +287,14 @@ function GalleryCard({
     ? { aspectRatio: image.width && image.height ? `${image.width} / ${image.height}` : '4 / 3' }
     : undefined;
 
+  // G1: while loading, the tile glows in the photo's own dominant hue and the
+  // image crossfades in over it — magazine-layout feel instead of flat stone.
+  const placeholderColor = image.dominantColor || undefined;
+
   return (
     <div
       className="relative group cursor-pointer overflow-hidden bg-stone-100"
-      style={aspectStyle}
+      style={{ ...aspectStyle, backgroundColor: placeholderColor }}
       onClick={onClick}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -307,7 +323,12 @@ function GalleryCard({
           }
         }}
       />
-      {!isLoaded && <div className="absolute inset-0 bg-stone-100" />}
+      {!isLoaded && (
+        <div
+          className="absolute inset-0 bg-stone-100"
+          style={placeholderColor ? { backgroundColor: placeholderColor } : undefined}
+        />
+      )}
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

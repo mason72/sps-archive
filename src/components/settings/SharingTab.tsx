@@ -69,6 +69,33 @@ export function SharingTab({ value, onChange }: SharingTabProps) {
           </button>
         </div>
 
+        {/* Toggle: Favorite milestone toasts (only meaningful with favorites on) */}
+        {value.allowFavorites && (
+          <div className="flex items-center justify-between pl-4">
+            <div>
+              <p className="text-[13px] text-stone-700">Milestone messages</p>
+              <p className="text-[11px] text-stone-400">
+                &ldquo;You&rsquo;ve loved 5 moments&rdquo; toasts as clients favorite —
+                turn off for corporate galleries
+              </p>
+            </div>
+            <button
+              onClick={() =>
+                update({ favoriteMilestones: !(value.favoriteMilestones !== false) })
+              }
+              className={`relative w-10 h-5 rounded-full transition-colors duration-300 shrink-0 ml-4 ${
+                value.favoriteMilestones !== false ? "bg-accent" : "bg-stone-200"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-4 w-4 bg-white rounded-full shadow transition-transform duration-300 ${
+                  value.favoriteMilestones !== false ? "translate-x-5" : ""
+                }`}
+              />
+            </button>
+          </div>
+        )}
+
         <div className="border-t border-stone-100 pt-5">
           {/* Password */}
           <div className="mb-4">

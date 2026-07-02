@@ -111,6 +111,53 @@ export function AnalyticsDashboard() {
     return groupActivityByDate(engagement.recentActivity);
   }, [engagement]);
 
+  // A4: One-time celebration when an all-time total crosses a milestone.
+  // Seen-state lives in localStorage — a per-browser nicety, not a record.
+  const milestone = useMemo(() => {
+    if (!overview) return null;
+    const candidates: { key: string; label: string }[] = [];
+    for (const m of [10000, 1000, 100]) {
+      if (overview.totals.views >= m) {
+        candidates.push({
+          key: `views-${m}`,
+          label: `${m.toLocaleString()} gallery views`,
+        });
+        break;
+      }
+    }
+    for (const m of [1000, 100]) {
+      if (overview.totals.downloads >= m) {
+        candidates.push({
+          key: `downloads-${m}`,
+          label: `${m.toLocaleString()} downloads`,
+        });
+        break;
+      }
+    }
+    try {
+      const seen = new Set(
+        JSON.parse(localStorage.getItem("milestones_seen") || "[]") as string[]
+      );
+      return candidates.find((c) => !seen.has(c.key)) ?? null;
+    } catch {
+      return null;
+    }
+  }, [overview]);
+  const [milestoneDismissed, setMilestoneDismissed] = useState(false);
+  const dismissMilestone = () => {
+    if (!milestone) return;
+    try {
+      const seen = new Set(
+        JSON.parse(localStorage.getItem("milestones_seen") || "[]") as string[]
+      );
+      seen.add(milestone.key);
+      localStorage.setItem("milestones_seen", JSON.stringify([...seen]));
+    } catch {
+      // localStorage unavailable — dismiss for this render only
+    }
+    setMilestoneDismissed(true);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -120,10 +167,30 @@ export function AnalyticsDashboard() {
   }
 
   if (error || !overview) {
+    // D5: illustrated empty state — a faded pixel-mosaic elephant beats a
+    // bare warning triangle when there's simply nothing to count yet.
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-stone-400">
-        <AlertCircle className="h-8 w-8" />
-        <p className="text-[13px]">{error || "No data available"}</p>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-5 text-center">
+        <svg width="72" height="72" viewBox="0 0 16 16" className="text-stone-300" aria-hidden>
+          {[
+            [0, 0, 0.15], [4, 0, 0.4], [8, 0, 0.25], [12, 0, 0.1],
+            [0, 4, 0.3], [4, 4, 0.6], [8, 4, 0.45], [12, 4, 0.2],
+            [0, 8, 0.2], [4, 8, 0.5], [8, 8, 0.55], [12, 8, 0.35],
+            [0, 12, 0.1], [4, 12, 0.25], [8, 12, 0.3], [12, 12, 0.6],
+          ].map(([x, y, o]) => (
+            <rect key={`${x}-${y}`} x={x} y={y} width="3.6" height="3.6" rx="0.5" fill="currentColor" opacity={o} />
+          ))}
+        </svg>
+        <div className="space-y-1.5">
+          <p className="font-editorial text-xl italic text-stone-400">
+            {error ? "Analytics unavailable" : "Nothing to count yet"}
+          </p>
+          <p className="text-[13px] text-stone-400 max-w-xs">
+            {error
+              ? error
+              : "Share a gallery and this page fills with views, downloads, and favorites."}
+          </p>
+        </div>
       </div>
     );
   }
@@ -132,6 +199,24 @@ export function AnalyticsDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* A4: one-time milestone celebration */}
+      {milestone && !milestoneDismissed && (
+        <div className="flex items-center justify-between border border-emerald-100 bg-emerald-50/60 px-5 py-3.5 reveal">
+          <p className="text-[13px] text-emerald-900">
+            <span className="mr-2">🎉</span>
+            You&rsquo;ve passed{" "}
+            <span className="font-medium">{milestone.label}</span> all-time —
+            clients are loving the work.
+          </p>
+          <button
+            onClick={dismissMilestone}
+            className="text-[11px] uppercase tracking-[0.12em] text-emerald-700/70 hover:text-emerald-900 transition-colors shrink-0 ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

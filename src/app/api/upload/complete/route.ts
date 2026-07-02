@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
         // Backfill real pixel dimensions if the client didn't supply them.
         if (!width && result.width) updateData.width = result.width;
         if (!height && result.height) updateData.height = result.height;
+        if (result.dominantColor) updateData.dominant_color = result.dominantColor;
       } catch (thumbErr) {
         console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
       }

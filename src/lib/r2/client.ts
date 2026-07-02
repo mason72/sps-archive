@@ -140,6 +140,42 @@ export async function getCachedThumbnailUrl(
 }
 
 /**
+ * Deterministic presigned URL for any immutable object (same quantized-
+ * window scheme as getCachedThumbnailUrl, shared memo). Used by the gallery
+ * payload's originalUrl/downloadUrl: 2 x N fresh signs per request was pure
+ * CPU waste, and rotating URLs defeated the browser's cache of full-res
+ * originals between lightbox visits (audit #11). Quantization guarantees at
+ * least half of expiresIn remains on any URL handed out.
+ */
+export async function getCachedDownloadUrl(
+  key: string,
+  expiresIn = 3600,
+  filename?: string
+): Promise<string> {
+  const windowMs = (expiresIn * 1000) / 2;
+  const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+  const memoKey = `${signingDate.getTime()}:${expiresIn}:${filename ?? ""}:${key}`;
+
+  const memoized = signedUrlMemo.get(memoKey);
+  if (memoized) return memoized;
+
+  const url = await getSignedUrl(
+    R2,
+    new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      ...(filename
+        ? { ResponseContentDisposition: attachmentDisposition(filename) }
+        : {}),
+    }),
+    { expiresIn, signingDate }
+  );
+  if (signedUrlMemo.size > 20000) signedUrlMemo.clear(); // crude bound
+  signedUrlMemo.set(memoKey, url);
+  return url;
+}
+
+/**
  * Stream an arbitrary-size body into R2 via multipart upload. Unlike
  * PutObject-with-a-Buffer, this consumes the stream with real backpressure
  * (parts are read on demand), so a multi-GB ZIP build holds ~queueSize x

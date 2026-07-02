@@ -1,5 +1,28 @@
 # Pixeltrunk - Build Plan
 
+## Phase 19: Backlog clear-out [IN PROGRESS 2026-07-02]
+Audit remainder:
+- [ ] #15 Lightbox: first-open arrow-key hint (localStorage-flagged) + square controls
+- [ ] #16 Duplicate photographer credit at gallery end — keep the end-of-gallery moment,
+      slim the footer to powered-by
+- [ ] #18 Mobile: clamp download dropdown to viewport; verify tab overflow via More ▾
+- [ ] #17 Favorite milestone toasts optional per share (sharing setting, default on)
+- [ ] #11 Presign fan-out: quantized signing windows for original/download URLs
+      (thumbnails already memoized) — public + preview gallery APIs
+- [ ] #12 Bundle: measure public gallery page; act only if it's actually heavy
+- [ ] #13/#14 verify shipped (download progress state; PIN modal labeling) and mark
+Delight roadmap:
+- [ ] Q4 OG cards — verify the existing /gallery/[slug]/opengraph-image route
+- [ ] D2 first-favorite celebration micro-burst
+- [ ] D3 cover entrance (Ken Burns settle + staggered title)
+- [ ] D1 animated stat counters + trend arrows
+- [ ] V3 dashboard welcome strip
+- [ ] D5 empty-state illustrations
+- [ ] A1 chart entrance animation; A2 activity feed timeline grouping
+- [ ] G1 dominant-color placeholders (needs pipeline: sharp stats at thumbnail time +
+      backfill) — assess scope, possibly split out
+- [ ] A3/A4, Q2/Q3: assess — some depend on dormant AI
+
 ## Phase 18: Background ZIP builds + backlog sweep [DONE 2026-07-02]
 - [x] PROD OOM (worse than the 300s timeout): with the fast producer, Vercel's response
       transport buffered producer-vs-client speed difference in lambda memory with no

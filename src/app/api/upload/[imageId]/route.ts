@@ -55,9 +55,11 @@ export async function PUT(
     //    Videos skip this — sharp can't read them; their poster comes from
     //    the ffmpeg pipeline that /api/upload/complete dispatches.
     let thumbnailed = false;
+    let dominantColor: string | null = null;
     if (image.media_type !== "video") {
       try {
-        await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
+        const thumbs = await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
+        dominantColor = thumbs.dominantColor;
         thumbnailed = true;
       } catch (thumbErr) {
         console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
@@ -70,7 +72,7 @@ export async function PUT(
       const service = createServiceClient();
       await service
         .from("images")
-        .update({ thumbnail_generated: true })
+        .update({ thumbnail_generated: true, ...(dominantColor ? { dominant_color: dominantColor } : {}) })
         .eq("id", imageId);
 
       // Uploads straight into a website section (TDP Website gallery) can only

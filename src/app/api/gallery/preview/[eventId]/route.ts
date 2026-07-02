@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey, getCachedDownloadUrl } from "@/lib/r2/client";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -118,7 +118,7 @@ export async function GET(
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Non-renderable originals (TIFF) fall back to the 800px JPEG so the
           // preview lightbox shows them instead of a broken image.
-          getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
+          getCachedDownloadUrl(getDisplayKey(img.r2_key), 14400),
         ]);
 
         return {
@@ -130,6 +130,7 @@ export async function GET(
           parsedName: img.parsed_name,
           width: img.width,
           height: img.height,
+          dominantColor: img.dominant_color ?? null,
           takenAt: img.taken_at,
         };
       })

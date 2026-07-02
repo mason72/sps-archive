@@ -12,6 +12,46 @@ const ELEPHANT_COLORS = [
  * 16 tiny colored squares explode outward from the click point.
  * Use sparingly for celebration moments (publish, create, share).
  */
+/**
+ * Fire the mosaic burst at a viewport point (fixed-position, appended to
+ * body) — for celebration moments on elements inside overflow-hidden
+ * containers, where the button-relative variant would clip. D2: used for a
+ * guest's first favorite in a gallery.
+ */
+export function pixelBurstAt(clientX: number, clientY: number) {
+  for (let i = 0; i < 16; i++) {
+    const pixel = document.createElement("div");
+    const size = 3 + Math.random() * 5;
+    const color =
+      ELEPHANT_COLORS[Math.floor(Math.random() * ELEPHANT_COLORS.length)];
+    const angle = (Math.PI * 2 * i) / 16 + (Math.random() - 0.5) * 0.5;
+    const distance = 30 + Math.random() * 50;
+    const dx = Math.cos(angle) * distance;
+    const dy = Math.sin(angle) * distance;
+
+    Object.assign(pixel.style, {
+      position: "fixed",
+      left: `${clientX}px`,
+      top: `${clientY}px`,
+      width: `${size}px`,
+      height: `${size}px`,
+      background: color,
+      borderRadius: "1px",
+      pointerEvents: "none",
+      zIndex: "60",
+      transition: "all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+      opacity: "1",
+    });
+    document.body.appendChild(pixel);
+
+    requestAnimationFrame(() => {
+      pixel.style.transform = `translate(${dx}px, ${dy}px) rotate(${Math.random() * 360}deg)`;
+      pixel.style.opacity = "0";
+    });
+    setTimeout(() => pixel.remove(), 600);
+  }
+}
+
 export function usePixelBurst() {
   const ref = useRef<HTMLButtonElement>(null);
 

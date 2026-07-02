@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey, getCachedDownloadUrl } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -134,7 +134,7 @@ export async function GET(
     }
 
     // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
-    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at";
+    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color";
     const IMG_PAGE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -198,9 +198,9 @@ export async function GET(
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Lightbox/full view: web-viewable original, or the 800px JPEG for
           // non-renderable formats (TIFF). Download still gets the raw original.
-          getPresignedDownloadUrl(getDisplayKey(img.r2_key), 14400),
+          getCachedDownloadUrl(getDisplayKey(img.r2_key), 14400),
           share.allow_download
-            ? getPresignedDownloadUrl(
+            ? getCachedDownloadUrl(
                 img.r2_key,
                 3600,
                 img.original_filename || "image"
@@ -217,6 +217,7 @@ export async function GET(
           parsedName: img.parsed_name,
           width: img.width,
           height: img.height,
+          dominantColor: img.dominant_color ?? null,
           takenAt: img.taken_at,
         };
 
@@ -259,6 +260,9 @@ export async function GET(
         ? gridSort
         : "manual") as GallerySettings["gridSort"],
       smartStacks: grid.smartStacks === true,
+      favoriteMilestones:
+        ((eventSettings.sharing ?? {}) as { favoriteMilestones?: boolean })
+          .favoriteMilestones !== false,
     };
 
     // Generate presigned URL for cover image if cover is enabled

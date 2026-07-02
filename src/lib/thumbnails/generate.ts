@@ -28,6 +28,8 @@ export interface ThumbnailResult {
   lg: string;
   width: number | null;
   height: number | null;
+  /** "#RRGGBB" dominant hue — the gallery's loading-placeholder color (G1). */
+  dominantColor: string | null;
 }
 
 /**
@@ -93,6 +95,19 @@ export async function generateThumbnailsFromBuffer(
     // dimensions are a nice-to-have, not required
   }
 
+  // Dominant color for the gallery's loading placeholder (G1). Computed on a
+  // tiny resize so it's near-free; a failure just means a stone placeholder.
+  let dominantColor: string | null = null;
+  try {
+    const { dominant } = await sharp(originalBuffer)
+      .resize(64, 64, { fit: "inside" })
+      .stats();
+    const hex = (n: number) => n.toString(16).padStart(2, "0");
+    dominantColor = `#${hex(dominant.r)}${hex(dominant.g)}${hex(dominant.b)}`;
+  } catch {
+    // optional
+  }
+
   // Generate and upload all three sizes
   const results = await Promise.all(
     VARIANTS.map(async (variant) => {
@@ -113,5 +128,6 @@ export async function generateThumbnailsFromBuffer(
     lg: results.find((r) => r.variant === "thumb-lg")!.key,
     width,
     height,
+    dominantColor,
   };
 }

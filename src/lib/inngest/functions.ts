@@ -64,12 +64,20 @@ export const processUploadedImage = inngest.createFunction(
     }
 
     await step.run("generate-thumbnail", async () => {
-      await generateThumbnails(r2Key, eventId, imageRecord.original_filename);
+      const thumbs = await generateThumbnails(
+        r2Key,
+        eventId,
+        imageRecord.original_filename
+      );
 
       const supabase = createServiceClient();
       await supabase
         .from("images")
-        .update({ thumbnail_generated: true, processing_status: "complete" })
+        .update({
+          thumbnail_generated: true,
+          processing_status: "complete",
+          ...(thumbs.dominantColor ? { dominant_color: thumbs.dominantColor } : {}),
+        })
         .eq("id", imageId);
     });
 

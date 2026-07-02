@@ -9,6 +9,7 @@ import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
+import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
 /* ─── Font class mappings ─── */
@@ -210,6 +211,26 @@ export default function GalleryPage({
     }
   }, [selectedImageId]);
 
+  // First-ever lightbox open: hint that ← → navigate (once per browser).
+  const [showKeyHint, setShowKeyHint] = useState(false);
+  const keyHintShownRef = useRef(false);
+  useEffect(() => {
+    if (!selectedImageId || keyHintShownRef.current) return;
+    try {
+      if (localStorage.getItem("lightbox_key_hint") === "seen") {
+        keyHintShownRef.current = true;
+        return;
+      }
+      localStorage.setItem("lightbox_key_hint", "seen");
+    } catch {
+      // localStorage unavailable — still show it this once
+    }
+    keyHintShownRef.current = true;
+    setShowKeyHint(true);
+    const t = setTimeout(() => setShowKeyHint(false), 3200);
+    return () => clearTimeout(t);
+  }, [selectedImageId]);
+
   const loadFavorites = (shareId: string) => {
     try {
       const stored = localStorage.getItem(`favorites_${shareId}`);
@@ -274,13 +295,16 @@ export default function GalleryPage({
 
     setFavoriteIds(newFavorites);
 
-    // G5: Favorite milestone toasts
-    const count = newFavorites.size;
-    for (const threshold of [5, 10, 20]) {
-      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
-        favoriteThresholdsRef.current.add(threshold);
-        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
-        break; // Only one toast per action
+    // G5: Favorite milestone toasts (photographer can turn these off per
+    // event — corporate galleries find them off-brand)
+    if (gallery.settings?.favoriteMilestones !== false) {
+      const count = newFavorites.size;
+      for (const threshold of [5, 10, 20]) {
+        if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+          favoriteThresholdsRef.current.add(threshold);
+          toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+          break; // Only one toast per action
+        }
       }
     }
 
@@ -303,12 +327,14 @@ export default function GalleryPage({
     }
     setFavoriteIds(newFavorites);
 
-    const count = newFavorites.size;
-    for (const threshold of [5, 10, 20]) {
-      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
-        favoriteThresholdsRef.current.add(threshold);
-        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
-        break;
+    if (gallery.settings?.favoriteMilestones !== false) {
+      const count = newFavorites.size;
+      for (const threshold of [5, 10, 20]) {
+        if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+          favoriteThresholdsRef.current.add(threshold);
+          toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+          break;
+        }
       }
     }
 
@@ -821,7 +847,7 @@ export default function GalleryPage({
               </button>
               {downloadMenuOpen && (
                 <div
-                  className="absolute right-0 top-11 z-20 min-w-[190px] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
+                  className="absolute right-0 top-11 z-20 min-w-[190px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
                   style={{ borderColor: `${colors.secondary}1f` }}
                 >
                   <button
@@ -918,6 +944,7 @@ export default function GalleryPage({
               onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
               onOpenStack={setOpenStack}
               onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
+            celebrateFirstFavorite={favoriteIds.size === 0}
               gridStyle={s?.gridStyle}
               gridColumns={s?.gridColumns}
               gridGap={s?.gridGap}
@@ -944,6 +971,7 @@ export default function GalleryPage({
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
+            celebrateFirstFavorite={favoriteIds.size === 0}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
@@ -970,6 +998,7 @@ export default function GalleryPage({
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
+            celebrateFirstFavorite={favoriteIds.size === 0}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
@@ -1114,13 +1143,16 @@ export default function GalleryPage({
           >
             {gallery.allowFavorites && (
               <button
-                className="p-2.5 rounded-full backdrop-blur-sm transition-opacity hover:opacity-100"
+                className="p-2.5 backdrop-blur-sm transition-opacity hover:opacity-100"
                 style={{
                   color: favoriteIds.has(selectedImage.id) ? colors.accent : lbFgMuted,
                   backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (favoriteIds.size === 0 && !favoriteIds.has(selectedImage.id)) {
+                    pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
+                  }
                   handleFavorite(selectedImage.id);
                 }}
               >
@@ -1129,7 +1161,7 @@ export default function GalleryPage({
             )}
             {gallery.allowDownload && selectedImage.downloadUrl && (
               <button
-                className="p-2.5 rounded-full backdrop-blur-sm transition-opacity hover:opacity-100"
+                className="p-2.5 backdrop-blur-sm transition-opacity hover:opacity-100"
                 style={{
                   color: lbFgMuted,
                   backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
@@ -1143,6 +1175,22 @@ export default function GalleryPage({
               </button>
             )}
           </div>
+
+          {/* First-open keyboard hint — fades after a moment, never again */}
+          {showKeyHint && navImages.length > 1 && (
+            <div
+              className="absolute left-1/2 -translate-x-1/2 z-10 px-3.5 py-1.5 text-[11px] uppercase tracking-[0.18em] backdrop-blur-sm pointer-events-none reveal"
+              style={{
+                bottom: stackNav ? "8.5rem" : "4.5rem",
+                color: lbFgMuted,
+                backgroundColor: isDarkBg
+                  ? "rgba(255,255,255,0.08)"
+                  : `${colors.secondary}14`,
+              }}
+            >
+              ← → to navigate
+            </div>
+          )}
 
           {/* Counter + filename (+ stack context when inside one) */}
           <div className="absolute top-4 left-4">
@@ -1191,39 +1239,15 @@ export default function GalleryPage({
         </div>
       )}
 
-      {/* ─── V4: Photographer signature footer ─── */}
+      {/* ─── Footer — powered-by only. The end-of-gallery moment above
+          already credits the photographer (logo, name, portfolio link);
+          repeating them here read as a duplicate credit block (audit #16). ─── */}
       <footer className="px-8 md:px-16 pt-4 pb-8">
         <hr
           className="mb-8 border-0 h-px"
           style={{ backgroundColor: `${colors.secondary}20` }}
         />
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {b?.logoUrl && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={b.logoUrl}
-                alt={b.businessName || ""}
-                className="h-6 w-auto object-contain opacity-50"
-              />
-            )}
-            {b?.businessName && (
-              <span className="font-editorial italic text-[15px]" style={{ color: colors.secondary }}>
-                {b.website ? (
-                  <a
-                    href={b.website.startsWith("http") ? b.website : `https://${b.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="editorial-link"
-                  >
-                    {b.businessName}
-                  </a>
-                ) : (
-                  b.businessName
-                )}
-              </span>
-            )}
-          </div>
+        <div className="flex items-center justify-center">
           <p className="text-[11px] flex items-center gap-1.5" style={{ color: colors.secondary }}>
             Powered by{" "}
             {/* Pixel-mosaic favicon */}

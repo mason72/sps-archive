@@ -572,7 +572,7 @@ export default function PreviewGalleryPage({
           >
             {gallery.allowDownload && selectedImage.downloadUrl && (
               <button
-                className="p-2.5 rounded-full bg-white/10 text-white/70 hover:text-white backdrop-blur-sm transition-colors"
+                className="p-2.5 bg-white/10 text-white/70 hover:text-white backdrop-blur-sm transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleIndividualDownload(selectedImage);
