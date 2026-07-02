@@ -6,7 +6,10 @@
  * which sends a real digest email to the event owner, then proves idempotence
  * (second run finds nothing) and cleans up.
  *
- *   npx tsx scripts/verify-favorites-digest.ts
+ *   npx tsx scripts/verify-favorites-digest.ts          # full E2E + cleanup
+ *   npx tsx scripts/verify-favorites-digest.ts --keep   # demo: leave the
+ *     seeded favorites in place so the email's preview images keep resolving
+ *     (fav-thumb only serves images with a live favorite row).
  */
 import fs from "node:fs";
 
@@ -81,13 +84,17 @@ async function main() {
       `second run includes share: ${again.some((c) => c.shareId === share.id)} (want false)`
     );
   } finally {
-    // 5. Cleanup: remove seeds, restore watermark
-    await supabase.from("favorites").delete().eq("share_id", share.id);
-    await supabase
-      .from("shares")
-      .update({ digested_at: share.digested_at })
-      .eq("id", share.id);
-    console.log("cleaned up (seed favorites removed, digested_at restored)");
+    if (process.argv.includes("--keep")) {
+      console.log("--keep: seed favorites left in place (email images stay live)");
+    } else {
+      // 5. Cleanup: remove seeds, restore watermark
+      await supabase.from("favorites").delete().eq("share_id", share.id);
+      await supabase
+        .from("shares")
+        .update({ digested_at: share.digested_at })
+        .eq("id", share.id);
+      console.log("cleaned up (seed favorites removed, digested_at restored)");
+    }
   }
 }
 
