@@ -33,6 +33,11 @@ type Events = {
       eventId: string;
     };
   };
+  "zip/requested": {
+    data: {
+      jobId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

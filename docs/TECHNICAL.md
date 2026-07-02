@@ -246,12 +246,26 @@ Sharing & public galleries:
   gallery Smart Stacks "download all N"; foreign ids simply don't match). Scoped ZIPs are
   flat; the full-gallery ZIP folders by section. When `require_pin_bulk` is on, the
   verified PIN must be re-sent as `?pin=` on EVERY bulk request (server re-checks each).
-  Streaming internals: `maxDuration = 800` (Vercel killed a 1553-photo ZIP at the 300s
-  default → truncated archive), 8-wide R2 prefetch ahead of the in-order append cursor
-  (sequential per-file latency was the timeout, not bandwidth), `store: true` (JPEGs
-  don't deflate), `Readable.toWeb(archive)` for backpressure with a 64MB high-water
-  gate, client-abort detection. Known limit: a very slow client pulling a multi-GB ZIP
-  can still hit 800s — durable fix is a background job (ZIP → R2 → email link), backlog.
+  **Two-tier delivery** (both platform failure modes hit live on a 1553-photo gallery:
+  300s timeout kill, then an OOM kill — Vercel's response transport buffers
+  producer-vs-client speed differences in lambda memory without backpressure):
+  - Clients call `POST /download/prepare` (same scope params in the body, `dt` token
+    for PIN shares). ≤300 images AND ≤750MB → `{mode:"direct"}` and the client streams
+    from `/download` synchronously (under the cap, even a fully buffered ZIP fits in
+    function memory). Larger → `{mode:"job", jobId}`: an Inngest `zip-build` function
+    streams archiver → R2 multipart (`uploadStreamToR2`, ~100MB bounded memory), the
+    client polls `GET /download/status?job=` and receives a presigned R2 URL —
+    resumable, no lambda in the download path. Jobs dedupe by `scope_key` (content
+    hash of the exact image set — gallery/favorites changes rebuild naturally), live
+    24h, and `zip-cleanup` (daily cron) reclaims expired objects + rows.
+  - Shared core: `lib/gallery/download-core.ts` (share auth incl. PIN token, image
+    selection) and `lib/zip/append-images.ts` (8-wide prefetch producer, 64MB
+    high-water gate) — sync route, prepare, and the builder use the same code.
+  - Sync route internals: `maxDuration = 800`, `store: true` (JPEGs don't deflate),
+    `Readable.toWeb(archive)`, 413 `{useJob:true}` above the caps (defense — prepare
+    routes clients before they hit it), client-abort detection.
+  - PIN shares: verify-pin returns an HMAC download token (4h, share-scoped); bulk
+    URLs carry `?dt=<token>` so the PIN never lands in access logs.
 
 **Gallery Smart Stacks (live, filename-based — distinct from the dormant AI stacks):**
 `grid.smartStacks` in event settings (Design → Grid) groups same-person photos in the

@@ -5,6 +5,8 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Upload } from "@aws-sdk/lib-storage";
+import { PassThrough } from "node:stream";
 
 const R2 = new S3Client({
   region: "auto",
@@ -135,6 +137,35 @@ export async function getCachedThumbnailUrl(
   if (signedUrlMemo.size > 20000) signedUrlMemo.clear(); // crude bound
   signedUrlMemo.set(memoKey, url);
   return url;
+}
+
+/**
+ * Stream an arbitrary-size body into R2 via multipart upload. Unlike
+ * PutObject-with-a-Buffer, this consumes the stream with real backpressure
+ * (parts are read on demand), so a multi-GB ZIP build holds ~queueSize x
+ * partSize in memory, never the whole archive.
+ */
+export async function uploadStreamToR2(
+  key: string,
+  body: NodeJS.ReadableStream,
+  contentType: string
+): Promise<void> {
+  // lib-storage instanceof-checks against node:stream's Readable, which
+  // userland streams (archiver extends readable-stream) fail — pipe through
+  // a genuine PassThrough. Backpressure is preserved: pipe() pauses the
+  // source when the PassThrough (and thus the multipart reader) is busy.
+  const bridge = new PassThrough();
+  body.pipe(bridge);
+  const upload = new Upload({
+    // The dep tree resolves lib-storage and client-s3 to different @smithy
+    // type versions; the wire protocol is identical — cast at the boundary.
+    client: R2 as unknown as ConstructorParameters<typeof Upload>[0]["client"],
+    params: { Bucket: BUCKET, Key: key, Body: bridge, ContentType: contentType },
+    partSize: 16 * 1024 * 1024,
+    queueSize: 3,
+    leavePartsOnError: false,
+  });
+  await upload.done();
 }
 
 /** Delete a file from R2 */

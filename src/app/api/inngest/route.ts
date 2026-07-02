@@ -5,9 +5,22 @@ import {
   processUploadedVideo,
   processImportedEvent,
   favoritesDigest,
+  zipBuild,
+  zipCleanup,
 } from "@/lib/inngest/functions";
+
+// zip-build streams a whole gallery into R2 inside one step — give the
+// execution route the Fluid ceiling, same reasoning as the download route.
+export const maxDuration = 800;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [processUploadedImage, processUploadedVideo, processImportedEvent, favoritesDigest],
+  functions: [
+    processUploadedImage,
+    processUploadedVideo,
+    processImportedEvent,
+    favoritesDigest,
+    zipBuild,
+    zipCleanup,
+  ],
 });

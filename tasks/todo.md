@@ -1,5 +1,34 @@
 # Pixeltrunk - Build Plan
 
+## Phase 18: Background ZIP builds + backlog sweep [DONE 2026-07-02]
+- [x] PROD OOM (worse than the 300s timeout): with the fast producer, Vercel's response
+      transport buffered producer-vs-client speed difference in lambda memory with no
+      backpressure — runtime log "instance was killed because it ran out of available
+      memory" at ~335MB delivered of a 4GB gallery. Streaming multi-GB ZIPs through a
+      request lambda is fundamentally unsafe on this platform.
+- [x] Fix: background ZIP builds. zip_jobs table (migration 030, applied) + Inngest
+      zip-build (streams archiver → R2 multipart via uploadStreamToR2/lib-storage —
+      bounded ~100MB memory) + zip-cleanup daily cron (expired objects+rows).
+      POST /download/prepare decides direct-vs-job (≤300 images AND ≤750MB streams
+      sync — OOM arithmetically impossible under the cap; else job, deduped by
+      content-hash scope_key, 24h TTL). GET /download/status polls → presigned R2 URL
+      (resumable, no lambda in the download path). Client polls w/ persistent toast.
+      Sync route 413s oversized requests (defense; prepare routes clients first).
+      Shared core (lib/gallery/download-core.ts: auth + selection; lib/zip/append-
+      images.ts: producer loop) — one implementation for sync route, prepare, builder.
+      E2E (scripts/verify-zip-job.ts): real build of Highlights → R2 → presigned
+      download → unzip -t clean → cleanup. PASS (29s incl. home-bandwidth transfer).
+- [x] PIN → download token (audit #3): verify-pin returns HMAC token (4h, share-scoped,
+      key derived from service secret); bulk URLs use ?dt=. +6 tests.
+- [x] Email send hardening (audit #4): slug-only trust + ownership check + canonical
+      URL rebuild server-side; 30 sends/hour/user.
+- [x] Section tab counts follow the favorites filter (audit #6); active tab hops when
+      hidden; tabs keep full counts when zero favorites exist.
+- [x] Stack names trim absorbed event tokens via date-anchored prefix rule
+      ("Rushi Sheth CollegeBoardSLC" → "Rushi Sheth"); +6 tests (190 total).
+- [x] .single() → maybeSingle on max sort_order (audit #9).
+- [x] tsc clean, 190/190 tests, build green. Prod E2E of the job flow after deploy.
+
 ## Phase 17: Smart Stacks — toggle fix + guest experience [DONE 2026-07-02]
 - [x] Settings toggle fix: EventSidebar DesignPanel never passed `smartStacks` into GridTab
       (switch always rendered off; every click saved `true`, impossible to turn off). The

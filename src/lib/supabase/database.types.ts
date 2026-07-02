@@ -663,6 +663,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      zip_jobs: {
+        Row: {
+          id: string;
+          share_id: string;
+          scope: Json;
+          scope_key: string;
+          status: string;
+          zip_filename: string;
+          r2_key: string | null;
+          size_bytes: number | null;
+          image_count: number | null;
+          error: string | null;
+          created_at: string;
+          ready_at: string | null;
+          expires_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          share_id: string;
+          scope?: Json;
+          scope_key: string;
+          status?: string;
+          zip_filename: string;
+          r2_key?: string | null;
+          size_bytes?: number | null;
+          image_count?: number | null;
+          error?: string | null;
+          created_at?: string;
+          ready_at?: string | null;
+          expires_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          share_id?: string;
+          scope?: Json;
+          scope_key?: string;
+          status?: string;
+          zip_filename?: string;
+          r2_key?: string | null;
+          size_bytes?: number | null;
+          image_count?: number | null;
+          error?: string | null;
+          created_at?: string;
+          ready_at?: string | null;
+          expires_at?: string | null;
+        };
+        Relationships: [];
+      };
       system_errors: {
         Row: {
           id: string;

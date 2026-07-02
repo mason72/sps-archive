@@ -5,6 +5,8 @@ import { generateThumbnails } from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
 import { processVideoViaModal } from "@/lib/video/process";
 import { findDigestCandidates, sendShareDigest } from "@/lib/favorites/digest-send";
+import { buildShareZip } from "@/lib/zip/build-share-zip";
+import { deleteFromR2 } from "@/lib/r2/client";
 
 /**
  * AI PROCESSING IS DISABLED.
@@ -227,5 +229,64 @@ export const favoritesDigest = inngest.createFunction(
     }
 
     return { candidates: candidates.length, sent };
+  }
+);
+
+/**
+ * Build a large gallery ZIP into R2 (see lib/zip/build-share-zip.ts).
+ * One step — an archive stream can't checkpoint mid-build. Concurrency 2
+ * bounds worst-case memory on the Inngest execution route.
+ */
+export const zipBuild = inngest.createFunction(
+  { id: "zip-build", retries: 1, concurrency: { limit: 2 } },
+  { event: "zip/requested" },
+  async ({ event, step }) => {
+    return step.run("build", async () => {
+      try {
+        return await buildShareZip(event.data.jobId);
+      } catch (err) {
+        // Missing job/share rows won't appear on retry — don't waste one.
+        if (err instanceof Error && /not found|gone/.test(err.message)) {
+          throw new NonRetriableError(err.message);
+        }
+        throw err;
+      }
+    });
+  }
+);
+
+/**
+ * Daily sweep: delete expired built ZIPs from R2 and their job rows, plus
+ * stale error/stuck rows. Guests always reach ZIPs through /download/status,
+ * which won't serve an expired job — this just reclaims storage.
+ */
+export const zipCleanup = inngest.createFunction(
+  { id: "zip-cleanup", retries: 1 },
+  { cron: "17 6 * * *" },
+  async ({ step }) => {
+    return step.run("sweep", async () => {
+      const supabase = createServiceClient();
+      const cutoff = new Date().toISOString();
+      const { data: expired } = await supabase
+        .from("zip_jobs")
+        .select("id, r2_key")
+        .or(
+          `expires_at.lt.${cutoff},and(status.eq.error,created_at.lt.${new Date(
+            Date.now() - 24 * 3600 * 1000
+          ).toISOString()})`
+        )
+        .limit(500);
+      let deleted = 0;
+      for (const row of expired ?? []) {
+        try {
+          if (row.r2_key) await deleteFromR2(row.r2_key);
+          await supabase.from("zip_jobs").delete().eq("id", row.id);
+          deleted++;
+        } catch (err) {
+          console.error(`zip-cleanup: failed for ${row.id}`, err);
+        }
+      }
+      return { deleted };
+    });
   }
 );

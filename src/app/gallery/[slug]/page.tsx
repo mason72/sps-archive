@@ -102,6 +102,8 @@ export default function GalleryPage({
     | null
   >(null);
   const [downloadToken, setDownloadToken] = useState<string | null>(null);
+  // Active background-ZIP poller (job id) — prevents duplicate poll loops.
+  const zipPollRef = useRef<string | null>(null);
 
   // Guest-side Smart Stacks preference — local to this visitor, persisted per
   // share. Only meaningful when the event has stacks enabled.
@@ -319,29 +321,111 @@ export default function GalleryPage({
   };
 
   /**
+   * Poll a background ZIP build until it's ready, then hand the browser the
+   * presigned R2 URL. One persistent toast tracks the whole wait.
+   */
+  const pollZipJob = (jobId: string, token: string | null) => {
+    if (zipPollRef.current) return; // one poller at a time
+    zipPollRef.current = jobId;
+    const toastId = `zip-${jobId}`;
+    const startedAt = Date.now();
+    toast.loading(
+      "Preparing your gallery — large downloads take a few minutes. Keep this tab open.",
+      { id: toastId, duration: Infinity }
+    );
+    const poll = async () => {
+      if (zipPollRef.current !== jobId) return;
+      try {
+        const params = new URLSearchParams({ job: jobId });
+        if (token) params.set("dt", token);
+        const res = await fetch(
+          `/api/gallery/${slug}/download/status?${params.toString()}`
+        );
+        const data = await res.json();
+        if (data.status === "ready" && data.url) {
+          zipPollRef.current = null;
+          toast.success("Your download is starting", { id: toastId, duration: 5000 });
+          window.location.href = data.url;
+          return;
+        }
+        if (data.status === "error" || data.status === "expired" || !res.ok) {
+          zipPollRef.current = null;
+          toast.error(
+            "We couldn't prepare that download — please try again.",
+            { id: toastId, duration: 8000 }
+          );
+          return;
+        }
+      } catch {
+        // transient network blip — keep polling
+      }
+      if (Date.now() - startedAt > 20 * 60 * 1000) {
+        zipPollRef.current = null;
+        toast.error("This is taking longer than expected — please try again.", {
+          id: toastId,
+          duration: 8000,
+        });
+        return;
+      }
+      setTimeout(poll, 4000);
+    };
+    setTimeout(poll, 4000);
+  };
+
+  /**
    * Start a bulk ZIP download (all / favorites / one section / one stack).
    * The query is what varies; PIN gating, the double-click guard, and the
-   * "preparing" toast are shared. Shows the PIN prompt first when required,
-   * carrying the query through verification.
+   * "preparing" feedback are shared. Shows the PIN prompt first when
+   * required, carrying the query through verification. The prepare endpoint
+   * decides direct-stream (small) vs background build (large galleries used
+   * to truncate or OOM when streamed synchronously).
    */
-  const startBulkDownload = (query: Record<string, string>) => {
+  const startBulkDownload = async (
+    query: Record<string, string>,
+    tokenOverride?: string | null
+  ) => {
     if (!gallery) return;
     setDownloadMenuOpen(false);
-    if (gallery.requirePinBulk && !downloadToken) {
+    const token = tokenOverride ?? downloadToken;
+    if (gallery.requirePinBulk && !token) {
       setPinAction({ type: "bulk", query });
       setShowPinModal(true);
       return;
     }
-    // Guard against double-clicks firing two ZIP builds. The attachment
-    // response doesn't unmount the page, so re-enable after a short cooldown.
+    // Guard against double-clicks firing two builds. The attachment response
+    // doesn't unmount the page, so re-enable after a short cooldown.
     if (preparingDownload) return;
     setPreparingDownload(true);
-    toast.success("Preparing your download — this can take a moment for large galleries.");
-    const params = new URLSearchParams(query);
-    if (downloadToken) params.set("dt", downloadToken);
-    const qs = params.toString();
-    window.location.href = `/api/gallery/${slug}/download${qs ? `?${qs}` : ""}`;
     setTimeout(() => setPreparingDownload(false), 8000);
+    try {
+      const res = await fetch(`/api/gallery/${slug}/download/prepare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...query, ...(token ? { dt: token } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Download failed — please try again.");
+        return;
+      }
+      if (data.mode === "direct") {
+        toast.success("Preparing your download…");
+        const params = new URLSearchParams(query);
+        if (token) params.set("dt", token);
+        const qs = params.toString();
+        window.location.href = `/api/gallery/${slug}/download${qs ? `?${qs}` : ""}`;
+        return;
+      }
+      // Background build
+      if (data.status === "ready" && data.url) {
+        toast.success("Your download is starting");
+        window.location.href = data.url;
+        return;
+      }
+      pollZipJob(data.jobId, token);
+    } catch {
+      toast.error("Download failed — please try again.");
+    }
   };
 
   /** Attempt bulk download (all or favorites) -- shows PIN prompt if required */
@@ -414,13 +498,10 @@ export default function GalleryPage({
       if (token) setDownloadToken(token);
       setShowPinModal(false);
 
-      // Execute the pending action with its original query intact
+      // Execute the pending action with its original query intact (the token
+      // rides along explicitly — state hasn't re-rendered yet)
       if (pinAction?.type === "bulk") {
-        toast.success("Preparing download...");
-        const params = new URLSearchParams(pinAction.query);
-        if (token) params.set("dt", token);
-        else params.set("pin", pin); // server still honors raw PIN as fallback
-        window.location.href = `/api/gallery/${slug}/download?${params.toString()}`;
+        void startBulkDownload(pinAction.query, token ?? null);
       } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
         const link = document.createElement("a");
         link.href = pinAction.image.downloadUrl;
