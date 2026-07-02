@@ -54,6 +54,8 @@ export interface EventSettings {
     style: GridStyle;
     showFilenames?: boolean;
     sortBy?: "upload" | "filename" | "date-taken" | "manual";
+    /** Public gallery groups same-person photos (by filename) into stacks. */
+    smartStacks?: boolean;
   };
   sharing: SharingSettings;
 }

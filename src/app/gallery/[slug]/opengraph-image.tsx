@@ -92,6 +92,7 @@ export default async function OGImage({
         month: "long",
         day: "numeric",
         year: "numeric",
+        timeZone: "UTC", // event_date is a DATE — avoid off-by-one-day
       })
     : null;
 

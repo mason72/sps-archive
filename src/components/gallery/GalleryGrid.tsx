@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Download, Heart } from "lucide-react";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
+import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
+import { GalleryStackCard } from "@/components/gallery/GalleryStackCard";
 import type { GalleryImage } from "@/types/gallery";
 
 interface GalleryGridProps {
@@ -11,12 +13,16 @@ interface GalleryGridProps {
   allowFavorites: boolean;
   favoriteIds: Set<string>;
   onFavorite?: (imageId: string) => void;
+  /** Batch favorite/unfavorite — required for smart stacks' heart-all. */
+  onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
   onImageClick: (imageId: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
   showFilenames?: boolean;
+  /** Group photos of the same person (by filename) into rotating stacks. */
+  smartStacks?: boolean;
 }
 
 /**
@@ -54,24 +60,41 @@ export function GalleryGrid({
   allowFavorites,
   favoriteIds,
   onFavorite,
+  onFavoriteMany,
   onImageClick,
   onDownloadClick,
   gridStyle = "masonry",
   gridColumns = 4,
   gridGap = "normal",
   showFilenames = false,
+  smartStacks = false,
 }: GalleryGridProps) {
   const colCount = useResponsiveColumns(gridColumns);
   const isUniform = gridStyle === "uniform";
+
+  // With smart stacks on, the layout unit is a stack (singles are stacks of
+  // one and render as plain cards). Off, every image is its own item.
+  const items: GalleryStack[] = useMemo(
+    () =>
+      smartStacks
+        ? buildStacks(images)
+        : images.map((img) => ({
+            key: img.id,
+            personName: img.parsedName || img.originalFilename,
+            images: [img],
+          })),
+    [images, smartStacks]
+  );
 
   const columns = useMemo(
     () =>
       isUniform
         ? []
-        : distributeBalanced(images, colCount, (img) =>
-            img.width && img.height ? img.height / img.width : 3 / 4
-          ),
-    [images, colCount, isUniform]
+        : distributeBalanced(items, colCount, (item) => {
+            const img = item.images[0];
+            return img.width && img.height ? img.height / img.width : 3 / 4;
+          }),
+    [items, colCount, isUniform]
   );
 
   if (images.length === 0) {
@@ -110,21 +133,35 @@ export function GalleryGrid({
     const uniformCols = UNIFORM_COLUMNS_MAP[gridColumns] || UNIFORM_COLUMNS_MAP[4];
     return (
       <div className={`grid ${uniformCols} ${uniformGap}`}>
-        {images.map((image) => (
-          <GalleryCard
-            key={image.id}
-            image={image}
-            allowDownload={allowDownload}
-            allowFavorites={allowFavorites}
-            isFavorited={favoriteIds.has(image.id)}
-            onFavorite={onFavorite}
-            onClick={() => onImageClick(image.id)}
-            onDownloadClick={onDownloadClick}
-            showFilename={showFilenames}
-            uniform
-            sizes={`${Math.round(100 / gridColumns)}vw`}
-          />
-        ))}
+        {items.map((item) =>
+          item.images.length > 1 ? (
+            <GalleryStackCard
+              key={item.key}
+              stack={item}
+              allowFavorites={allowFavorites}
+              favoriteIds={favoriteIds}
+              onFavoriteMany={onFavoriteMany}
+              onImageClick={onImageClick}
+              showName={showFilenames}
+              uniform
+              sizes={`${Math.round(100 / gridColumns)}vw`}
+            />
+          ) : (
+            <GalleryCard
+              key={item.images[0].id}
+              image={item.images[0]}
+              allowDownload={allowDownload}
+              allowFavorites={allowFavorites}
+              isFavorited={favoriteIds.has(item.images[0].id)}
+              onFavorite={onFavorite}
+              onClick={() => onImageClick(item.images[0].id)}
+              onDownloadClick={onDownloadClick}
+              showFilename={showFilenames}
+              uniform
+              sizes={`${Math.round(100 / gridColumns)}vw`}
+            />
+          )
+        )}
       </div>
     );
   }
@@ -134,20 +171,33 @@ export function GalleryGrid({
     <div className="flex items-start" style={{ gap }}>
       {columns.map((col, ci) => (
         <div key={ci} className="flex-1 min-w-0 flex flex-col" style={{ gap }}>
-          {col.map((image) => (
-            <GalleryCard
-              key={image.id}
-              image={image}
-              allowDownload={allowDownload}
-              allowFavorites={allowFavorites}
-              isFavorited={favoriteIds.has(image.id)}
-              onFavorite={onFavorite}
-              onClick={() => onImageClick(image.id)}
-              onDownloadClick={onDownloadClick}
-              showFilename={showFilenames}
-              sizes={`${Math.round(100 / colCount)}vw`}
-            />
-          ))}
+          {col.map((item) =>
+            item.images.length > 1 ? (
+              <GalleryStackCard
+                key={item.key}
+                stack={item}
+                allowFavorites={allowFavorites}
+                favoriteIds={favoriteIds}
+                onFavoriteMany={onFavoriteMany}
+                onImageClick={onImageClick}
+                showName={showFilenames}
+                sizes={`${Math.round(100 / colCount)}vw`}
+              />
+            ) : (
+              <GalleryCard
+                key={item.images[0].id}
+                image={item.images[0]}
+                allowDownload={allowDownload}
+                allowFavorites={allowFavorites}
+                isFavorited={favoriteIds.has(item.images[0].id)}
+                onFavorite={onFavorite}
+                onClick={() => onImageClick(item.images[0].id)}
+                onDownloadClick={onDownloadClick}
+                showFilename={showFilenames}
+                sizes={`${Math.round(100 / colCount)}vw`}
+              />
+            )
+          )}
         </div>
       ))}
     </div>

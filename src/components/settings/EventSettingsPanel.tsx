@@ -248,6 +248,7 @@ export function EventSettingsPanel({
               columns={localSettings.grid.columns}
               gap={localSettings.grid.gap}
               style={localSettings.grid.style}
+              smartStacks={localSettings.grid.smartStacks}
               onChange={(grid) =>
                 updateSettings({ grid: { ...localSettings.grid, ...grid } })
               }

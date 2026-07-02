@@ -8,7 +8,8 @@ interface GridTabProps {
   gap: GridGap;
   style: GridStyle;
   showFilenames?: boolean;
-  onChange: (updates: Partial<{ columns: number; gap: GridGap; style: GridStyle; showFilenames: boolean }>) => void;
+  smartStacks?: boolean;
+  onChange: (updates: Partial<{ columns: number; gap: GridGap; style: GridStyle; showFilenames: boolean; smartStacks: boolean }>) => void;
 }
 
 const COLUMN_OPTIONS = [3, 4, 5, 6, 7];
@@ -27,7 +28,7 @@ const STYLE_OPTIONS: { value: GridStyle; label: string; description: string }[] 
 /**
  * GridTab — Configure grid column count, gap, and layout style.
  */
-export function GridTab({ columns, gap, style, showFilenames, onChange }: GridTabProps) {
+export function GridTab({ columns, gap, style, showFilenames, smartStacks, onChange }: GridTabProps) {
   return (
     <div className="space-y-8">
       {/* Column count */}
@@ -144,6 +145,44 @@ export function GridTab({ columns, gap, style, showFilenames, onChange }: GridTa
               className={cn(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 shadow-sm",
                 showFilenames ? "translate-x-3.5" : "translate-x-0.5"
+              )}
+            />
+          </div>
+        </button>
+      </div>
+
+      {/* Smart stacks toggle */}
+      <div>
+        <h3 className="text-[15px] font-medium text-stone-900 mb-1">
+          Smart Stacks
+        </h3>
+        <p className="text-[12px] text-stone-400 mb-4">
+          Group photos of the same person (by filename) into a single rotating
+          stack in the shared gallery. Guests can favorite the whole stack at
+          once.
+        </p>
+        <button
+          onClick={() => onChange({ smartStacks: !smartStacks })}
+          className={cn(
+            "w-full text-left px-4 py-3 border transition-all duration-200 flex items-center justify-between",
+            smartStacks
+              ? "border-stone-900 bg-stone-50"
+              : "border-stone-200 hover:border-stone-400"
+          )}
+        >
+          <span className="text-[13px] font-medium text-stone-900">
+            Stack photos by person
+          </span>
+          <div
+            className={cn(
+              "w-8 h-5 rounded-full transition-colors duration-200 relative",
+              smartStacks ? "bg-stone-900" : "bg-stone-300"
+            )}
+          >
+            <div
+              className={cn(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 shadow-sm",
+                smartStacks ? "translate-x-3.5" : "translate-x-0.5"
               )}
             />
           </div>

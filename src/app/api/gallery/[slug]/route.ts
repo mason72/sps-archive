@@ -236,7 +236,7 @@ export async function GET(
     };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
-    const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string };
+    const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string; smartStacks?: boolean };
 
     const gallerySettings: GallerySettings = {
       coverEnabled: cover.enabled,
@@ -252,6 +252,13 @@ export async function GET(
       gridStyle: grid.style as "masonry" | "uniform",
       gridColumns: grid.columns,
       gridGap: grid.gap as "tight" | "normal" | "loose",
+      // The admin's sort choice — the client seeds its sort dropdown from this
+      // (the image ordering above only affects the payload order, which manual
+      // section order would otherwise override).
+      gridSort: (["manual", "upload", "filename", "date-taken"].includes(gridSort ?? "")
+        ? gridSort
+        : "manual") as GallerySettings["gridSort"],
+      smartStacks: grid.smartStacks === true,
     };
 
     // Generate presigned URL for cover image if cover is enabled

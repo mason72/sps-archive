@@ -42,6 +42,10 @@ export interface GallerySettings {
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
+  /** The photographer's chosen sort — the public gallery's initial sort mode. */
+  gridSort?: "manual" | "upload" | "filename" | "date-taken";
+  /** Group same-person photos (by filename) into rotating smart stacks. */
+  smartStacks?: boolean;
 }
 
 export interface GallerySection {

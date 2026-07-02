@@ -270,6 +270,7 @@ export default function PreviewGalleryPage({
               month: "long",
               day: "numeric",
               year: "numeric",
+              timeZone: "UTC", // event_date is a DATE — avoid off-by-one-day
             })}
           </p>
         )}
@@ -370,6 +371,8 @@ export default function PreviewGalleryPage({
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
+            defaultSort={s?.gridSort}
+            smartStacks={s?.smartStacks}
             colors={colors}
             showAllTab
           />

@@ -216,6 +216,45 @@ export default function GalleryPage({
     }
   };
 
+  // Batch favorite/unfavorite — one state update for a whole smart stack.
+  // (Looping handleFavorite would clobber itself: each call snapshots the
+  // same favoriteIds closure, so only the last image would stick.)
+  const handleFavoriteMany = (imageIds: string[], favorite: boolean) => {
+    if (!gallery) return;
+
+    const newFavorites = new Set(favoriteIds);
+    for (const imageId of imageIds) {
+      const has = newFavorites.has(imageId);
+      if (favorite === has) continue; // already in the target state
+      if (favorite) newFavorites.add(imageId);
+      else newFavorites.delete(imageId);
+      fetch(`/api/gallery/${slug}/favorites`, {
+        method: favorite ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
+      }).catch(console.error);
+    }
+    setFavoriteIds(newFavorites);
+
+    const count = newFavorites.size;
+    for (const threshold of [5, 10, 20]) {
+      if (count >= threshold && !favoriteThresholdsRef.current.has(threshold)) {
+        favoriteThresholdsRef.current.add(threshold);
+        toast(`You've loved ${count} moments ❤️`, { duration: 3000 });
+        break;
+      }
+    }
+
+    try {
+      localStorage.setItem(
+        `favorites_${gallery.shareId}`,
+        JSON.stringify([...newFavorites])
+      );
+    } catch {
+      // localStorage not available
+    }
+  };
+
   const handlePasswordSuccess = () => {
     setIsLoading(true);
     fetchGallery();
@@ -499,21 +538,26 @@ export default function GalleryPage({
               month: "long",
               day: "numeric",
               year: "numeric",
+              // event_date is a DATE (parsed as UTC midnight) — format in UTC
+              // or US-timezone viewers see the previous day.
+              timeZone: "UTC",
             })}
           </p>
         )}
 
         {/* ─── Active section label ─── */}
         {/* The section you're viewing, set in the accent color in the heading
-            font. Keyed by section id so it fades up on each change. Hidden while
-            searching (sections aren't shown then). */}
+            font — upright and a step smaller than the event title so it reads
+            as a wayfinding label, not a flourish. Keyed by section id so it
+            fades up on each change. Hidden while searching (sections aren't
+            shown then). */}
         {!searchQuery.trim() && activeSectionInfo && (
           <div
             key={activeSectionInfo.id}
             className="reveal mt-2 flex items-baseline gap-3"
           >
             <span
-              className={`${headingClass} italic leading-none text-[clamp(24px,3.4vw,40px)]`}
+              className={`${headingClass} leading-none text-[clamp(20px,2.6vw,32px)]`}
               style={{ color: colors.accent }}
             >
               {activeSectionInfo.name}
@@ -631,11 +675,13 @@ export default function GalleryPage({
               allowFavorites={gallery.allowFavorites}
               favoriteIds={favoriteIds}
               onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+              onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
               onImageClick={(id) => setSelectedImageId(id)}
               onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
               gridStyle={s?.gridStyle}
               gridColumns={s?.gridColumns}
               gridGap={s?.gridGap}
+              smartStacks={s?.smartStacks}
             />
           ) : (
             <p
@@ -653,11 +699,14 @@ export default function GalleryPage({
             allowFavorites={gallery.allowFavorites}
             favoriteIds={favoriteIds}
             onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
+            defaultSort={s?.gridSort}
+            smartStacks={s?.smartStacks}
             colors={colors}
             onActiveSectionChange={setActiveSectionInfo}
           />
@@ -668,11 +717,13 @@ export default function GalleryPage({
             allowFavorites={gallery.allowFavorites}
             favoriteIds={favoriteIds}
             onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
             gridStyle={s?.gridStyle}
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
+            smartStacks={s?.smartStacks}
           />
         )}
       </main>

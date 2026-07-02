@@ -22,6 +22,7 @@ export function SectionedGallery({
   allowFavorites,
   favoriteIds,
   onFavorite,
+  onFavoriteMany,
   onImageClick,
   onDownloadClick,
   gridStyle,
@@ -29,6 +30,8 @@ export function SectionedGallery({
   gridGap,
   colors,
   showAllTab = false,
+  defaultSort = "manual",
+  smartStacks = false,
   onActiveSectionChange,
 }: {
   images: GalleryImage[];
@@ -37,14 +40,20 @@ export function SectionedGallery({
   allowFavorites: boolean;
   favoriteIds: Set<string>;
   onFavorite?: (imageId: string) => void;
+  /** Batch favorite/unfavorite — powers smart stacks' heart-all. */
+  onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
   onImageClick: (id: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
   gridStyle?: "masonry" | "uniform";
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
+  /** Group same-person photos into rotating stacks (event setting). */
+  smartStacks?: boolean;
   colors: { primary: string; secondary: string; accent: string; background: string };
   /** Show "All" tab — true for preview/edit, false for public galleries */
   showAllTab?: boolean;
+  /** Initial sort — the photographer's choice from event settings (grid.sortBy). */
+  defaultSort?: GallerySortMode;
   /** Reports the active section up to the page (for the header section label). */
   onActiveSectionChange?: (
     info: { id: string; name: string; count: number } | null
@@ -53,9 +62,9 @@ export function SectionedGallery({
   const [activeTab, setActiveTab] = useState<string>(
     showAllTab ? "all" : sections[0]?.id ?? "all"
   );
-  // Default to the photographer's manual arrangement (section.imageIds already
-  // arrive in sort_order); visitors can still re-sort via the dropdown.
-  const [sortBy, setSortBy] = useState<GallerySortMode>("manual");
+  // Seed from the photographer's chosen sort (event settings); visitors can
+  // still re-sort via the dropdown. "manual" = the stored section arrangement.
+  const [sortBy, setSortBy] = useState<GallerySortMode>(defaultSort);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -374,12 +383,14 @@ export function SectionedGallery({
           allowFavorites={allowFavorites}
           favoriteIds={favoriteIds}
           onFavorite={onFavorite}
+          onFavoriteMany={onFavoriteMany}
           onImageClick={onImageClick}
           onDownloadClick={onDownloadClick}
           gridStyle={gridStyle}
           gridColumns={gridColumns}
           gridGap={gridGap}
           showFilenames={showFilenames}
+          smartStacks={smartStacks}
         />
       ) : (
         <p
