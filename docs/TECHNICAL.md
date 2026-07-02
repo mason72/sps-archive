@@ -246,6 +246,12 @@ Sharing & public galleries:
   gallery Smart Stacks "download all N"; foreign ids simply don't match). Scoped ZIPs are
   flat; the full-gallery ZIP folders by section. When `require_pin_bulk` is on, the
   verified PIN must be re-sent as `?pin=` on EVERY bulk request (server re-checks each).
+  Streaming internals: `maxDuration = 800` (Vercel killed a 1553-photo ZIP at the 300s
+  default → truncated archive), 8-wide R2 prefetch ahead of the in-order append cursor
+  (sequential per-file latency was the timeout, not bandwidth), `store: true` (JPEGs
+  don't deflate), `Readable.toWeb(archive)` for backpressure with a 64MB high-water
+  gate, client-abort detection. Known limit: a very slow client pulling a multi-GB ZIP
+  can still hit 800s — durable fix is a background job (ZIP → R2 → email link), backlog.
 
 **Gallery Smart Stacks (live, filename-based — distinct from the dormant AI stacks):**
 `grid.smartStacks` in event settings (Design → Grid) groups same-person photos in the

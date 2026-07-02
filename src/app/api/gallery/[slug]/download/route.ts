@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Readable } from "node:stream";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import archiver from "archiver";
@@ -6,6 +7,23 @@ import { logActivity } from "@/lib/analytics/log";
 import { timingSafeEqualStr } from "@/lib/shares/hash";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
+
+// A full-gallery ZIP fetches every original from R2 — a 1500-photo event ran
+// straight into Vercel's 300s default and got killed MID-STREAM, shipping a
+// truncated (unexpandable) archive. 800s is the Fluid Compute ceiling; the
+// parallel prefetch below is what actually keeps real galleries far under it.
+export const maxDuration = 800;
+
+/**
+ * How many R2 fetches to keep in flight ahead of the ZIP append cursor.
+ * Sequential fetching cost ~0.4s of latency PER FILE (that alone blew the
+ * timeout at 1500+ files); a window of 8 hides that latency while keeping
+ * at most ~8 image buffers in memory.
+ */
+const PREFETCH_WINDOW = 8;
+
+/** Pause appending when archiver has this much buffered for a slow client. */
+const BUFFER_HIGH_WATER = 64 * 1024 * 1024;
 
 /** Fetch an image's bytes with a couple retries for transient R2/network blips. */
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
@@ -239,38 +257,55 @@ export async function GET(
     .replace(/[^a-zA-Z0-9-_ ]/g, "")
     .replace(/\s+/g, "-")}${zipSuffix}.zip`;
 
-  // 4. Stream ZIP
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  // 4. Stream ZIP. `store: true` — photos are already compressed; deflate
+  // just burns CPU in the hot loop for ~0% size win. The archive's Readable
+  // side is adapted to a web stream (Readable.toWeb), which gives us real
+  // backpressure — the old hand-rolled TransformStream bridge fired
+  // writer.write() without awaiting it, so a slow client ballooned memory.
+  const archive = archiver("zip", { store: true });
 
-  const archive = archiver("zip", { zlib: { level: 1 } }); // Fast compression for photos
-
-  // Pipe archive output to the writer
-  archive.on("data", (chunk: Buffer) => {
-    writer.write(chunk);
-  });
-  archive.on("end", () => {
-    writer.close();
-  });
   archive.on("error", (err: Error) => {
     console.error("Archive error:", err);
-    writer.abort(err);
   });
 
   // Fetch each image and add to archive (don't await - let it stream).
-  // A per-image fetch failure must never silently shrink the ZIP: we retry,
-  // and anything that still won't download is recorded in a manifest appended
-  // to the archive so the client can SEE what's missing instead of guessing.
+  // Fetches run PREFETCH_WINDOW ahead of the append cursor (appends stay in
+  // order); sequentially, per-file latency alone exceeded the platform
+  // timeout on big galleries. A per-image fetch failure must never silently
+  // shrink the ZIP: we retry, and anything that still won't download is
+  // recorded in a manifest appended to the archive so the client can SEE
+  // what's missing instead of guessing.
   (async () => {
     const failed: string[] = [];
-    try {
-      for (const img of images) {
+    const pending = new Map<number, Promise<Buffer | null>>();
+    const fetchOne = async (img: { r2_key: string }) => {
+      try {
         const url = await getPresignedDownloadUrl(img.r2_key, 3600);
-        const buffer = url ? await fetchImageBuffer(url) : null;
+        return url ? await fetchImageBuffer(url) : null;
+      } catch {
+        return null;
+      }
+    };
+    try {
+      for (let i = 0; i < images.length; i++) {
+        for (let j = i; j < Math.min(i + PREFETCH_WINDOW, images.length); j++) {
+          if (!pending.has(j)) pending.set(j, fetchOne(images[j]));
+        }
+        const buffer = await pending.get(i)!;
+        pending.delete(i);
+        const img = images[i];
         if (!buffer) {
           failed.push(img.original_filename);
           continue;
         }
+
+        // If the client drains slower than R2 feeds us, archiver's internal
+        // buffer grows without bound — hold appends until it drains. A
+        // destroyed archive means the client went away: stop fetching.
+        while (archive.readableLength > BUFFER_HIGH_WATER && !archive.destroyed) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        if (archive.destroyed) return;
 
         // Place the file in a folder per section it belongs to (in each, if
         // multiple); root if it belongs to none.
@@ -303,6 +338,12 @@ export async function GET(
 
       await archive.finalize();
     } catch (err) {
+      // A destroyed archive is a client-side cancel, not a system failure —
+      // don't page the admin for someone closing their laptop mid-download.
+      if (archive.destroyed) {
+        console.warn("ZIP stream closed early (client canceled)");
+        return;
+      }
       console.error("ZIP streaming error:", err);
       void reportSystemError("gallery.download", err, { slug, shareId: share.id });
       // Finalize (not abort) so the client still receives a valid ZIP of
@@ -335,7 +376,7 @@ export async function GET(
     });
   }
 
-  return new Response(readable, {
+  return new Response(Readable.toWeb(archive) as unknown as ReadableStream, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${zipFilename}"`,

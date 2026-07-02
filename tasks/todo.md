@@ -26,6 +26,15 @@
 - [x] tsc clean, build green, eslint 0 errors on changed files (warnings pre-existing).
       Dashboard toggle UI not exercised live (needs auth session) — same prop pattern as
       the adjacent working `showFilenames`; save path already proven (DB had `true`).
+- [x] PROD BUG (Mason repro'd): full-gallery ZIP of the 1553-photo College Board event
+      arrived truncated ("Error 94 – Bad message") — Vercel runtime log shows "Task timed
+      out after 300 seconds" killing the stream mid-flight. Fix: `maxDuration = 800` +
+      prefetch window of 8 R2 fetches ahead of the append cursor (sequential per-file
+      latency was the wall-clock killer) + `store: true` (JPEGs don't deflate) +
+      `Readable.toWeb(archive)` for real backpressure (old bridge did unawaited
+      writer.write — unbounded memory on slow clients) + 64MB high-water gate + clean
+      client-abort handling (no admin alert, loop exits). Lesson 19. Backlog: background
+      job → ZIP to R2 → email link, for very large galleries on slow client connections.
 
 ## Phase 16: Hardening round (audit top-three) [DONE 2026-07-01]
 - [x] Lightbox navigates the VISIBLE view: SectionedGallery reports its
