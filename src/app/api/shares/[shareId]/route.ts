@@ -10,10 +10,24 @@ export async function PUT(
   { params }: { params: Promise<{ shareId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { shareId } = await params;
+
+    // Ownership gate — the service client bypasses RLS, so verify the share
+    // belongs to one of the caller's events before touching it.
+    const { data: owned } = await supabase
+      .from("shares")
+      .select("id, events!inner(user_id)")
+      .eq("id", shareId)
+      .eq("events.user_id", user!.id)
+      .single();
+
+    if (!owned) {
+      return NextResponse.json({ error: "Share not found" }, { status: 404 });
+    }
+
     const body = await request.json();
     const { isActive, allowDownload, allowFavorites, password, expiresAt, customMessage } =
       body as {
@@ -75,10 +89,22 @@ export async function DELETE(
   { params }: { params: Promise<{ shareId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { shareId } = await params;
+
+    // Ownership gate — see PUT above.
+    const { data: owned } = await supabase
+      .from("shares")
+      .select("id, events!inner(user_id)")
+      .eq("id", shareId)
+      .eq("events.user_id", user!.id)
+      .single();
+
+    if (!owned) {
+      return NextResponse.json({ error: "Share not found" }, { status: 404 });
+    }
 
     const { error } = await supabase
       .from("shares")

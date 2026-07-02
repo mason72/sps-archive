@@ -56,11 +56,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "eventId is required" }, { status: 400 });
     }
 
-    // Verify user owns this event (and fetch settings when needed)
+    // Verify user owns this event (and fetch settings when needed).
+    // Service client bypasses RLS — the user_id filter IS the access control.
     const { data: event, error: eventError } = await supabase
       .from("events")
       .select("id, settings")
       .eq("id", eventId)
+      .eq("user_id", user!.id)
       .single();
 
     if (eventError || !event) {
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { searchParams } = new URL(request.url);
@@ -157,6 +159,19 @@ export async function GET(request: NextRequest) {
 
     if (!eventId) {
       return NextResponse.json({ error: "eventId is required" }, { status: 400 });
+    }
+
+    // Ownership gate — service client bypasses RLS, and share slugs are
+    // credentials (a leaked slug is full gallery access).
+    const { data: ownedEvent } = await supabase
+      .from("events")
+      .select("id")
+      .eq("id", eventId)
+      .eq("user_id", user!.id)
+      .single();
+
+    if (!ownedEvent) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const { data, error } = await supabase

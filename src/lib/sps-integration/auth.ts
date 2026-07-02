@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { timingSafeEqualStr } from "@/lib/shares/hash";
 
 /**
  * SPS Integration Authentication
@@ -81,7 +82,7 @@ export function verifySharedSecret(request: NextRequest): boolean {
   const apiKey = request.headers.get("x-sps-key");
   const configuredKey = process.env.SPS_INTEGRATION_KEY;
   if (!apiKey || !configuredKey) return false;
-  return apiKey === configuredKey;
+  return timingSafeEqualStr(apiKey, configuredKey);
 }
 
 /**
