@@ -101,6 +101,7 @@ Recovery: stop server, remove `.next`, restart.
 ## 17. New settings fields must be wired into the LIVE settings panel (there are two)
 **Mistake**: The Smart Stacks toggle was added to `GridTab` and wired in `EventSettingsPanel` — but that component is dead code. The live panel is `EventSidebar`'s `DesignPanel`, which never passed `smartStacks` down, so the switch always rendered off and every click saved `true` (impossible to turn off, looked "broken" while the DB value was fine).
 **Rule**: After adding a prop to a shared tab component, grep for EVERY render site (`grep -rn "<GridTab"`) and wire them all — or better, delete the dead duplicate. A toggle that "won't turn off" usually means display state and saved state have different sources.
+**Resolved 2026-07-02**: `EventSettingsPanel.tsx` deleted (zero imports confirmed; tsc + build clean). `EventSidebar`'s DesignPanel is now the only render site for the settings tabs.
 
 ## 18. Client PIN state must mirror what the server re-checks
 **Mistake**: The gallery kept a boolean `pinVerified` after bulk-PIN entry, then issued later bulk downloads WITHOUT the `pin` param — but the server re-validates the PIN on every `/download` request, so the second download 403'd. A related bug dropped the `favorites=true` param when re-issuing the URL after PIN verify.
