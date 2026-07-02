@@ -44,6 +44,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Basic abuse brake: a photographer sends a handful of gallery emails a
+    // day; a compromised account blasting spam sends hundreds. 30/hour.
+    const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+    const { count: recentSends } = await supabase
+      .from("email_sends")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user!.id)
+      .gte("created_at", hourAgo);
+    if ((recentSends ?? 0) >= 30) {
+      return NextResponse.json(
+        { error: "Sending limit reached — try again in an hour" },
+        { status: 429 }
+      );
+    }
+
+    // The gallery link is NOT trusted from the client (a compromised account
+    // could embed an arbitrary phishing URL in a branded email). The client
+    // sends its gallery URL, but we only keep the slug — verify it's a real
+    // share on one of THIS user's events and rebuild the canonical URL.
+    let verifiedGalleryUrl: string | null = null;
+    let verifiedSlug: string | null = null;
+    if (typeof galleryUrl === "string" && galleryUrl) {
+      const slugMatch = (() => {
+        try {
+          return new URL(galleryUrl).pathname.match(/^\/gallery\/([^/]+)$/);
+        } catch {
+          return null;
+        }
+      })();
+      const candidateSlug = slugMatch?.[1];
+      if (candidateSlug) {
+        const { data: shareRow } = await supabase
+          .from("shares")
+          .select("slug, events!inner(user_id)")
+          .eq("slug", candidateSlug)
+          .eq("events.user_id", user!.id)
+          .maybeSingle();
+        if (shareRow) {
+          verifiedSlug = shareRow.slug;
+          const appUrl =
+            process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+          verifiedGalleryUrl = `${appUrl.replace(/\/$/, "")}/gallery/${shareRow.slug}`;
+        }
+      }
+      if (!verifiedGalleryUrl) {
+        return NextResponse.json(
+          { error: "Gallery link doesn't match one of your shares" },
+          { status: 400 }
+        );
+      }
+    }
+
     // Get user profile for from name
     const { data: profile } = await supabase
       .from("user_profiles")
@@ -70,16 +122,8 @@ export async function POST(request: NextRequest) {
       const cover = ((event?.settings as Record<string, unknown>)?.cover ?? {}) as {
         imageId?: string;
       };
-      if (cover.imageId && galleryUrl) {
-        try {
-          const parsed = new URL(galleryUrl);
-          const slug = parsed.pathname.match(/^\/gallery\/([^/]+)$/)?.[1];
-          if (slug) {
-            coverImageUrl = `${parsed.origin}/api/gallery/${slug}/cover`;
-          }
-        } catch {
-          // galleryUrl isn't a valid absolute URL — skip the hero, keep sending
-        }
+      if (cover.imageId && verifiedGalleryUrl && verifiedSlug) {
+        coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover`;
       }
     }
 
@@ -87,7 +131,7 @@ export async function POST(request: NextRequest) {
     // a real "View Gallery" button instead of a bare text link).
     const renderedHtml = renderEmailShell({
       body: bodyHtml || "",
-      galleryUrl: galleryUrl || null,
+      galleryUrl: verifiedGalleryUrl,
       fromName,
       coverImageUrl,
       eventName,
