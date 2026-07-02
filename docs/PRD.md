@@ -75,6 +75,8 @@ Open event -> Share -> set permissions (download, favorites, quality) + optional
 
 The codebase contains a full AI design (CLIP semantic search, ArcFace face clustering, Smart Stacks, Auto Sections, aesthetic scoring) and a Modal GPU pipeline (`modal/ai_pipeline.py`). **None of this is active in production.** The Modal backend is not configured and the UI surfaces are hidden. Treat everything below as FUTURE / NOT YET ACTIVE.
 
+> **Sequencing decision (2026-07-02, Mason):** ramp up base-product adoption FIRST; the AI pipeline stays dormant deliberately until real usage data justifies which AI features to build. Do not treat AI-gated backlog items as pending work.
+
 - **Smart Stacks** — group similar/burst/same-person shots and surface a best shot. (dormant)
 - **Semantic search** — CLIP vector search over natural-language queries like "first dance." (dormant)
 - **Face clustering / face search** — ArcFace embeddings to group photos by person. (dormant)
