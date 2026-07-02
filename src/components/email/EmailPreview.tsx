@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 
@@ -9,6 +10,8 @@ interface EmailPreviewProps {
   branding?: Branding;
   businessName?: string;
   logoUrl?: string;
+  /** Event cover hero (the /api/gallery/[slug]/cover URL). Hidden if it 404s. */
+  coverImageUrl?: string;
 }
 
 /**
@@ -21,7 +24,11 @@ export function EmailPreview({
   branding = DEFAULT_BRANDING,
   businessName,
   logoUrl,
+  coverImageUrl,
 }: EmailPreviewProps) {
+  // Hide the hero when the event has no cover (the cover route 404s).
+  const [coverFailed, setCoverFailed] = useState(false);
+
   return (
     <div className="border border-stone-200 bg-white overflow-hidden">
       {/* Email chrome header */}
@@ -38,6 +45,17 @@ export function EmailPreview({
 
       {/* Branded email body */}
       <div style={{ backgroundColor: branding.backgroundColor }}>
+        {/* Cover hero — mirrors the real email's full-bleed cover image */}
+        {coverImageUrl && !coverFailed && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={coverImageUrl}
+            alt=""
+            className="block w-full h-auto"
+            onError={() => setCoverFailed(true)}
+          />
+        )}
+
         {/* Header bar */}
         <div
           className="px-6 py-5 border-b"

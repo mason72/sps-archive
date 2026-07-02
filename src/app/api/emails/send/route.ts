@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const { recipients, subject, bodyHtml, eventId, templateId, galleryUrl } = body;
+    // Copy the photographer on their own send (default on; UI can opt out).
+    const sendCopy = body.sendCopy !== false;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -51,12 +53,43 @@ export async function POST(request: NextRequest) {
     const fromName =
       profile?.business_name || profile?.display_name || "Pixeltrunk Gallery";
 
+    // Event cover → email hero. We link the durable /cover redirect (keyed to
+    // the share slug in galleryUrl), never a presigned URL — emails are opened
+    // days later, presigns die in hours. Only attach it when a cover is set.
+    let coverImageUrl: string | null = null;
+    let eventName: string | null = null;
+    if (eventId) {
+      const { data: event } = await supabase
+        .from("events")
+        .select("name, settings")
+        .eq("id", eventId)
+        .eq("user_id", user!.id)
+        .single();
+      eventName = event?.name ?? null;
+      const cover = ((event?.settings as Record<string, unknown>)?.cover ?? {}) as {
+        imageId?: string;
+      };
+      if (cover.imageId && galleryUrl) {
+        try {
+          const parsed = new URL(galleryUrl);
+          const slug = parsed.pathname.match(/^\/gallery\/([^/]+)$/)?.[1];
+          if (slug) {
+            coverImageUrl = `${parsed.origin}/api/gallery/${slug}/cover`;
+          }
+        } catch {
+          // galleryUrl isn't a valid absolute URL — skip the hero, keep sending
+        }
+      }
+    }
+
     // Wrap the composer's message in the branded HTML shell (clean layout +
     // a real "View Gallery" button instead of a bare text link).
     const renderedHtml = renderEmailShell({
       body: bodyHtml || "",
       galleryUrl: galleryUrl || null,
       fromName,
+      coverImageUrl,
+      eventName,
     });
 
     // Attempt to send via Resend if configured
@@ -74,6 +107,8 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             from: `${fromName} <${process.env.RESEND_FROM_EMAIL || "gallery@resend.dev"}>`,
             to: recipients,
+            // BCC keeps the photographer's copy invisible to clients
+            ...(sendCopy && user!.email ? { bcc: [user!.email] } : {}),
             subject,
             html: renderedHtml,
           }),

@@ -53,6 +53,7 @@ function ShareComposePage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [recipients, setRecipients] = useState("");
+  const [sendCopy, setSendCopy] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const editorRef = useRef<EmailEditorHandle | null>(null);
@@ -196,6 +197,7 @@ function ShareComposePage() {
           bodyHtml: interpolatedBody,
           eventId,
           galleryUrl,
+          sendCopy,
         }),
       });
 
@@ -207,7 +209,7 @@ function ShareComposePage() {
     } finally {
       setIsSending(false);
     }
-  }, [recipients, interpolatedSubject, interpolatedBody, eventId, galleryUrl, router]);
+  }, [recipients, interpolatedSubject, interpolatedBody, eventId, galleryUrl, sendCopy, router]);
 
   if (!user) return null;
 
@@ -411,6 +413,19 @@ function ShareComposePage() {
                         </div>
                       </div>
 
+                      {/* Send me a copy */}
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={sendCopy}
+                          onChange={(e) => setSendCopy(e.target.checked)}
+                          className="h-3.5 w-3.5 accent-emerald-600"
+                        />
+                        <span className="text-[13px] text-stone-600">
+                          Send me a copy
+                        </span>
+                      </label>
+
                       {/* Send button */}
                       <BrandButton
                         color="emerald"
@@ -432,6 +447,9 @@ function ShareComposePage() {
                           bodyHtml={interpolatedBody}
                           branding={branding}
                           businessName={businessName}
+                          coverImageUrl={
+                            shareSlug ? `/api/gallery/${shareSlug}/cover` : undefined
+                          }
                         />
                       </div>
                     </div>

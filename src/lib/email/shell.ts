@@ -39,12 +39,22 @@ export interface EmailShellOptions {
   galleryUrl?: string | null;
   /** Sender / studio name shown in the footer. */
   fromName?: string;
+  /**
+   * Event cover image — rendered as a full-bleed hero at the top of the card,
+   * linked to the gallery. Must be a long-lived absolute URL (the
+   * /api/gallery/[slug]/cover redirect), never a raw presigned URL.
+   */
+  coverImageUrl?: string | null;
+  /** Event name — used as the hero image's alt text. */
+  eventName?: string | null;
 }
 
 export function renderEmailShell({
   body,
   galleryUrl,
   fromName,
+  coverImageUrl,
+  eventName,
 }: EmailShellOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
@@ -61,6 +71,20 @@ export function renderEmailShell({
 
   const year = ""; // avoid Date in shared code paths; footer year is optional
 
+  // Full-bleed hero at the top of the card. Wrapped in the gallery link so the
+  // photo itself is a tap target. display:block kills the phantom baseline gap.
+  const hero = coverImageUrl
+    ? `
+          <tr>
+            <td>
+              ${galleryUrl ? `<a href="${galleryUrl}" style="display:block;text-decoration:none;">` : ""}
+                <img src="${coverImageUrl}" alt="${eventName ? escapeHtml(eventName) : "Gallery cover"}"
+                     width="560" style="display:block;width:100%;height:auto;border:0;"/>
+              ${galleryUrl ? "</a>" : ""}
+            </td>
+          </tr>`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -71,7 +95,7 @@ export function renderEmailShell({
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f5f4;padding:32px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid ${HAIRLINE};border-radius:10px;overflow:hidden;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid ${HAIRLINE};border-radius:10px;overflow:hidden;">${hero}
           <tr>
             <td style="padding:28px 36px 8px;">
               <div style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;color:${INK};letter-spacing:-0.01em;">
