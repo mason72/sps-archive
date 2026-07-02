@@ -5,6 +5,7 @@ import { Download, ChevronLeft, ChevronRight, X, Eye, Search } from "lucide-reac
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { CoverSection } from "@/components/gallery/CoverSection";
+import { buildStacks } from "@/lib/gallery/stacks";
 import { toast } from "sonner";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
 
@@ -38,6 +39,10 @@ export default function PreviewGalleryPage({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  // What SectionedGallery is actually showing (tab + filter + sort applied).
+  const [sectionVisibleImages, setSectionVisibleImages] = useState<
+    GalleryImage[] | null
+  >(null);
   const filteredImages = useMemo(() => {
     if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
     const q = searchQuery.toLowerCase();
@@ -96,8 +101,29 @@ export default function PreviewGalleryPage({
     }
   };
 
+  // Lightbox navigates the on-screen list (search/section/sort view, stacks
+  // flattened person-adjacent) — same behavior as the public gallery.
+  const lightboxImages = useMemo(() => {
+    let list: GalleryImage[];
+    if (searchQuery.trim()) {
+      list = filteredImages;
+    } else if (gallery?.sections?.length && sectionVisibleImages) {
+      list = sectionVisibleImages;
+    } else {
+      list = gallery?.images ?? [];
+    }
+    if (gallery?.settings?.smartStacks) {
+      list = buildStacks(list).flatMap((stack) => stack.images);
+    }
+    return list;
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
+
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
-  const selectedIndex = gallery?.images.findIndex((img) => img.id === selectedImageId) ?? -1;
+  const navImages =
+    selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
+      ? gallery?.images ?? []
+      : lightboxImages;
+  const selectedIndex = navImages.findIndex((img) => img.id === selectedImageId);
 
   // Loading state
   if (isLoading) {
@@ -375,6 +401,7 @@ export default function PreviewGalleryPage({
             smartStacks={s?.smartStacks}
             colors={colors}
             showAllTab
+            onVisibleImagesChange={setSectionVisibleImages}
           />
         ) : (
           <GalleryGrid
@@ -407,12 +434,12 @@ export default function PreviewGalleryPage({
             } else if (e.key === "ArrowLeft") {
               e.preventDefault();
               if (selectedIndex > 0) {
-                setSelectedImageId(gallery.images[selectedIndex - 1].id);
+                setSelectedImageId(navImages[selectedIndex - 1].id);
               }
             } else if (e.key === "ArrowRight") {
               e.preventDefault();
-              if (selectedIndex < gallery.images.length - 1) {
-                setSelectedImageId(gallery.images[selectedIndex + 1].id);
+              if (selectedIndex >= 0 && selectedIndex < navImages.length - 1) {
+                setSelectedImageId(navImages[selectedIndex + 1].id);
               }
             }
           }}
@@ -423,19 +450,19 @@ export default function PreviewGalleryPage({
               className="absolute left-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedImageId(gallery.images[selectedIndex - 1].id);
+                setSelectedImageId(navImages[selectedIndex - 1].id);
               }}
             >
               <ChevronLeft className="h-8 w-8" strokeWidth={1.5} />
             </button>
           )}
-          {selectedIndex < gallery.images.length - 1 && (
+          {selectedIndex >= 0 && selectedIndex < navImages.length - 1 && (
             <button
               aria-label="Next image"
               className="absolute right-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white transition-colors z-10"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedImageId(gallery.images[selectedIndex + 1].id);
+                setSelectedImageId(navImages[selectedIndex + 1].id);
               }}
             >
               <ChevronRight className="h-8 w-8" strokeWidth={1.5} />
@@ -471,7 +498,7 @@ export default function PreviewGalleryPage({
               </button>
             )}
             <span className="text-[12px] text-white/40">
-              {selectedIndex + 1} / {gallery.images.length}
+              {selectedIndex + 1} / {navImages.length}
             </span>
           </div>
         </div>

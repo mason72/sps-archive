@@ -33,6 +33,7 @@ export function SectionedGallery({
   defaultSort = "manual",
   smartStacks = false,
   onActiveSectionChange,
+  onVisibleImagesChange,
 }: {
   images: GalleryImage[];
   sections: GallerySection[];
@@ -58,6 +59,12 @@ export function SectionedGallery({
   onActiveSectionChange?: (
     info: { id: string; name: string; count: number } | null
   ) => void;
+  /**
+   * Reports the currently visible, ordered image list (active tab + favorites
+   * filter + sort applied) so the page's lightbox can navigate what's on
+   * screen instead of the full gallery.
+   */
+  onVisibleImagesChange?: (images: GalleryImage[]) => void;
 }) {
   const [activeTab, setActiveTab] = useState<string>(
     showAllTab ? "all" : sections[0]?.id ?? "all"
@@ -115,6 +122,11 @@ export function SectionedGallery({
     }
     return sortImages(filtered, sortBy);
   }, [tabImages, favoritesOnly, favoriteIds, sortBy, activeTab, sections]);
+
+  // Surface the visible list so the page's lightbox navigates what's on screen.
+  useEffect(() => {
+    onVisibleImagesChange?.(visibleImages);
+  }, [visibleImages, onVisibleImagesChange]);
 
   const sectionCounts = useMemo(
     () =>

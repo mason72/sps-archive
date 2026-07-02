@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
 import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
+import { buildStacks } from "@/lib/gallery/stacks";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { toast } from "sonner";
@@ -110,6 +111,30 @@ export default function GalleryPage({
     );
   }, [gallery, searchQuery]);
 
+  // What SectionedGallery is actually showing (active tab + favorites filter +
+  // sort). Null until it reports (or when the gallery has no sections).
+  const [sectionVisibleImages, setSectionVisibleImages] = useState<
+    GalleryImage[] | null
+  >(null);
+
+  // The list the lightbox navigates: exactly what's on screen, in on-screen
+  // order. With smart stacks on, flatten in stack order so a person's photos
+  // are adjacent (open a stack → arrows walk that person first).
+  const lightboxImages = useMemo(() => {
+    let list: GalleryImage[];
+    if (searchQuery.trim()) {
+      list = filteredImages;
+    } else if (gallery?.sections?.length && sectionVisibleImages) {
+      list = sectionVisibleImages;
+    } else {
+      list = gallery?.images ?? [];
+    }
+    if (gallery?.settings?.smartStacks) {
+      list = buildStacks(list).flatMap((stack) => stack.images);
+    }
+    return list;
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
+
   const fetchGallery = useCallback(async () => {
     try {
       const res = await fetch(`/api/gallery/${slug}`);
@@ -169,6 +194,44 @@ export default function GalleryPage({
     }
   };
 
+  // Persist the current favorites set for this share (used by the optimistic
+  // updates AND their failure reverts, so localStorage never disagrees).
+  const persistFavorites = (shareId: string, favorites: Set<string>) => {
+    try {
+      localStorage.setItem(`favorites_${shareId}`, JSON.stringify([...favorites]));
+    } catch {
+      // localStorage not available
+    }
+  };
+
+  // The heart flips optimistically; if the server write fails, flip it back
+  // and say so — a silent failure here means the photographer never receives
+  // the client's selections.
+  const syncFavoriteToServer = (
+    shareId: string,
+    imageId: string,
+    favorite: boolean
+  ) => {
+    fetch(`/api/gallery/${slug}/favorites`, {
+      method: favorite ? "POST" : "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageId, shareId }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`favorites ${res.status}`);
+      })
+      .catch(() => {
+        setFavoriteIds((prev) => {
+          const reverted = new Set(prev);
+          if (favorite) reverted.delete(imageId);
+          else reverted.add(imageId);
+          persistFavorites(shareId, reverted);
+          return reverted;
+        });
+        toast.error("Couldn't save that favorite — please try again");
+      });
+  };
+
   const handleFavorite = async (imageId: string) => {
     if (!gallery) return;
 
@@ -177,21 +240,10 @@ export default function GalleryPage({
 
     if (isFavorited) {
       newFavorites.delete(imageId);
-      // Remove from server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
     } else {
       newFavorites.add(imageId);
-      // Add to server
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
     }
+    syncFavoriteToServer(gallery.shareId, imageId, !isFavorited);
 
     setFavoriteIds(newFavorites);
 
@@ -205,15 +257,7 @@ export default function GalleryPage({
       }
     }
 
-    // Persist to localStorage
-    try {
-      localStorage.setItem(
-        `favorites_${gallery.shareId}`,
-        JSON.stringify([...newFavorites])
-      );
-    } catch {
-      // localStorage not available
-    }
+    persistFavorites(gallery.shareId, newFavorites);
   };
 
   // Batch favorite/unfavorite — one state update for a whole smart stack.
@@ -228,11 +272,7 @@ export default function GalleryPage({
       if (favorite === has) continue; // already in the target state
       if (favorite) newFavorites.add(imageId);
       else newFavorites.delete(imageId);
-      fetch(`/api/gallery/${slug}/favorites`, {
-        method: favorite ? "POST" : "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageId, shareId: gallery.shareId }),
-      }).catch(console.error);
+      syncFavoriteToServer(gallery.shareId, imageId, favorite);
     }
     setFavoriteIds(newFavorites);
 
@@ -245,14 +285,7 @@ export default function GalleryPage({
       }
     }
 
-    try {
-      localStorage.setItem(
-        `favorites_${gallery.shareId}`,
-        JSON.stringify([...newFavorites])
-      );
-    } catch {
-      // localStorage not available
-    }
+    persistFavorites(gallery.shareId, newFavorites);
   };
 
   const handlePasswordSuccess = () => {
@@ -338,7 +371,14 @@ export default function GalleryPage({
 
   // Simple lightbox for gallery (no metadata panel)
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
-  const selectedIndex = gallery?.images.findIndex((img) => img.id === selectedImageId) ?? -1;
+  // Navigate the on-screen list; if the open image just left the visible set
+  // (e.g. a filter changed under the lightbox), fall back to the full gallery
+  // so the arrows never dead-end.
+  const navImages =
+    selectedImageId && !lightboxImages.some((img) => img.id === selectedImageId)
+      ? gallery?.images ?? []
+      : lightboxImages;
+  const selectedIndex = navImages.findIndex((img) => img.id === selectedImageId);
 
   // Loading state
   if (isLoading) {
@@ -709,6 +749,7 @@ export default function GalleryPage({
             smartStacks={s?.smartStacks}
             colors={colors}
             onActiveSectionChange={setActiveSectionInfo}
+            onVisibleImagesChange={setSectionVisibleImages}
           />
         ) : (
           <GalleryGrid
@@ -740,19 +781,19 @@ export default function GalleryPage({
           style={{ backgroundColor: lightboxBg, color: lbFg }}
           onClick={() => setSelectedImageId(null)}
           onKeyDown={(e) => {
+            // Arrows walk navImages — the on-screen section/search/sort view
+            // (stack members adjacent), not the full gallery.
             if (e.key === "Escape") {
               setSelectedImageId(null);
             } else if (e.key === "ArrowLeft") {
               e.preventDefault();
-              const currentIndex = gallery.images.findIndex((img: { id: string }) => img.id === selectedImageId);
-              if (currentIndex > 0) {
-                setSelectedImageId(gallery.images[currentIndex - 1].id);
+              if (selectedIndex > 0) {
+                setSelectedImageId(navImages[selectedIndex - 1].id);
               }
             } else if (e.key === "ArrowRight") {
               e.preventDefault();
-              const currentIndex = gallery.images.findIndex((img: { id: string }) => img.id === selectedImageId);
-              if (currentIndex < gallery.images.length - 1) {
-                setSelectedImageId(gallery.images[currentIndex + 1].id);
+              if (selectedIndex >= 0 && selectedIndex < navImages.length - 1) {
+                setSelectedImageId(navImages[selectedIndex + 1].id);
               }
             }
           }}
@@ -765,20 +806,20 @@ export default function GalleryPage({
               style={{ color: lbFgMuted }}
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedImageId(gallery.images[selectedIndex - 1].id);
+                setSelectedImageId(navImages[selectedIndex - 1].id);
               }}
             >
               <ChevronLeft className="h-8 w-8" strokeWidth={1.5} />
             </button>
           )}
-          {selectedIndex < gallery.images.length - 1 && (
+          {selectedIndex >= 0 && selectedIndex < navImages.length - 1 && (
             <button
               aria-label="Next image"
               className="absolute right-4 top-1/2 -translate-y-1/2 p-3 transition-opacity hover:opacity-100 z-10"
               style={{ color: lbFgMuted }}
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedImageId(gallery.images[selectedIndex + 1].id);
+                setSelectedImageId(navImages[selectedIndex + 1].id);
               }}
             >
               <ChevronRight className="h-8 w-8" strokeWidth={1.5} />
@@ -841,7 +882,7 @@ export default function GalleryPage({
           {/* Counter + filename */}
           <div className="absolute top-4 left-4">
             <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
-              {selectedIndex + 1} / {gallery.images.length}
+              {selectedIndex + 1} / {navImages.length}
             </p>
             {selectedImage.originalFilename && (
               <p className="text-[13px] mt-1 max-w-[280px] truncate" style={{ color: lbFgMuted }}>
