@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
     .from("events")
     .select("*, images!images_event_id_fkey(count)", { count: "exact" })
     .eq("user_id", user!.id)
+    // Pinned galleries (e.g. TDP workspaces) stay above the chronological list
+    .order("pinned_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

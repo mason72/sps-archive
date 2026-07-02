@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Copy,
   Pencil,
+  Pin,
+  PinOff,
   Trash2,
 } from "lucide-react";
 import { BrandButton } from "@/components/ui/brand-button";
@@ -27,6 +29,7 @@ interface Event {
   images: { count: number }[];
   coverThumbnailUrl?: string | null;
   activeShareSlug?: string | null;
+  pinned_at: string | null;
 }
 
 /**
@@ -87,6 +90,17 @@ export function EventList() {
 
     return result;
   }, [events, searchQuery, activeTypeFilter]);
+
+  // Pinned galleries (workspaces like TDP Website) render in their own strip
+  // above the chronological grid — the API already sorts them first.
+  const pinnedEvents = useMemo(
+    () => filteredEvents.filter((e) => e.pinned_at),
+    [filteredEvents]
+  );
+  const unpinnedEvents = useMemo(
+    () => filteredEvents.filter((e) => !e.pinned_at),
+    [filteredEvents]
+  );
 
   const hasFilters = searchQuery.trim() !== "" || activeTypeFilter !== null;
 
@@ -215,16 +229,37 @@ export function EventList() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-5xl">
-          {filteredEvents.map((event, i) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              index={i}
-              onRefresh={loadEvents}
-            />
-          ))}
-        </div>
+        <>
+          {pinnedEvents.length > 0 && (
+            <div className="mb-10 max-w-5xl">
+              <p className="label-caps text-[10px] text-stone-400 mb-4 flex items-center gap-1.5">
+                <Pin className="h-3 w-3" />
+                Pinned
+              </p>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {pinnedEvents.map((event, i) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    index={i}
+                    onRefresh={loadEvents}
+                  />
+                ))}
+              </div>
+              <div className="h-px bg-stone-100 mt-10" />
+            </div>
+          )}
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-5xl">
+            {unpinnedEvents.map((event, i) => (
+              <EventCard
+                key={event.id}
+                event={event}
+                index={pinnedEvents.length + i}
+                onRefresh={loadEvents}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Create new event CTA */}
@@ -307,6 +342,23 @@ function EventCard({
     }
   };
 
+  const handleTogglePin = async () => {
+    try {
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: !event.pinned_at }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success(event.pinned_at ? "Unpinned" : "Pinned to top");
+      setMenuOpen(false);
+      onRefresh();
+      window.dispatchEvent(new Event("events-changed"));
+    } catch {
+      toast.error("Failed to update pin");
+    }
+  };
+
   const handleCopyLink = () => {
     if (event.activeShareSlug) {
       navigator.clipboard.writeText(`${window.location.origin}/gallery/${event.activeShareSlug}`);
@@ -340,6 +392,13 @@ function EventCard({
         )}
       </Link>
 
+      {/* Pinned badge */}
+      {event.pinned_at && (
+        <div className="absolute top-2 left-2 p-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 z-10">
+          <Pin className="h-3 w-3 text-accent" />
+        </div>
+      )}
+
       {/* Action menu button */}
       <div ref={menuRef}>
         <button
@@ -372,6 +431,11 @@ function EventCard({
               icon={<Copy size={13} />}
               label="Copy link"
               onClick={handleCopyLink}
+            />
+            <MenuButton
+              icon={event.pinned_at ? <PinOff size={13} /> : <Pin size={13} />}
+              label={event.pinned_at ? "Unpin" : "Pin to top"}
+              onClick={handleTogglePin}
             />
             <MenuButton
               icon={<Pencil size={13} />}
@@ -433,6 +497,7 @@ function EventCard({
                 month: "short",
                 day: "numeric",
                 year: "numeric",
+                timeZone: "UTC", // event_date is a DATE — avoid off-by-one-day
               })}
             </span>
           )}

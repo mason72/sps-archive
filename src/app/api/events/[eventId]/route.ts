@@ -313,6 +313,8 @@ export async function PATCH(
     if (body.eventType !== undefined) updates.event_type = body.eventType;
     // City feeds the website's "Event — City" captions via the site scene API.
     if (body.city !== undefined) updates.city = body.city || null;
+    if (body.pinned !== undefined)
+      updates.pinned_at = body.pinned ? new Date().toISOString() : null;
 
     // Settings: deep merge with existing
     if (body.settings !== undefined) {

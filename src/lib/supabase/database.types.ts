@@ -20,6 +20,7 @@ export type Database = {
           event_type: string | null;
           cover_image_id: string | null;
           city: string | null;
+          pinned_at: string | null;
           settings: Json;
           created_at: string;
           updated_at: string;
@@ -34,6 +35,7 @@ export type Database = {
           event_type?: string | null;
           cover_image_id?: string | null;
           city?: string | null;
+          pinned_at?: string | null;
           settings?: Json;
           created_at?: string;
           updated_at?: string;
@@ -48,6 +50,7 @@ export type Database = {
           event_type?: string | null;
           cover_image_id?: string | null;
           city?: string | null;
+          pinned_at?: string | null;
           settings?: Json;
           created_at?: string;
           updated_at?: string;
