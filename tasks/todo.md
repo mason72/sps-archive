@@ -27,7 +27,17 @@
 - [x] Stack names trim absorbed event tokens via date-anchored prefix rule
       ("Rushi Sheth CollegeBoardSLC" → "Rushi Sheth"); +6 tests (190 total).
 - [x] .single() → maybeSingle on max sort_order (audit #9).
-- [x] tsc clean, 190/190 tests, build green. Prod E2E of the job flow after deploy.
+- [x] tsc clean, 190/190 tests, build green.
+- [x] Prod E2E: full 1553-photo gallery via prepare → Inngest build (~2 min) → status →
+      presigned R2 download → 4.0GB ZIP, unzip -t clean, all 1553 entries. Inngest event
+      key confirmed configured in prod (dispatch succeeded).
+- [x] Build progress UX (migration 031, applied): builder bumps images_done every 25
+      photos, status returns imagesDone/imageTotal, toast reads "Preparing your gallery —
+      N of TOTAL photos… you can keep browsing". Copy no longer claims the tab must stay
+      open (build is server-side; tab only auto-starts the download). Prod-verified:
+      A-C section job showed 0→100→200→300→325→ready in 26s via the status endpoint.
+      Email-me-when-ready deliberately deferred: builds measure ~30s/GB in prod; revisit
+      if zip_jobs created_at→ready_at ever shows real builds crossing ~5 min.
 
 ## Phase 17: Smart Stacks — toggle fix + guest experience [DONE 2026-07-02]
 - [x] Settings toggle fix: EventSidebar DesignPanel never passed `smartStacks` into GridTab
