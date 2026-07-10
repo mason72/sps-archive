@@ -108,10 +108,14 @@ export async function generateThumbnailsFromBuffer(
     // optional
   }
 
-  // Generate and upload all three sizes
+  // Generate and upload all three sizes. `.rotate()` (no args) bakes the
+  // EXIF orientation into the pixels — without it, sharp strips the tag on
+  // output and every orientation≠1 original (most phone shots) comes out
+  // sideways. Thumbs also stay EXIF-free (no GPS leak on public variants).
   const results = await Promise.all(
     VARIANTS.map(async (variant) => {
       const resized = await sharp(originalBuffer)
+        .rotate()
         .resize(variant.width, undefined, { withoutEnlargement: true })
         .jpeg({ quality: variant.quality, mozjpeg: true })
         .toBuffer();
