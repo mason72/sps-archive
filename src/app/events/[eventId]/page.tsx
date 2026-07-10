@@ -26,9 +26,10 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
-import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
+import { deriveDisplayImages } from "@/lib/gallery/derive-display";
+import { buildStacks } from "@/lib/gallery/stacks";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
 import { findIntakeSectionId } from "@/lib/sections/intake";
@@ -184,19 +185,6 @@ export default function EventPage({
     [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds]
   );
 
-  const stacks = useMemo<StackData[]>(
-    () =>
-      deriveDisplayStacks({
-        isSearching,
-        searchResults,
-        activeSection,
-        allImages,
-        allStacks,
-        favoritesOnly,
-        favoriteIds,
-      }),
-    [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds]
-  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
@@ -802,15 +790,43 @@ export default function EventPage({
   const dndEnabled =
     !!activeSection && !isSearching && !favoritesOnly && !activeSectionData?.locked;
 
+  // Stacks toggle — editor-only, persisted to grid.showStacks, defaults ON.
+  const showStacks = eventSettings.grid?.showStacks ?? true;
+
   // When Manual is active OR a drag could begin, every tile must be an
   // individually-reorderable image, so stacks are expanded into loose tiles;
-  // otherwise stacks render as groups. (No stacks exist today — AI stacking is
-  // off — so the expand-on-dndEnabled branch only matters if it's re-enabled.)
+  // otherwise same-person photos group into stacks. Grouping is the SAME
+  // filename derivation the public gallery uses (buildStacks) — no AI needed,
+  // so the editor shows exactly the stacks a guest would see. Groups of one
+  // fall back to standalone tiles.
   const expandTiles = manualMode || dndEnabled;
-  const gridStacks = expandTiles ? [] : stacks;
-  const gridStandalone = expandTiles
-    ? sortedImages
-    : sortedImages.filter((img) => !img.stackId);
+  const { gridStacks, gridStandalone } = useMemo<{
+    gridStacks: StackData[];
+    gridStandalone: ImageData[];
+  }>(() => {
+    // Expanded-tile modes and search (a flat result list) show every photo
+    // loose, and the toggle can turn grouping off entirely.
+    if (expandTiles || isSearching || !showStacks) {
+      return { gridStacks: [], gridStandalone: sortedImages };
+    }
+    const stacks: StackData[] = [];
+    const loose: ImageData[] = [];
+    for (const group of buildStacks(sortedImages)) {
+      if (group.images.length > 1) {
+        stacks.push({
+          id: `name:${group.key}`,
+          stackType: "face",
+          imageCount: group.images.length,
+          personName: group.personName,
+          // Cover = first by current sort; rank tracks display order.
+          images: group.images.map((img, i) => ({ ...img, stackRank: i })),
+        });
+      } else {
+        loose.push(group.images[0]);
+      }
+    }
+    return { gridStacks: stacks, gridStandalone: loose };
+  }, [expandTiles, isSearching, showStacks, sortedImages]);
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
@@ -995,6 +1011,22 @@ export default function EventPage({
   const toggleFilenames = useCallback(async () => {
     const newVal = !gridSettings?.showFilenames;
     const newGrid = { ...gridSettings, showFilenames: newVal };
+    setEventSettings((prev) => ({ ...prev, grid: newGrid }));
+    try {
+      await fetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { grid: newGrid } }),
+      });
+    } catch {
+      /* non-critical */
+    }
+  }, [gridSettings, eventId]);
+
+  // Toggle stack grouping in the editor grid (persists; defaults on when unset)
+  const toggleStacks = useCallback(async () => {
+    const newVal = !(gridSettings?.showStacks ?? true);
+    const newGrid = { ...gridSettings, showStacks: newVal };
     setEventSettings((prev) => ({ ...prev, grid: newGrid }));
     try {
       await fetch(`/api/events/${eventId}`, {
@@ -1494,6 +1526,22 @@ export default function EventPage({
 
                 <div className="w-px h-4 bg-stone-200" />
 
+                {/* Stacks toggle — group same-person photos into stacks */}
+                <button
+                  onClick={toggleStacks}
+                  className={`p-1.5 transition-colors ${showStacks ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  aria-label="Toggle image stacks"
+                  title={
+                    showStacks
+                      ? "Showing image stacks — click to show every photo"
+                      : "Show image stacks (group same-person photos)"
+                  }
+                >
+                  <Layers className="h-4 w-4" />
+                </button>
+
+                <div className="w-px h-4 bg-stone-200" />
+
                 {/* View mode toggles */}
                 <button
                   onClick={() => setViewMode("grid")}
@@ -1646,14 +1694,6 @@ export default function EventPage({
                     onToggleSelect={selection.toggle}
                     onRangeSelect={(id) => selection.rangeSelect(id, flatOrderedIds)}
                     onImageDoubleClick={(id) => setSelectedImageId(id)}
-                    onSetCover={async (stackId, imageId) => {
-                      await fetch(`/api/stacks/${stackId}/cover`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ imageId }),
-                      });
-                      fetchEvent();
-                    }}
                     hasSelection={selection.hasSelection}
                     selectedIds={selection.selectedIds}
                     columnCount={gridSettings?.columns}

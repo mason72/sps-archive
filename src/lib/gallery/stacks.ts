@@ -79,20 +79,31 @@ export function personNameFromParts(
   return parsed;
 }
 
-export interface GalleryStack {
+/** A person stack over any image shape carrying the fields we group by. */
+export interface PersonStack<T> {
   /** Stable key for React lists (normalized person name). */
   key: string;
   /** Display name for the stack (as parsed — e.g. "Smith, John"). */
   personName: string;
   /** Members in gallery order; length 1 renders as a plain card. */
-  images: GalleryImage[];
+  images: T[];
 }
 
-/** Group images into person stacks, preserving first-appearance order. */
-export function buildStacks(images: GalleryImage[]): GalleryStack[] {
-  const groups = new Map<string, GalleryStack>();
+export type GalleryStack = PersonStack<GalleryImage>;
+
+/**
+ * Group images into person stacks, preserving first-appearance order.
+ *
+ * Generic over the minimal shape it reads (`parsedName` + `originalFilename`)
+ * so BOTH the public gallery (`GalleryImage`) and the editor grid (`ImageData`)
+ * derive stacks through this ONE function — the grouping rule lives here alone.
+ */
+export function buildStacks<
+  T extends { parsedName: string | null; originalFilename: string }
+>(images: T[]): PersonStack<T>[] {
+  const groups = new Map<string, PersonStack<T>>();
   for (const img of images) {
-    const personName = stackPersonName(img);
+    const personName = personNameFromParts(img.parsedName, img.originalFilename);
     const key = personName.toLowerCase();
     const existing = groups.get(key);
     if (existing) {

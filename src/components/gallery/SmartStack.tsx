@@ -76,6 +76,7 @@ export function SmartStack({
             images.forEach((img) => onToggleSelect?.(img.id));
           }}
           onDoubleClick={() => setIsExpanded(true)}
+          onExpand={() => setIsExpanded(true)}
         />
       )}
 
@@ -181,6 +182,7 @@ function CollapsedStack({
   showFilename,
   onSingleClick,
   onDoubleClick,
+  onExpand,
 }: {
   cover: StackImage;
   imageCount: number;
@@ -191,6 +193,8 @@ function CollapsedStack({
   showFilename?: boolean;
   onSingleClick: () => void;
   onDoubleClick: () => void;
+  /** Explicit "click into the stack" affordance (the count badge). */
+  onExpand: () => void;
 }) {
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -266,12 +270,25 @@ function CollapsedStack({
           <div className="absolute inset-0 bg-accent/10 pointer-events-none" />
         )}
 
-        {/* Stack count badge */}
+        {/* Stack count badge — doubles as the "click into it" affordance:
+            selecting is the plain click, expanding is this badge (or dbl-click). */}
         {imageCount > 1 && (
-          <div className="absolute right-2 top-2 flex items-center gap-1 bg-black/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white backdrop-blur-sm">
+          <span
+            role="button"
+            tabIndex={-1}
+            aria-label={`Expand ${personName || "stack"} — ${imageCount} photos`}
+            title="Click to open this stack"
+            onClick={(e) => {
+              // Stop the parent button's select-all; open the stack instead.
+              e.stopPropagation();
+              e.preventDefault();
+              onExpand();
+            }}
+            className="absolute right-2 top-2 flex items-center gap-1 bg-black/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white backdrop-blur-sm transition-colors hover:bg-accent"
+          >
             <Layers className="h-2.5 w-2.5" />
             {imageCount}
-          </div>
+          </span>
         )}
 
         {/* Person name overlay */}
@@ -382,8 +399,10 @@ function ExpandedStackImage({
         </div>
       )}
 
-      {/* Set as cover button */}
-      {!isCover && (
+      {/* Set as cover button — only when a cover-setter is wired (DB stacks).
+          Filename-derived stacks have no persistent row, so the cover is simply
+          the first image by sort order and this control is hidden. */}
+      {!isCover && onSetCover && (
         <div className="absolute inset-0 flex items-end justify-center bg-black/0 pb-2 opacity-0 transition-all duration-300 group-hover/img:bg-black/30 group-hover/img:opacity-100">
           <button
             onClick={(e) => {

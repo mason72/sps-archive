@@ -58,6 +58,11 @@ export interface EventSettings {
     sortBy?: "upload" | "filename" | "date-taken" | "manual";
     /** Public gallery groups same-person photos (by filename) into stacks. */
     smartStacks?: boolean;
+    /**
+     * Editor-only: group same-person photos into stacks in the management grid
+     * (independent of the public `smartStacks`). Defaults ON when unset.
+     */
+    showStacks?: boolean;
   };
   sharing: SharingSettings;
 }
