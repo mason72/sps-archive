@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { deleteFromR2, getVideoDisplayKey } from "@/lib/r2/client";
+import { deleteImageAssets } from "@/lib/r2/client";
 import { unpublishAssetFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
 import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
@@ -187,18 +187,9 @@ export async function DELETE(request: NextRequest) {
           )
           .map(async (img: Record<string, unknown>) => {
             const r2Key = img.r2_key as string;
-            await deleteFromR2(r2Key).catch((err) =>
-              console.error("R2 delete failed for", r2Key, err)
-            );
-            // Videos may have a remuxed mp4 rendition alongside the original.
-            if (img.media_type === "video") {
-              const displayKey = getVideoDisplayKey(r2Key);
-              if (displayKey !== r2Key) {
-                await deleteFromR2(displayKey).catch((err) =>
-                  console.error("R2 delete failed for", displayKey, err)
-                );
-              }
-            }
+            // Original + all thumbnail variants (+ video rendition) — deleting
+            // just the original used to strand the 3 derivatives forever.
+            await deleteImageAssets(r2Key, img.media_type as string | null);
             if (img.site_published_at) {
               await unpublishAssetFromLane({
                 r2Key,

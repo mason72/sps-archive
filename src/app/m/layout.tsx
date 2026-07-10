@@ -48,9 +48,12 @@ export default function MarketingLayout({
 
         {/* Auth links */}
         <div className="flex items-center gap-5 md:gap-6 text-[13px] tracking-wide">
+          {/* Hidden on the smallest screens: at 375px the logo + Sign in +
+              Get Started collide (the wordmark and "Sign in" overlap). Get
+              Started is the primary CTA; returning users sign in from the app. */}
           <a
             href={`${APP_URL}/login`}
-            className="text-stone-400 hover:text-stone-900 transition-colors duration-300"
+            className="hidden sm:inline text-stone-400 hover:text-stone-900 transition-colors duration-300"
           >
             Sign in
           </a>

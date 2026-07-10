@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
+import { getCachedThumbnailUrl, getThumbnailKey, deleteImageAssets } from "@/lib/r2/client";
 import { ensureWebsiteSections } from "@/lib/site/gallery";
 import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
@@ -396,6 +396,26 @@ export async function DELETE(
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Collect every image's R2 key BEFORE the DB cascade wipes the rows — the
+    // cascade only deletes database rows, so without this the originals +
+    // thumbnails live on in R2 forever (this was the main storage leak).
+    const assets: { r2_key: string; media_type: string | null }[] = [];
+    {
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data: page } = await supabase
+          .from("images")
+          .select("r2_key, media_type")
+          .eq("event_id", eventId)
+          .range(offset, offset + 999);
+        if (!page || page.length === 0) break;
+        assets.push(...page);
+        if (page.length < 1000) break;
+        offset += 1000;
+      }
+    }
+
     // Delete event (cascades to images, stacks, sections, shares, favorites)
     const { error } = await supabase
       .from("events")
@@ -406,6 +426,12 @@ export async function DELETE(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Clean up R2 for every image (original + thumbnails + video rendition).
+    // Fire-and-forget: the DB is already consistent; storage cleanup can lag.
+    void Promise.all(
+      assets.map((a) => deleteImageAssets(a.r2_key, a.media_type))
+    ).catch((err) => console.error("Event R2 cleanup failed:", err));
 
     return NextResponse.json({ deleted: true });
   } catch (error) {

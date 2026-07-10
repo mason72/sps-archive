@@ -9,13 +9,21 @@
  * video pipeline, which fails the row with a clear processing_error message.
  */
 
-/** Image formats the pipeline accepts, as a react-dropzone accept map. */
+/**
+ * Image formats the pipeline accepts, as a react-dropzone accept map.
+ *
+ * HEIC/HEIF is deliberately NOT here: sharp can't decode HEVC-compressed HEIC
+ * on Vercel (or macOS prebuilds), so a HEIC upload could never get a thumbnail
+ * AND browsers can't render the original — the photo would be invisible
+ * everywhere. iPhone consumers hit this; pros shoot JPEG/RAW. We reject it up
+ * front with a convert-to-JPEG message (validateUploadFile) rather than
+ * shipping a heavy client-side transcoder for an edge case.
+ */
 export const IMAGE_ACCEPT: Record<string, string[]> = {
   "image/jpeg": [".jpg", ".jpeg"],
   "image/png": [".png"],
   "image/tiff": [".tiff", ".tif"],
   "image/webp": [".webp"],
-  "image/heic": [".heic", ".heif"],
 };
 
 /** Video containers the pipeline accepts (H.264/AAC inside, verified later). */
@@ -58,6 +66,12 @@ export function validateUploadFile(file: {
       return `${file.name}: videos can be up to 500 MB`;
     }
     return null;
+  }
+  // HEIC/HEIF gets a specific, actionable message instead of a generic
+  // "unsupported" — browsers often report an empty MIME for .heic, so match on
+  // the extension too. (See IMAGE_ACCEPT for why we don't accept it.)
+  if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) {
+    return `${file.name}: HEIC isn't supported — convert to JPEG first (on a Mac, open in Preview → File → Export → JPEG).`;
   }
   if (!(file.type in IMAGE_ACCEPT)) {
     return `${file.name}: unsupported format`;

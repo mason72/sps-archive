@@ -228,6 +228,38 @@ export async function deleteFromR2(key: string): Promise<void> {
   );
 }
 
+/**
+ * Delete an image's ENTIRE R2 footprint: the original, all three thumbnail
+ * variants, and (for video) the remuxed mp4 rendition. Best-effort per key so
+ * one miss doesn't strand the rest.
+ *
+ * Deleting only the original was a storage leak — the 3 derivatives lived on
+ * forever (deleted events/images left ~18GB of orphans). Callers on the delete
+ * path use this instead of a bare deleteFromR2(original).
+ */
+export async function deleteImageAssets(
+  r2Key: string,
+  mediaType?: string | null
+): Promise<void> {
+  const keys = [
+    r2Key,
+    getThumbnailKey(r2Key, "thumb-sm"),
+    getThumbnailKey(r2Key, "thumb-md"),
+    getThumbnailKey(r2Key, "thumb-lg"),
+  ];
+  if (mediaType === "video") {
+    const displayKey = getVideoDisplayKey(r2Key);
+    if (displayKey !== r2Key) keys.push(displayKey);
+  }
+  await Promise.all(
+    keys.map((k) =>
+      deleteFromR2(k).catch((err) =>
+        console.error("R2 delete failed for", k, err)
+      )
+    )
+  );
+}
+
 /** Build the R2 key path for an image */
 export function buildImageKey(
   eventId: string,

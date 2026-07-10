@@ -55,7 +55,13 @@ export function CoverSection({
           <h1
             className={cn(
               headingClass,
-              "text-[clamp(36px,6vw,72px)] leading-[0.95] text-white"
+              "text-[clamp(36px,6vw,72px)] leading-[0.95] text-white",
+              // Position-independent legibility: the bottom-anchored gradient
+              // above doesn't protect a top/center-placed title, and a title
+              // over a bright cover (white backdrop, snow, product) would wash
+              // out. A soft two-layer text-shadow keeps white text readable on
+              // any cover without darkening the photographer's image.
+              "[text-shadow:0_1px_3px_rgba(0,0,0,0.45),0_2px_24px_rgba(0,0,0,0.35)]"
             )}
           >
             {eventName}

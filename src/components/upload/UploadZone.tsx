@@ -1003,7 +1003,7 @@ export function UploadZone({
               Drag &amp; drop images or video here
             </p>
             <p className="mt-2 text-[13px] text-stone-400 leading-relaxed">
-              or click to browse — JPEG, PNG, TIFF, WebP, HEIC up to 100 MB ·
+              or click to browse — JPEG, PNG, TIFF, WebP up to 100 MB ·
               MP4/MOV (H.264) up to 500 MB
             </p>
           </>
