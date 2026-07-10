@@ -12,7 +12,7 @@ export async function PUT(
   { params }: { params: Promise<{ stackId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { stackId } = await params;
@@ -25,12 +25,15 @@ export async function PUT(
       );
     }
 
-    // Verify the image belongs to this stack
+    // Verify the image belongs to this stack AND the caller owns its event.
+    // Service client bypasses RLS, so without the event-chain check any
+    // logged-in user could reorder/re-cover another tenant's stack.
     const { data: image, error: imageError } = await supabase
       .from("images")
-      .select("id, stack_id, stack_rank")
+      .select("id, stack_id, stack_rank, events!event_id!inner(user_id)")
       .eq("id", imageId)
       .eq("stack_id", stackId)
+      .eq("events.user_id", user!.id)
       .single();
 
     if (imageError || !image) {

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 
+// Backfills up to 50 images/call — each downloads the original + runs sharp
+// ×3. Needs the Node runtime and room past the default timeout.
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 /**
  * POST /api/admin/batch-thumbnails
  *

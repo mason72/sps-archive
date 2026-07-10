@@ -254,6 +254,14 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    // Same cap the DELETE handler enforces — bound the IN-list size.
+    if (imageIds.length > 500) {
+      return NextResponse.json(
+        { error: "Max 500 images per batch" },
+        { status: 400 }
+      );
+    }
+
     // Verify ownership: check that images belong to user's events. `filename`
     // (the storage name, always "{uuid}.{ext}") is the reliable source of each
     // image's true extension for rename.
@@ -284,14 +292,21 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: "sectionId required" }, { status: 400 });
         }
 
-        // Adding into a website section publishes by membership.
+        // Adding into a website section publishes by membership. The target
+        // section MUST belong to the caller — otherwise a user could add their
+        // images into another tenant's section and, if it feeds the marketing
+        // site (site_scene_key), publish them onto the victim's public site.
         const { data: targetSection } = await supabase
           .from("sections")
-          .select("name, site_scene_key, locked")
+          .select("name, site_scene_key, locked, events!event_id!inner(user_id)")
           .eq("id", sectionId)
+          .eq("events.user_id", user!.id)
           .maybeSingle();
 
-        if (targetSection?.locked) {
+        if (!targetSection) {
+          return NextResponse.json({ error: "Section not found" }, { status: 404 });
+        }
+        if (targetSection.locked) {
           return NextResponse.json(
             { error: `"${targetSection.name}" is locked — unlock it to add images.` },
             { status: 423 }
@@ -337,11 +352,15 @@ export async function PATCH(request: NextRequest) {
 
         const { data: sourceSection } = await supabase
           .from("sections")
-          .select("name, site_scene_key, locked")
+          .select("name, site_scene_key, locked, events!event_id!inner(user_id)")
           .eq("id", sectionId)
+          .eq("events.user_id", user!.id)
           .maybeSingle();
 
-        if (sourceSection?.locked) {
+        if (!sourceSection) {
+          return NextResponse.json({ error: "Section not found" }, { status: 404 });
+        }
+        if (sourceSection.locked) {
           return NextResponse.json(
             { error: `"${sourceSection.name}" is locked — unlock it to remove images.` },
             { status: 423 }
@@ -372,12 +391,16 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: "shareId required" }, { status: 400 });
         }
 
-        // Verify the share belongs to the user and is active
+        // Verify the share belongs to the caller (via its event) and is active
+        // — the join is the ownership check the old comment claimed but the
+        // code lacked, so a user couldn't attach "Photographer Pick" rows to
+        // another tenant's share.
         const { data: share, error: shareError } = await supabase
           .from("shares")
-          .select("id, event_id")
+          .select("id, event_id, events!event_id!inner(user_id)")
           .eq("id", shareId)
           .eq("is_active", true)
+          .eq("events.user_id", user!.id)
           .single();
 
         if (shareError || !share) {

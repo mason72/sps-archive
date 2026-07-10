@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   let eventIdForReport: string | undefined;
   let fileCountForReport: number | undefined;
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const body = await request.json();
@@ -46,6 +46,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Cap the batch — the client already chunks by 50 (PRESIGN_CHUNK); a much
+    // larger single call would mint that many DB rows + presigns at once.
+    if (files.length > 200) {
+      return NextResponse.json(
+        { error: "Too many files in one request (max 200)" },
+        { status: 400 }
+      );
+    }
+
     // Server-side guard on format + size (the dropzone enforces the same
     // rules client-side; this catches anything that bypasses it).
     for (const file of files) {
@@ -55,25 +64,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Verify event exists
+    // Verify event exists AND belongs to the caller. The service client
+    // bypasses RLS, so an existence-only check let any logged-in user inject
+    // images + sections into any tenant's event (lessons #2/#14).
     const { data: event, error: eventError } = await supabase
       .from("events")
       .select("id")
       .eq("id", eventId)
+      .eq("user_id", user!.id)
       .single();
 
     if (eventError || !event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Locked sections don't accept uploads — editing them must be deliberate.
+    // Target section (when given) must belong to the same owned event — never
+    // trust a client-supplied sectionId to point at the caller's own event.
     if (sectionId && !skipSection) {
       const { data: target } = await supabase
         .from("sections")
-        .select("name, locked")
+        .select("name, locked, event_id")
         .eq("id", sectionId)
         .maybeSingle();
-      if (target?.locked) {
+      if (!target || target.event_id !== eventId) {
+        return NextResponse.json(
+          { error: "Section not found" },
+          { status: 404 }
+        );
+      }
+      if (target.locked) {
         return NextResponse.json(
           { error: `"${target.name}" is locked — unlock it to upload here.` },
           { status: 423 }

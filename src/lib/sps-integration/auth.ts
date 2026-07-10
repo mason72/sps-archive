@@ -44,7 +44,7 @@ export async function authenticateSPSRequest(
   const apiKey = request.headers.get("x-sps-key");
   const configuredKey = process.env.SPS_INTEGRATION_KEY;
 
-  if (apiKey && configuredKey && apiKey === configuredKey) {
+  if (apiKey && configuredKey && timingSafeEqualStr(apiKey, configuredKey)) {
     if (!bodyUserId) {
       return {
         authenticated: false,

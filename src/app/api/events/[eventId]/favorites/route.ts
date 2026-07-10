@@ -12,10 +12,22 @@ export async function GET(
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { eventId } = await params;
+
+    // Ownership gate: this returns client names + EMAILS, so confirm the caller
+    // owns the event before reading any share. Service client bypasses RLS.
+    const { data: ownedEvent } = await supabase
+      .from("events")
+      .select("id")
+      .eq("id", eventId)
+      .eq("user_id", user!.id)
+      .maybeSingle();
+    if (!ownedEvent) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     // Get all shares for this event
     const { data: shares, error: sharesError } = await supabase

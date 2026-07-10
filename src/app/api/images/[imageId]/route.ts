@@ -17,15 +17,20 @@ export async function GET(
   { params }: { params: Promise<{ imageId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { imageId } = await params;
 
+    // OWNERSHIP-SCOPED via the event chain — the service client bypasses RLS,
+    // and this route returns a presigned ORIGINAL URL + full EXIF/GPS, so an
+    // unscoped lookup leaked any tenant's photo to any logged-in user. The
+    // !inner join makes a foreign image simply not match (mirrors PATCH below).
     const { data: image, error } = await supabase
       .from("images")
-      .select("*")
+      .select("*, events!event_id!inner(user_id)")
       .eq("id", imageId)
+      .eq("events.user_id", user!.id)
       .single();
 
     if (error || !image) {

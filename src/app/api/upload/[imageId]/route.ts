@@ -27,17 +27,22 @@ export async function PUT(
 ) {
   let imageIdForReport: string | undefined;
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { imageId } = await params;
     imageIdForReport = imageId;
 
-    // Look up the image record to get the r2_key + filename.
+    // Look up the image record — OWNERSHIP-SCOPED through the event chain. This
+    // route writes the request body over the stored original (uploadToR2 on
+    // image.r2_key below), so an unscoped lookup let any logged-in user
+    // overwrite ANY tenant's photo. The !inner join makes a foreign image not
+    // match (same guard as /api/upload/complete).
     const { data: image, error: imageError } = await supabase
       .from("images")
-      .select("id, r2_key, mime_type, media_type, filename, event_id")
+      .select("id, r2_key, mime_type, media_type, filename, event_id, events!event_id!inner(user_id)")
       .eq("id", imageId)
+      .eq("events.user_id", user!.id)
       .single();
 
     if (imageError || !image) {
@@ -59,10 +64,12 @@ export async function PUT(
     //    the ffmpeg pipeline that /api/upload/complete dispatches.
     let thumbnailed = false;
     let dominantColor: string | null = null;
+    let dims: { width: number | null; height: number | null } = { width: null, height: null };
     if (image.media_type !== "video") {
       try {
         const thumbs = await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
         dominantColor = thumbs.dominantColor;
+        dims = { width: thumbs.width, height: thumbs.height };
         thumbnailed = true;
       } catch (thumbErr) {
         console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
@@ -75,11 +82,20 @@ export async function PUT(
 
     // 3. Record thumbnail success with the service client (bypasses RLS for
     //    this server-side write). Status is set by /api/upload/complete.
+    //    Persist width/height from sharp (orientation-aware, reliable) so the
+    //    grid gets correct tile aspect ratios even when the client's EXIF
+    //    extraction yields no dimensions — the cause of hundreds of rows with
+    //    thumbnails but null width/height (they fell back to a 3:4 guess).
     if (thumbnailed) {
       const service = createServiceClient();
       await service
         .from("images")
-        .update({ thumbnail_generated: true, ...(dominantColor ? { dominant_color: dominantColor } : {}) })
+        .update({
+          thumbnail_generated: true,
+          ...(dims.width ? { width: dims.width } : {}),
+          ...(dims.height ? { height: dims.height } : {}),
+          ...(dominantColor ? { dominant_color: dominantColor } : {}),
+        })
         .eq("id", imageId);
 
       // Uploads straight into a website section (TDP Website gallery) can only

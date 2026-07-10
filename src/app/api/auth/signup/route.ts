@@ -66,6 +66,11 @@ export async function POST(request: NextRequest) {
     const resendKey = process.env.RESEND_API_KEY;
     const notifyEmail = process.env.RESEND_FROM_EMAIL || "info@simplephotoshare.com";
     if (resendKey) {
+      // Escape user-supplied values before dropping them into the admin email's
+      // HTML — otherwise a signup name/email can inject markup into our inbox.
+      const esc = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
       fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -77,8 +82,8 @@ export async function POST(request: NextRequest) {
           to: [notifyEmail],
           subject: `New signup: ${trimmedEmail}`,
           html: `<p>A new user just signed up for Pixeltrunk.</p>
-<p><strong>Email:</strong> ${trimmedEmail}</p>
-<p><strong>Name:</strong> ${fullName?.trim() || "(not provided)"}</p>
+<p><strong>Email:</strong> ${esc(trimmedEmail)}</p>
+<p><strong>Name:</strong> ${esc(fullName?.trim() || "(not provided)")}</p>
 <p><strong>Time:</strong> ${new Date().toISOString()}</p>`,
         }),
       }).catch((e) => console.error("Signup notification email failed:", e));

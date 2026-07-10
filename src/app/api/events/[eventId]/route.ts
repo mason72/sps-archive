@@ -18,16 +18,19 @@ export async function GET(
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const { supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { eventId } = await params;
 
-    // 1. Fetch event
+    // 1. Fetch event — OWNERSHIP-SCOPED. getAuthUser's service client bypasses
+    // RLS, so without the user_id filter this returned any tenant's full
+    // gallery (images + presigned thumbs) to any logged-in user (lessons #2/#14).
     const { data: event, error: eventError } = await supabase
       .from("events")
       .select("*")
       .eq("id", eventId)
+      .eq("user_id", user!.id)
       .single();
 
     if (eventError || !event) {
@@ -316,12 +319,15 @@ export async function PATCH(
     if (body.pinned !== undefined)
       updates.pinned_at = body.pinned ? new Date().toISOString() : null;
 
-    // Settings: deep merge with existing
+    // Settings: deep merge with existing (scope the read to the owner too —
+    // the merged value is only written via the user-scoped update below, but
+    // there's no reason to read another tenant's settings first).
     if (body.settings !== undefined) {
       const { data: existing } = await supabase
         .from("events")
         .select("settings")
         .eq("id", eventId)
+        .eq("user_id", user!.id)
         .single();
 
       const currentSettings =
