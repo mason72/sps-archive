@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 import { inngest } from "@/lib/inngest/client";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 // Thumbnail regeneration downloads the original + runs sharp — needs Node.
 export const runtime = "nodejs";
@@ -80,9 +81,28 @@ export async function POST(
       }
     } catch (genErr) {
       console.error(`Regenerate thumbnail failed for ${imageId}:`, genErr);
+      // NoSuchKey = the ORIGINAL is gone: this is a ghost row (a DB record
+      // whose binary never landed — the eBay HEADSHOTS failure mode), not a
+      // thumbnail problem. Report it distinctly and answer 410 so the client
+      // stops retrying something that can never succeed; the nightly
+      // reconciler deletes confirmed ghosts.
+      const missingOriginal =
+        (genErr as { Code?: string })?.Code === "NoSuchKey" ||
+        (genErr as { name?: string })?.name === "NoSuchKey";
+      await reportSystemError(
+        missingOriginal
+          ? "thumbnails.regenerate-missing-original"
+          : "thumbnails.regenerate",
+        genErr,
+        { imageId, eventId: image.event_id, r2Key: image.r2_key }
+      );
       return NextResponse.json(
-        { error: "Failed to regenerate thumbnail" },
-        { status: 500 }
+        {
+          error: missingOriginal
+            ? "Original file is missing from storage"
+            : "Failed to regenerate thumbnail",
+        },
+        { status: missingOriginal ? 410 : 500 }
       );
     }
 
@@ -100,6 +120,7 @@ export async function POST(
     return NextResponse.json({ success: true, thumbnailUrl });
   } catch (error) {
     console.error("Regenerate thumbnail error:", error);
+    await reportSystemError("thumbnails.regenerate", error, {});
     return NextResponse.json(
       { error: "Failed to regenerate thumbnail" },
       { status: 500 }

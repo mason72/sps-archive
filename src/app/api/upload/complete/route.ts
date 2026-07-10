@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth/helpers";
 import { generateThumbnails } from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
 import { inngest } from "@/lib/inngest/client";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 // Large originals (>4MB direct uploads) are downloaded here for thumbnailing;
 // give sharp room and a node runtime.
@@ -29,7 +30,14 @@ export const maxDuration = 120;
  * and /api/admin/batch-thumbnails backfills out of band.
  */
 export async function POST(request: NextRequest) {
+  let imageIdForReport: string | undefined;
   try {
+    // getAuthUser hands back the SERVICE client (bypasses RLS), so the image
+    // lookup below MUST carry the ownership join — without both, this route
+    // was an unauthenticated write endpoint (same hole as lessons #2/#14).
+    const { user, supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
+
     const body = await request.json();
     const { imageId, width, height, exif } = body as {
       imageId: string;
@@ -55,15 +63,16 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const supabase = createServiceClient();
+    imageIdForReport = imageId;
 
     // Look up the row so we know whether a thumbnail already exists (proxy path)
     // or still needs generating (direct >4MB path), and where the original is.
+    // The events!inner join is the ownership check — see auth note above.
     const { data: image, error: fetchError } = await supabase
       .from("images")
-      .select("r2_key, event_id, filename, thumbnail_generated, media_type")
+      .select("r2_key, event_id, filename, thumbnail_generated, media_type, events!event_id!inner(user_id)")
       .eq("id", imageId)
+      .eq("events.user_id", user!.id)
       .single();
 
     if (fetchError || !image) {
@@ -112,6 +121,7 @@ export async function POST(request: NextRequest) {
         // The retry path: /api/images/[id]/regenerate-thumbnail re-queues
         // this same event when the grid meets a posterless video.
         console.error(`Video pipeline dispatch failed for ${imageId}:`, sendErr);
+        await reportSystemError("upload.video-dispatch", sendErr, { imageId });
       }
 
       return NextResponse.json({ success: true, imageId });
@@ -136,6 +146,11 @@ export async function POST(request: NextRequest) {
         if (result.dominantColor) updateData.dominant_color = result.dominantColor;
       } catch (thumbErr) {
         console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+        await reportSystemError("upload.thumbnail-complete", thumbErr, {
+          imageId,
+          eventId: image.event_id,
+          r2Key: image.r2_key,
+        });
       }
     }
 
@@ -160,6 +175,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, imageId });
   } catch (error) {
     console.error("Upload complete error:", error);
+    await reportSystemError("upload.complete", error, { imageId: imageIdForReport });
     return NextResponse.json(
       { error: "Failed to complete upload" },
       { status: 500 }

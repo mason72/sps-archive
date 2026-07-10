@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { uploadToR2 } from "@/lib/r2/client";
 import { generateThumbnailsFromBuffer } from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 // Allow large file uploads (up to 100MB)
 export const runtime = "nodejs";
@@ -24,11 +25,13 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ imageId: string }> }
 ) {
+  let imageIdForReport: string | undefined;
   try {
     const { supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { imageId } = await params;
+    imageIdForReport = imageId;
 
     // Look up the image record to get the r2_key + filename.
     const { data: image, error: imageError } = await supabase
@@ -63,6 +66,10 @@ export async function PUT(
         thumbnailed = true;
       } catch (thumbErr) {
         console.error(`Thumbnail generation failed for ${imageId}:`, thumbErr);
+        await reportSystemError("upload.thumbnail-inline", thumbErr, {
+          imageId,
+          eventId: image.event_id,
+        });
       }
     }
 
@@ -88,6 +95,7 @@ export async function PUT(
     return NextResponse.json({ success: true, imageId, thumbnailed });
   } catch (error) {
     console.error("File upload error:", error);
+    await reportSystemError("upload.proxy-put", error, { imageId: imageIdForReport });
     return NextResponse.json(
       { error: "Failed to upload file" },
       { status: 500 }

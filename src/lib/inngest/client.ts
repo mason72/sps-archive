@@ -38,6 +38,10 @@ type Events = {
       jobId: string;
     };
   };
+  // Manual trigger for the nightly upload reconciler (on-demand sweeps).
+  "reconciler/run": {
+    data: Record<string, never>;
+  };
 };
 
 export const inngest = new Inngest({

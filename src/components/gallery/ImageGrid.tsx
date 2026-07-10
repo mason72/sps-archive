@@ -25,6 +25,16 @@ import { SmartStack } from "./SmartStack";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
 
+/** How long a "pending" row counts as an upload-in-progress (placeholder tile,
+ *  no thumbnail fetch) before we treat it as a straggler worth loading. */
+const SETTLE_WINDOW_MS = 15 * 60 * 1000;
+
+/** Page-wide cap on concurrent self-heal regenerations. Each one downloads the
+ *  original and runs sharp ×3 server-side — a grid of broken tiles must
+ *  trickle-heal, never stampede (the amplifier in the eBay incident). */
+let regenInFlight = 0;
+const REGEN_MAX_CONCURRENT = 3;
+
 interface ImageGridProps {
   images: ImageData[];
   stacks: StackData[];
@@ -524,6 +534,17 @@ function GridImage({
   const triedFallback = useRef(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // An upload still settling (row "pending" and freshly created) has no
+  // derivative yet BY DESIGN — requesting one can only 404, and before this
+  // guard that 404 fired a regenerate call whose original-download + sharp run
+  // piled onto the already-busy upload functions. During a burst upload the
+  // grid refreshes every ~1.5s, so that feedback loop produced 800+ pointless
+  // 500s in the eBay HEADSHOTS incident. Render a quiet placeholder instead;
+  // the live refresh swaps the real tile in as soon as the row completes.
+  const isSettling =
+    image.processingStatus === "pending" &&
+    Date.now() - new Date(image.createdAt).getTime() < SETTLE_WINDOW_MS;
+
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       // Shift+click → range select (immediate, no debounce)
@@ -669,7 +690,11 @@ function GridImage({
             : "3 / 4",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {isSettling ? (
+          // Upload in flight — no derivative exists yet. Quiet pulse, no fetch.
+          <div className="absolute inset-0 animate-pulse bg-stone-200/70" />
+        ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
         <img
           ref={imgRef}
           src={image.thumbnailUrl}
@@ -706,17 +731,40 @@ function GridImage({
               return;
             }
             triedFallback.current = true;
+            // A pending row past the settle window either has no original yet
+            // or never will (ghost) — regenerating can't succeed and the storm
+            // it feeds is worse than a placeholder. The live refresh or the
+            // nightly reconciler resolves the row either way.
+            if (image.processingStatus === "pending") {
+              imgRef.current.style.display = "none";
+              setLoaded(true);
+              return;
+            }
             try {
-              const regen = await fetch(
-                `/api/images/${image.id}/regenerate-thumbnail`,
-                { method: "POST" }
-              );
-              if (regen.ok) {
-                const { thumbnailUrl } = await regen.json();
-                if (thumbnailUrl && imgRef.current) {
-                  imgRef.current.srcset = ""; // srcset outranks src — clear it
-                  imgRef.current.src = thumbnailUrl;
-                  return;
+              if (regenInFlight < REGEN_MAX_CONCURRENT) {
+                regenInFlight++;
+                try {
+                  const regen = await fetch(
+                    `/api/images/${image.id}/regenerate-thumbnail`,
+                    { method: "POST" }
+                  );
+                  if (regen.ok) {
+                    const { thumbnailUrl } = await regen.json();
+                    if (thumbnailUrl && imgRef.current) {
+                      imgRef.current.srcset = ""; // srcset outranks src — clear it
+                      imgRef.current.src = thumbnailUrl;
+                      return;
+                    }
+                  } else if (regen.status === 410) {
+                    // Original is gone from storage (confirmed ghost) — the
+                    // original fallback below would fail too. Placeholder it;
+                    // the nightly reconciler removes the row.
+                    if (imgRef.current) imgRef.current.style.display = "none";
+                    setLoaded(true);
+                    return;
+                  }
+                } finally {
+                  regenInFlight--;
                 }
               }
               // Videos: regeneration re-queues the poster job (async) and the
@@ -726,7 +774,7 @@ function GridImage({
                 setLoaded(true);
                 return;
               }
-              // Regeneration failed — fall back to the signed original.
+              // Regeneration failed/skipped — fall back to the signed original.
               const res = await fetch(`/api/images/${image.id}`);
               if (res.ok) {
                 const detail = await res.json();
@@ -743,6 +791,7 @@ function GridImage({
             setLoaded(true);
           }}
         />
+        )}
       </div>
       {showFilename && image.originalFilename && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none z-[2]">

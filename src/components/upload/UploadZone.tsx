@@ -65,6 +65,9 @@ interface UploadFile {
   /** When status is "duplicate": the existing image ids in this section that
    *  share this filename (deleted if the user chooses Replace). */
   existingImageIds?: string[];
+  /** Error state where the BINARY is safely in R2 but /api/upload/complete
+   *  never succeeded — retry re-finalizes instead of re-uploading. */
+  finalizeNeeded?: boolean;
 }
 
 /**
@@ -178,6 +181,9 @@ export function UploadZone({
 }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [corsError, setCorsError] = useState(false);
+  // True while the end-of-session server check runs — holds the auto-clear
+  // so a row the server disputes can be flipped back to an error in place.
+  const [reconciling, setReconciling] = useState(false);
 
   const abortRef = useRef(false);
   const corsFailureCount = useRef(0);
@@ -240,10 +246,67 @@ export function UploadZone({
     }
   }, []);
 
+  // Finalize an upload whose binary is in R2: extract EXIF (best-effort) and
+  // POST /api/upload/complete until it sticks. Returns true only on a
+  // server-confirmed 2xx — the caller must NOT mark the file complete
+  // otherwise (claiming success on an unconfirmed finalize left 458 images
+  // stuck "pending" in the eBay HEADSHOTS incident).
+  const finalizeUpload = useCallback(
+    async (imageId: string, file: File): Promise<boolean> => {
+      let exifData: Record<string, unknown> = {};
+      if (!isVideoMime(file.type)) {
+        try {
+          const buf = await file.arrayBuffer();
+          const exif = await extractExif(buf);
+          if (exif) exifData = exif;
+        } catch {
+          // EXIF is non-critical
+        }
+      }
+
+      const COMPLETE_RETRIES = 2;
+      for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
+        try {
+          const res = await fetch("/api/upload/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageId,
+              width: (exifData as { width?: number }).width ?? null,
+              height: (exifData as { height?: number }).height ?? null,
+              exif: exifData,
+            }),
+          });
+          if (res.ok) return true;
+        } catch {
+          // retry
+        }
+        if (attempt < COMPLETE_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+      return false;
+    },
+    []
+  );
+
+  // A task abandoned mid-session (Cancel, navigation) must not leave its
+  // pre-created DB row behind as a ghost tile.
+  const cancelTask = useCallback(
+    async (task: UploadTask) => {
+      removeFiles(new Set([task.fileId]));
+      await deleteOrphanRow(task.imageId);
+    },
+    [removeFiles, deleteOrphanRow]
+  );
+
   // ─── Upload a single task (proxy for small files, direct for large) ───
   const uploadOne = useCallback(
     async (task: UploadTask) => {
-      if (abortRef.current) return;
+      if (abortRef.current) {
+        await cancelTask(task);
+        return;
+      }
 
       const useProxy = task.file.size <= PROXY_MAX_BYTES;
 
@@ -266,7 +329,10 @@ export function UploadZone({
       let ok = false;
       let lastErr: unknown;
       for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
-        if (abortRef.current) return;
+        if (abortRef.current) {
+          await cancelTask(task);
+          return;
+        }
         try {
           const res = await putWithProgress(target, task.file, {
             timeoutMs: uploadTimeoutMs(task.file.size),
@@ -302,6 +368,11 @@ export function UploadZone({
       }
 
       if (!ok) {
+        // A batch canceled mid-flight is cleanup, not an error.
+        if (abortRef.current) {
+          await cancelTask(task);
+          return;
+        }
         failedFilesRef.current.push(task.file);
         // Clean up the pre-created DB row so a failed upload never leaves a
         // backing-less "ghost" image (the cause of broken tiles).
@@ -320,51 +391,29 @@ export function UploadZone({
 
       corsFailureCount.current = 0;
 
-      // Extract EXIF (best-effort) and tell the server we're done. Videos
-      // skip it — exifr can't read them, and buffering a 500 MB reel into
-      // memory for nothing would hurt; their metadata (duration, dimensions,
-      // audio) comes from the server-side ffprobe pipeline instead.
-      let exifData: Record<string, unknown> = {};
-      if (!isVideoMime(task.file.type)) {
-        try {
-          const buf = await task.file.arrayBuffer();
-          const exif = await extractExif(buf);
-          if (exif) exifData = exif;
-        } catch {
-          // EXIF is non-critical
-        }
+      // Tell the server we're done. If finalize can't be CONFIRMED, the file
+      // is an error the user can see and retry — never a silent "complete".
+      // (The binary is safe in R2, so retry only re-finalizes.)
+      const finalized = await finalizeUpload(task.imageId, task.file);
+      if (!finalized) {
+        failedFilesRef.current.push(task.file);
+        updateFile(task.fileId, {
+          status: "error",
+          error: "Uploaded, but not confirmed — retry",
+          imageId: task.imageId,
+          finalizeNeeded: true,
+        });
+        return;
       }
 
-      const COMPLETE_RETRIES = 2;
-      for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
-        try {
-          const res = await fetch("/api/upload/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              imageId: task.imageId,
-              width: (exifData as { width?: number }).width ?? null,
-              height: (exifData as { height?: number }).height ?? null,
-              exif: exifData,
-            }),
-          });
-          if (res.ok) break;
-        } catch {
-          // retry
-        }
-        if (attempt < COMPLETE_RETRIES) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      // Mark complete — the binary is in R2 and the row exists. The grid can
-      // show it now, and the row falls off the upload list (it's filtered out
-      // of the displayed list below).
+      // Mark complete — the binary is in R2 and the server confirmed the row.
+      // The grid can show it now, and the row falls off the upload list (it's
+      // filtered out of the displayed list below).
       updateFile(task.fileId, { status: "complete", progress: 100, imageId: task.imageId });
       completedIdsRef.current.push(task.imageId);
       onImageUploaded?.(task.imageId);
     },
-    [updateFile, onImageUploaded, deleteOrphanRow]
+    [updateFile, onImageUploaded, deleteOrphanRow, finalizeUpload, cancelTask]
   );
 
   // ─── Worker pool: pulls from the shared queue until it's drained ───
@@ -654,6 +703,125 @@ export function UploadZone({
     await uploadEntries(dupes.map((d) => ({ ...d, status: "pending" as FileStatus })));
   }, [duplicateFiles, updateFile, uploadEntries]);
 
+  // ─── Cancel: stop the session AND clean up every pre-created row ───
+  // The old cancel just emptied the queue, stranding one presign-created DB
+  // row per queued file — the largest single source of the eBay HEADSHOTS
+  // ghost tiles. In-flight workers clean their own rows via the abort path
+  // in uploadOne; not-yet-presigned entries have no rows to clean.
+  const cancelUpload = useCallback(() => {
+    abortRef.current = true;
+    const queued = queueRef.current;
+    queueRef.current = [];
+    const dropIds = new Set(queued.map((t) => t.fileId));
+    setFiles((prev) => {
+      prev.forEach((f) => {
+        if (dropIds.has(f.id) || f.status === "pending") {
+          URL.revokeObjectURL(f.previewUrl);
+          objectUrls.current.delete(f.previewUrl);
+        }
+      });
+      return prev.filter((f) => !dropIds.has(f.id) && f.status !== "pending");
+    });
+    const queuedIds = queued.map((t) => t.imageId);
+    for (let s = 0; s < queuedIds.length; s += 500) {
+      fetch("/api/images/batch", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageIds: queuedIds.slice(s, s + 500) }),
+        keepalive: true,
+      }).catch(() => {
+        /* the nightly reconciler is the backstop */
+      });
+    }
+  }, []);
+
+  // ─── Leaving mid-upload: warn, and clean up what provably can't finish ───
+  // beforeunload prompts before the tab closes/navigates while uploads run.
+  // pagehide (fires even when the user leaves anyway) deletes the rows of
+  // QUEUED-but-never-started files via keepalive fetch. In-flight uploads die
+  // with the page and can't be cleaned from here — the nightly reconciler
+  // sweeps those.
+  useEffect(() => {
+    if (!isUploading) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    const onPageHide = () => {
+      const queuedIds = queueRef.current.map((t) => t.imageId);
+      queueRef.current = [];
+      for (let s = 0; s < queuedIds.length; s += 500) {
+        fetch("/api/images/batch", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: queuedIds.slice(s, s + 500) }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [isUploading]);
+
+  // ─── End-of-session truth check against the server ───
+  // Ask /api/upload/reconcile whether every id we counted as complete is
+  // actually finalized. Anything the server disputes flips back to a visible,
+  // retryable error — local bookkeeping never gets the last word.
+  const reconcileCompleted = useCallback(
+    async (ids: string[]) => {
+      const unfinalized = new Set<string>();
+      const missing = new Set<string>();
+      for (let s = 0; s < ids.length; s += 500) {
+        try {
+          const res = await fetch("/api/upload/reconcile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageIds: ids.slice(s, s + 500) }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              unfinalized?: string[];
+              missing?: string[];
+            };
+            data.unfinalized?.forEach((id) => unfinalized.add(id));
+            data.missing?.forEach((id) => missing.add(id));
+          }
+        } catch {
+          /* best-effort; the nightly reconciler is the backstop */
+        }
+      }
+      if (unfinalized.size === 0 && missing.size === 0) return;
+      setFiles((prev) =>
+        prev.map((f) => {
+          if (!f.imageId || f.status !== "complete") return f;
+          if (unfinalized.has(f.imageId)) {
+            // Binary landed; only the finalize is missing.
+            return {
+              ...f,
+              status: "error" as FileStatus,
+              error: "Not confirmed by server — retry",
+              finalizeNeeded: true,
+            };
+          }
+          if (missing.has(f.imageId)) {
+            // Row vanished entirely — needs a full re-upload.
+            return {
+              ...f,
+              status: "error" as FileStatus,
+              error: "Upload lost — retry",
+              finalizeNeeded: false,
+            };
+          }
+          return f;
+        })
+      );
+    },
+    []
+  );
+
   // ─── Report progress up to the page (single unified bar lives there) ───
   useEffect(() => {
     onProgressChange?.({
@@ -679,11 +847,15 @@ export function UploadZone({
         failedFilesRef.current = [];
       }
       if (completedIdsRef.current.length > 0) {
-        onUploadComplete?.(completedIdsRef.current);
+        const completedIds = completedIdsRef.current;
         completedIdsRef.current = [];
+        onUploadComplete?.(completedIds);
+        // Verify against the server before letting the rows clear.
+        setReconciling(true);
+        reconcileCompleted(completedIds).finally(() => setReconciling(false));
       }
     }
-  }, [isUploading, onUploadComplete, onUploadFailed]);
+  }, [isUploading, onUploadComplete, onUploadFailed, reconcileCompleted]);
 
   // ─── Auto-clear once everything has succeeded ───
   // When nothing is in flight and there's nothing left to act on (no errors,
@@ -691,7 +863,7 @@ export function UploadZone({
   // empty list is the "you're done" signal. Held duplicates/errors keep the
   // block alive until resolved. Only complete rows are cleared.
   useEffect(() => {
-    if (!isUploading && errorCount === 0 && duplicateCount === 0 && files.length > 0) {
+    if (!isUploading && !reconciling && errorCount === 0 && duplicateCount === 0 && files.length > 0) {
       const t = setTimeout(() => {
         setFiles((prev) => {
           prev.forEach((f) => {
@@ -705,10 +877,35 @@ export function UploadZone({
       }, 600);
       return () => clearTimeout(t);
     }
-  }, [isUploading, errorCount, duplicateCount, files.length]);
+  }, [isUploading, reconciling, errorCount, duplicateCount, files.length]);
+
+  // Retry a finalize-only failure: the binary is already in R2, so just
+  // re-run /api/upload/complete rather than re-uploading the bytes.
+  const retryFinalize = useCallback(
+    async (entry: UploadFile) => {
+      if (!entry.imageId) return;
+      updateFile(entry.id, { status: "uploading", progress: 100, error: undefined });
+      const finalized = await finalizeUpload(entry.imageId, entry.file);
+      if (finalized) {
+        updateFile(entry.id, { status: "complete", finalizeNeeded: false });
+        completedIdsRef.current.push(entry.imageId);
+        onImageUploaded?.(entry.imageId);
+      } else {
+        updateFile(entry.id, {
+          status: "error",
+          error: "Uploaded, but not confirmed — retry",
+        });
+      }
+    },
+    [updateFile, finalizeUpload, onImageUploaded]
+  );
 
   const retryFile = useCallback(
     async (entry: UploadFile) => {
+      if (entry.finalizeNeeded && entry.imageId) {
+        await retryFinalize(entry);
+        return;
+      }
       if (entry.imageId) {
         try {
           await fetch("/api/images/batch", {
@@ -723,13 +920,21 @@ export function UploadZone({
       removeFiles(new Set([entry.id]));
       onDrop([entry.file]);
     },
-    [onDrop, removeFiles]
+    [onDrop, removeFiles, retryFinalize]
   );
 
   const retryAllFailed = useCallback(async () => {
     const errorFiles = files.filter((f) => f.status === "error");
-    const errorIds = new Set(errorFiles.map((f) => f.id));
-    const orphanImageIds = errorFiles
+
+    // Finalize-only failures re-confirm in place (binary already in R2).
+    const finalizeRetries = errorFiles.filter((f) => f.finalizeNeeded && f.imageId);
+    await Promise.all(finalizeRetries.map((f) => retryFinalize(f)));
+
+    // True upload failures re-upload from scratch (delete ghost row first).
+    const reuploads = errorFiles.filter((f) => !(f.finalizeNeeded && f.imageId));
+    if (reuploads.length === 0) return;
+    const errorIds = new Set(reuploads.map((f) => f.id));
+    const orphanImageIds = reuploads
       .map((f) => f.imageId)
       .filter(Boolean) as string[];
     if (orphanImageIds.length > 0) {
@@ -743,10 +948,10 @@ export function UploadZone({
         /* non-critical */
       }
     }
-    const rawFiles = errorFiles.map((f) => f.file);
+    const rawFiles = reuploads.map((f) => f.file);
     removeFiles(errorIds);
     onDrop(rawFiles);
-  }, [files, onDrop, removeFiles]);
+  }, [files, onDrop, removeFiles, retryFinalize]);
 
   return (
     <div className="space-y-6">
@@ -894,10 +1099,7 @@ export function UploadZone({
               )}
               {isUploading && (
                 <button
-                  onClick={() => {
-                    abortRef.current = true;
-                    queueRef.current = [];
-                  }}
+                  onClick={cancelUpload}
                   className="text-[12px] text-red-400 hover:text-red-600 transition-colors duration-300"
                 >
                   Cancel

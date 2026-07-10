@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -202,6 +203,19 @@ export async function uploadStreamToR2(
     leavePartsOnError: false,
   });
   await upload.done();
+}
+
+/**
+ * Does an object exist in R2? (HEAD — no body transfer.)
+ * Used by the upload reconciler to tell a slow upload from a ghost row.
+ */
+export async function objectExistsInR2(key: string): Promise<boolean> {
+  try {
+    await R2.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Delete a file from R2 */

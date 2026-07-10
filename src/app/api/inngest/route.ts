@@ -7,6 +7,7 @@ import {
   favoritesDigest,
   zipBuild,
   zipCleanup,
+  uploadReconciler,
 } from "@/lib/inngest/functions";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
@@ -22,5 +23,6 @@ export const { GET, POST, PUT } = serve({
     favoritesDigest,
     zipBuild,
     zipCleanup,
+    uploadReconciler,
   ],
 });

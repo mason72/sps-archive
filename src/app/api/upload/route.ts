@@ -7,6 +7,7 @@ import {
 } from "@/lib/r2/client";
 import { parseFilename } from "@/lib/upload/parse-filename";
 import { mediaTypeForMime, validateUploadFile } from "@/lib/upload/media";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/upload
@@ -15,6 +16,8 @@ import { mediaTypeForMime, validateUploadFile } from "@/lib/upload/media";
  * The actual file binary is uploaded via PUT /api/upload/[imageId].
  */
 export async function POST(request: NextRequest) {
+  let eventIdForReport: string | undefined;
+  let fileCountForReport: number | undefined;
   try {
     const { supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
@@ -32,6 +35,9 @@ export async function POST(request: NextRequest) {
        */
       skipSection?: boolean;
     };
+
+    eventIdForReport = eventId;
+    fileCountForReport = files?.length;
 
     if (!eventId || !files?.length) {
       return NextResponse.json(
@@ -166,12 +172,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate presigned upload URLs so the browser uploads directly to R2
-    // (bypasses the ~4.5MB Vercel request body limit)
+    // (bypasses the ~4.5MB Vercel request body limit). 4h expiry: URLs are
+    // minted 50 at a time up front but drain 12 at a time, so in a multi-
+    // thousand-file session a task can sit in the queue well past 1h — an
+    // expired URL then fails the PUT with a 403 (the eBay HEADSHOTS incident).
     const uploads = await Promise.all(
       records.map(async (r) => ({
         imageId: r.id,
         r2Key: r.r2Key,
-        uploadUrl: await getPresignedUploadUrl(r.r2Key, r.file.type, 3600),
+        uploadUrl: await getPresignedUploadUrl(r.r2Key, r.file.type, 14400),
         originalFilename: r.file.name,
         parsedName: r.parsed.name,
       }))
@@ -180,6 +189,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ uploads, sectionId: targetSectionId });
   } catch (error) {
     console.error("Upload error:", error);
+    await reportSystemError("upload.presign", error, { eventId: eventIdForReport, fileCount: fileCountForReport });
     return NextResponse.json(
       { error: "Failed to prepare upload" },
       { status: 500 }

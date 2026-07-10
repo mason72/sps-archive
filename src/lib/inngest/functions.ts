@@ -6,7 +6,7 @@ import { syncSitePublication } from "@/lib/site/membership";
 import { processVideoViaModal } from "@/lib/video/process";
 import { findDigestCandidates, sendShareDigest } from "@/lib/favorites/digest-send";
 import { buildShareZip } from "@/lib/zip/build-share-zip";
-import { deleteFromR2 } from "@/lib/r2/client";
+import { deleteFromR2, objectExistsInR2 } from "@/lib/r2/client";
 
 /**
  * AI PROCESSING IS DISABLED.
@@ -260,6 +260,241 @@ export const zipBuild = inngest.createFunction(
         throw err;
       }
     });
+  }
+);
+
+/**
+ * Nightly upload reconciler — the safety net under the whole upload pipeline.
+ *
+ * Uploads can be abandoned mid-session (tab closed, Cancel, saturation): the
+ * presign step pre-creates DB rows, so a dropped upload leaves either a GHOST
+ * (row with no binary in R2 — renders as a broken tile forever) or an
+ * UNFINALIZED row (binary landed but /complete never ran — stuck "pending").
+ * The eBay HEADSHOTS incident (2026-07-06) left 413 ghosts + 45 unfinalized
+ * rows and nobody knew for three days.
+ *
+ * Sweep, for every image stuck "pending" for >30 minutes:
+ *  - original in R2 → backfill thumbnails if needed, flip to complete
+ *  - original in R2, video → re-queue the ffmpeg poster pipeline
+ *  - no original and row >24h old → confirmed ghost: delete the row
+ *  - no original but <24h old → leave (a retry may still be coming); count it
+ * Also backfills thumbnails for "complete" images whose thumbnail generation
+ * failed (grid self-heal covers viewed tiles; this covers the rest).
+ *
+ * Anything done is recorded in system_errors (queryable history) and emailed
+ * to the admin with per-gallery ghost filenames, so the photographer can be
+ * told exactly what to re-upload.
+ */
+const RECONCILE_STALE_MINUTES = 30;
+const RECONCILE_GHOST_HOURS = 24;
+const RECONCILE_BATCH = 400; // rows examined per night
+const RECONCILE_THUMB_CAP = 50; // sharp runs per night (heavy)
+
+export const uploadReconciler = inngest.createFunction(
+  { id: "upload-reconciler", retries: 1 },
+  // Nightly at 2:43am PT, plus an event trigger for on-demand sweeps
+  // (first-run backfills, post-incident cleanup).
+  [{ cron: "43 9 * * *" }, { event: "reconciler/run" }],
+  async ({ step }) => {
+    const stats = await step.run("reconcile", async () => {
+      const supabase = createServiceClient();
+      const staleCutoff = new Date(
+        Date.now() - RECONCILE_STALE_MINUTES * 60 * 1000
+      ).toISOString();
+      const ghostCutoff = new Date(
+        Date.now() - RECONCILE_GHOST_HOURS * 60 * 60 * 1000
+      ).toISOString();
+
+      // Stuck-pending rows, oldest first.
+      const { data: stalePending, error: pendingErr } = await supabase
+        .from("images")
+        .select(
+          "id, r2_key, event_id, filename, original_filename, media_type, thumbnail_generated, width, height, created_at, events!event_id(name)"
+        )
+        .eq("processing_status", "pending")
+        .lt("created_at", staleCutoff)
+        .order("created_at", { ascending: true })
+        .limit(RECONCILE_BATCH);
+      if (pendingErr) throw pendingErr;
+
+      // Complete-but-thumbless images (thumbnail generation failed earlier).
+      const { data: thumbless, error: thumblessErr } = await supabase
+        .from("images")
+        .select(
+          "id, r2_key, event_id, filename, original_filename, media_type, thumbnail_generated, width, height, created_at, events!event_id(name)"
+        )
+        .eq("processing_status", "complete")
+        .eq("thumbnail_generated", false)
+        .neq("media_type", "video")
+        .lt("created_at", staleCutoff)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      if (thumblessErr) throw thumblessErr;
+
+      const result = {
+        examined: (stalePending?.length ?? 0) + (thumbless?.length ?? 0),
+        finalized: 0,
+        thumbsBackfilled: 0,
+        videosRequeued: 0,
+        ghostsDeleted: 0,
+        watching: 0, // missing original but too young to delete
+        failures: 0,
+        ghostsByEvent: {} as Record<string, string[]>,
+      };
+      let thumbBudget = RECONCILE_THUMB_CAP;
+
+      type Row = NonNullable<typeof stalePending>[number];
+      const heal = async (row: Row, wasPending: boolean) => {
+        const exists = await objectExistsInR2(row.r2_key);
+
+        if (!exists) {
+          if (row.created_at < ghostCutoff) {
+            // Confirmed ghost — delete (cascades clean section links etc.).
+            // Guarded so a row that progressed since the read is untouched.
+            const { error: delErr } = await supabase
+              .from("images")
+              .delete()
+              .eq("id", row.id)
+              .eq("thumbnail_generated", false);
+            if (delErr) {
+              result.failures++;
+              return;
+            }
+            result.ghostsDeleted++;
+            const eventName =
+              (row.events as { name?: string } | null)?.name ?? row.event_id;
+            (result.ghostsByEvent[eventName] ??= []).push(
+              row.original_filename ?? row.filename
+            );
+          } else {
+            result.watching++;
+          }
+          return;
+        }
+
+        if (row.media_type === "video") {
+          if (wasPending) {
+            await inngest.send({
+              name: "video/uploaded",
+              data: { imageId: row.id, eventId: row.event_id, r2Key: row.r2_key },
+            });
+            result.videosRequeued++;
+          }
+          return;
+        }
+
+        try {
+          const update: Record<string, unknown> = {
+            processing_status: "complete",
+          };
+          if (!row.thumbnail_generated) {
+            if (thumbBudget <= 0) return; // next night picks it up
+            thumbBudget--;
+            const thumbs = await generateThumbnails(
+              row.r2_key,
+              row.event_id,
+              row.filename
+            );
+            update.thumbnail_generated = true;
+            if (!row.width && thumbs.width) update.width = thumbs.width;
+            if (!row.height && thumbs.height) update.height = thumbs.height;
+            if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
+            result.thumbsBackfilled++;
+          } else {
+            result.finalized++;
+          }
+          const { error: upErr } = await supabase
+            .from("images")
+            .update(update)
+            .eq("id", row.id);
+          if (upErr) throw upErr;
+          await syncSitePublication(supabase, [row.id]);
+        } catch (err) {
+          console.error(`Reconciler heal failed for ${row.id}:`, err);
+          result.failures++;
+        }
+      };
+
+      // Small-batch concurrency: HEADs are cheap but sharp is not.
+      const queue: Array<{ row: Row; wasPending: boolean }> = [
+        ...(stalePending ?? []).map((row) => ({ row, wasPending: true })),
+        ...(thumbless ?? []).map((row) => ({ row, wasPending: false })),
+      ];
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: 4 }, async () => {
+          while (cursor < queue.length) {
+            const item = queue[cursor++];
+            await heal(item.row, item.wasPending);
+          }
+        })
+      );
+
+      return result;
+    });
+
+    const acted =
+      stats.finalized +
+        stats.thumbsBackfilled +
+        stats.videosRequeued +
+        stats.ghostsDeleted +
+        stats.failures >
+      0;
+
+    if (acted) {
+      await step.run("report", async () => {
+        const supabase = createServiceClient();
+        const summary = `finalized ${stats.finalized}, thumbs ${stats.thumbsBackfilled}, videos re-queued ${stats.videosRequeued}, ghosts deleted ${stats.ghostsDeleted}, watching ${stats.watching}, failures ${stats.failures}`;
+
+        // Queryable history row (notified=true: this step sends its own email).
+        await supabase.from("system_errors").insert({
+          context: "upload.reconciler",
+          message: summary,
+          detail: JSON.parse(JSON.stringify(stats)),
+          notified: true,
+        });
+
+        const adminEmail = process.env.ADMIN_ALERT_EMAIL;
+        const resendKey = process.env.RESEND_API_KEY;
+        if (!adminEmail || !resendKey) return;
+
+        const ghostLines = Object.entries(stats.ghostsByEvent).flatMap(
+          ([eventName, files]) => [
+            "",
+            `${eventName} — ${files.length} lost upload(s), ask for a re-upload of:`,
+            ...files.slice(0, 30).map((f) => `  • ${f}`),
+            ...(files.length > 30 ? [`  …and ${files.length - 30} more`] : []),
+          ]
+        );
+
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: `Pixeltrunk Alerts <${process.env.RESEND_FROM_EMAIL || "gallery@resend.dev"}>`,
+            to: [adminEmail],
+            subject: `[Pixeltrunk] Nightly upload reconciler: ${summary}`,
+            text: [
+              "The nightly upload reconciler found work to do.",
+              "",
+              `Examined: ${stats.examined} stale rows`,
+              `Finalized (binary fine, status was stuck): ${stats.finalized}`,
+              `Thumbnails backfilled: ${stats.thumbsBackfilled}`,
+              `Videos re-queued: ${stats.videosRequeued}`,
+              `Ghost rows deleted (binary never landed): ${stats.ghostsDeleted}`,
+              `Watching (missing binary, <24h old): ${stats.watching}`,
+              `Failures (will retry next night): ${stats.failures}`,
+              ...ghostLines,
+            ].join("\n"),
+          }),
+        });
+      });
+    }
+
+    return stats;
   }
 );
 
