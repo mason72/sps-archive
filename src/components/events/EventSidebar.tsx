@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { SortSectionsModal } from "@/components/events/SortSectionsModal";
+import { findIntakeSectionId } from "@/lib/sections/intake";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { sceneForKey } from "@/lib/site/scenes";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -357,9 +358,10 @@ function SectionsPanel({
       return true;
     });
 
-  // New uploads always land in a real section: the selected one, or — when
-  // "All Images" is the view — the first section. Surfaced as a "Target" badge.
-  const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
+  // New uploads land in the selected section, or — when "All Images" is the
+  // view — the "Unsorted" intake (never Highlights). Surfaced as a "Target"
+  // badge; null shows the "→ Unsorted" hint (the intake is created on upload).
+  const uploadTargetId = activeSection ?? findIntakeSectionId(sections) ?? null;
 
   // AI_HIDDEN: hasAutoSections check disabled — AI backend not configured
   // const hasAutoSections = sections.some((s) => s.isAuto);

@@ -8,6 +8,7 @@ import {
 import { parseFilename } from "@/lib/upload/parse-filename";
 import { mediaTypeForMime, validateUploadFile } from "@/lib/upload/media";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 
 /**
  * POST /api/upload
@@ -102,27 +103,28 @@ export async function POST(request: NextRequest) {
 
     // INVARIANT: every image must belong to a real section — no orphans, ever.
     // "All Photos" is a derived view, not an upload target. When no section is
-    // specified, resolve the event's default (first) section, creating a
-    // "Highlights" section if the event somehow has none.
+    // specified, the default target is the "Unsorted" INTAKE (created on
+    // demand) — NEVER Highlights, which is reserved for the curated best-of.
     // (Cover uploads opt out via skipSection — they are not gallery images.)
     let targetSectionId = sectionId;
     if (!skipSection && !targetSectionId) {
-      const { data: firstSection } = await supabase
+      const { data: intake } = await supabase
         .from("sections")
         .select("id")
         .eq("event_id", eventId)
+        .ilike("name", INTAKE_SECTION_NAME)
         .order("sort_order", { ascending: true })
         .limit(1)
         .maybeSingle();
 
-      if (firstSection) {
-        targetSectionId = firstSection.id;
+      if (intake) {
+        targetSectionId = intake.id;
       } else {
         const { data: created, error: createErr } = await supabase
           .from("sections")
           .insert({
             event_id: eventId,
-            name: "Highlights",
+            name: INTAKE_SECTION_NAME,
             sort_order: 0,
             is_auto: false,
           })

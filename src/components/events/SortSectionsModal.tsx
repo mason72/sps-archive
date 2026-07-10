@@ -290,7 +290,8 @@ export function SortSectionsModal({ eventId, onClose, onApplied }: SortSectionsM
             {/* Footer */}
             <div className="flex items-center justify-between border-t border-stone-100 px-6 py-4">
               <p className="max-w-[55%] text-[11px] leading-tight text-stone-400">
-                Adds these sections. Highlights and anything you made by hand stay put.
+                Creates these sections and clears out Unsorted. Highlights and your
+                own sections stay put.
               </p>
               <div className="flex items-center gap-3">
                 <button

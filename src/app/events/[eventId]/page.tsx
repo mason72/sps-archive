@@ -31,6 +31,7 @@ import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages, deriveDisplayStacks } from "@/lib/gallery/derive-display";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
+import { findIntakeSectionId } from "@/lib/sections/intake";
 import type { EventSettings } from "@/types/event-settings";
 import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
 import { ImageGridSkeleton, EventSidebarSkeleton, Skeleton } from "@/components/ui/Skeleton";
@@ -286,10 +287,10 @@ export default function EventPage({
     failed: number;
   }>({ active: false, total: 0, uploaded: 0, failed: 0 });
 
-  // Uploads always target a real section: the selected one, or — when "All
-  // Images" is the view (activeSection null) — the first section. Never null
-  // once sections exist, so uploads can never become orphans.
-  const uploadTargetId = activeSection ?? sections[0]?.id ?? null;
+  // Uploads target the SELECTED section, or — when "All Images" is the view —
+  // the "Unsorted" intake (never Highlights). null when no intake exists yet;
+  // the upload route then creates one, so uploads still can't become orphans.
+  const uploadTargetId = activeSection ?? findIntakeSectionId(sections) ?? null;
 
   // Active website section's registry entry: drives the focal-point action
   // (slots) and the "extras are ignored" hints (slots + position-mapped).
@@ -360,9 +361,11 @@ export default function EventPage({
       // "Add Images / Hide Upload" toggle.
       if (!didInitSectionRef.current) {
         setShowUpload(data.images.length === 0);
-        // Default-select the first section (e.g. "Highlights") rather than
-        // "All Images" — reinforces that uploads land in a section.
-        if (data.sections.length > 0) setActiveSection(data.sections[0].id);
+        // Default-select the "Unsorted" intake so a fresh dump lands there,
+        // never Highlights. If there's no intake (e.g. an already-sorted
+        // event), open on "All Images" — a dump then creates a new intake
+        // rather than polluting a curated/named section.
+        setActiveSection(findIntakeSectionId(data.sections));
         didInitSectionRef.current = true;
       }
       // Load event settings

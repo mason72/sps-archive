@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { enrichEvents } from "@/lib/events/enrich";
+import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
 
 /** GET /api/events — List all events for the authenticated user */
@@ -104,12 +105,14 @@ export async function POST(request: NextRequest) {
 
       await supabase.from("sections").insert(sectionInserts);
     } else if (data) {
-      await supabase.from("sections").insert({
-        event_id: data.id,
-        name: "Highlights",
-        sort_order: 0,
-        is_auto: false,
-      });
+      // Seed two sections: "Unsorted" (the intake — where big dumps land so
+      // they never touch Highlights) at the top, then "Highlights" (reserved
+      // for the curated/exported best-of). "Sort into sections" later consumes
+      // Unsorted. Never name a real section "All Photos" (a derived view).
+      await supabase.from("sections").insert([
+        { event_id: data.id, name: INTAKE_SECTION_NAME, sort_order: 0, is_auto: false },
+        { event_id: data.id, name: CURATED_SECTION_NAME, sort_order: 1, is_auto: false },
+      ]);
     }
 
     return NextResponse.json({ event: data }, { status: 201 });

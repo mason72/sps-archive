@@ -6,6 +6,7 @@ import {
   type PlanMode,
   type PlanImage,
 } from "@/lib/sections/auto-plan";
+import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -142,6 +143,15 @@ export async function POST(
         if (linkErr) throw linkErr;
       }
     }
+
+    // Consume the "Unsorted" intake — the smart sections cover every image in
+    // the event, so its photos are now safely sectioned and the dump can go.
+    // (Cascade drops its section_images; Highlights + manual sections stay.)
+    await supabase
+      .from("sections")
+      .delete()
+      .eq("event_id", eventId)
+      .ilike("name", INTAKE_SECTION_NAME);
 
     // Return the updated section list with counts.
     const { data: sections, error: listErr } = await supabase
