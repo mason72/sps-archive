@@ -52,9 +52,23 @@ export function nameBeforeDate(filename: string): string | null {
  * and keep the parsed form.
  */
 export function stackPersonName(img: GalleryImage): string {
-  const parsed = img.parsedName?.trim();
-  if (!parsed) return extractPersonName(img.originalFilename);
-  const dated = nameBeforeDate(img.originalFilename);
+  return personNameFromParts(img.parsedName, img.originalFilename);
+}
+
+/**
+ * The person-name derivation, decoupled from GalleryImage so server code
+ * (auto-sections) can reuse the exact same logic on raw DB rows
+ * (parsed_name + original_filename). stackPersonName is the gallery-side
+ * wrapper. Keep the two in lockstep so sections and stacks always agree on
+ * who a photo belongs to.
+ */
+export function personNameFromParts(
+  parsedName: string | null | undefined,
+  originalFilename: string
+): string {
+  const parsed = parsedName?.trim();
+  if (!parsed) return extractPersonName(originalFilename);
+  const dated = nameBeforeDate(originalFilename);
   if (
     dated &&
     dated.length < parsed.length &&

@@ -1,5 +1,25 @@
 # Pixeltrunk - Build Plan
 
+## Auto-Sections [SHIPPED 2026-07-10]
+Phase 1–4 all done. `src/lib/sections/auto-plan.ts` (pure, 11 tests) — detectNaming + planAutoSections (letter-range / per-person / even; never splits a letter; unmatched→Misc; reuses `personNameFromParts` from stacks.ts, no AI). GET `/api/events/[eventId]/section-plan` (images+detection for the live preview) + POST `/api/events/[eventId]/auto-sections` (repurposed the dead AI route: wipe is_auto sections, materialize; Highlights/manual untouched; ownership-scoped, reportSystemError-wired). UI: "Sort into sections…" in the sidebar SectionsPanel → `SortSectionsModal` (detection summary, 3 mode cards, stacks toggle, max-per-section slider with smart default, live section list via the shared planner, Apply). E2E verified on a 45-photo/15-person test event: detection correct, letter/per-person/stacks all right, idempotent regenerate wipes only auto sections, Highlights preserved. 202 tests green, build green.
+Known follow-ups (raised with Mason): the big dump lands in Highlights (default upload target) so after sorting Highlights holds everything until curated — consider a "move out of the dump section" option or a real neutral catch-all. Idea parked: per-person direct links.
+
+## (superseded) ACTIVE: Auto-Sections — dump a big upload, let it sort itself [2026-07-10]
+Photographer dumps a giant headshot set, hits "Sort into sections," app creates balanced scannable sections (first-name letter ranges, or one-per-person for small jobs) so nobody hand-makes 15 sections. Optional per-person stacking. Live preview before applying. Regenerate anytime.
+
+**Decided:** preview button (not auto-on-finish) · name-based stacking (reuse `buildStacks`/`stackPersonName`, AI face path stays off) · "All Images" (derived) + "Highlights" (default) already exist · smart default + tap-to-override in the preview · auto sections are `is_auto:true` so regenerate wipes ONLY those (Highlights + manual untouched).
+
+Phase 1 — Pure logic (tested):
+- [ ] `src/lib/sections/auto-plan.ts`: `personNameFromParts` (refactor in stacks.ts), `detectNaming`, `planAutoSections` (letter-range / per-person / even, never split a letter, unmatched→Misc).
+- [ ] `auto-plan.test.ts`.
+Phase 2 — API (ownership-scoped):
+- [ ] `GET /api/events/[eventId]/section-plan` (units + detection for preview).
+- [ ] Repurpose `POST /api/events/[eventId]/auto-sections` (apply: wipe is_auto, materialize).
+Phase 3 — UI: "Sort into sections" in SectionsPanel → preview (mode toggle, stacks, slider, live section list) → Apply.
+Phase 4 — Verify (tests+build+E2E) + ship (SPS gate) + docs.
+Idea parked: per-person direct links (email each attendee a link to their stack).
+
+
 ## Phase 19: Backlog clear-out [DONE 2026-07-02]
 - [x] #15 Lightbox: one-time "← → to navigate" hint (localStorage) + square controls
       (public + preview). Verified live.

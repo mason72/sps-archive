@@ -16,11 +16,21 @@ describe("validateUploadFile", () => {
     ).toBeNull();
     expect(
       validateUploadFile({
-        name: "a.heic",
-        type: "image/heic",
+        name: "a.tif",
+        type: "image/tiff",
         size: IMAGE_MAX_BYTES,
       })
     ).toBeNull();
+  });
+
+  it("rejects HEIC with a convert-to-JPEG message (by mime AND extension)", () => {
+    expect(
+      validateUploadFile({ name: "a.heic", type: "image/heic", size: 1_000_000 })
+    ).toMatch(/HEIC.*JPEG/i);
+    // Browsers often report an empty MIME for .heic — match on extension too.
+    expect(
+      validateUploadFile({ name: "IMG_1234.HEIC", type: "", size: 1_000_000 })
+    ).toMatch(/HEIC.*JPEG/i);
   });
 
   it("rejects oversized images with a clear message", () => {

@@ -24,8 +24,10 @@ import {
   Upload,
   Search,
   X,
+  Sparkles,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
+import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { sceneForKey } from "@/lib/site/scenes";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -333,7 +335,7 @@ function SectionsPanel({
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [showSort, setShowSort] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   // ─── Section search + filters (long lists, e.g. the website gallery) ───
@@ -396,26 +398,28 @@ function SectionsPanel({
     }
   }, [eventId, newName, sections, onSectionsChange, onSetActiveSection, isWorkGallery, onSectionCreated]);
 
-  const handleGenerateSections = useCallback(async () => {
-    setIsGenerating(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/auto-sections`, {
-        method: "POST",
+  // "Sort into sections" applied — merge the returned list, preserving fields
+  // the auto-sections endpoint doesn't echo (siteSceneKey/jobMeta/locked).
+  const handleSortApplied = useCallback(
+    (returned: { id: string; name: string; isAuto: boolean; imageCount: number }[]) => {
+      const byId = new Map(sections.map((s) => [s.id, s]));
+      const merged: SectionItem[] = returned.map((r) => {
+        const existing = byId.get(r.id);
+        return {
+          id: r.id,
+          name: r.name,
+          isAuto: r.isAuto,
+          imageCount: r.imageCount,
+          locked: existing?.locked ?? false,
+          siteSceneKey: existing?.siteSceneKey ?? null,
+          jobMeta: existing?.jobMeta ?? null,
+        };
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to generate sections");
-      }
-      const data = await res.json();
-      onSectionsChange(data.sections);
-      onSetActiveSection(null);
-      toast.success(`Generated ${data.sections.filter((s: SectionItem) => s.isAuto).length} sections from AI tags`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate sections");
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [eventId, onSectionsChange, onSetActiveSection]);
+      onSectionsChange(merged);
+      onSetActiveSection(null); // show All Images so the new sections are visible
+    },
+    [sections, onSectionsChange, onSetActiveSection]
+  );
 
   const handleRename = useCallback(
     async (sectionId: string, name: string) => {
@@ -659,6 +663,19 @@ function SectionsPanel({
           ))
         )}
 
+        {/* Sort into sections — auto-create balanced, scannable sections from a
+            big upload. Shown when there's something to sort and it's not a
+            job/website gallery (those organize by job/scene, not by name). */}
+        {!isWorkGallery && sections.some((s) => s.imageCount > 0) && (
+          <button
+            onClick={() => setShowSort(true)}
+            className="flex w-full items-center gap-2 border-t border-stone-50 px-4 py-2.5 text-left text-[12px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50/50"
+          >
+            <Sparkles size={14} className="shrink-0 text-emerald-500" />
+            Sort into sections…
+          </button>
+        )}
+
         {/* Create new section — always visible, below sections list */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-t border-stone-50">
           <Plus size={14} className="text-stone-400 shrink-0" />
@@ -685,7 +702,13 @@ function SectionsPanel({
         </div>
       </div>
 
-      {/* AI_HIDDEN: AI section generation footer disabled — AI backend not configured */}
+      {showSort && (
+        <SortSectionsModal
+          eventId={eventId}
+          onClose={() => setShowSort(false)}
+          onApplied={handleSortApplied}
+        />
+      )}
     </div>
   );
 }
