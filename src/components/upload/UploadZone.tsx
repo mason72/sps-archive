@@ -98,7 +98,8 @@ function putWithProgress(
   opts: {
     timeoutMs: number;
     signal: { aborted: boolean };
-    onProgress: (pct: number) => void;
+    /** pct is 0–100; loadedBytes is cumulative bytes sent this attempt. */
+    onProgress: (pct: number, loadedBytes: number) => void;
   }
 ): Promise<{ ok: boolean; status: number }> {
   return new Promise((resolve, reject) => {
@@ -109,11 +110,11 @@ function putWithProgress(
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
-        opts.onProgress(Math.round((e.loaded / e.total) * 100));
+        opts.onProgress(Math.round((e.loaded / e.total) * 100), e.loaded);
       }
     };
     xhr.onload = () => {
-      opts.onProgress(100);
+      opts.onProgress(100, file.size);
       resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
     };
     xhr.onerror = () => reject(new TypeError("Failed to fetch"));
@@ -210,6 +211,11 @@ export function UploadZone({
 
   const abortRef = useRef(false);
   const corsFailureCount = useRef(0);
+  // Cumulative bytes sent this session (all workers, retries included — it
+  // measures real network traffic). A 1s interval turns deltas into the
+  // header's live speed readout.
+  const bytesSentRef = useRef(0);
+  const [speedMbps, setSpeedMbps] = useState<number | null>(null);
   // Set once the DIRECT (>4MB) path has clearly hit a CORS wall. It short-
   // circuits further LARGE-file attempts only — small files keep uploading
   // through the proxy. (Previously a CORS storm tripped the global abort and
@@ -361,10 +367,15 @@ export function UploadZone({
           // only distinct values hit React state (a 2000-file session otherwise
           // re-renders the list thousands of times per second).
           let lastPct = -1;
+          let lastLoaded = 0;
           const res = await putWithProgress(target, task.file, {
             timeoutMs: uploadTimeoutMs(task.file.size),
             signal: { get aborted() { return abortRef.current; } },
-            onProgress: (pct) => {
+            onProgress: (pct, loaded) => {
+              // Bytes accounting is ref-only (no render): accumulate the delta
+              // since the last event for the session speed readout.
+              bytesSentRef.current += Math.max(0, loaded - lastLoaded);
+              lastLoaded = loaded;
               if (pct === lastPct) return;
               lastPct = pct;
               updateFile(task.fileId, { progress: pct });
@@ -709,6 +720,43 @@ export function UploadZone({
     const done = files.filter((f) => f.status === "complete").length;
     return Math.min(100, ((done + inFlightSum / 100) / totalCount) * 100);
   }, [files, totalCount]);
+
+  // Live throughput: sample cumulative bytes once a second and smooth with an
+  // EMA so the readout doesn't twitch with every TCP burst.
+  useEffect(() => {
+    if (!isUploading) {
+      setSpeedMbps(null);
+      return;
+    }
+    let prevBytes = bytesSentRef.current;
+    let ema: number | null = null;
+    const id = setInterval(() => {
+      const now = bytesSentRef.current;
+      const instMbps = ((now - prevBytes) * 8) / 1e6;
+      prevBytes = now;
+      ema = ema === null ? instMbps : ema * 0.7 + instMbps * 0.3;
+      setSpeedMbps(ema);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isUploading]);
+
+  // Remaining-bytes ETA from the smoothed speed. Null until the speed settles
+  // or when it would be meaningless (stalled at ~0).
+  const etaLabel = useMemo(() => {
+    if (!speedMbps || speedMbps < 0.05) return null;
+    let remaining = 0;
+    for (const f of files) {
+      if (f.status === "pending") remaining += f.file.size;
+      else if (f.status === "uploading")
+        remaining += f.file.size * (1 - f.progress / 100);
+    }
+    const secs = (remaining * 8) / 1e6 / speedMbps;
+    if (!isFinite(secs) || secs <= 0) return null;
+    if (secs < 90) return "~1 min left";
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `~${mins} min left`;
+    return `~${Math.floor(mins / 60)}h ${mins % 60}m left`;
+  }, [files, speedMbps]);
 
   // ─── Duplicate resolution: Skip / Replace (per-file and bulk) ───
   const skipDuplicate = useCallback(
@@ -1149,6 +1197,13 @@ export function UploadZone({
                 ? `${completedCount} uploaded · ${errorCount} failed`
                 : `${completedCount} uploaded`}
             </span>
+            {isUploading && speedMbps !== null && (
+              <span className="shrink-0 text-[12px] tabular-nums text-stone-400 normal-case">
+                {speedMbps >= 10 ? speedMbps.toFixed(0) : speedMbps.toFixed(1)}{" "}
+                Mbps
+                {etaLabel && <span className="text-stone-300"> · {etaLabel}</span>}
+              </span>
+            )}
             {/* Live session progress — fills the dead space between the count
                 and the actions. Count-weighted with fractional credit for
                 in-flight files, so it creeps rather than steps. */}

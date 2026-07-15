@@ -267,13 +267,10 @@ export default function EventPage({
     return () => clearTimeout(previewRefreshTimer.current);
   }, [eventId, eventSettings, sidebarPanel]);
 
-  // Live upload progress, owned here so a single unified bar can render it.
-  const [uploadProgress, setUploadProgress] = useState<{
-    active: boolean;
-    total: number;
-    uploaded: number;
-    failed: number;
-  }>({ active: false, total: 0, uploaded: 0, failed: 0 });
+  // Whether an upload session is running — suppresses the empty state while
+  // the grid is momentarily empty with files in flight. (The visual progress
+  // bar itself lives in UploadZone's list header.)
+  const [uploadActive, setUploadActive] = useState(false);
 
   // Uploads target the SELECTED section, or — when "All Images" is the view —
   // the "Unsorted" intake (never Highlights). null when no intake exists yet;
@@ -1176,45 +1173,9 @@ export default function EventPage({
 
         {!isLoading && !loadError && (
           <>
-            {/* ─── Unified upload bar (owns progress while uploading) ─── */}
-            {uploadProgress.active && (
-              <div className="mb-8 reveal" style={{ animationDelay: "0.05s" }}>
-                <div className="h-[3px] w-full overflow-hidden rounded-full bg-stone-100">
-                  <div
-                    className="h-full bg-accent transition-all duration-300 ease-out"
-                    style={{
-                      width: `${
-                        uploadProgress.total > 0
-                          ? ((uploadProgress.uploaded + uploadProgress.failed) /
-                              uploadProgress.total) *
-                            100
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-2 text-[13px] text-stone-500 tabular-nums">
-                  <span className="text-stone-400">Uploading</span>{" "}
-                  <span className="font-medium text-accent">
-                    {uploadProgress.uploaded.toLocaleString()}
-                  </span>
-                  <span className="text-stone-300"> of </span>
-                  <span className="font-medium">
-                    {uploadProgress.total.toLocaleString()}
-                  </span>
-                  {uploadProgress.failed > 0 && (
-                    <span className="text-red-400">
-                      {" "}· {uploadProgress.failed.toLocaleString()} failed
-                    </span>
-                  )}
-                  <span className="text-stone-300">
-                    {" "}— keep adding files anytime
-                  </span>
-                </p>
-              </div>
-            )}
-
             {/* ─── Upload zone ─── */}
+            {/* Session progress (bar, speed, ETA) renders inside UploadZone's
+                list header — one bar, next to the counts it describes. */}
             {/* Shown when the user opted in (Add Images) OR when the active
                 section is empty — so an empty section presents the REAL
                 dropzone directly (one working box, never a dead placeholder).
@@ -1252,7 +1213,7 @@ export default function EventPage({
                   onUploadComplete={handleUploadComplete}
                   onUploadFailed={handleUploadFailed}
                   onImageUploaded={handleImageUploaded}
-                  onProgressChange={setUploadProgress}
+                  onProgressChange={(p) => setUploadActive(p.active)}
                   retryFiles={retryFiles}
                 />
                 )}
@@ -1295,7 +1256,7 @@ export default function EventPage({
             )}
 
             {/* ─── Empty state ─── */}
-            {allImages.length === 0 && !uploadProgress.active && (
+            {allImages.length === 0 && !uploadActive && (
               <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
                 <div className="w-16 h-16 mb-6 text-stone-200">
                   <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
