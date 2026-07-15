@@ -697,6 +697,19 @@ export function UploadZone({
   }, [visibleFiles]);
   const hiddenRowCount = visibleFiles.length - renderedFiles.length;
 
+  // Overall session progress for the header bar: each file is one unit, with
+  // in-flight files contributing their fractional bytes-sent — so the bar
+  // creeps smoothly instead of stepping 1/2000th at a time.
+  const overallPct = useMemo(() => {
+    if (totalCount === 0) return 0;
+    const inFlightSum = files.reduce(
+      (acc, f) => acc + (f.status === "uploading" ? f.progress : 0),
+      0
+    );
+    const done = files.filter((f) => f.status === "complete").length;
+    return Math.min(100, ((done + inFlightSum / 100) / totalCount) * 100);
+  }, [files, totalCount]);
+
   // ─── Duplicate resolution: Skip / Replace (per-file and bulk) ───
   const skipDuplicate = useCallback(
     (id: string) => removeFiles(new Set([id])),
@@ -1128,15 +1141,26 @@ export function UploadZone({
           gone, signalling "all done". */}
       {visibleFiles.length > 0 && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="label-caps">
+          <div className="flex items-center justify-between gap-4">
+            <span className="label-caps shrink-0">
               {isUploading
                 ? `Uploading ${completedCount} / ${totalCount}`
                 : errorCount > 0
                 ? `${completedCount} uploaded · ${errorCount} failed`
                 : `${completedCount} uploaded`}
             </span>
-            <div className="flex items-center gap-4">
+            {/* Live session progress — fills the dead space between the count
+                and the actions. Count-weighted with fractional credit for
+                in-flight files, so it creeps rather than steps. */}
+            {isUploading && (
+              <div className="hidden sm:block h-[3px] flex-1 rounded-full bg-stone-200 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+                  style={{ width: `${overallPct}%` }}
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-4 shrink-0">
               {!isUploading && errorCount > 0 && (
                 <button
                   onClick={retryAllFailed}
