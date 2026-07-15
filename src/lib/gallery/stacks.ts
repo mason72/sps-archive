@@ -177,7 +177,14 @@ export function buildNameCleaner(rawNames: Iterable<string>): (name: string) => 
   return (name) => {
     const kept = name.split(/\s+/).filter((w) => !tags.has(normName(w)));
     const cleaned = kept.join(" ").trim();
-    return cleaned || name; // a name that IS the tag keeps itself
+    if (!cleaned) return name; // a name that IS the tag keeps itself
+    // Stripping a tag can leave a fused CamelCase token ("AaronCote") — split
+    // it like the filename extractors do, so anchor-less files read the same
+    // as date-anchored ones ("Aaron Cote").
+    if (cleaned !== name && !/\s/.test(cleaned)) {
+      return cleaned.replace(/([a-z])([A-Z])/g, "$1 $2");
+    }
+    return cleaned;
   };
 }
 

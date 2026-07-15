@@ -160,6 +160,15 @@ describe("buildNameCleaner (corpus event-tag stripping)", () => {
     expect(clean("Aaron Cote Appfolio")).toBe("Aaron Cote Appfolio");
   });
 
+  it("camel-splits a fused remainder after stripping ('AaronCote' → 'Aaron Cote')", () => {
+    const letters = "abcdefghijklmnopqrst".split("");
+    const corpus = letters.map((l) => `A${l}ron C${l}te Appfolio`);
+    const clean = buildNameCleaner(corpus);
+    expect(clean("AaronCote Appfolio")).toBe("Aaron Cote");
+    // Names it didn't modify are never re-split.
+    expect(clean("AaronCote")).toBe("AaronCote");
+  });
+
   it("never strips a dominant shared surname (stripping must leave a person)", () => {
     // Everyone is "<First> Doe" — 100% frequency, but removal leaves a bare
     // first name, so "Doe" must survive.
