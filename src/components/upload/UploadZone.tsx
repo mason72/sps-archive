@@ -51,6 +51,23 @@ const PROXY_MAX_BYTES = 4 * 1024 * 1024;
  */
 const CORS_FAILURE_THRESHOLD = 3;
 
+/**
+ * Cap on how many file rows are RENDERED at once. Every rendered row mounts an
+ * <img> whose object URL makes the browser decode the ORIGINAL file — a 24 MP
+ * JPEG decodes to ~100 MB of bitmap, so a 2000-file drop rendered in full
+ * killed the tab before a single byte reached the server (Appfolio, Jul 2026).
+ * Workers drain the queue in drop order, so the capped window always shows the
+ * rows that are actually moving; a footer counts the rest.
+ */
+const MAX_RENDERED_ROWS = 30;
+
+/**
+ * EXIF lives in the file header (JPEG APP1 sits right after SOI), so only this
+ * much of each file is read for extraction. Reading whole files held up to
+ * 12 × 100 MB in memory at peak concurrency.
+ */
+const EXIF_SCAN_BYTES = 4 * 1024 * 1024;
+
 type FileStatus = "pending" | "uploading" | "complete" | "error" | "duplicate";
 
 interface UploadFile {
@@ -131,7 +148,13 @@ function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+    <img
+      src={previewUrl}
+      alt={file.name}
+      loading="lazy"
+      decoding="async"
+      className="h-full w-full object-cover"
+    />
   );
 }
 
@@ -256,7 +279,7 @@ export function UploadZone({
       let exifData: Record<string, unknown> = {};
       if (!isVideoMime(file.type)) {
         try {
-          const buf = await file.arrayBuffer();
+          const buf = await file.slice(0, EXIF_SCAN_BYTES).arrayBuffer();
           const exif = await extractExif(buf);
           if (exif) exifData = exif;
         } catch {
@@ -334,10 +357,18 @@ export function UploadZone({
           return;
         }
         try {
+          // Progress events fire far more often than the integer pct changes;
+          // only distinct values hit React state (a 2000-file session otherwise
+          // re-renders the list thousands of times per second).
+          let lastPct = -1;
           const res = await putWithProgress(target, task.file, {
             timeoutMs: uploadTimeoutMs(task.file.size),
             signal: { get aborted() { return abortRef.current; } },
-            onProgress: (pct) => updateFile(task.fileId, { progress: pct }),
+            onProgress: (pct) => {
+              if (pct === lastPct) return;
+              lastPct = pct;
+              updateFile(task.fileId, { progress: pct });
+            },
           });
           if (res.ok) {
             ok = true;
@@ -653,6 +684,18 @@ export function UploadZone({
     () => files.filter((f) => f.status === "pending" || f.status === "uploading" || f.status === "error"),
     [files]
   );
+
+  // Only a window of rows actually mounts (each row decodes its original file
+  // for the thumbnail — see MAX_RENDERED_ROWS). Errors need action, so they
+  // always render first; active rows fill the rest and a footer counts the
+  // queued remainder.
+  const renderedFiles = useMemo(() => {
+    if (visibleFiles.length <= MAX_RENDERED_ROWS) return visibleFiles;
+    const errors = visibleFiles.filter((f) => f.status === "error");
+    const active = visibleFiles.filter((f) => f.status !== "error");
+    return [...errors, ...active].slice(0, MAX_RENDERED_ROWS);
+  }, [visibleFiles]);
+  const hiddenRowCount = visibleFiles.length - renderedFiles.length;
 
   // ─── Duplicate resolution: Skip / Replace (per-file and bulk) ───
   const skipDuplicate = useCallback(
@@ -1046,7 +1089,7 @@ export function UploadZone({
             </div>
           </div>
           <div className="max-h-[220px] space-y-px overflow-y-auto">
-            {duplicateFiles.map((f) => (
+            {duplicateFiles.slice(0, MAX_RENDERED_ROWS).map((f) => (
               <div
                 key={f.id}
                 className="flex items-center gap-3 border-b border-amber-100/70 py-1.5 text-[13px] last:border-b-0"
@@ -1069,6 +1112,12 @@ export function UploadZone({
                 </button>
               </div>
             ))}
+            {duplicateCount > MAX_RENDERED_ROWS && (
+              <div className="py-2 text-[12px] text-amber-800/70">
+                + {(duplicateCount - MAX_RENDERED_ROWS).toLocaleString()} more —
+                use Replace all or Skip all above
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1116,9 +1165,9 @@ export function UploadZone({
             </div>
           </div>
 
-          {/* List with thumbnails — in-flight + errors only */}
+          {/* List with thumbnails — in-flight + errors only (windowed) */}
           <div className="max-h-[340px] space-y-px overflow-y-auto">
-            {visibleFiles.map((f) => (
+            {renderedFiles.map((f) => (
               <div
                 key={f.id}
                 className="relative flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
@@ -1173,6 +1222,12 @@ export function UploadZone({
                 )}
               </div>
             ))}
+            {hiddenRowCount > 0 && (
+              <div className="py-2 text-[12px] text-stone-400">
+                + {hiddenRowCount.toLocaleString()} more queued — rows appear
+                here as they upload
+              </div>
+            )}
           </div>
         </div>
       )}
