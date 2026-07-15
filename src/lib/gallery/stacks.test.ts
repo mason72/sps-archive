@@ -4,6 +4,7 @@ import {
   nameBeforeDate,
   stackPersonName,
   buildStacks,
+  buildNameCleaner,
 } from "./stacks";
 import type { GalleryImage } from "@/types/gallery";
 
@@ -53,6 +54,17 @@ describe("stackPersonName", () => {
         })
       )
     ).toBe("Rushi Sheth");
+  });
+
+  it("trims event tags after CamelCase names (normalized prefix — the Appfolio bug)", () => {
+    expect(
+      stackPersonName(
+        img({
+          parsedName: "AaronCote Appfolio",
+          originalFilename: "AaronCote_26-07-14_Appfolio_1127.jpg",
+        })
+      )
+    ).toBe("Aaron Cote");
   });
 
   it("keeps punctuated parsed names (prefix test fails on the comma)", () => {
@@ -123,5 +135,89 @@ describe("buildStacks", () => {
     const stacks = buildStacks([img({ id: "solo", parsedName: "Solo" })]);
     expect(stacks).toHaveLength(1);
     expect(stacks[0].images).toHaveLength(1);
+  });
+});
+
+describe("buildNameCleaner (corpus event-tag stripping)", () => {
+  const names = (n: number, tag?: string) =>
+    Array.from({ length: n }, (_, i) => `Person${i} Name${i}${tag ? ` ${tag}` : ""}`);
+
+  it("strips a token that appears in most distinct names", () => {
+    const clean = buildNameCleaner(names(20, "Appfolio"));
+    expect(clean("Aaron Cote Appfolio")).toBe("Aaron Cote");
+    expect(clean("Aaron Cote")).toBe("Aaron Cote");
+  });
+
+  it("does nothing below the distinct-name floor (family shoots are safe)", () => {
+    const clean = buildNameCleaner(names(10, "Smith"));
+    expect(clean("John Smith")).toBe("John Smith");
+  });
+
+  it("does nothing when no token clears the frequency bar", () => {
+    const tagged = [...names(12, "Appfolio"), ...names(12)];
+    // 12 of 24 distinct names = 50% < 60% threshold.
+    const clean = buildNameCleaner(tagged.map((n, i) => `${n}${i}`));
+    expect(clean("Aaron Cote Appfolio")).toBe("Aaron Cote Appfolio");
+  });
+
+  it("never strips a dominant shared surname (stripping must leave a person)", () => {
+    // Everyone is "<First> Doe" — 100% frequency, but removal leaves a bare
+    // first name, so "Doe" must survive.
+    const surnames = Array.from({ length: 20 }, (_, i) => `First${i} Doe`);
+    const clean = buildNameCleaner(surnames);
+    expect(clean("First3 Doe")).toBe("First3 Doe");
+  });
+
+  it("never erases a name made entirely of the tag", () => {
+    const clean = buildNameCleaner([...names(20, "Appfolio"), "Appfolio"]);
+    expect(clean("Appfolio")).toBe("Appfolio");
+  });
+});
+
+describe("buildStacks — event-tag merging", () => {
+  it("merges tagged and untagged files of one person (date-anchored names)", () => {
+    // The normalized-prefix fix strips the tag; the punctuation-insensitive
+    // key then unifies "Aaron Cote" with the untagged "Aaron, Cote".
+    const images = [
+      img({
+        parsedName: "AaronCote Appfolio",
+        originalFilename: "AaronCote_26-07-14_Appfolio_1127.jpg",
+      }),
+      img({
+        parsedName: "Aaron, Cote",
+        originalFilename: "AaronCote_9001.jpg",
+      }),
+    ];
+    const stacks = buildStacks(images);
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0].images).toHaveLength(2);
+    expect(stacks[0].personName).toBe("Aaron Cote");
+  });
+
+  it("merges via the corpus cleaner when filenames have no date anchor", () => {
+    // No date segment, so the prefix guard can't fire — only frequency
+    // analysis can know "Appfolio" is an event tag. 16 tagged people clear
+    // the thresholds; Aaron's untagged file joins his tagged stack.
+    const images = [
+      ...Array.from({ length: 15 }, (_, i) =>
+        img({
+          parsedName: `First${i} Last${i} Appfolio`,
+          originalFilename: `First${i}_Last${i}_Appfolio_1.jpg`,
+        })
+      ),
+      img({
+        parsedName: "AaronCote Appfolio",
+        originalFilename: "AaronCote_Appfolio_1127.jpg",
+      }),
+      img({
+        parsedName: "Aaron, Cote",
+        originalFilename: "AaronCote_9001.jpg",
+      }),
+    ];
+    const stacks = buildStacks(images);
+    const aaron = stacks.filter((s) => s.key.includes("aaroncote"));
+    expect(aaron).toHaveLength(1);
+    expect(aaron[0].images).toHaveLength(2);
+    expect(stacks.every((s) => !/appfolio/i.test(s.personName))).toBe(true);
   });
 });
