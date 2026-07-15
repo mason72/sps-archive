@@ -19,6 +19,7 @@ import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CurationModal } from "@/components/gallery/CurationModal";
 import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
+import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
@@ -26,7 +27,7 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles } from "lucide-react";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -267,15 +268,42 @@ export default function EventPage({
     return () => clearTimeout(previewRefreshTimer.current);
   }, [eventId, eventSettings, sidebarPanel]);
 
-  // Whether an upload session is running — suppresses the empty state while
-  // the grid is momentarily empty with files in flight. (The visual progress
-  // bar itself lives in UploadZone's list header.)
-  const [uploadActive, setUploadActive] = useState(false);
+  // Live upload-session state: suppresses the empty state mid-upload, feeds
+  // the Sort modal's mid-upload preview, and arms the sort nudge. (The visual
+  // progress bar itself lives in UploadZone's list header.)
+  const [uploadProgress, setUploadProgress] = useState({
+    active: false,
+    total: 0,
+    uploaded: 0,
+    failed: 0,
+  });
+
+  // "Sort into sections" modal — page-owned so one instance serves both the
+  // sidebar button and the post-upload nudge (and can preview mid-upload).
+  const [showSort, setShowSort] = useState(false);
+  // Nudge for big dumps into Unsorted: hidden → shown (big session detected)
+  // → dismissed (sticky for this visit). Sorting also hides it.
+  const [sortNudge, setSortNudge] = useState<"hidden" | "shown" | "dismissed">(
+    "hidden"
+  );
 
   // Uploads target the SELECTED section, or — when "All Images" is the view —
   // the "Unsorted" intake (never Highlights). null when no intake exists yet;
   // the upload route then creates one, so uploads still can't become orphans.
   const uploadTargetId = activeSection ?? findIntakeSectionId(sections) ?? null;
+
+  // Arm the sort nudge when a big session dumps into the Unsorted intake —
+  // the moment it starts, not after: rows register ahead of their binaries,
+  // so the plan preview is accurate while files are still uploading.
+  const NUDGE_MIN_FILES = 50;
+  useEffect(() => {
+    if (!uploadProgress.active || uploadProgress.total < NUDGE_MIN_FILES) return;
+    const targetIsIntake =
+      uploadTargetId === null || uploadTargetId === findIntakeSectionId(sections);
+    if (targetIsIntake) {
+      setSortNudge((s) => (s === "dismissed" ? s : "shown"));
+    }
+  }, [uploadProgress.active, uploadProgress.total, uploadTargetId, sections]);
 
   // Active website section's registry entry: drives the focal-point action
   // (slots) and the "extras are ignored" hints (slots + position-mapped).
@@ -758,6 +786,31 @@ export default function EventPage({
     setSections(updated);
   }, []);
 
+  // "Sort into sections" applied — merge the returned list, preserving fields
+  // the auto-sections endpoint doesn't echo (siteSceneKey/jobMeta/locked),
+  // then refetch so every image's sectionIds reflect the new membership.
+  const handleSortApplied = useCallback(
+    (returned: { id: string; name: string; isAuto: boolean; imageCount: number }[]) => {
+      setSections((prev) => {
+        const byId = new Map(prev.map((s) => [s.id, s]));
+        return returned.map((r) => {
+          const existing = byId.get(r.id);
+          return {
+            ...(existing ?? {}),
+            id: r.id,
+            name: r.name,
+            isAuto: r.isAuto,
+            imageCount: r.imageCount,
+          };
+        });
+      });
+      handleSetActiveSection(null); // show All Images so the new sections are visible
+      setSortNudge("hidden");
+      fetchEvent();
+    },
+    [handleSetActiveSection, fetchEvent]
+  );
+
   // Sort images based on user selection. "manual" is per-section drag order
   // (order-manual.ts); the other three use the shared comparator the public
   // gallery uses, so "Filename"/"Date taken"/"Latest" order identically in both.
@@ -1076,6 +1129,26 @@ export default function EventPage({
             // A new job opens its form right away — name, then details.
             isWorkGallery ? (s) => setJobModalSectionId(s.id) : undefined
           }
+          onRequestSort={() => setShowSort(true)}
+        />
+      )}
+
+      {/* ─── Sort into sections (page-owned: sidebar button + nudge share it,
+             and it can preview live during an upload session) ─── */}
+      {showSort && (
+        <SortSectionsModal
+          eventId={eventId}
+          onClose={() => setShowSort(false)}
+          onApplied={handleSortApplied}
+          uploading={
+            uploadProgress.active
+              ? {
+                  active: true,
+                  uploaded: uploadProgress.uploaded,
+                  total: uploadProgress.total,
+                }
+              : undefined
+          }
         />
       )}
 
@@ -1213,10 +1286,42 @@ export default function EventPage({
                   onUploadComplete={handleUploadComplete}
                   onUploadFailed={handleUploadFailed}
                   onImageUploaded={handleImageUploaded}
-                  onProgressChange={(p) => setUploadActive(p.active)}
+                  onProgressChange={setUploadProgress}
                   retryFiles={retryFiles}
                 />
                 )}
+              </div>
+            )}
+
+            {/* ─── Sort nudge: a big dump is headed for Unsorted ─── */}
+            {/* Appears as the session starts (the plan works off filenames,
+                which register ahead of the binaries) and stays until acted on
+                or dismissed — so it still catches eyes after the upload. */}
+            {sortNudge === "shown" && !isWorkGallery && (
+              <div className="mb-8 flex items-center gap-3 border border-emerald-200 bg-emerald-50/50 px-4 py-3">
+                <Sparkles className="h-4 w-4 shrink-0 text-emerald-500" />
+                <p className="flex-1 text-[13px] text-emerald-900">
+                  <span className="font-medium tabular-nums">
+                    {uploadProgress.total >= NUDGE_MIN_FILES
+                      ? uploadProgress.total.toLocaleString()
+                      : "These"}
+                  </span>{" "}
+                  photos are headed for Unsorted. Want them sorted into
+                  sections? You can preview the plan while they upload.
+                </p>
+                <button
+                  onClick={() => setShowSort(true)}
+                  className="shrink-0 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-emerald-700"
+                >
+                  Preview sections
+                </button>
+                <button
+                  onClick={() => setSortNudge("dismissed")}
+                  className="shrink-0 p-1 text-emerald-700/50 transition-colors hover:text-emerald-900"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             )}
 
@@ -1256,7 +1361,7 @@ export default function EventPage({
             )}
 
             {/* ─── Empty state ─── */}
-            {allImages.length === 0 && !uploadActive && (
+            {allImages.length === 0 && !uploadProgress.active && (
               <div className="flex flex-col items-center justify-center py-20 text-center fade-in">
                 <div className="w-16 h-16 mb-6 text-stone-200">
                   <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">

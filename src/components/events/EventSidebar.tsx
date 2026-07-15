@@ -27,7 +27,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
-import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { findIntakeSectionId } from "@/lib/sections/intake";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { sceneForKey } from "@/lib/site/scenes";
@@ -92,6 +91,9 @@ interface EventSidebarProps {
   isWorkGallery?: boolean;
   /** Fired after a section is created (the work gallery opens the job form). */
   onSectionCreated?: (section: SectionItem) => void;
+  /** Opens the "Sort into sections" modal — owned by the page, so the same
+   *  instance serves this button and the post-upload nudge. */
+  onRequestSort?: () => void;
 }
 
 export type Panel = "sections" | "design" | "details" | "activity";
@@ -144,6 +146,7 @@ export function EventSidebar({
   onDropImagesToSection,
   isWorkGallery = false,
   onSectionCreated,
+  onRequestSort,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -253,6 +256,7 @@ export function EventSidebar({
             onDropImagesToSection={onDropImagesToSection}
             isWorkGallery={isWorkGallery}
             onSectionCreated={onSectionCreated}
+            onRequestSort={onRequestSort}
           />
         )}
         {activePanel === "design" && (
@@ -324,6 +328,7 @@ function SectionsPanel({
   onDropImagesToSection,
   isWorkGallery = false,
   onSectionCreated,
+  onRequestSort,
 }: {
   eventId: string;
   sections: SectionItem[];
@@ -333,10 +338,10 @@ function SectionsPanel({
   onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
   isWorkGallery?: boolean;
   onSectionCreated?: (section: SectionItem) => void;
+  onRequestSort?: () => void;
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [showSort, setShowSort] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   // ─── Section search + filters (long lists, e.g. the website gallery) ───
@@ -399,29 +404,6 @@ function SectionsPanel({
       setIsCreating(false);
     }
   }, [eventId, newName, sections, onSectionsChange, onSetActiveSection, isWorkGallery, onSectionCreated]);
-
-  // "Sort into sections" applied — merge the returned list, preserving fields
-  // the auto-sections endpoint doesn't echo (siteSceneKey/jobMeta/locked).
-  const handleSortApplied = useCallback(
-    (returned: { id: string; name: string; isAuto: boolean; imageCount: number }[]) => {
-      const byId = new Map(sections.map((s) => [s.id, s]));
-      const merged: SectionItem[] = returned.map((r) => {
-        const existing = byId.get(r.id);
-        return {
-          id: r.id,
-          name: r.name,
-          isAuto: r.isAuto,
-          imageCount: r.imageCount,
-          locked: existing?.locked ?? false,
-          siteSceneKey: existing?.siteSceneKey ?? null,
-          jobMeta: existing?.jobMeta ?? null,
-        };
-      });
-      onSectionsChange(merged);
-      onSetActiveSection(null); // show All Images so the new sections are visible
-    },
-    [sections, onSectionsChange, onSetActiveSection]
-  );
 
   const handleRename = useCallback(
     async (sectionId: string, name: string) => {
@@ -668,9 +650,9 @@ function SectionsPanel({
         {/* Sort into sections — auto-create balanced, scannable sections from a
             big upload. Shown when there's something to sort and it's not a
             job/website gallery (those organize by job/scene, not by name). */}
-        {!isWorkGallery && sections.some((s) => s.imageCount > 0) && (
+        {!isWorkGallery && sections.some((s) => s.imageCount > 0) && onRequestSort && (
           <button
-            onClick={() => setShowSort(true)}
+            onClick={onRequestSort}
             className="flex w-full items-center gap-2 border-t border-stone-50 px-4 py-2.5 text-left text-[12px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50/50"
           >
             <Sparkles size={14} className="shrink-0 text-emerald-500" />
@@ -704,13 +686,6 @@ function SectionsPanel({
         </div>
       </div>
 
-      {showSort && (
-        <SortSectionsModal
-          eventId={eventId}
-          onClose={() => setShowSort(false)}
-          onApplied={handleSortApplied}
-        />
-      )}
     </div>
   );
 }

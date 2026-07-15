@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Loader2, FolderTree, Users, LayoutGrid, Layers } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,14 @@ interface SortSectionsModalProps {
   onClose: () => void;
   /** Called with the updated section list after a successful apply. */
   onApplied: (sections: SectionLite[]) => void;
+  /**
+   * Live upload-session state, when the modal is open mid-upload. Rows are
+   * presign-created before their binaries land, so the plan already counts
+   * every dropped file — previewing during an upload is accurate. Apply stays
+   * gated until the session drains (applying mid-flight could race a retry
+   * against the deleted Unsorted section).
+   */
+  uploading?: { active: boolean; uploaded: number; total: number };
 }
 
 const MODE_META: { mode: PlanMode; label: string; icon: typeof FolderTree; hint: string }[] = [
@@ -37,7 +45,7 @@ const MODE_META: { mode: PlanMode; label: string; icon: typeof FolderTree; hint:
  * images once, then runs the SAME pure planner the server uses so the section
  * list updates live as you drag the slider. Apply POSTs the chosen config.
  */
-export function SortSectionsModal({ eventId, onClose, onApplied }: SortSectionsModalProps) {
+export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: SortSectionsModalProps) {
   const [loading, setLoading] = useState(true);
   const [images, setImages] = useState<PlanImage[]>([]);
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
@@ -46,36 +54,71 @@ export function SortSectionsModal({ eventId, onClose, onApplied }: SortSectionsM
   const [stacks, setStacks] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  // Load the plan inputs + detection once.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
+  const uploadActive = !!uploading?.active;
+
+  // Load the plan inputs + detection. Mode/stacks/target defaults are set on
+  // the FIRST load only — refreshes mid-upload must never yank the user's
+  // slider out from under them.
+  const initializedRef = useRef(false);
+  const loadPlan = useCallback(
+    async (opts?: { silent?: boolean }): Promise<boolean> => {
       try {
         const res = await fetch(`/api/events/${eventId}/section-plan`);
         if (!res.ok) throw new Error();
         const data = (await res.json()) as { images: PlanImage[]; detection: DetectionSummary };
-        if (!alive) return;
         const d = data.detection;
-        // Default stacking on for big person-named jobs — collapses the count.
-        const willStack = d.personNamed && d.distinctPeople > 20 && d.suggestedMode === "letter";
         setImages(data.images);
         setDetection(d);
-        setMode(d.suggestedMode);
-        setStacks(willStack);
-        // Target's UNIT depends on stacks (people vs photos) — pick a matching
-        // default so the slider and the plan agree from the first render.
-        setTarget(d.suggestedMode === "per-person" ? 1 : willStack ? 65 : 300);
+        if (!initializedRef.current) {
+          initializedRef.current = true;
+          // Default stacking on for big person-named jobs — collapses the count.
+          const willStack = d.personNamed && d.distinctPeople > 20 && d.suggestedMode === "letter";
+          setMode(d.suggestedMode);
+          setStacks(willStack);
+          // Target's UNIT depends on stacks (people vs photos) — pick a matching
+          // default so the slider and the plan agree from the first render.
+          setTarget(d.suggestedMode === "per-person" ? 1 : willStack ? 65 : 300);
+        }
+        return true;
       } catch {
-        toast.error("Couldn't load the section preview");
-        onClose();
-      } finally {
-        if (alive) setLoading(false);
+        if (!opts?.silent) {
+          toast.error("Couldn't load the section preview");
+          onClose();
+        }
+        return false;
       }
-    })();
+    },
+    [eventId, onClose]
+  );
+
+  useEffect(() => {
+    let alive = true;
+    loadPlan().finally(() => {
+      if (alive) setLoading(false);
+    });
     return () => {
       alive = false;
     };
-  }, [eventId, onClose]);
+  }, [loadPlan]);
+
+  // While an upload session runs, keep the plan fresh: rows are presign-created
+  // ahead of their binaries, so each poll picks up newly registered files
+  // (names only — a cheap query). A final refresh fires when the session
+  // drains, so Apply always acts on the complete, authoritative set.
+  const wasUploadingRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (uploadActive) {
+      wasUploadingRef.current = true;
+      const id = setInterval(() => loadPlan({ silent: true }), 10_000);
+      return () => clearInterval(id);
+    }
+    if (wasUploadingRef.current) {
+      // Session just drained: one authoritative refresh before Apply unlocks.
+      wasUploadingRef.current = false;
+      loadPlan({ silent: true });
+    }
+  }, [uploadActive, loading, loadPlan]);
 
   // Escape to close.
   useEffect(() => {
@@ -167,6 +210,22 @@ export function SortSectionsModal({ eventId, onClose, onApplied }: SortSectionsM
         ) : (
           <>
             <div className="flex-1 overflow-y-auto px-6 py-5">
+              {/* Mid-upload: the plan is already complete (rows register ahead
+                  of their binaries) — say so, and explain the gated Apply. */}
+              {uploadActive && uploading && (
+                <div className="mb-4 flex items-center gap-2.5 rounded-lg bg-emerald-50/70 px-3 py-2.5 text-[12px] text-emerald-800">
+                  <Loader2 size={13} className="shrink-0 animate-spin text-emerald-500" />
+                  <span>
+                    <span className="font-medium tabular-nums">
+                      {uploading.uploaded.toLocaleString()} of{" "}
+                      {uploading.total.toLocaleString()}
+                    </span>{" "}
+                    uploaded — every file is already counted below. Sorting
+                    unlocks when the upload finishes.
+                  </span>
+                </div>
+              )}
+
               {/* Detection summary */}
               {detection && (
                 <p className="mb-4 text-[12px] text-stone-500">
@@ -303,12 +362,14 @@ export function SortSectionsModal({ eventId, onClose, onApplied }: SortSectionsM
                 </button>
                 <button
                   onClick={apply}
-                  disabled={applying || tooMany || planned.length === 0}
+                  disabled={applying || tooMany || planned.length === 0 || uploadActive}
                   className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[13px] font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {applying && <Loader2 size={14} className="animate-spin" />}
                   {applying
                     ? "Sorting…"
+                    : uploadActive
+                    ? "Waiting for upload…"
                     : `Sort into ${planned.length} section${planned.length === 1 ? "" : "s"}`}
                 </button>
               </div>
