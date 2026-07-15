@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Loader2, FolderTree, Users, LayoutGrid, Layers } from "lucide-react";
+import { X, Loader2, FolderTree, Users, LayoutGrid, Layers, GalleryVerticalEnd } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -37,6 +37,7 @@ interface SortSectionsModalProps {
 const MODE_META: { mode: PlanMode; label: string; icon: typeof FolderTree; hint: string }[] = [
   { mode: "letter", label: "Letter ranges", icon: FolderTree, hint: "A–C, D–F… balanced & scannable" },
   { mode: "per-person", label: "One per person", icon: Users, hint: "a section per name — small jobs" },
+  { mode: "full-set", label: "Basic", icon: GalleryVerticalEnd, hint: "everything in one Full Set" },
   { mode: "even", label: "Even sets", icon: LayoutGrid, hint: "just split into equal groups" },
 ];
 
@@ -141,7 +142,7 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
   // where target=1, or flipping the stacks unit). Excludes `target` from deps
   // on purpose — this only reacts to unit changes, never to the user dragging.
   useEffect(() => {
-    if (mode === "per-person") return;
+    if (mode === "per-person" || mode === "full-set") return;
     if (target < sliderMin || target > sliderMax) {
       setTarget(countPeople ? 65 : 300);
     }
@@ -241,13 +242,16 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                       · looks person-named
                     </>
                   ) : (
-                    <> · these don&apos;t look person-named, so we&apos;ll split evenly</>
+                    <>
+                      {" "}· these don&apos;t look person-named — one Full Set
+                      keeps it simple
+                    </>
                   )}
                 </p>
               )}
 
               {/* Mode */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {MODE_META.map(({ mode: m, label, icon: Icon, hint }) => (
                   <button
                     key={m}
@@ -297,8 +301,8 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                 </button>
               )}
 
-              {/* Slider — not for per-person */}
-              {mode !== "per-person" && (
+              {/* Slider — only for modes that balance to a target */}
+              {(mode === "letter" || mode === "even") && (
                 <div className="mt-5">
                   <div className="mb-1.5 flex items-baseline justify-between">
                     <label className="text-[12px] font-medium text-stone-700">

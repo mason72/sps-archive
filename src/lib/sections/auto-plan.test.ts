@@ -42,13 +42,38 @@ describe("detectNaming", () => {
     expect(d.suggestedMode).toBe("per-person");
   });
 
-  it("falls back to even split for non-person filenames", () => {
+  it("suggests one Full Set for non-person filenames (photo booth)", () => {
     const imgs = ["JRM7521", "VTVFMTE3UDY1", "WACA27832", "IMG_0001", "DSC_9987"].map(
       (code, i) => ({ id: `c${i}`, parsedName: code, originalFilename: `${code}.jpg` })
     );
     const d = detectNaming(imgs);
     expect(d.personNamed).toBe(false);
-    expect(d.suggestedMode).toBe("even");
+    expect(d.suggestedMode).toBe("full-set");
+  });
+});
+
+describe("planAutoSections — full-set mode", () => {
+  it("puts everything in one Full Set section, preserving upload order", () => {
+    const imgs = ["JRM7521", "IMG_0001", "DSC_9987"].map((code, i) => ({
+      id: `c${i}`,
+      parsedName: code,
+      originalFilename: `${code}.jpg`,
+    }));
+    const sections = planAutoSections(imgs, { mode: "full-set", target: 300 });
+    expect(sections).toHaveLength(1);
+    expect(sections[0].name).toBe("Full Set");
+    expect(sections[0].imageIds).toEqual(["c0", "c1", "c2"]);
+  });
+
+  it("ignores the target entirely — one section no matter the size", () => {
+    const imgs = Array.from({ length: 900 }, (_, i) => ({
+      id: `p${i}`,
+      parsedName: null,
+      originalFilename: `IMG_${1000 + i}.jpg`,
+    }));
+    const sections = planAutoSections(imgs, { mode: "full-set", target: 50 });
+    expect(sections).toHaveLength(1);
+    expect(sections[0].imageIds).toHaveLength(900);
   });
 });
 

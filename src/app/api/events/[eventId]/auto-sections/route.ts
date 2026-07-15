@@ -11,7 +11,7 @@ import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MODES: PlanMode[] = ["letter", "per-person", "even"];
+const MODES: PlanMode[] = ["letter", "per-person", "even", "full-set"];
 /** Refuse to create an absurd number of sections (e.g. per-person on 2000 people). */
 const MAX_SECTIONS = 60;
 
