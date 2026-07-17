@@ -10,6 +10,7 @@ All 7 phases done in one pass; 227 tests green, build green, E2E on live data.
 - **Per-event client logo** (≠ photographer branding): `/api/events/[eventId]/cover-logo` POST presign + GET view, fixed key `events/{id}/branding/cover-logo.{ext}`, prefix-pinned against the IDOR class.
 - **Title interplay:** client logo present ⇒ event title auto-hidden (`coverShowsTitle`), overridable via hideTitle toggle.
 - **Verified:** `scripts/verify-cover-v2.ts` (self-restoring, ran on "Two Dudes Sample Images"): all 3 raster looks composed + hash-checked + eyeballed; live browser QA of overlay/insert/crossfade/solid + mobile 375px + OG route. NOT yet verified: editor CoverLayoutTab UI in a real session (needs login — co-drive after deploy), email render in a real client.
+- **Review round (zero-context diff review, commit a091b14):** critical logoKey JSONB-IDOR pinned at both sinks (lesson 30); OG focal crop reimplemented — satori ignores objectPosition (lesson 31); raster pool re-gated to thumbnail_generated + videos excluded BOTH renderers (lesson 32); selection shares never serve the whole-section raster; debounce timeout 2m; stale imageId no longer hides grid photos; cover-only change detection on PATCH; crossfade mounts 3 frames; strict #RRGGBB; 15MB logo read cap. 236 tests green, E2E re-run green.
 - Backlog: marquee scrolling cover; photomosaic-logo-from-dominant-colors (playground prototype first); mini live mosaic preview inside the settings tab.
 
 ## (original plan) Cover System v2 [2026-07-16]
