@@ -75,133 +75,171 @@ export function selectCrossfadeImages<
     .slice(0, count);
 }
 
-export interface MosaicGrid {
+/**
+ * Bump when layout output changes shape for the same settings — it feeds the
+ * raster inputs hash, so deployed layout changes lazily regenerate stored
+ * rasters instead of serving stale arrangements forever.
+ */
+export const MOSAIC_LAYOUT_VERSION = 2;
+
+export interface MosaicTileRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface MosaicHoleRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Logo render height in px (centered in the hole; width from its aspect). */
+  logoH: number;
+}
+
+export interface MosaicLayout {
   rows: number;
-  cols: number;
-  tileW: number;
-  tileH: number;
-  /** rows × cols — tiles needed before any insert hole is subtracted. */
-  cells: number;
+  rowH: number;
+  /** Positioned tiles, index-aligned with the consumed prefix of `aspects`. */
+  tiles: MosaicTileRect[];
+  hole: MosaicHoleRect | null;
 }
 
 /**
- * Grid dimensions for a mosaic band. Columns derive from the container so
- * tiles hold ~3:4 at every viewport; rows drop when the (deduped) pool can't
- * fill the requested density — never repeat a tile to pad the wall.
+ * Justified-rows mosaic (the Uber/FB photo-wall look): every row shares one
+ * height, but each photo keeps its natural aspect ratio, so internal edges
+ * stagger and nothing gets the hard uniform-cell crop. Each row (or row
+ * segment beside the hole) is justified: nominal widths `ar × rowH` are
+ * scaled to fill the segment exactly, and object-cover absorbs the small
+ * residual (a few %, versus the old forced 3:4).
+ *
+ * Insert hole: a free-width rectangle — hard-edged, vertically snapped to
+ * whole rows, horizontally sized in PIXELS from the logo + padding. No
+ * column quantization: the padding slider moves the edge continuously.
+ * Row rule: one full row of tiles above and below (4→2, 3→1); a 2-row band
+ * gets a full-height hole — two photo walls flanking a logo panel.
  */
-export function computeMosaicGrid(opts: {
+export function layoutMosaic(opts: {
   containerW: number;
   bandH: number;
+  /** Requested rows; shed when the pool can't fill them (never repeat). */
   rows: number;
-  poolSize: number;
-}): MosaicGrid {
-  const { containerW, bandH, poolSize } = opts;
-  let rows = Math.max(1, Math.round(opts.rows));
-  const idealTileH = bandH / rows;
-  const ideal = Math.max(2, Math.round(containerW / (idealTileH * MOSAIC_TILE_AR)));
-  let cols = ideal;
+  /** Pool aspect ratios (w/h) in arrangement order; invalid → 3:4. */
+  aspects: number[];
+  gap?: number;
+  /** Insert mode: logo aspect + "space around logo" (% of logo height). */
+  hole?: { logoAspect?: number; paddingPct: number } | null;
+}): MosaicLayout {
+  const { containerW, bandH } = opts;
+  const gap = opts.gap ?? 4;
+  const aspects = opts.aspects.map((ar) =>
+    Number.isFinite(ar) && ar > 0.2 && ar < 5 ? ar : MOSAIC_TILE_AR
+  );
 
-  // Not enough distinct images: squeeze columns slightly (tiles get up to
-  // ~25% wider than ideal) before giving up a whole row — a 32-image pool
-  // should still fill the 3 rows it asked for, not drop to 2.
-  const minCols = Math.max(2, Math.ceil(ideal * 0.8));
-  while (rows > 1 && rows * cols > poolSize) {
-    if (cols > minCols) cols--;
-    else {
-      rows--;
-      cols = ideal;
+  for (let rows = Math.max(1, Math.round(opts.rows)); rows >= 1; rows--) {
+    const layout = tryLayout(containerW, bandH, rows, aspects, gap, opts.hole ?? null);
+    // Shed a row when the pool ran dry — an empty row, or a row stretched
+    // past ~1.8× nominal — and retry fewer, fuller rows instead.
+    if (rows === 1 || (layout.rowsFilled === rows && layout.maxStretch <= 1.8)) {
+      return layout.result;
     }
   }
-  if (rows === 1 && cols > poolSize) cols = Math.max(1, poolSize);
-
-  return {
-    rows,
-    cols,
-    tileW: containerW / cols,
-    tileH: bandH / rows,
-    cells: rows * cols,
-  };
+  // Unreachable (rows=1 always returns), but keep the compiler honest.
+  return { rows: 1, rowH: bandH, tiles: [], hole: null };
 }
 
-export interface MosaicHole {
-  /** 0-based cell coords, spans in whole cells. */
-  startRow: number;
-  rowSpan: number;
-  startCol: number;
-  colSpan: number;
-  /**
-   * Logo render height as a fraction of the hole's height. Usually
-   * MOSAIC_INSERT_LOGO_H; smaller when the hole is full-band-height (2-row
-   * grids), where 60% of the band would balloon a wide logo into a hole
-   * that swallows the mosaic.
-   */
-  logoHeightFrac: number;
-}
+function tryLayout(
+  containerW: number,
+  bandH: number,
+  rows: number,
+  aspects: number[],
+  gap: number,
+  holeOpts: { logoAspect?: number; paddingPct: number } | null
+): { result: MosaicLayout; maxStretch: number; rowsFilled: number } {
+  const rowH = (bandH - gap * (rows - 1)) / rows;
 
-/**
- * Insert-mode hole: a centered block of whole cells that holds the logo
- * (the Uber-cover look — whitespace edges align with tile edges).
- *
- * Row rule: leave one full row of tiles above and below (4→2, 3→1); a
- * 2-row grid can't center a 1-row hole, so it goes full-height instead —
- * two photo walls flanking a logo column.
- */
-export function computeInsertHole(opts: {
-  grid: MosaicGrid;
-  /** Logo w/h; pre-measure from the asset. Wide-lockup default. */
-  logoAspect?: number;
-  /** Whitespace around the logo inside the hole, % of hole height (0–45). */
-  paddingPct: number;
-}): MosaicHole | null {
-  const { grid, paddingPct } = opts;
-  const logoAspect = opts.logoAspect && opts.logoAspect > 0 ? opts.logoAspect : 2.5;
-  const { rows, cols, tileW, tileH } = grid;
-  if (rows * cols < 6) return null; // too small to lose cells to a hole
+  // ── Hole geometry (insert mode) ──
+  let hole: MosaicHoleRect | null = null;
+  let holeRows: { start: number; end: number } | null = null;
+  if (holeOpts) {
+    const logoAspect =
+      holeOpts.logoAspect && holeOpts.logoAspect > 0 ? holeOpts.logoAspect : 2.5;
+    const rowSpan = rows === 2 ? 2 : Math.max(1, rows - 2);
+    const holeH = rowSpan * rowH + (rowSpan - 1) * gap;
+    // Full-height holes drop the logo fraction — 60% of the whole band ×
+    // a wide logo would swallow the wall.
+    const logoH = holeH * (rowSpan === rows ? 0.35 : MOSAIC_INSERT_LOGO_H);
+    const pad = Math.min(45, Math.max(0, holeOpts.paddingPct)) / 100;
+    // Padding is relative to the logo's AVERAGE dimension, continuous in px —
+    // the slider must visibly move the edge (the old column-snapped hole ate
+    // the whole range), and height-only padding barely registers on wide
+    // lockups (45% of a short logo's height is a sliver next to its width).
+    const wantW = logoH * logoAspect + pad * logoH * (1 + logoAspect);
+    // Keep at least a meaningful tile column on each side.
+    const maxW = containerW - 2 * Math.max(rowH * 0.6, 48) - 2 * gap;
+    const holeW = Math.min(wantW, maxW);
+    if (holeW > 40) {
+      const startRow = Math.floor((rows - rowSpan) / 2);
+      hole = {
+        x: (containerW - holeW) / 2,
+        y: startRow * (rowH + gap),
+        w: holeW,
+        h: holeH,
+        logoH,
+      };
+      holeRows = { start: startRow, end: startRow + rowSpan - 1 };
+    }
+  }
 
-  const rowSpan = rows === 2 ? 2 : Math.max(1, rows - 2);
-  const holeH = rowSpan * tileH;
-  const pad = Math.min(45, Math.max(0, paddingPct)) / 100;
-  // The logo renders at a fixed fraction of the hole height (the hole is
-  // row-snapped, so vertical whitespace is set by that snap); the padding
-  // slider adds HORIZONTAL breathing room only — more padding, wider hole.
-  // Shrinking the logo with padding instead would make wide logos produce
-  // NARROWER holes as padding grows (width loss beats the added padding).
-  // Full-height holes (2-row grids) drop the logo fraction: 60% of the
-  // whole band × a wide logo would swallow nearly every column.
-  const logoHeightFrac = rowSpan === rows ? 0.35 : MOSAIC_INSERT_LOGO_H;
-  const logoH = holeH * logoHeightFrac;
-  const logoW = logoH * logoAspect;
-  // Padding is relative to the logo itself, not the hole — "space around
-  // the logo" should read the same at every density.
-  let colSpan = Math.ceil((logoW + logoH * 2 * pad) / tileW);
-  // Center-snap: hole and grid column counts must share parity.
-  if ((cols - colSpan) % 2 !== 0) colSpan += 1;
-  colSpan = Math.min(colSpan, cols - 2);
-  if (colSpan < 1) return null;
-  // Parity clamp may have broken it again at the boundary; re-align down.
-  if ((cols - colSpan) % 2 !== 0) colSpan = Math.max(1, colSpan - 1);
+  // ── Fill rows (greedy, in arrangement order — deterministic) ──
+  const tiles: MosaicTileRect[] = [];
+  let t = 0;
+  let maxStretch = 1;
+  let rowsFilled = 0;
 
-  return {
-    startRow: Math.floor((rows - rowSpan) / 2),
-    rowSpan,
-    startCol: (cols - colSpan) / 2,
-    colSpan,
-    logoHeightFrac,
-  };
-}
+  for (let r = 0; r < rows; r++) {
+    const y = r * (rowH + gap);
+    const tilesBefore = tiles.length;
+    const inHole = holeRows && r >= holeRows.start && r <= holeRows.end;
+    const segments: { x: number; w: number }[] =
+      inHole && hole
+        ? [
+            { x: 0, w: hole.x - gap },
+            { x: hole.x + hole.w + gap, w: containerW - (hole.x + hole.w + gap) },
+          ]
+        : [{ x: 0, w: containerW }];
 
-/** Cells a hole covers — subtract from `grid.cells` to get tiles needed. */
-export function holeCells(hole: MosaicHole | null): number {
-  return hole ? hole.rowSpan * hole.colSpan : 0;
-}
+    for (const seg of segments) {
+      if (seg.w < 24) continue;
+      // Take tiles until their nominal widths cover the segment.
+      const take: number[] = [];
+      let sumW = 0;
+      while (t < aspects.length) {
+        take.push(t);
+        sumW += aspects[t] * rowH;
+        t++;
+        if (sumW + gap * (take.length - 1) >= seg.w) break;
+      }
+      if (take.length === 0) continue;
+      const usable = seg.w - gap * (take.length - 1);
+      const s = usable / sumW;
+      maxStretch = Math.max(maxStretch, s);
+      let x = seg.x;
+      for (let i = 0; i < take.length; i++) {
+        // Last tile in the segment absorbs rounding so the edge stays flush.
+        const w =
+          i === take.length - 1
+            ? seg.x + seg.w - x
+            : aspects[take[i]] * rowH * s;
+        tiles.push({ x, y, w, h: rowH });
+        x += w + gap;
+      }
+    }
+    if (tiles.length > tilesBefore) rowsFilled++;
+  }
 
-/** True if the cell (r, c) lies inside the hole. */
-export function cellInHole(hole: MosaicHole | null, r: number, c: number): boolean {
-  if (!hole) return false;
-  return (
-    r >= hole.startRow &&
-    r < hole.startRow + hole.rowSpan &&
-    c >= hole.startCol &&
-    c < hole.startCol + hole.colSpan
-  );
+  // rowsFilled < rows or maxStretch > 1.8 signals the pool ran dry mid-wall;
+  // layoutMosaic sheds a row and retries with the same pool.
+  return { result: { rows, rowH, tiles, hole }, maxStretch, rowsFilled };
 }

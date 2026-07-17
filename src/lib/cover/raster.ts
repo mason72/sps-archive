@@ -10,13 +10,7 @@ import {
   coverNeedsRaster,
   sanitizeCoverForEvent,
 } from "@/types/event-settings";
-import {
-  computeMosaicGrid,
-  computeInsertHole,
-  cellInHole,
-  holeCells,
-  orderTiles,
-} from "@/lib/cover/mosaic";
+import { layoutMosaic, orderTiles, MOSAIC_TILE_AR } from "@/lib/cover/mosaic";
 import {
   coverRasterKey,
   coverInputsHash,
@@ -176,55 +170,55 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
     if (leads.length === 0) return null;
     hash = coverInputsHash(cover, leads.map((l) => l.id));
 
-    const grid = computeMosaicGrid({
-      containerW: RASTER_W,
-      bandH: RASTER_H,
-      rows: m.rows,
-      poolSize: leads.length,
-    });
-
     // Logo first — insert-hole geometry needs its aspect ratio.
     const wantsLogo = m.logoMode !== "none" && !!m.logoKey;
     const logoProbe = wantsLogo ? await prepareLogo(m.logoKey, 100, 10000) : null;
-    const hole =
-      m.logoMode === "insert" && logoProbe
-        ? computeInsertHole({
-            grid,
-            logoAspect: logoProbe.aspect,
-            paddingPct: m.insert.padding,
-          })
-        : null;
 
-    const tiles = orderTiles(leads, m.seed).slice(0, grid.cells - holeCells(hole));
-    const tileW = Math.floor((RASTER_W - RASTER_GAP * (grid.cols - 1)) / grid.cols);
-    const tileH = Math.floor((RASTER_H - RASTER_GAP * (grid.rows - 1)) / grid.rows);
+    const arranged = orderTiles(leads, m.seed);
+    // Same justified layout the live cover computes — identical inputs,
+    // identical wall.
+    const layout = layoutMosaic({
+      containerW: RASTER_W,
+      bandH: RASTER_H,
+      rows: m.rows,
+      aspects: arranged.map((l) =>
+        l.width && l.height ? l.width / l.height : MOSAIC_TILE_AR
+      ),
+      gap: RASTER_GAP,
+      hole:
+        m.logoMode === "insert" && logoProbe
+          ? { logoAspect: logoProbe.aspect, paddingPct: m.insert.padding }
+          : null,
+    });
 
-    const tileBuffers = await mapLimit(tiles, 6, async (tile) => {
+    const placed = layout.tiles.map((rect, i) => ({ rect, tile: arranged[i] }));
+    const tileBuffers = await mapLimit(placed, 6, async ({ rect, tile }) => {
+      if (!tile) return null;
       try {
         const buf = await getObjectBuffer(getThumbnailKey(tile.r2_key, "thumb-md"));
-        // "attention" ≈ the live cover's face-biased crop (CSS 50% 25%).
+        // "attention" ≈ the live cover's face-biased crop; the residual from
+        // row justification is tiny, so this barely crops at all now.
         return await sharp(buf)
-          .resize(tileW, tileH, { fit: "cover", position: sharp.strategy.attention })
+          .resize(Math.max(1, Math.round(rect.w)), Math.max(1, Math.round(rect.h)), {
+            fit: "cover",
+            position: sharp.strategy.attention,
+          })
           .toBuffer();
       } catch {
-        return null; // a missing thumbnail leaves a gutter-colored cell
+        return null; // a missing thumbnail leaves a gutter-colored patch
       }
     });
 
     const composites: sharp.OverlayOptions[] = [];
-    let t = 0;
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (cellInHole(hole, r, c) || t >= tileBuffers.length) continue;
-        const buf = tileBuffers[t++];
-        if (!buf) continue;
-        composites.push({
-          input: buf,
-          left: c * (tileW + RASTER_GAP),
-          top: r * (tileH + RASTER_GAP),
-        });
-      }
-    }
+    placed.forEach(({ rect }, i) => {
+      const buf = tileBuffers[i];
+      if (!buf) return;
+      composites.push({
+        input: buf,
+        left: Math.round(rect.x),
+        top: Math.round(rect.y),
+      });
+    });
 
     let canvas = await sharp({
       create: {
@@ -256,27 +250,22 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
         });
       }
       canvas = await sharp(canvas).composite(wash).toBuffer();
-    } else if (hole && logoProbe) {
-      const holeLeft = hole.startCol * (tileW + RASTER_GAP);
-      const holeTop = hole.startRow * (tileH + RASTER_GAP);
-      const holeW = hole.colSpan * tileW + (hole.colSpan - 1) * RASTER_GAP;
-      const holeH = hole.rowSpan * tileH + (hole.rowSpan - 1) * RASTER_GAP;
+    } else if (layout.hole && logoProbe) {
+      const hole = layout.hole;
+      const holeW = Math.round(hole.w);
+      const holeH = Math.round(hole.h);
       const fill = await sharp(
         colorRectSvg(holeW, holeH, m.insert.fill, 1)
       ).png().toBuffer();
-      const logo = await prepareLogo(
-        m.logoKey,
-        holeH * hole.logoHeightFrac,
-        holeW * 0.85
-      );
+      const logo = await prepareLogo(m.logoKey, hole.logoH, holeW * 0.88);
       const overlays: sharp.OverlayOptions[] = [
-        { input: fill, left: holeLeft, top: holeTop },
+        { input: fill, left: Math.round(hole.x), top: Math.round(hole.y) },
       ];
       if (logo) {
         overlays.push({
           input: logo.buf,
-          left: Math.round(holeLeft + (holeW - logo.w) / 2),
-          top: Math.round(holeTop + (holeH - logo.h) / 2),
+          left: Math.round(hole.x + (holeW - logo.w) / 2),
+          top: Math.round(hole.y + (holeH - logo.h) / 2),
         });
       }
       canvas = await sharp(canvas).composite(overlays).toBuffer();

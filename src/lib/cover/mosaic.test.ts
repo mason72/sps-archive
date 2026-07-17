@@ -2,10 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   selectMosaicTiles,
   selectCrossfadeImages,
-  computeMosaicGrid,
-  computeInsertHole,
-  holeCells,
-  cellInHole,
+  layoutMosaic,
   MOSAIC_TILE_AR,
 } from "./mosaic";
 
@@ -69,78 +66,151 @@ describe("selectCrossfadeImages", () => {
   });
 });
 
-describe("computeMosaicGrid", () => {
-  it("derives columns from container at ~3:4 tiles", () => {
-    const g = computeMosaicGrid({ containerW: 1600, bandH: 600, rows: 3, poolSize: 100 });
-    expect(g.rows).toBe(3);
-    // tile height 200 → ideal tile width 150 → ~10-11 columns
-    expect(g.cols).toBe(Math.round(1600 / (200 * MOSAIC_TILE_AR)));
-    expect(g.cells).toBe(g.rows * g.cols);
+/** Mixed portrait/landscape aspect pool, like a real photo-booth section. */
+function aspects(n: number): number[] {
+  const cycle = [0.75, 1.5, 0.8, 1.0, 0.67, 1.78, 0.75];
+  return Array.from({ length: n }, (_, i) => cycle[i % cycle.length]);
+}
+
+const W = 1600;
+const H = 600;
+const GAP = 4;
+
+describe("layoutMosaic — justified rows", () => {
+  it("keeps the requested rows with one shared height and flush edges", () => {
+    const l = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: aspects(80), gap: GAP });
+    expect(l.rows).toBe(3);
+    const ys = [...new Set(l.tiles.map((t) => Math.round(t.y)))].sort((a, b) => a - b);
+    expect(ys).toHaveLength(3);
+    // Every row ends exactly at the right edge, and rows fill the band.
+    for (const y of ys) {
+      const row = l.tiles.filter((t) => Math.round(t.y) === y);
+      const right = Math.max(...row.map((t) => t.x + t.w));
+      expect(right).toBeCloseTo(W, 3);
+    }
+    const bottom = Math.max(...l.tiles.map((t) => t.y + t.h));
+    expect(bottom).toBeCloseTo(H, 3);
   });
 
-  it("sheds rows (never repeats tiles) when the pool is small", () => {
-    const g = computeMosaicGrid({ containerW: 1600, bandH: 600, rows: 4, poolSize: 15 });
-    expect(g.rows).toBeLessThan(4);
-    expect(g.rows * g.cols).toBeLessThanOrEqual(15);
+  it("tiles keep ~their natural aspect (no uniform-cell crop)", () => {
+    const pool = aspects(80);
+    const l = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: pool, gap: GAP });
+    // Rendered aspect vs natural aspect: justification residual stays small
+    // for all but the flush-edge absorber tiles.
+    let within = 0;
+    l.tiles.forEach((t, i) => {
+      const natural = pool[i];
+      const rendered = t.w / t.h;
+      if (Math.abs(rendered - natural) / natural < 0.25) within++;
+    });
+    expect(within / l.tiles.length).toBeGreaterThan(0.85);
+    // And the widths genuinely vary — this is not a uniform grid.
+    const widths = new Set(l.tiles.map((t) => Math.round(t.w)));
+    expect(widths.size).toBeGreaterThan(5);
   });
 
-  it("degrades to a single partial row for tiny pools", () => {
-    const g = computeMosaicGrid({ containerW: 1600, bandH: 600, rows: 3, poolSize: 4 });
-    expect(g.rows).toBe(1);
-    expect(g.cols).toBe(4);
+  it("is deterministic and consumes tiles in arrangement order", () => {
+    const a = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: aspects(50), gap: GAP });
+    const b = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: aspects(50), gap: GAP });
+    expect(a).toEqual(b);
+  });
+
+  it("sheds rows rather than stretching a dry pool", () => {
+    const l = layoutMosaic({ containerW: W, bandH: H, rows: 4, aspects: aspects(8), gap: GAP });
+    expect(l.rows).toBeLessThan(4);
+    expect(l.tiles.length).toBeLessThanOrEqual(8);
+  });
+
+  it("survives a tiny pool on a single row", () => {
+    const l = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: aspects(2), gap: GAP });
+    expect(l.rows).toBe(1);
+    expect(l.tiles.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to 3:4 for junk aspect values", () => {
+    const l = layoutMosaic({
+      containerW: W,
+      bandH: H,
+      rows: 2,
+      aspects: [NaN, 0, -3, Infinity, 99, ...aspects(40)],
+      gap: GAP,
+    });
+    expect(l.tiles.length).toBeGreaterThan(10);
+    for (const t of l.tiles) expect(t.w).toBeGreaterThan(0);
   });
 });
 
-describe("computeInsertHole", () => {
-  const grid = (rows: number, cols: number) => ({
-    rows,
-    cols,
-    tileW: 150,
-    tileH: 200,
-    cells: rows * cols,
+describe("layoutMosaic — insert hole", () => {
+  const hole = (paddingPct: number, rows = 3, logoAspect = 2.5) =>
+    layoutMosaic({
+      containerW: W,
+      bandH: H,
+      rows,
+      aspects: aspects(80),
+      gap: GAP,
+      hole: { logoAspect, paddingPct },
+    }).hole!;
+
+  it("row-snaps vertically: one full tile row above and below (3→1, 4→2)", () => {
+    const h3 = hole(15, 3);
+    const rowH3 = (H - 2 * GAP) / 3;
+    expect(h3.y).toBeCloseTo(rowH3 + GAP, 3);
+    expect(h3.h).toBeCloseTo(rowH3, 3);
+    const h4 = hole(15, 4);
+    const rowH4 = (H - 3 * GAP) / 4;
+    expect(h4.h).toBeCloseTo(rowH4 * 2 + GAP, 3);
   });
 
-  it("leaves a full tile row above and below on a 4-row grid", () => {
-    const hole = computeInsertHole({ grid: grid(4, 11), logoAspect: 2.5, paddingPct: 15 });
-    expect(hole).not.toBeNull();
-    expect(hole!.rowSpan).toBe(2);
-    expect(hole!.startRow).toBe(1);
-  });
-
-  it("goes full-height on a 2-row grid", () => {
-    const hole = computeInsertHole({ grid: grid(2, 10), logoAspect: 2.5, paddingPct: 15 });
-    expect(hole!.rowSpan).toBe(2);
-    expect(hole!.startRow).toBe(0);
-  });
-
-  it("center-snaps: hole parity matches column parity", () => {
-    for (const cols of [9, 10, 11, 12]) {
-      for (const ar of [1, 2, 3.5]) {
-        const hole = computeInsertHole({ grid: grid(4, cols), logoAspect: ar, paddingPct: 10 });
-        if (!hole) continue;
-        expect((cols - hole.colSpan) % 2).toBe(0);
-        expect(hole.startCol).toBe((cols - hole.colSpan) / 2);
-        expect(hole.colSpan).toBeLessThanOrEqual(cols - 2);
-      }
+  it("padding slider MOVES the edge — every step changes the width (the dead-slider regression)", () => {
+    const widths = [0, 10, 20, 30, 45].map((p) => hole(p).w);
+    for (let i = 1; i < widths.length; i++) {
+      expect(widths[i]).toBeGreaterThan(widths[i - 1]);
     }
   });
 
-  it("declines a hole when the grid is too small", () => {
-    expect(computeInsertHole({ grid: grid(1, 4), logoAspect: 2.5, paddingPct: 10 })).toBeNull();
+  it("stays centered and leaves tiles on both sides", () => {
+    const h = hole(45, 3, 4); // wide logo, max padding
+    expect(h.x + h.w / 2).toBeCloseTo(W / 2, 3);
+    expect(h.x).toBeGreaterThan(40);
+    const l = layoutMosaic({
+      containerW: W,
+      bandH: H,
+      rows: 3,
+      aspects: aspects(80),
+      gap: GAP,
+      hole: { logoAspect: 4, paddingPct: 45 },
+    });
+    const midRowTiles = l.tiles.filter(
+      (t) => t.y < h.y + 1 && t.y + t.h > h.y + 1
+    );
+    const leftOf = midRowTiles.filter((t) => t.x + t.w <= h.x + 1);
+    const rightOf = midRowTiles.filter((t) => t.x >= h.x + h.w - 1);
+    expect(leftOf.length).toBeGreaterThan(0);
+    expect(rightOf.length).toBeGreaterThan(0);
+    expect(leftOf.length + rightOf.length).toBe(midRowTiles.length); // none under the hole
   });
 
-  it("wider padding widens the hole", () => {
-    const tight = computeInsertHole({ grid: grid(4, 20), logoAspect: 2.5, paddingPct: 0 })!;
-    const loose = computeInsertHole({ grid: grid(4, 20), logoAspect: 2.5, paddingPct: 40 })!;
-    expect(loose.colSpan).toBeGreaterThanOrEqual(tight.colSpan);
+  it("2-row band gets a full-height hole with a reduced logo", () => {
+    const h = hole(15, 2);
+    expect(h.y).toBe(0);
+    expect(h.h).toBeCloseTo(H, 3);
+    expect(h.logoH).toBeCloseTo(H * 0.35, 3);
   });
 
-  it("holeCells and cellInHole agree", () => {
-    const g = grid(4, 11);
-    const hole = computeInsertHole({ grid: g, logoAspect: 2.5, paddingPct: 15 })!;
-    let counted = 0;
-    for (let r = 0; r < g.rows; r++)
-      for (let c = 0; c < g.cols; c++) if (cellInHole(hole, r, c)) counted++;
-    expect(counted).toBe(holeCells(hole));
+  it("no tile overlaps the hole on any row", () => {
+    const l = layoutMosaic({
+      containerW: W,
+      bandH: H,
+      rows: 4,
+      aspects: aspects(120),
+      gap: GAP,
+      hole: { logoAspect: 2.5, paddingPct: 20 },
+    });
+    const h = l.hole!;
+    for (const t of l.tiles) {
+      const xOverlap = t.x < h.x + h.w && t.x + t.w > h.x;
+      const yOverlap = t.y < h.y + h.h && t.y + t.h > h.y;
+      expect(xOverlap && yOverlap).toBe(false);
+    }
   });
 });

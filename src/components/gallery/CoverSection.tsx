@@ -4,13 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { GalleryImage, GallerySection, GallerySettings } from "@/types/gallery";
 import {
-  computeMosaicGrid,
-  computeInsertHole,
-  cellInHole,
-  holeCells,
+  layoutMosaic,
   dedupeStackLeads,
   orderTiles,
   selectCrossfadeImages,
+  MOSAIC_TILE_AR,
 } from "@/lib/cover/mosaic";
 
 interface CoverSectionProps {
@@ -169,83 +167,75 @@ function MosaicLayer({
   const leads = useMemo(() => dedupeStackLeads(pool), [pool]);
   const arranged = useMemo(() => orderTiles(leads, mosaic.seed), [leads, mosaic.seed]);
 
-  const grid = box
-    ? computeMosaicGrid({
-        containerW: box.w,
-        bandH: box.h,
-        rows: mosaic.rows,
-        poolSize: leads.length,
-      })
-    : null;
-  const hole =
-    grid && mosaic.logoMode === "insert" && mosaic.logoUrl
-      ? computeInsertHole({ grid, logoAspect, paddingPct: mosaic.insert.padding })
-      : null;
-  const tiles = grid ? arranged.slice(0, grid.cells - holeCells(hole)) : [];
-
-  // Cell walk: place tiles row-major, skipping the hole's cells.
-  const cells: React.ReactNode[] = [];
-  if (grid && tiles.length > 0) {
-    let t = 0;
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (cellInHole(hole, r, c) || t >= tiles.length) continue;
-        const img = tiles[t++];
-        cells.push(
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            key={img.id}
-            src={img.thumbnailUrl}
-            alt=""
-            loading="eager"
-            className="w-full h-full object-cover"
-            // Booth shots are centered people — bias the crop toward faces.
-            style={{
-              objectPosition: "50% 25%",
-              gridArea: `${r + 1} / ${c + 1}`,
-              backgroundColor: img.dominantColor ?? undefined,
-            }}
-          />
-        );
-      }
-    }
-  }
+  const layout = useMemo(() => {
+    if (!box) return null;
+    return layoutMosaic({
+      containerW: box.w,
+      bandH: box.h,
+      rows: mosaic.rows,
+      aspects: arranged.map((img) =>
+        img.width && img.height ? img.width / img.height : MOSAIC_TILE_AR
+      ),
+      gap: MOSAIC_GAP,
+      hole:
+        mosaic.logoMode === "insert" && mosaic.logoUrl
+          ? { logoAspect, paddingPct: mosaic.insert.padding }
+          : null,
+    });
+  }, [box, mosaic.rows, mosaic.logoMode, mosaic.logoUrl, mosaic.insert.padding, arranged, logoAspect]);
 
   return (
-    <div ref={ref} className="relative w-full h-full">
-      {grid && (
+    <div ref={ref} className="relative w-full h-full overflow-hidden">
+      {layout &&
+        layout.tiles.map((rect, i) => {
+          const img = arranged[i];
+          if (!img) return null;
+          return (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              key={img.id}
+              src={img.thumbnailUrl}
+              alt=""
+              loading="eager"
+              className="absolute object-cover"
+              // Justified rows: tiles keep ~their natural aspect; the small
+              // residual from row justification is absorbed by object-cover.
+              // Slight top bias keeps faces when it does crop.
+              style={{
+                left: rect.x,
+                top: rect.y,
+                width: rect.w,
+                height: rect.h,
+                objectPosition: "50% 25%",
+                backgroundColor: img.dominantColor ?? undefined,
+              }}
+            />
+          );
+        })}
+      {layout?.hole && mosaic.logoUrl && (
         <div
-          className="grid w-full h-full"
+          className="absolute flex items-center justify-center"
           style={{
-            gridTemplateRows: `repeat(${grid.rows}, 1fr)`,
-            gridTemplateColumns: `repeat(${grid.cols}, 1fr)`,
-            gap: MOSAIC_GAP,
+            left: layout.hole.x,
+            top: layout.hole.y,
+            width: layout.hole.w,
+            height: layout.hole.h,
+            backgroundColor: mosaic.insert.fill,
           }}
         >
-          {cells}
-          {hole && mosaic.logoUrl && (
-            <div
-              className="flex items-center justify-center"
-              style={{
-                gridArea: `${hole.startRow + 1} / ${hole.startCol + 1} / span ${hole.rowSpan} / span ${hole.colSpan}`,
-                backgroundColor: mosaic.insert.fill,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={mosaic.logoUrl}
-                alt=""
-                className="object-contain"
-                style={{ height: `${hole.logoHeightFrac * 100}%`, maxWidth: "85%" }}
-                onLoad={(e) => {
-                  const el = e.currentTarget;
-                  if (el.naturalWidth && el.naturalHeight) {
-                    setLogoAspect(el.naturalWidth / el.naturalHeight);
-                  }
-                }}
-              />
-            </div>
-          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={mosaic.logoUrl}
+            alt=""
+            className="object-contain"
+            style={{ height: layout.hole.logoH, maxWidth: "88%" }}
+            onLoad={(e) => {
+              const el = e.currentTarget;
+              if (el.naturalWidth && el.naturalHeight) {
+                setLogoAspect(el.naturalWidth / el.naturalHeight);
+              }
+            }}
+          />
         </div>
       )}
       {mosaic.logoMode === "overlay" && (

@@ -6,7 +6,7 @@ import {
 } from "@/lib/r2/client";
 import type { CoverSettings } from "@/types/event-settings";
 import { coverNeedsRaster, sanitizeCoverForEvent } from "@/types/event-settings";
-import { dedupeStackLeads } from "@/lib/cover/mosaic";
+import { dedupeStackLeads, MOSAIC_LAYOUT_VERSION } from "@/lib/cover/mosaic";
 import { inngest } from "@/lib/inngest/client";
 
 /**
@@ -102,6 +102,9 @@ export function coverInputsHash(cover: CoverSettings, tileIds: string[]): string
   return createHash("sha256")
     .update(
       JSON.stringify({
+        // Layout algorithm version: deployed layout changes must lazily
+        // regenerate stored rasters, not serve the old arrangement forever.
+        v: MOSAIC_LAYOUT_VERSION,
         type: cover.type,
         mosaic: cover.type === "mosaic" ? cover.mosaic : undefined,
         solid: cover.type === "solid" ? cover.solid : undefined,
