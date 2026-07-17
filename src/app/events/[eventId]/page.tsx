@@ -1114,6 +1114,8 @@ export default function EventPage({
             id: img.id,
             thumbnailUrl: img.thumbnailUrl,
             originalFilename: img.originalFilename,
+            focalX: img.focalX,
+            focalY: img.focalY,
           }))}
           onRefreshImages={fetchEvent}
           onEventUpdate={(updates) => {

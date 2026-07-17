@@ -59,6 +59,9 @@ interface CoverImage {
   id: string;
   thumbnailUrl: string;
   originalFilename: string;
+  /** Subject anchor (0–100) — face-derived or manual; the focal picker's auto pin. */
+  focalX?: number | null;
+  focalY?: number | null;
 }
 
 interface EventSidebarProps {
@@ -773,6 +776,11 @@ function DesignPanel({
               cover={cover}
               onChange={(partial) => handleChange({ cover: { ...cover, ...partial } })}
               coverImageUrl={coverImage?.thumbnailUrl}
+              autoFocal={
+                coverImage?.focalX != null && coverImage?.focalY != null
+                  ? { x: coverImage.focalX / 100, y: coverImage.focalY / 100 }
+                  : undefined
+              }
               sections={sections}
               eventId={eventId}
               onUploadComplete={onRefreshImages}

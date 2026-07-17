@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Upload, ImageIcon, Shuffle, Plus, X } from "lucide-react";
+import { Upload, ImageIcon, Shuffle, Plus, X, ScanFace } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type {
@@ -31,6 +31,11 @@ interface CoverLayoutTabProps {
   onChange: (partial: Partial<CoverSettings>) => void;
   /** Resolved preview URL for the current cover imageId. */
   coverImageUrl?: string;
+  /**
+   * The cover image's own subject anchor (face-derived or picked in the
+   * grid), 0–1 — where the crop actually sits while no manual pin is set.
+   */
+  autoFocal?: FocalPoint;
   sections?: SectionOption[];
   eventId?: string;
   onUploadComplete?: () => void;
@@ -40,6 +45,7 @@ export function CoverLayoutTab({
   cover,
   onChange,
   coverImageUrl,
+  autoFocal,
   sections,
   eventId,
   onUploadComplete,
@@ -164,6 +170,7 @@ export function CoverLayoutTab({
                 <FocalPicker
                   imageUrl={resolvedCoverUrl}
                   focalPoint={cover.focalPoint}
+                  autoFocal={autoFocal}
                   onChange={(focalPoint) => onChange({ focalPoint })}
                   isUploading={isUploading}
                   onReplace={handleCoverUpload}
@@ -542,23 +549,32 @@ export function CoverLayoutTab({
  * The cover preview doubles as the crop-focus control: drag (or click) to
  * pin the part of the photo that must survive every crop — hero band, OG
  * card, email. Replace moved to a corner chip so the surface stays a canvas.
+ *
+ * Three legible states: a manual pin (white, "Manual" chip + reset), the
+ * image's face-derived anchor doing the work (emerald pin, "Auto · face"),
+ * or the plain center default. The pin always sits where the crop actually
+ * anchors, so the preview never lies about what ships.
  */
 function FocalPicker({
   imageUrl,
   focalPoint,
+  autoFocal,
   onChange,
   isUploading,
   onReplace,
 }: {
   imageUrl: string;
   focalPoint?: FocalPoint;
-  onChange: (fp: FocalPoint) => void;
+  autoFocal?: FocalPoint;
+  onChange: (fp: FocalPoint | undefined) => void;
   isUploading: boolean;
   onReplace: (file: File) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const fp = focalPoint ?? { x: 0.5, y: 0.5 };
+  const isManual = !!focalPoint;
+  const isAuto = !isManual && !!autoFocal;
+  const fp = focalPoint ?? autoFocal ?? { x: 0.5, y: 0.5 };
 
   const setFromPointer = (clientX: number, clientY: number) => {
     const rect = ref.current?.getBoundingClientRect();
@@ -592,13 +608,47 @@ function FocalPicker({
           className="w-full aspect-[16/9] object-cover bg-stone-100 border border-stone-200"
           style={{ objectPosition: `${fp.x * 100}% ${fp.y * 100}%` }}
         />
-        {/* Focal pin */}
+        {/* Focal pin — emerald while the face anchor is steering */}
         <div
-          className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full border-2 border-white shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)] pointer-events-none"
+          className={cn(
+            "absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full border-2 pointer-events-none",
+            isAuto
+              ? "border-emerald-400 shadow-[0_0_0_1.5px_rgba(0,0,0,0.35)]"
+              : "border-white shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]"
+          )}
           style={{ left: `${fp.x * 100}%`, top: `${fp.y * 100}%` }}
         >
-          <div className="absolute inset-[3px] rounded-full bg-white/40" />
+          <div
+            className={cn(
+              "absolute inset-[3px] rounded-full",
+              isAuto ? "bg-emerald-400/50" : "bg-white/40"
+            )}
+          />
         </div>
+
+        {/* State chip */}
+        {isAuto && (
+          <span className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-emerald-600/85 text-white text-[10px] font-medium rounded pointer-events-none">
+            <ScanFace size={10} />
+            Auto · face
+          </span>
+        )}
+        {isManual && (
+          <span
+            className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2 py-1 bg-black/55 text-white text-[10px] font-medium rounded"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            Manual
+            <button
+              type="button"
+              onClick={() => onChange(undefined)}
+              className="underline decoration-white/40 underline-offset-2 hover:decoration-white cursor-pointer"
+              title={autoFocal ? "Back to the detected face" : "Back to center"}
+            >
+              {autoFocal ? "Reset to face" : "Reset"}
+            </button>
+          </span>
+        )}
 
         {/* Replace chip */}
         <label
@@ -621,7 +671,11 @@ function FocalPicker({
         </label>
       </div>
       <p className="text-[10px] text-stone-400 mt-1.5 text-center">
-        Drag the pin to what must stay in frame — the crop follows it everywhere
+        {isManual
+          ? "Pinned by hand — every crop follows your pin"
+          : isAuto
+            ? "Following the detected face — drag to override"
+            : "Drag the pin to what must stay in frame — the crop follows it everywhere"}
       </p>
     </div>
   );
