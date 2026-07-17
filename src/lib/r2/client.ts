@@ -61,7 +61,15 @@ export async function uploadToR2WithMetadata(
 }
 
 /** Download an object into memory. Server-side composition only — keep it small. */
-export async function getObjectBuffer(key: string): Promise<Buffer> {
+export async function getObjectBuffer(key: string, maxBytes?: number): Promise<Buffer> {
+  if (maxBytes !== undefined) {
+    // The presigned-PUT path can't enforce size; refuse to buffer oversized
+    // objects instead of eating the compose job's memory.
+    const head = await R2.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    if ((head.ContentLength ?? 0) > maxBytes) {
+      throw new Error(`${key} exceeds ${maxBytes} bytes (${head.ContentLength})`);
+    }
+  }
   const response = await R2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   if (!response.Body) throw new Error(`Failed to download ${key} from R2`);
   return Buffer.from(await response.Body.transformToByteArray());

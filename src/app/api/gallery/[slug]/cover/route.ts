@@ -27,7 +27,7 @@ export async function GET(
 
     const { data: share } = await supabase
       .from("shares")
-      .select("event_id, expires_at")
+      .select("event_id, expires_at, share_type, image_ids")
       .eq("slug", slug)
       .eq("is_active", true)
       .single();
@@ -48,10 +48,20 @@ export async function GET(
     const settings = (event?.settings ?? {}) as Record<string, unknown>;
     const cover = normalizeCoverSettings(settings.cover);
 
+    // Selection shares expose only their hand-picked image_ids — the raster
+    // (composed from the whole source section) and any unselected fallback
+    // must never leak photos the curation deliberately excluded.
+    const selectedIds =
+      share.share_type === "selection" &&
+      Array.isArray(share.image_ids) &&
+      share.image_ids.length > 0
+        ? new Set<string>(share.image_ids)
+        : null;
+
     // Mosaic/solid covers serve the composed raster (stale-while-revalidate;
     // resolveCoverRasterUrl enqueues a refresh when inputs drifted). Falls
     // through to the single-image chain when no raster exists yet.
-    if (coverNeedsRaster(cover)) {
+    if (!selectedIds && coverNeedsRaster(cover)) {
       const rasterUrl = await resolveCoverRasterUrl(share.event_id, cover, 3600);
       if (rasterUrl) {
         return NextResponse.redirect(rasterUrl, {
@@ -64,7 +74,7 @@ export async function GET(
     // Single-image chain: the designated cover image; else (crossfade, or a
     // mosaic whose raster hasn't composed yet) the source pool's lead shot.
     let r2Key: string | null = null;
-    if (cover.imageId) {
+    if (cover.imageId && (!selectedIds || selectedIds.has(cover.imageId))) {
       const { data: image } = await supabase
         .from("images")
         .select("r2_key")
@@ -79,7 +89,8 @@ export async function GET(
           ? cover.crossfade?.sectionId
           : cover.mosaic?.sectionId;
       const leads = poolLeads(await fetchMosaicPool(share.event_id, sectionId));
-      r2Key = leads[0]?.r2_key ?? null;
+      r2Key =
+        leads.find((l) => !selectedIds || selectedIds.has(l.id))?.r2_key ?? null;
     }
     if (!r2Key) {
       return NextResponse.json({ error: "No cover image" }, { status: 404 });

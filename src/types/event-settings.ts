@@ -161,6 +161,14 @@ const clamp01 = (n: unknown, fallback: number) =>
   typeof n === "number" && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
 
 /**
+ * Colors flow into inline CSS, rgba() decomposition, AND raster SVG markup —
+ * only strict #RRGGBB passes; everything else takes the fallback so the live
+ * cover and the composed raster can never disagree on a malformed value.
+ */
+const hexOr = (v: unknown, fallback: string): string =>
+  typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v.trim()) ? v.trim() : fallback;
+
+/**
  * Single parse point for cover settings coming out of the events.settings
  * JSONB. Fills defaults, coerces legacy rows (no `type`) to "image", and
  * clamps user-controlled numbers. Every reader (gallery API, preview API,
@@ -204,10 +212,7 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
         : DEFAULT_MOSAIC_SETTINGS.logoMode,
       logoKey: typeof rawMosaic.logoKey === "string" ? rawMosaic.logoKey : undefined,
       overlay: {
-        color:
-          typeof rawOverlay.color === "string"
-            ? rawOverlay.color
-            : DEFAULT_MOSAIC_SETTINGS.overlay.color,
+        color: hexOr(rawOverlay.color, DEFAULT_MOSAIC_SETTINGS.overlay.color),
         opacity: clamp01(rawOverlay.opacity, DEFAULT_MOSAIC_SETTINGS.overlay.opacity),
         blur: rawOverlay.blur === true,
       },
@@ -216,10 +221,7 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
           typeof rawInsert.padding === "number" && Number.isFinite(rawInsert.padding)
             ? Math.min(45, Math.max(0, rawInsert.padding))
             : DEFAULT_MOSAIC_SETTINGS.insert.padding,
-        fill:
-          typeof rawInsert.fill === "string"
-            ? rawInsert.fill
-            : DEFAULT_MOSAIC_SETTINGS.insert.fill,
+        fill: hexOr(rawInsert.fill, DEFAULT_MOSAIC_SETTINGS.insert.fill),
       },
     },
     solid: {
@@ -228,12 +230,15 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
         typeof rawSolid.padding === "number" && Number.isFinite(rawSolid.padding)
           ? Math.min(45, Math.max(0, rawSolid.padding))
           : DEFAULT_SOLID_SETTINGS.padding,
-      colors:
-        Array.isArray(rawSolid.colors) &&
-        rawSolid.colors.length > 0 &&
-        rawSolid.colors.every((x) => typeof x === "string")
-          ? (rawSolid.colors as string[]).slice(0, 5)
-          : DEFAULT_SOLID_SETTINGS.colors,
+      colors: (() => {
+        const valid = Array.isArray(rawSolid.colors)
+          ? rawSolid.colors
+              .filter((x) => typeof x === "string" && /^#[0-9a-fA-F]{6}$/.test(x.trim()))
+              .map((x) => (x as string).trim())
+              .slice(0, 5)
+          : [];
+        return valid.length > 0 ? valid : DEFAULT_SOLID_SETTINGS.colors;
+      })(),
       angle:
         typeof rawSolid.angle === "number" && Number.isFinite(rawSolid.angle)
           ? ((rawSolid.angle % 360) + 360) % 360
@@ -263,6 +268,43 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
       : "center",
     titlePlacement: c.titlePlacement as TitlePlacement | undefined,
     hideTitle: typeof c.hideTitle === "boolean" ? c.hideTitle : undefined,
+  };
+}
+
+/**
+ * The cover logo key is stored in owner-writable JSONB, so every sink that
+ * dereferences it (presign for the gallery payload, R2 read in the raster
+ * job) MUST pin it to this event's branding folder first — otherwise a
+ * PATCHed settings blob becomes an arbitrary-bucket-read primitive (the
+ * lessons #2/#14 IDOR class, arriving via JSONB instead of a query param).
+ */
+export function pinnedCoverLogoKey(
+  eventId: string,
+  key: string | undefined
+): string | undefined {
+  return key && key.startsWith(`events/${eventId}/branding/cover-logo.`)
+    ? key
+    : undefined;
+}
+
+/**
+ * Cover settings with logo keys pinned to the event. The raster composer and
+ * the serve-time staleness hash must BOTH run on this (not the raw
+ * normalized settings) — if only one side sanitized, a bogus stored key
+ * would make the hashes disagree forever and loop regeneration.
+ */
+export function sanitizeCoverForEvent(
+  eventId: string,
+  cover: CoverSettings
+): CoverSettings {
+  return {
+    ...cover,
+    mosaic: cover.mosaic
+      ? { ...cover.mosaic, logoKey: pinnedCoverLogoKey(eventId, cover.mosaic.logoKey) }
+      : undefined,
+    solid: cover.solid
+      ? { ...cover.solid, logoKey: pinnedCoverLogoKey(eventId, cover.solid.logoKey) }
+      : undefined,
   };
 }
 

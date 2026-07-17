@@ -59,7 +59,10 @@ export function CoverSection({
     const pool = section
       ? section.imageIds.map((id) => byId.get(id)).filter((x): x is GalleryImage => !!x)
       : images;
-    return pool;
+    // Videos never tile a cover (poster frames read as random blurry shots).
+    // Must match the raster pool's media_type filter or the seeded
+    // arrangement desyncs between live cover and email/OG raster.
+    return pool.filter((img) => img.mediaType !== "video");
   }, [type, images, sections, sourceSectionId]);
 
   let layer: React.ReactNode = null;
@@ -337,21 +340,29 @@ function CrossfadeLayer({
     ? `${focalPoint.x * 100}% ${focalPoint.y * 100}%`
     : undefined;
 
+  // Mount only the fading-out, current, and preloading-next frames — a
+  // 10-frame rotation must not fetch 10 full-size originals at page open.
+  const prev = (idx - 1 + frames.length) % frames.length;
+  const next = (idx + 1) % frames.length;
+
   return (
     <div className="relative w-full h-full">
-      {frames.map((img, i) => (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          key={img.id}
-          src={img.originalUrl ?? img.thumbnailLgUrl ?? img.thumbnailUrl}
-          alt=""
-          className={cn(
-            "absolute inset-0 w-full h-full object-cover transition-opacity duration-[1500ms] ease-in-out",
-            i === idx ? "opacity-100" : "opacity-0"
-          )}
-          style={{ objectPosition }}
-        />
-      ))}
+      {frames.map((img, i) => {
+        if (i !== idx && i !== prev && i !== next) return null;
+        return (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            key={img.id}
+            src={img.originalUrl ?? img.thumbnailLgUrl ?? img.thumbnailUrl}
+            alt=""
+            className={cn(
+              "absolute inset-0 w-full h-full object-cover transition-opacity duration-[1500ms] ease-in-out",
+              i === idx ? "opacity-100" : "opacity-0"
+            )}
+            style={{ objectPosition }}
+          />
+        );
+      })}
     </div>
   );
 }

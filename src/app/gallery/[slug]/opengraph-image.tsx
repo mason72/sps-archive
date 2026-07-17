@@ -21,7 +21,7 @@ export default async function OGImage({
   // 1. Resolve slug → share
   const { data: share } = await supabase
     .from("shares")
-    .select("event_id, is_active")
+    .select("event_id, is_active, share_type, image_ids")
     .eq("slug", slug)
     .eq("is_active", true)
     .single();
@@ -59,9 +59,19 @@ export default async function OGImage({
 
   let coverImageUrl: string | null = null;
   let solidBackground: string | null = null;
+  let coverImageDims: { w: number; h: number } | null = null;
+
+  // Selection shares expose only their hand-picked image_ids — never the
+  // whole-section raster or an unselected fallback photo.
+  const selectedIds =
+    share.share_type === "selection" &&
+    Array.isArray(share.image_ids) &&
+    share.image_ids.length > 0
+      ? new Set<string>(share.image_ids)
+      : null;
 
   // Mosaic/solid: composed raster (enqueues a refresh if inputs drifted).
-  if (coverNeedsRaster(cover)) {
+  if (!selectedIds && coverNeedsRaster(cover)) {
     coverImageUrl = await resolveCoverRasterUrl(share.event_id, cover, 600);
     // Solid renders natively while its raster is still composing — satori
     // speaks linear-gradient.
@@ -76,15 +86,23 @@ export default async function OGImage({
 
   // Single-image chain: designated cover; crossfade's lead frame rides this
   // too (its imageId is unset, so it falls to the pool below).
-  if (!coverImageUrl && !solidBackground && cover.imageId) {
+  if (
+    !coverImageUrl &&
+    !solidBackground &&
+    cover.imageId &&
+    (!selectedIds || selectedIds.has(cover.imageId))
+  ) {
     const { data: coverImg } = await supabase
       .from("images")
-      .select("r2_key")
+      .select("r2_key, width, height")
       .eq("id", cover.imageId)
       .eq("event_id", share.event_id)
       .single();
     if (coverImg) {
       coverImageUrl = await getPresignedDownloadUrl(coverImg.r2_key, 600);
+      if (coverImg.width && coverImg.height) {
+        coverImageDims = { w: coverImg.width, h: coverImg.height };
+      }
     }
   }
 
@@ -92,18 +110,26 @@ export default async function OGImage({
     const leads = poolLeads(
       await fetchMosaicPool(share.event_id, cover.crossfade?.sectionId)
     );
-    if (leads[0]) {
-      coverImageUrl = await getPresignedDownloadUrl(leads[0].r2_key, 600);
+    const lead = leads.find((l) => !selectedIds || selectedIds.has(l.id));
+    if (lead) {
+      coverImageUrl = await getPresignedDownloadUrl(lead.r2_key, 600);
+      if (lead.width && lead.height) {
+        coverImageDims = { w: lead.width, h: lead.height };
+      }
     }
   }
 
-  // Last resort: first image from the event
+  // Last resort: first image from the event (selection shares: first pick)
   if (!coverImageUrl && !solidBackground) {
-    const { data: firstImg } = await supabase
+    let firstQuery = supabase
       .from("images")
       .select("r2_key")
       .eq("event_id", share.event_id)
-      .neq("processing_status", "error")
+      .neq("processing_status", "error");
+    if (selectedIds) {
+      firstQuery = firstQuery.in("id", Array.from(selectedIds));
+    }
+    const { data: firstImg } = await firstQuery
       .order("created_at", { ascending: true })
       .limit(1)
       .single();
@@ -112,12 +138,28 @@ export default async function OGImage({
     }
   }
 
-  // Focal point steers the 1200×630 crop for image/crossfade covers; rasters
-  // are already composed at a compatible aspect and stay centered.
-  const objectPosition =
-    cover.focalPoint && !coverNeedsRaster(cover)
-      ? `${Math.round(cover.focalPoint.x * 100)}% ${Math.round(cover.focalPoint.y * 100)}%`
-      : "50% 50%";
+  // Focal-point crop, computed by hand: satori does NOT implement
+  // objectPosition (its objectFit:cover hardcodes a centered slice), so the
+  // image is rendered oversized and absolutely offset such that the focal
+  // point sits as close to the card's center as the crop allows. Needs the
+  // original pixel dimensions; without them we fall back to a center crop.
+  const clamp = (n: number, lo: number, hi: number) =>
+    Math.min(hi, Math.max(lo, n));
+  let focalRect: { w: number; h: number; left: number; top: number } | null = null;
+  if (cover.focalPoint && coverImageDims && !coverNeedsRaster(cover)) {
+    const scale = Math.max(
+      size.width / coverImageDims.w,
+      size.height / coverImageDims.h
+    );
+    const rw = coverImageDims.w * scale;
+    const rh = coverImageDims.h * scale;
+    focalRect = {
+      w: rw,
+      h: rh,
+      left: -clamp(cover.focalPoint.x * rw - size.width / 2, 0, rw - size.width),
+      top: -clamp(cover.focalPoint.y * rh - size.height / 2, 0, rh - size.height),
+    };
+  }
 
   // 5. Format date
   const dateStr = event.event_date
@@ -143,7 +185,32 @@ export default async function OGImage({
         }}
       >
         {/* Background: cover image (focal-anchored) or solid/gradient canvas */}
-        {coverImageUrl && (
+        {coverImageUrl && focalRect && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              overflow: "hidden",
+            }}
+          >
+            <img
+              src={coverImageUrl}
+              alt=""
+              style={{
+                position: "absolute",
+                width: `${focalRect.w}px`,
+                height: `${focalRect.h}px`,
+                left: `${focalRect.left}px`,
+                top: `${focalRect.top}px`,
+              }}
+            />
+          </div>
+        )}
+        {coverImageUrl && !focalRect && (
           <img
             src={coverImageUrl}
             alt=""
@@ -154,7 +221,6 @@ export default async function OGImage({
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              objectPosition,
             }}
           />
         )}

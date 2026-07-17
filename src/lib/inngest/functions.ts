@@ -547,7 +547,11 @@ export const coverRaster = inngest.createFunction(
     id: "cover-raster",
     retries: 2,
     concurrency: { limit: 3 },
-    debounce: { key: "event.data.eventId", period: "15s" },
+    // timeout matters: debounce is trailing-edge, and the serve-time
+    // staleness probe fires on EVERY email open — an email blast against a
+    // drifted raster would otherwise push the job back forever, serving the
+    // stale mosaic to the entire blast.
+    debounce: { key: "event.data.eventId", period: "15s", timeout: "2m" },
   },
   { event: "cover/raster.generate" },
   async ({ event, step }) => {

@@ -5,7 +5,11 @@ import {
   getThumbnailKey,
   uploadToR2WithMetadata,
 } from "@/lib/r2/client";
-import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
+import {
+  normalizeCoverSettings,
+  coverNeedsRaster,
+  sanitizeCoverForEvent,
+} from "@/types/event-settings";
 import {
   computeMosaicGrid,
   computeInsertHole,
@@ -100,7 +104,8 @@ async function prepareLogo(
 ): Promise<{ buf: Buffer; w: number; h: number; aspect: number } | null> {
   if (!logoKey) return null;
   try {
-    const raw = await getObjectBuffer(logoKey);
+    // 15MB ceiling: the upload endpoint's 5MB check is client-declared only.
+    const raw = await getObjectBuffer(logoKey, 15 * 1024 * 1024);
     // density: SVG logos rasterize crisp at composite scale instead of 72dpi.
     const meta = await sharp(raw, { density: 300 }).metadata();
     if (!meta.width || !meta.height) return null;
@@ -135,8 +140,11 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
     .single();
   if (!event) return null;
 
-  const cover = normalizeCoverSettings(
-    ((event.settings ?? {}) as Record<string, unknown>).cover
+  // Sanitize BEFORE anything reads logoKey or hashes — the key came from
+  // owner-writable JSONB and must stay pinned to this event's branding.
+  const cover = sanitizeCoverForEvent(
+    eventId,
+    normalizeCoverSettings(((event.settings ?? {}) as Record<string, unknown>).cover)
   );
   if (!coverNeedsRaster(cover)) return null;
 

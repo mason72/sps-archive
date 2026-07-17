@@ -14,6 +14,8 @@ export interface GalleryImage {
   dominantColor?: string | null;
   takenAt?: string | null;
   downloadUrl?: string;
+  /** "image" | "video" — cover pools (mosaic/crossfade) skip videos. */
+  mediaType?: "image" | "video";
 }
 
 export interface GalleryBranding {

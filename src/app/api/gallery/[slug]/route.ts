@@ -135,7 +135,7 @@ export async function GET(
     }
 
     // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
-    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color";
+    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type";
     const IMG_PAGE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -181,11 +181,15 @@ export async function GET(
       imgOffset += IMG_PAGE;
     }
 
-    // 5a. Save cover image data before excluding from gallery grid
+    // 5a. Save cover image data before excluding from gallery grid.
+    // Exclude ONLY while the image is actively serving as the photo cover —
+    // a stale imageId left over from switching to mosaic/solid must not
+    // silently hide a photo from the grid.
     const cover = normalizeCoverSettings(
       ((event.settings ?? {}) as Record<string, unknown>).cover
     );
-    const coverImageId = cover.imageId;
+    const coverImageId =
+      cover.enabled && cover.type === "image" ? cover.imageId : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const coverImageRow = coverImageId ? rawImages.find((img: any) => img.id === coverImageId) : null;
     if (coverImageId) {
@@ -223,6 +227,7 @@ export async function GET(
           height: img.height,
           dominantColor: img.dominant_color ?? null,
           takenAt: img.taken_at,
+          mediaType: img.media_type ?? "image",
         };
 
         if (urls[3]) {
@@ -240,7 +245,7 @@ export async function GET(
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string; smartStacks?: boolean };
 
     const gallerySettings: GallerySettings = {
-      ...(await coverGalleryFields(cover)),
+      ...(await coverGalleryFields(cover, share.event_id)),
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
       colorPrimary: color.primary,

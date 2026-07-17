@@ -5,7 +5,7 @@ import {
   getPresignedDownloadUrl,
 } from "@/lib/r2/client";
 import type { CoverSettings } from "@/types/event-settings";
-import { coverNeedsRaster } from "@/types/event-settings";
+import { coverNeedsRaster, sanitizeCoverForEvent } from "@/types/event-settings";
 import { dedupeStackLeads } from "@/lib/cover/mosaic";
 import { inngest } from "@/lib/inngest/client";
 
@@ -25,6 +25,8 @@ export interface TileRow {
   r2_key: string;
   parsed_name: string | null;
   original_filename: string;
+  width: number | null;
+  height: number | null;
 }
 
 /** The section image rows a mosaic/crossfade would draw from, in section order. */
@@ -59,17 +61,22 @@ export async function fetchMosaicPool(
     if (!links || links.length === 0) continue;
 
     const ids = links.map((l) => l.image_id);
+    // Displayable = thumbnail exists — same gate as the public gallery
+    // payload the live mosaic tiles from. Gating on processing_status
+    // instead silently drops photos whose (hidden) AI step failed, and any
+    // pool difference reorders the ENTIRE seeded arrangement, desyncing the
+    // raster from the live cover.
     const { data: images } = await supabase
       .from("images")
-      .select("id, r2_key, parsed_name, original_filename, processing_status")
-      .in("id", ids);
+      .select("id, r2_key, parsed_name, original_filename, width, height, media_type")
+      .in("id", ids)
+      .eq("thumbnail_generated", true);
     const byId = new Map((images ?? []).map((img) => [img.id, img]));
-    const rows = ids
-      .map((id) => byId.get(id))
-      .filter(
-        (img): img is TileRow & { processing_status: string } =>
-          !!img && img.processing_status === "complete"
-      );
+    const rows: TileRow[] = [];
+    for (const id of ids) {
+      const img = byId.get(id);
+      if (img && img.media_type !== "video") rows.push(img);
+    }
     if (rows.length > 0) return rows;
   }
   return [];
@@ -113,9 +120,12 @@ export function coverInputsHash(cover: CoverSettings, tileIds: string[]): string
  */
 export async function resolveCoverRasterUrl(
   eventId: string,
-  cover: CoverSettings,
+  rawCover: CoverSettings,
   expiresIn = 3600
 ): Promise<string | null> {
+  // Same sanitization the composer applies — the two hash computations must
+  // see identical settings or a bogus logoKey loops regeneration forever.
+  const cover = sanitizeCoverForEvent(eventId, rawCover);
   if (!coverNeedsRaster(cover)) return null;
   const key = coverRasterKey(eventId);
   const meta = await getObjectMetadata(key);

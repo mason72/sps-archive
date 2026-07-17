@@ -324,6 +324,7 @@ export async function PATCH(
     // Settings: deep merge with existing (scope the read to the owner too —
     // the merged value is only written via the user-scoped update below, but
     // there's no reason to read another tenant's settings first).
+    let previousCoverJson: string | null = null;
     if (body.settings !== undefined) {
       const { data: existing } = await supabase
         .from("events")
@@ -334,6 +335,9 @@ export async function PATCH(
 
       const currentSettings =
         (existing?.settings as Record<string, unknown>) || {};
+      previousCoverJson = JSON.stringify(
+        normalizeCoverSettings(currentSettings.cover)
+      );
       updates.settings = { ...currentSettings, ...body.settings };
     }
 
@@ -354,11 +358,16 @@ export async function PATCH(
     }
 
     // Cover settings feed the email/OG raster — recompose when they change.
-    // (Fire-and-forget; the Inngest function debounces per event, so slider
-    // drags collapse into one composite.)
-    if (body.settings?.cover !== undefined) {
+    // The client's debounced save always sends the WHOLE settings object, so
+    // compare normalized cover before/after: font/grid/color tweaks must not
+    // enqueue composites. (Fire-and-forget; the Inngest function debounces
+    // per event, so slider drags collapse into one composite.)
+    if (body.settings?.cover !== undefined && previousCoverJson !== null) {
       const cover = normalizeCoverSettings(body.settings.cover);
-      if (coverNeedsRaster(cover)) {
+      if (
+        coverNeedsRaster(cover) &&
+        JSON.stringify(cover) !== previousCoverJson
+      ) {
         await inngest
           .send({ name: "cover/raster.generate", data: { eventId } })
           .catch(() => {});

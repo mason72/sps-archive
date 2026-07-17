@@ -64,7 +64,7 @@ export async function GET(
     }
 
     // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
-    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at";
+    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type";
     const PREVIEW_PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -102,11 +102,14 @@ export async function GET(
       previewOffset += PREVIEW_PAGE_SIZE;
     }
 
-    // 3b. Save cover image data before excluding from gallery grid
+    // 3b. Save cover image data before excluding from gallery grid.
+    // Same rule as the public gallery: only an ACTIVE photo cover excludes
+    // its image from the grid.
     const cover = normalizeCoverSettings(
       ((event.settings ?? {}) as Record<string, unknown>).cover
     );
-    const coverImageId = cover.imageId;
+    const coverImageId =
+      cover.enabled && cover.type === "image" ? cover.imageId : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const coverImageRow = coverImageId ? rawImages.find((img: any) => img.id === coverImageId) : null;
     if (coverImageId) {
@@ -136,6 +139,7 @@ export async function GET(
           height: img.height,
           dominantColor: img.dominant_color ?? null,
           takenAt: img.taken_at,
+          mediaType: img.media_type ?? "image",
         };
       })
     );
@@ -147,7 +151,7 @@ export async function GET(
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string; smartStacks?: boolean };
 
     const gallerySettings: GallerySettings = {
-      ...(await coverGalleryFields(cover)),
+      ...(await coverGalleryFields(cover, eventId)),
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
       colorPrimary: color.primary,
