@@ -533,3 +533,28 @@ export const zipCleanup = inngest.createFunction(
     });
   }
 );
+
+/**
+ * Cover raster: compose the mosaic/solid cover JPEG for email/OG serving.
+ *
+ * Fired on cover-settings saves (events PATCH) and by serve-time staleness
+ * probes (resolveCoverRasterUrl). Debounced per event so a photographer
+ * dragging sliders (600ms-debounced saves) doesn't queue a composite per
+ * tweak — the eBay incident's regen-storm lesson applied to covers.
+ */
+export const coverRaster = inngest.createFunction(
+  {
+    id: "cover-raster",
+    retries: 2,
+    concurrency: { limit: 3 },
+    debounce: { key: "event.data.eventId", period: "15s" },
+  },
+  { event: "cover/raster.generate" },
+  async ({ event, step }) => {
+    const { composeCoverRaster } = await import("@/lib/cover/raster");
+    const key = await step.run("compose", () =>
+      composeCoverRaster(event.data.eventId)
+    );
+    return { eventId: event.data.eventId, key };
+  }
+);

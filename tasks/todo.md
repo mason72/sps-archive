@@ -1,5 +1,52 @@
 # Pixeltrunk - Build Plan
 
+## Cover System v2 — focal point + auto-mosaic covers [BUILT 2026-07-16, verified locally]
+All 7 phases done in one pass; 227 tests green, build green, E2E on live data.
+- **Model:** `cover.type: image | mosaic | solid | crossfade` in events.settings JSONB (no migration). `normalizeCoverSettings()` in event-settings.ts is the ONLY parse point — gallery API, preview API, OG, email cover, raster job all go through it. Legacy rows normalize to `image`.
+- **Focal point** `{x,y}` 0–1: drag-pin in CoverLayoutTab, `object-position` in CoverSection, feeds the OG crop. Fixes the face-cropping complaint.
+- **Mosaic engine** `src/lib/cover/mosaic.ts` (pure, 14 tests): stack-dedupe via buildStacks (one tile per person), mulberry32 seeded shuffle (stored seed + Shuffle button), rows 2–4 with column-squeeze-before-row-shed for small pools, insert-hole geometry (row-snapped, parity-centered, logo-relative padding; full-height 2-row holes drop logo frac to 0.35 or wide logos swallow the band).
+- **Renderers:** CoverSection.tsx switches all 4 types live (client tiles from payload images+sections — no extra presigns); raster.ts composes 1600×900 JPEG via sharp for email/OG. Solid = spsv2-style gradient (colors[] + angle), satori renders it natively in OG even before the raster lands.
+- **Raster pipeline:** Inngest `cover-raster` (debounced 15s/event, fired from events PATCH + serve-time staleness probes). Fixed key `events/{id}/covers/cover-raster.jpg`, inputs-hash in R2 metadata, stale-while-revalidate in pool.ts. Sharp NEVER inline in a request. pool.ts is deliberately sharp-free for route imports.
+- **Per-event client logo** (≠ photographer branding): `/api/events/[eventId]/cover-logo` POST presign + GET view, fixed key `events/{id}/branding/cover-logo.{ext}`, prefix-pinned against the IDOR class.
+- **Title interplay:** client logo present ⇒ event title auto-hidden (`coverShowsTitle`), overridable via hideTitle toggle.
+- **Verified:** `scripts/verify-cover-v2.ts` (self-restoring, ran on "Two Dudes Sample Images"): all 3 raster looks composed + hash-checked + eyeballed; live browser QA of overlay/insert/crossfade/solid + mobile 375px + OG route. NOT yet verified: editor CoverLayoutTab UI in a real session (needs login — co-drive after deploy), email render in a real client.
+- Backlog: marquee scrolling cover; photomosaic-logo-from-dominant-colors (playground prototype first); mini live mosaic preview inside the settings tab.
+
+## (original plan) Cover System v2 [2026-07-16]
+Fix the cover-crop problem (faces cut off — no focal control) and add auto-generated
+mosaic covers built from a section, in the style of the old TDP gallery covers
+(eBay/Uber/Pure Storage looks: photo wall + client logo overlay or insert).
+
+**Decided (interview 2026-07-16):**
+- Cover becomes typed: `image` (existing) · `mosaic` (new) · `solid` (color+logo preset) · `crossfade` (hero cycles top highlights). Back-compat: untyped existing covers = `image`.
+- **Focal point** `{x,y}` normalized 0–1 on image covers; drag-pin UI on the settings preview; renders as `object-position`; ALSO feeds the OG 1200×630 crop (social shares crop too).
+- **Mosaic:** source section picker · rows 2–4 (columns auto from viewport at ~3:4 portrait tiles; band stays 50–60vh) · tiles **stack-deduped via buildStacks** (one per person — no repeated faces) · top-biased tile crop (never crop into faces) · stored **seed + Shuffle button** (deterministic between visits) · too-few-images ⇒ drop rows, never repeat tiles · videos excluded.
+- **Logo modes:** none / overlay (logo + color wash: color, opacity, optional backdrop-blur — the eBay look) / insert (center hole: padding, fill color — the Uber look). Per-EVENT logo upload (client's logo, R2, distinct from photographer branding logo). Logo present ⇒ event title defaults hidden/below (overridable).
+- **Solid cover (upgraded per Mason 2026-07-16):** settings = logo upload, logo padding, `colors: string[]` + `angle` — 1 color = solid, 2+ = linear-gradient at the chosen angle (same behavior as spsv2's header/gallery gradient: `linear-gradient(angle, stops)`, default 135°). No longer just an overlay preset — its own cover type.
+- **Raster pipeline (mosaic everywhere incl. email — Mason's call):** settings-save fires an Inngest job → sharp composes JPEG from thumb-sm tiles → R2 `events/{id}/covers/{hash}.jpg` (hash = settings + tile ids). Serving routes (email cover, OG) use the raster; if inputs drifted, serve stale + enqueue refresh. **Sharp NEVER runs inline in a request** (eBay-incident rule).
+- Backlog (not this build): marquee scrolling cover; photomosaic-logo-from-dominant-colors (prototype in /playground first).
+
+Phase 1 — Settings model:
+- [ ] `event-settings.ts`: `cover.type` discriminated union + focal point + mosaic/solid/crossfade settings; defaults; back-compat normalization helper (single parse point used by gallery API, preview API, OG, email cover).
+Phase 2 — Focal point:
+- [ ] CoverSection: `object-position` from focal point (public + preview galleries).
+- [ ] CoverLayoutTab: drag-pin on the cover preview, live.
+- [ ] OG route: focal-aware crop.
+Phase 3 — Mosaic engine (pure, tested):
+- [ ] `src/lib/cover/mosaic.ts`: tile selection (section → buildStacks dedupe → seeded shuffle → fit to rows×cols) + layout math shared by live CSS grid AND raster composer. Tests.
+Phase 4 — Live mosaic + settings UI:
+- [ ] `MosaicCover` component: CSS grid tiles, overlay mode (color/opacity/blur), insert mode (hole + padding + fill), logo render, mobile column behavior.
+- [ ] CoverLayoutTab: type picker, section picker, rows, logo mode + settings, Shuffle, live mini-preview.
+- [ ] Per-event logo upload (R2 asset under the event, presigned serve).
+Phase 5 — Solid cover + crossfade hero:
+- [ ] Solid cover type: logo + padding + colors[] + angle (multi-color ⇒ gradient, spsv2-style); live render + raster (sharp gradient fill or SVG rasterize).
+- [ ] Crossfade: CoverSection accepts image list, slow cycle; email/OG use first frame (focal-aware).
+Phase 6 — Raster pipeline:
+- [ ] Inngest `cover-raster` job (sharp composite from thumb-sm, R2 write, input-hash).
+- [ ] Email cover route + OG route: serve raster for mosaic/solid; stale-hash ⇒ serve old + enqueue.
+Phase 7 — QA + ship:
+- [ ] Tests + `next build` green; E2E on a real photo-booth test event (all 4 types, both logo modes, mobile 375px); email render check; OG validator; SPS live-event gate before push; docs + lessons.
+
 ## Auto-Sections [SHIPPED 2026-07-10]
 Phase 1–4 all done. `src/lib/sections/auto-plan.ts` (pure, 11 tests) — detectNaming + planAutoSections (letter-range / per-person / even; never splits a letter; unmatched→Misc; reuses `personNameFromParts` from stacks.ts, no AI). GET `/api/events/[eventId]/section-plan` (images+detection for the live preview) + POST `/api/events/[eventId]/auto-sections` (repurposed the dead AI route: wipe is_auto sections, materialize; Highlights/manual untouched; ownership-scoped, reportSystemError-wired). UI: "Sort into sections…" in the sidebar SectionsPanel → `SortSectionsModal` (detection summary, 3 mode cards, stacks toggle, max-per-section slider with smart default, live section list via the shared planner, Apply). E2E verified on a 45-photo/15-person test event: detection correct, letter/per-person/stacks all right, idempotent regenerate wipes only auto sections, Highlights preserved. 202 tests green, build green.
 Known follow-ups (raised with Mason): the big dump lands in Highlights (default upload target) so after sorting Highlights holds everything until curated — consider a "move out of the dump section" option or a real neutral catch-all. Idea parked: per-person direct links.

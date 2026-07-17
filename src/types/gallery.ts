@@ -31,6 +31,29 @@ export interface GalleryBranding {
 export interface GallerySettings {
   coverEnabled?: boolean;
   coverImageUrl?: string;
+  /** Cover type; absent = classic single image. */
+  coverType?: "image" | "mosaic" | "solid" | "crossfade";
+  /** Crop anchor (0–1) for image/crossfade heroes. */
+  coverFocalPoint?: { x: number; y: number };
+  /** Mosaic config; tiles are picked client-side from sections+images. */
+  coverMosaic?: {
+    sectionId?: string;
+    rows: 2 | 3 | 4;
+    seed: number;
+    logoMode: "none" | "overlay" | "insert";
+    logoUrl?: string;
+    overlay: { color: string; opacity: number; blur: boolean };
+    insert: { padding: number; fill: string };
+  };
+  coverSolid?: {
+    logoUrl?: string;
+    padding: number;
+    colors: string[];
+    angle: number;
+  };
+  coverCrossfade?: { sectionId?: string; count: number; intervalMs: number };
+  /** False when a client logo replaces the event title on the cover. */
+  coverShowsTitle?: boolean;
   titlePosition?: "above" | "over" | "below";
   titleAlignment?: "left" | "center" | "right";
   titlePlacement?: { vertical: string; horizontal: string };

@@ -182,13 +182,22 @@ export default function PreviewGalleryPage({
     background: s?.colorBackground || b?.backgroundColor || "#FFFFFF",
   };
 
-  // Cover image
-  const hasCover = s?.coverEnabled && !!s?.coverImageUrl;
+  // Cover — renderable per type (image needs its URL; mosaic/crossfade need photos)
+  const coverType = s?.coverType ?? "image";
+  const hasCover =
+    !!s?.coverEnabled &&
+    (coverType === "image"
+      ? !!s?.coverImageUrl
+      : coverType === "solid"
+        ? !!s?.coverSolid
+        : gallery.images.length > 0);
   const titlePosition = s?.titlePosition || "over";
   const titleAlignment = s?.titleAlignment || "center";
-  const coverRendersTitle = hasCover && titlePosition === "over";
-  const titleBelowCover = hasCover && titlePosition === "below";
-  const titleAboveCover = hasCover && titlePosition === "above";
+  // A client logo on the cover replaces the event title entirely
+  const hideCoverTitle = hasCover && s?.coverShowsTitle === false;
+  const coverRendersTitle = hasCover && titlePosition === "over" && !hideCoverTitle;
+  const titleBelowCover = hasCover && titlePosition === "below" && !hideCoverTitle;
+  const titleAboveCover = hasCover && titlePosition === "above" && !hideCoverTitle;
   const titleAlignClass = titleAlignment === "left" ? "text-left" : titleAlignment === "right" ? "text-right" : "text-center";
 
   const brandStyles = {
@@ -238,13 +247,12 @@ export default function PreviewGalleryPage({
       {/* ─── Cover image ─── */}
       {hasCover && (
         <CoverSection
-          imageUrl={s!.coverImageUrl!}
+          settings={s!}
+          images={gallery.images}
+          sections={gallery.sections}
           eventName={gallery.eventName}
           headingClass={headingClass}
           primaryColor={colors.primary}
-          titlePosition={titlePosition}
-          titleAlignment={titleAlignment}
-          titlePlacement={s?.titlePlacement}
         />
       )}
 
@@ -294,8 +302,9 @@ export default function PreviewGalleryPage({
               </div>
             )}
 
-            {/* Title — skip when cover renders it or when above */}
-            {!coverRendersTitle && !titleAboveCover && (
+            {/* Title — skip when cover renders it, when above, or when a
+                client logo on the cover IS the title */}
+            {!coverRendersTitle && !titleAboveCover && !hideCoverTitle && (
               <h1
                 className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
                 style={{ color: colors.primary }}

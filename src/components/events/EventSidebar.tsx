@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { EventSettings, SharingSettings } from "@/types/event-settings";
-import { DEFAULT_SHARING_SETTINGS } from "@/types/event-settings";
+import { DEFAULT_SHARING_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
 
 /* ─── Types ─── */
 
@@ -265,6 +265,7 @@ export function EventSidebar({
             settings={settings}
             onSettingsChange={onSettingsChange}
             images={images}
+            sections={sections}
             onRefreshImages={onRefreshImages}
           />
         )}
@@ -696,12 +697,14 @@ function DesignPanel({
   settings,
   onSettingsChange,
   images,
+  sections,
   onRefreshImages,
 }: {
   eventId: string;
   settings: EventSettings;
   onSettingsChange: (s: EventSettings) => void;
   images?: CoverImage[];
+  sections?: SectionItem[];
   onRefreshImages?: () => void;
 }) {
   const [designTab, setDesignTab] = useState<"cover" | "typography" | "color" | "grid">("cover");
@@ -761,31 +764,16 @@ function DesignPanel({
 
       <div className="p-4">
         {designTab === "cover" && (() => {
-          const coverSettings = settings.cover as Record<string, unknown> | undefined;
-          const coverImageId = coverSettings?.imageId as string | undefined;
-          const coverImage = images?.find((img) => img.id === coverImageId);
+          // Normalize once: the tab always sees a complete cover object, and
+          // saves persist the full normalized shape (legacy rows get typed).
+          const cover = normalizeCoverSettings(settings.cover);
+          const coverImage = images?.find((img) => img.id === cover.imageId);
           return (
             <CoverLayoutTab
-              enabled={settings.cover?.enabled ?? false}
-              onEnabledChange={(enabled) =>
-                handleChange({ cover: { ...settings.cover, enabled } })
-              }
-              titlePosition={settings.cover?.titlePosition || "over"}
-              onTitlePositionChange={(titlePosition) =>
-                handleChange({ cover: { ...settings.cover, titlePosition } })
-              }
-              titleAlignment={settings.cover?.titleAlignment || "center"}
-              onTitleAlignmentChange={(titleAlignment) =>
-                handleChange({ cover: { ...settings.cover, titleAlignment } })
-              }
-              titlePlacement={settings.cover?.titlePlacement}
-              onTitlePlacementChange={(titlePlacement) =>
-                handleChange({ cover: { ...settings.cover, titlePlacement } })
-              }
+              cover={cover}
+              onChange={(partial) => handleChange({ cover: { ...cover, ...partial } })}
               coverImageUrl={coverImage?.thumbnailUrl}
-              onCoverImageChange={(imageId) =>
-                handleChange({ cover: { ...settings.cover, imageId } })
-              }
+              sections={sections}
               eventId={eventId}
               onUploadComplete={onRefreshImages}
             />

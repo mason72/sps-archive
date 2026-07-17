@@ -25,6 +25,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 - pgvector for CLIP semantic search
 - Smart Stacks group similar images, surface best shot
 - Auto Sections from AI scene classification
+- Cover types (image/mosaic/solid/crossfade) — `src/lib/cover/*`; `normalizeCoverSettings()` is the single parse point; email/OG raster composes ONLY in the Inngest `cover-raster` job (pool.ts stays sharp-free for routes)
 - SPS integration via shared R2 bucket (zero-copy imports)
 
 ## Design System

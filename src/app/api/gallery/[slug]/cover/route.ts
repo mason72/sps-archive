@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
+import { resolveCoverRasterUrl, fetchMosaicPool, poolLeads } from "@/lib/cover/pool";
 
 /**
  * GET /api/gallery/[slug]/cover
@@ -44,27 +46,47 @@ export async function GET(
       .single();
 
     const settings = (event?.settings ?? {}) as Record<string, unknown>;
-    const cover = (settings.cover ?? {}) as { imageId?: string };
-    if (!cover.imageId) {
-      return NextResponse.json({ error: "No cover image" }, { status: 404 });
+    const cover = normalizeCoverSettings(settings.cover);
+
+    // Mosaic/solid covers serve the composed raster (stale-while-revalidate;
+    // resolveCoverRasterUrl enqueues a refresh when inputs drifted). Falls
+    // through to the single-image chain when no raster exists yet.
+    if (coverNeedsRaster(cover)) {
+      const rasterUrl = await resolveCoverRasterUrl(share.event_id, cover, 3600);
+      if (rasterUrl) {
+        return NextResponse.redirect(rasterUrl, {
+          status: 302,
+          headers: { "Cache-Control": "public, max-age=900" },
+        });
+      }
     }
 
-    const { data: image } = await supabase
-      .from("images")
-      .select("r2_key")
-      .eq("id", cover.imageId)
-      .eq("event_id", share.event_id)
-      .single();
-
-    if (!image) {
+    // Single-image chain: the designated cover image; else (crossfade, or a
+    // mosaic whose raster hasn't composed yet) the source pool's lead shot.
+    let r2Key: string | null = null;
+    if (cover.imageId) {
+      const { data: image } = await supabase
+        .from("images")
+        .select("r2_key")
+        .eq("id", cover.imageId)
+        .eq("event_id", share.event_id)
+        .single();
+      r2Key = image?.r2_key ?? null;
+    }
+    if (!r2Key && cover.type !== "image") {
+      const sectionId =
+        cover.type === "crossfade"
+          ? cover.crossfade?.sectionId
+          : cover.mosaic?.sectionId;
+      const leads = poolLeads(await fetchMosaicPool(share.event_id, sectionId));
+      r2Key = leads[0]?.r2_key ?? null;
+    }
+    if (!r2Key) {
       return NextResponse.json({ error: "No cover image" }, { status: 404 });
     }
 
     // 800px JPEG thumbnail — right size for a 560px-wide email card.
-    const url = await getPresignedDownloadUrl(
-      getThumbnailKey(image.r2_key, "thumb-lg"),
-      3600
-    );
+    const url = await getPresignedDownloadUrl(getThumbnailKey(r2Key, "thumb-lg"), 3600);
 
     return NextResponse.redirect(url, {
       status: 302,

@@ -41,6 +41,44 @@ export async function uploadToR2(
   };
 }
 
+/** Upload with custom object metadata (x-amz-meta-*) — e.g. raster input hashes. */
+export async function uploadToR2WithMetadata(
+  key: string,
+  body: Buffer | Uint8Array,
+  contentType: string,
+  metadata: Record<string, string>
+): Promise<{ key: string }> {
+  await R2.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      Metadata: metadata,
+    })
+  );
+  return { key };
+}
+
+/** Download an object into memory. Server-side composition only — keep it small. */
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const response = await R2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  if (!response.Body) throw new Error(`Failed to download ${key} from R2`);
+  return Buffer.from(await response.Body.transformToByteArray());
+}
+
+/** Object metadata (x-amz-meta-*), or null when the object doesn't exist. */
+export async function getObjectMetadata(
+  key: string
+): Promise<Record<string, string> | null> {
+  try {
+    const head = await R2.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return head.Metadata ?? {};
+  } catch {
+    return null;
+  }
+}
+
 /** Generate a presigned upload URL for direct client-side uploads */
 export async function getPresignedUploadUrl(
   key: string,

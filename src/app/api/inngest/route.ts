@@ -8,6 +8,7 @@ import {
   zipBuild,
   zipCleanup,
   uploadReconciler,
+  coverRaster,
 } from "@/lib/inngest/functions";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
@@ -24,5 +25,6 @@ export const { GET, POST, PUT } = serve({
     zipBuild,
     zipCleanup,
     uploadReconciler,
+    coverRaster,
   ],
 });

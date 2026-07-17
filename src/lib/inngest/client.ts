@@ -42,6 +42,12 @@ type Events = {
   "reconciler/run": {
     data: Record<string, never>;
   };
+  // Recompose the cover raster (mosaic/solid) for email/OG serving.
+  "cover/raster.generate": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

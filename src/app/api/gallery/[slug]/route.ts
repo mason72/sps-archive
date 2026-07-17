@@ -5,7 +5,8 @@ import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDis
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
-import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
+import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
+import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
 
 /**
@@ -181,7 +182,10 @@ export async function GET(
     }
 
     // 5a. Save cover image data before excluding from gallery grid
-    const coverImageId = ((event.settings as Record<string, unknown>)?.cover as Record<string, unknown>)?.imageId as string | undefined;
+    const cover = normalizeCoverSettings(
+      ((event.settings ?? {}) as Record<string, unknown>).cover
+    );
+    const coverImageId = cover.imageId;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const coverImageRow = coverImageId ? rawImages.find((img: any) => img.id === coverImageId) : null;
     if (coverImageId) {
@@ -231,19 +235,12 @@ export async function GET(
 
     // 6. Build gallery settings from event settings
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
-    const cover = (eventSettings.cover ?? DEFAULT_EVENT_SETTINGS.cover) as {
-      enabled: boolean; imageId?: string; titlePosition: string; titleAlignment: string;
-      titlePlacement?: { vertical: string; horizontal: string };
-    };
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
     const grid = (eventSettings.grid ?? DEFAULT_EVENT_SETTINGS.grid) as { columns: number; gap: string; style: string; smartStacks?: boolean };
 
     const gallerySettings: GallerySettings = {
-      coverEnabled: cover.enabled,
-      titlePosition: cover.titlePosition as "above" | "over" | "below",
-      titleAlignment: cover.titleAlignment as "left" | "center" | "right",
-      titlePlacement: cover.titlePlacement,
+      ...(await coverGalleryFields(cover)),
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
       colorPrimary: color.primary,

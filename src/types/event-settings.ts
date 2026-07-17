@@ -32,14 +32,73 @@ export interface SharingSettings {
   downloadPin: string;
 }
 
+export type CoverType = "image" | "mosaic" | "solid" | "crossfade";
+
+/** Normalized crop anchor, 0–1 in both axes. {0.5, 0.5} = center. */
+export interface FocalPoint {
+  x: number;
+  y: number;
+}
+
+export type MosaicLogoMode = "none" | "overlay" | "insert";
+
+export interface MosaicCoverSettings {
+  /** Source section for tiles. Undefined → the event's first section. */
+  sectionId?: string;
+  /** Tile density: the band height is fixed, rows set the tile size. */
+  rows: 2 | 3 | 4;
+  /** Deterministic arrangement; "Shuffle" in the editor rerolls this. */
+  seed: number;
+  logoMode: MosaicLogoMode;
+  /** R2 key of the per-event client logo (distinct from photographer branding). */
+  logoKey?: string;
+  /** Overlay mode: color wash across all tiles, logo centered on top. */
+  overlay: { color: string; opacity: number; blur: boolean };
+  /** Insert mode: empty box in the mosaic's center holding the logo. */
+  insert: { padding: number; fill: string };
+}
+
+export interface SolidCoverSettings {
+  logoKey?: string;
+  /** Whitespace around the logo, % of band height (0–45). */
+  padding: number;
+  /** 1 color = solid fill, 2+ = linear gradient (spsv2-style). */
+  colors: string[];
+  /** Gradient angle in degrees; ignored for a single color. */
+  angle: number;
+}
+
+export interface CrossfadeCoverSettings {
+  /** Source section for the rotation. Undefined → the event's first section. */
+  sectionId?: string;
+  /** How many images to cycle through. */
+  count: number;
+  /** Ms each image holds before the next fade begins. */
+  intervalMs: number;
+}
+
+export interface CoverSettings {
+  enabled: boolean;
+  /** Legacy rows have no type — normalize to "image". */
+  type: CoverType;
+  imageId?: string;
+  /** Crop anchor for image/crossfade covers (hero + OG crops). */
+  focalPoint?: FocalPoint;
+  mosaic?: MosaicCoverSettings;
+  solid?: SolidCoverSettings;
+  crossfade?: CrossfadeCoverSettings;
+  titlePosition: TitlePosition;
+  titleAlignment: TitleAlignment;
+  titlePlacement?: TitlePlacement;
+  /**
+   * Suppress the event title on the cover. Unset = auto: hidden when a
+   * client logo is shown (the logo IS the title), visible otherwise.
+   */
+  hideTitle?: boolean;
+}
+
 export interface EventSettings {
-  cover: {
-    enabled: boolean;
-    imageId?: string;
-    titlePosition: TitlePosition;
-    titleAlignment: TitleAlignment;
-    titlePlacement?: TitlePlacement;
-  };
+  cover: CoverSettings;
   typography: {
     headingFont: HeadingFont;
     bodyFont: BodyFont;
@@ -79,8 +138,157 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   downloadPin: "",
 };
 
+export const DEFAULT_MOSAIC_SETTINGS: MosaicCoverSettings = {
+  rows: 3,
+  seed: 1,
+  logoMode: "none",
+  overlay: { color: "#1C1917", opacity: 0.75, blur: false },
+  insert: { padding: 15, fill: "#FFFFFF" },
+};
+
+export const DEFAULT_SOLID_SETTINGS: SolidCoverSettings = {
+  padding: 25,
+  colors: ["#1C1917"],
+  angle: 135,
+};
+
+export const DEFAULT_CROSSFADE_SETTINGS: CrossfadeCoverSettings = {
+  count: 5,
+  intervalMs: 6000,
+};
+
+const clamp01 = (n: unknown, fallback: number) =>
+  typeof n === "number" && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+
+/**
+ * Single parse point for cover settings coming out of the events.settings
+ * JSONB. Fills defaults, coerces legacy rows (no `type`) to "image", and
+ * clamps user-controlled numbers. Every reader (gallery API, preview API,
+ * OG image, email cover, raster job) must go through this — never poke at
+ * the raw JSON shape.
+ */
+export function normalizeCoverSettings(raw: unknown): CoverSettings {
+  const c = (raw ?? {}) as Record<string, unknown>;
+  const type: CoverType = ["image", "mosaic", "solid", "crossfade"].includes(
+    c.type as string
+  )
+    ? (c.type as CoverType)
+    : "image";
+
+  const rawMosaic = (c.mosaic ?? {}) as Record<string, unknown>;
+  const rawOverlay = (rawMosaic.overlay ?? {}) as Record<string, unknown>;
+  const rawInsert = (rawMosaic.insert ?? {}) as Record<string, unknown>;
+  const rawSolid = (c.solid ?? {}) as Record<string, unknown>;
+  const rawFade = (c.crossfade ?? {}) as Record<string, unknown>;
+  const rawFocal = c.focalPoint as Record<string, unknown> | undefined;
+
+  return {
+    enabled: c.enabled === true,
+    type,
+    imageId: typeof c.imageId === "string" ? c.imageId : undefined,
+    focalPoint: rawFocal
+      ? { x: clamp01(rawFocal.x, 0.5), y: clamp01(rawFocal.y, 0.5) }
+      : undefined,
+    mosaic: {
+      sectionId:
+        typeof rawMosaic.sectionId === "string" ? rawMosaic.sectionId : undefined,
+      rows: [2, 3, 4].includes(rawMosaic.rows as number)
+        ? (rawMosaic.rows as 2 | 3 | 4)
+        : DEFAULT_MOSAIC_SETTINGS.rows,
+      seed:
+        typeof rawMosaic.seed === "number" && Number.isFinite(rawMosaic.seed)
+          ? rawMosaic.seed
+          : DEFAULT_MOSAIC_SETTINGS.seed,
+      logoMode: ["none", "overlay", "insert"].includes(rawMosaic.logoMode as string)
+        ? (rawMosaic.logoMode as MosaicLogoMode)
+        : DEFAULT_MOSAIC_SETTINGS.logoMode,
+      logoKey: typeof rawMosaic.logoKey === "string" ? rawMosaic.logoKey : undefined,
+      overlay: {
+        color:
+          typeof rawOverlay.color === "string"
+            ? rawOverlay.color
+            : DEFAULT_MOSAIC_SETTINGS.overlay.color,
+        opacity: clamp01(rawOverlay.opacity, DEFAULT_MOSAIC_SETTINGS.overlay.opacity),
+        blur: rawOverlay.blur === true,
+      },
+      insert: {
+        padding:
+          typeof rawInsert.padding === "number" && Number.isFinite(rawInsert.padding)
+            ? Math.min(45, Math.max(0, rawInsert.padding))
+            : DEFAULT_MOSAIC_SETTINGS.insert.padding,
+        fill:
+          typeof rawInsert.fill === "string"
+            ? rawInsert.fill
+            : DEFAULT_MOSAIC_SETTINGS.insert.fill,
+      },
+    },
+    solid: {
+      logoKey: typeof rawSolid.logoKey === "string" ? rawSolid.logoKey : undefined,
+      padding:
+        typeof rawSolid.padding === "number" && Number.isFinite(rawSolid.padding)
+          ? Math.min(45, Math.max(0, rawSolid.padding))
+          : DEFAULT_SOLID_SETTINGS.padding,
+      colors:
+        Array.isArray(rawSolid.colors) &&
+        rawSolid.colors.length > 0 &&
+        rawSolid.colors.every((x) => typeof x === "string")
+          ? (rawSolid.colors as string[]).slice(0, 5)
+          : DEFAULT_SOLID_SETTINGS.colors,
+      angle:
+        typeof rawSolid.angle === "number" && Number.isFinite(rawSolid.angle)
+          ? ((rawSolid.angle % 360) + 360) % 360
+          : DEFAULT_SOLID_SETTINGS.angle,
+    },
+    crossfade: {
+      sectionId:
+        typeof rawFade.sectionId === "string" ? rawFade.sectionId : undefined,
+      count:
+        typeof rawFade.count === "number" && Number.isFinite(rawFade.count)
+          ? Math.min(10, Math.max(2, Math.round(rawFade.count)))
+          : DEFAULT_CROSSFADE_SETTINGS.count,
+      intervalMs:
+        typeof rawFade.intervalMs === "number" && Number.isFinite(rawFade.intervalMs)
+          ? Math.min(30000, Math.max(3000, rawFade.intervalMs))
+          : DEFAULT_CROSSFADE_SETTINGS.intervalMs,
+    },
+    titlePosition: (["above", "over", "below"] as const).includes(
+      c.titlePosition as TitlePosition
+    )
+      ? (c.titlePosition as TitlePosition)
+      : "over",
+    titleAlignment: (["left", "center", "right"] as const).includes(
+      c.titleAlignment as TitleAlignment
+    )
+      ? (c.titleAlignment as TitleAlignment)
+      : "center",
+    titlePlacement: c.titlePlacement as TitlePlacement | undefined,
+    hideTitle: typeof c.hideTitle === "boolean" ? c.hideTitle : undefined,
+  };
+}
+
+/**
+ * Does this cover type need a composed raster (email/OG serving)?
+ * Pure predicate — lives here (not raster.ts) so request routes can ask
+ * without pulling sharp into their bundle.
+ */
+export function coverNeedsRaster(cover: CoverSettings): boolean {
+  return cover.enabled && (cover.type === "mosaic" || cover.type === "solid");
+}
+
+/**
+ * The effective "should the event title render on this cover" answer.
+ * Explicit hideTitle wins; otherwise auto-hide when a client logo is shown.
+ */
+export function coverShowsTitle(cover: CoverSettings): boolean {
+  if (typeof cover.hideTitle === "boolean") return !cover.hideTitle;
+  if (cover.type === "mosaic")
+    return cover.mosaic?.logoMode === "none" || !cover.mosaic?.logoKey;
+  if (cover.type === "solid") return !cover.solid?.logoKey;
+  return true;
+}
+
 export const DEFAULT_EVENT_SETTINGS: EventSettings = {
-  cover: { enabled: false, titlePosition: "over", titleAlignment: "center" },
+  cover: { enabled: false, type: "image", titlePosition: "over", titleAlignment: "center" },
   typography: { headingFont: "playfair", bodyFont: "inter" },
   color: {
     primary: "#1C1917",

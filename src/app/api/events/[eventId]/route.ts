@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey, deleteImageAssets } from "@/lib/r2/client";
+import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
+import { inngest } from "@/lib/inngest/client";
 import { ensureWebsiteSections } from "@/lib/site/gallery";
 import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 
@@ -349,6 +351,18 @@ export async function PATCH(
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Cover settings feed the email/OG raster — recompose when they change.
+    // (Fire-and-forget; the Inngest function debounces per event, so slider
+    // drags collapse into one composite.)
+    if (body.settings?.cover !== undefined) {
+      const cover = normalizeCoverSettings(body.settings.cover);
+      if (coverNeedsRaster(cover)) {
+        await inngest
+          .send({ name: "cover/raster.generate", data: { eventId } })
+          .catch(() => {});
+      }
     }
 
     // Name/city feed the site's captions for this event's published images —
