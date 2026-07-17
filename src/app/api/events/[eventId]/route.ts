@@ -364,13 +364,17 @@ export async function PATCH(
     // per event, so slider drags collapse into one composite.)
     if (body.settings?.cover !== undefined && previousCoverJson !== null) {
       const cover = normalizeCoverSettings(body.settings.cover);
-      if (
-        coverNeedsRaster(cover) &&
-        JSON.stringify(cover) !== previousCoverJson
-      ) {
+      if (cover.enabled && JSON.stringify(cover) !== previousCoverJson) {
+        // Face-scan the cover's source images and fill missing focal points
+        // (all cover types crop somewhere: hero, tiles, fade frames, OG).
         await inngest
-          .send({ name: "cover/raster.generate", data: { eventId } })
+          .send({ name: "cover/focal.suggest", data: { eventId } })
           .catch(() => {});
+        if (coverNeedsRaster(cover)) {
+          await inngest
+            .send({ name: "cover/raster.generate", data: { eventId } })
+            .catch(() => {});
+        }
       }
     }
 

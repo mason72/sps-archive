@@ -60,6 +60,9 @@ export default async function OGImage({
   let coverImageUrl: string | null = null;
   let solidBackground: string | null = null;
   let coverImageDims: { w: number; h: number } | null = null;
+  // Crop anchor: the manual cover pin, else the image's own focal point
+  // (face-derived or picked in the editor), 0–1.
+  let focal: { x: number; y: number } | null = cover.focalPoint ?? null;
 
   // Selection shares expose only their hand-picked image_ids — never the
   // whole-section raster or an unselected fallback photo.
@@ -94,7 +97,7 @@ export default async function OGImage({
   ) {
     const { data: coverImg } = await supabase
       .from("images")
-      .select("r2_key, width, height")
+      .select("r2_key, width, height, focal_x, focal_y")
       .eq("id", cover.imageId)
       .eq("event_id", share.event_id)
       .single();
@@ -102,6 +105,9 @@ export default async function OGImage({
       coverImageUrl = await getPresignedDownloadUrl(coverImg.r2_key, 600);
       if (coverImg.width && coverImg.height) {
         coverImageDims = { w: coverImg.width, h: coverImg.height };
+      }
+      if (!focal && coverImg.focal_x != null && coverImg.focal_y != null) {
+        focal = { x: coverImg.focal_x / 100, y: coverImg.focal_y / 100 };
       }
     }
   }
@@ -115,6 +121,9 @@ export default async function OGImage({
       coverImageUrl = await getPresignedDownloadUrl(lead.r2_key, 600);
       if (lead.width && lead.height) {
         coverImageDims = { w: lead.width, h: lead.height };
+      }
+      if (!focal && lead.focal_x != null && lead.focal_y != null) {
+        focal = { x: lead.focal_x / 100, y: lead.focal_y / 100 };
       }
     }
   }
@@ -146,7 +155,7 @@ export default async function OGImage({
   const clamp = (n: number, lo: number, hi: number) =>
     Math.min(hi, Math.max(lo, n));
   let focalRect: { w: number; h: number; left: number; top: number } | null = null;
-  if (cover.focalPoint && coverImageDims && !coverNeedsRaster(cover)) {
+  if (focal && coverImageDims && !coverNeedsRaster(cover)) {
     const scale = Math.max(
       size.width / coverImageDims.w,
       size.height / coverImageDims.h
@@ -156,8 +165,8 @@ export default async function OGImage({
     focalRect = {
       w: rw,
       h: rh,
-      left: -clamp(cover.focalPoint.x * rw - size.width / 2, 0, rw - size.width),
-      top: -clamp(cover.focalPoint.y * rh - size.height / 2, 0, rh - size.height),
+      left: -clamp(focal.x * rw - size.width / 2, 0, rw - size.width),
+      top: -clamp(focal.y * rh - size.height / 2, 0, rh - size.height),
     };
   }
 

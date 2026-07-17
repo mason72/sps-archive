@@ -64,7 +64,7 @@ export async function GET(
     }
 
     // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
-    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type";
+    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y";
     const PREVIEW_PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -140,6 +140,8 @@ export async function GET(
           dominantColor: img.dominant_color ?? null,
           takenAt: img.taken_at,
           mediaType: img.media_type ?? "image",
+          focalX: img.focal_x ?? null,
+          focalY: img.focal_y ?? null,
         };
       })
     );
@@ -172,6 +174,13 @@ export async function GET(
     // Generate presigned URL for cover image if cover is enabled
     if (cover.enabled && cover.imageId && coverImageRow) {
       gallerySettings.coverImageUrl = await getPresignedDownloadUrl(coverImageRow.r2_key, 14400);
+      // Same face-focal fallback as the public gallery.
+      if (!cover.focalPoint && coverImageRow.focal_x != null && coverImageRow.focal_y != null) {
+        gallerySettings.coverFocalPoint = {
+          x: coverImageRow.focal_x / 100,
+          y: coverImageRow.focal_y / 100,
+        };
+      }
     }
 
     // 6. Fetch sections with their image assignments

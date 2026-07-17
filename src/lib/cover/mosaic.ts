@@ -243,3 +243,38 @@ function tryLayout(
   // layoutMosaic sheds a row and retries with the same pool.
   return { result: { rows, rowH, tiles, hole }, maxStretch, rowsFilled };
 }
+
+export interface CropWindow {
+  /** Scaled source size and the extract offset, all in px of the scaled image. */
+  scaledW: number;
+  scaledH: number;
+  left: number;
+  top: number;
+}
+
+/**
+ * Cover-crop window anchored on a focal point: scale the source to cover
+ * the destination box, then slide the window so the focal point sits as
+ * close to the box center as the crop allows. Focal is 0–100 (the
+ * images.focal_x/focal_y convention). Shared by the raster composer (sharp
+ * resize+extract) and any math that must agree with CSS object-position.
+ */
+export function focalCropWindow(
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number,
+  focalX: number,
+  focalY: number
+): CropWindow {
+  const s = Math.max(dstW / srcW, dstH / srcH);
+  const scaledW = Math.max(dstW, Math.round(srcW * s));
+  const scaledH = Math.max(dstH, Math.round(srcH * s));
+  const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+  return {
+    scaledW,
+    scaledH,
+    left: Math.round(clamp((focalX / 100) * scaledW - dstW / 2, 0, scaledW - dstW)),
+    top: Math.round(clamp((focalY / 100) * scaledH - dstH / 2, 0, scaledH - dstH)),
+  };
+}

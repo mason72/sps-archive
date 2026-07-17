@@ -9,6 +9,7 @@ import {
   zipCleanup,
   uploadReconciler,
   coverRaster,
+  coverFocal,
 } from "@/lib/inngest/functions";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
@@ -26,5 +27,6 @@ export const { GET, POST, PUT } = serve({
     zipCleanup,
     uploadReconciler,
     coverRaster,
+    coverFocal,
   ],
 });

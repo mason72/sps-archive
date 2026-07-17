@@ -200,13 +200,17 @@ function MosaicLayer({
               className="absolute object-cover"
               // Justified rows: tiles keep ~their natural aspect; the small
               // residual from row justification is absorbed by object-cover.
-              // Slight top bias keeps faces when it does crop.
+              // Crops center on the image's focal point (face-derived or
+              // manual) when it has one; else a slight top bias keeps faces.
               style={{
                 left: rect.x,
                 top: rect.y,
                 width: rect.w,
                 height: rect.h,
-                objectPosition: "50% 25%",
+                objectPosition:
+                  img.focalX != null && img.focalY != null
+                    ? `${img.focalX}% ${img.focalY}%`
+                    : "50% 25%",
                 backgroundColor: img.dominantColor ?? undefined,
               }}
             />
@@ -326,9 +330,6 @@ function CrossfadeLayer({
   }, [frames.length, crossfade.intervalMs]);
 
   if (frames.length === 0) return null;
-  const objectPosition = focalPoint
-    ? `${focalPoint.x * 100}% ${focalPoint.y * 100}%`
-    : undefined;
 
   // Mount only the fading-out, current, and preloading-next frames — a
   // 10-frame rotation must not fetch 10 full-size originals at page open.
@@ -339,6 +340,14 @@ function CrossfadeLayer({
     <div className="relative w-full h-full">
       {frames.map((img, i) => {
         if (i !== idx && i !== prev && i !== next) return null;
+        // Per-frame focal (face-derived or manual) beats the cover-level
+        // pin — every fade frame crops differently.
+        const objectPosition =
+          img.focalX != null && img.focalY != null
+            ? `${img.focalX}% ${img.focalY}%`
+            : focalPoint
+              ? `${focalPoint.x * 100}% ${focalPoint.y * 100}%`
+              : undefined;
         return (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img

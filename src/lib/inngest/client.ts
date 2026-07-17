@@ -48,6 +48,12 @@ type Events = {
       eventId: string;
     };
   };
+  // Face-scan a cover's source images and fill missing focal points.
+  "cover/focal.suggest": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

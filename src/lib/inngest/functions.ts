@@ -562,3 +562,82 @@ export const coverRaster = inngest.createFunction(
     return { eventId: event.data.eventId, key };
   }
 );
+
+/**
+ * Cover focal: face-scan the images a cover crops (the designated cover
+ * photo, or the mosaic/crossfade source pool) and fill missing focal points
+ * with the eye-level single-subject rule — same fill-nulls contract as the
+ * editor's section sweep. Fired from cover-settings saves; when it wrote
+ * anything and the cover has a raster, a recompose is queued so tile crops
+ * pick the new anchors up immediately (serve-time hash drift would catch it
+ * anyway — this just closes the gap).
+ */
+export const coverFocal = inngest.createFunction(
+  {
+    id: "cover-focal",
+    retries: 1,
+    concurrency: { limit: 2 },
+    debounce: { key: "event.data.eventId", period: "20s", timeout: "3m" },
+  },
+  { event: "cover/focal.suggest" },
+  async ({ event, step }) => {
+    const written = await step.run("ensure-focal", async () => {
+      const { normalizeCoverSettings } = await import("@/types/event-settings");
+      const { fetchMosaicPool, poolLeads } = await import("@/lib/cover/pool");
+      const { ensureAutoFocal } = await import("@/lib/faces/ensure-focal");
+
+      const supabase = createServiceClient();
+      const { data: ev } = await supabase
+        .from("events")
+        .select("settings")
+        .eq("id", event.data.eventId)
+        .single();
+      if (!ev) return 0;
+      const cover = normalizeCoverSettings(
+        ((ev.settings ?? {}) as Record<string, unknown>).cover
+      );
+      if (!cover.enabled) return 0;
+
+      const targets: Array<{ id: string; r2_key: string }> = [];
+      if (cover.type === "image" && cover.imageId) {
+        const { data: img } = await supabase
+          .from("images")
+          .select("id, r2_key")
+          .eq("id", cover.imageId)
+          .single();
+        if (img) targets.push(img);
+      } else if (cover.type === "mosaic" || cover.type === "crossfade") {
+        const sectionId =
+          cover.type === "mosaic"
+            ? cover.mosaic?.sectionId
+            : cover.crossfade?.sectionId;
+        targets.push(...poolLeads(await fetchMosaicPool(event.data.eventId, sectionId)));
+      }
+      return ensureAutoFocal(supabase, targets, { scanCap: 80 });
+    });
+
+    if (written > 0) {
+      await step.run("maybe-recompose", async () => {
+        const { normalizeCoverSettings, coverNeedsRaster } = await import(
+          "@/types/event-settings"
+        );
+        const supabase = createServiceClient();
+        const { data: ev } = await supabase
+          .from("events")
+          .select("settings")
+          .eq("id", event.data.eventId)
+          .single();
+        const cover = normalizeCoverSettings(
+          ((ev?.settings ?? {}) as Record<string, unknown>).cover
+        );
+        if (coverNeedsRaster(cover)) {
+          await inngest.send({
+            name: "cover/raster.generate",
+            data: { eventId: event.data.eventId },
+          });
+        }
+      });
+    }
+    return { eventId: event.data.eventId, written };
+  }
+);

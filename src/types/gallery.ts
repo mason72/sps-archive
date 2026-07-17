@@ -16,6 +16,13 @@ export interface GalleryImage {
   downloadUrl?: string;
   /** "image" | "video" — cover pools (mosaic/crossfade) skip videos. */
   mediaType?: "image" | "video";
+  /**
+   * Subject anchor (0–100, images.focal_x/focal_y convention): manual picks
+   * and face-derived suggestions. Cover crops (mosaic tiles, fade frames)
+   * center on it when present.
+   */
+  focalX?: number | null;
+  focalY?: number | null;
 }
 
 export interface GalleryBranding {

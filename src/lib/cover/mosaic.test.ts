@@ -3,6 +3,7 @@ import {
   selectMosaicTiles,
   selectCrossfadeImages,
   layoutMosaic,
+  focalCropWindow,
   MOSAIC_TILE_AR,
 } from "./mosaic";
 
@@ -211,6 +212,42 @@ describe("layoutMosaic — insert hole", () => {
       const xOverlap = t.x < h.x + h.w && t.x + t.w > h.x;
       const yOverlap = t.y < h.y + h.h && t.y + t.h > h.y;
       expect(xOverlap && yOverlap).toBe(false);
+    }
+  });
+});
+
+describe("focalCropWindow", () => {
+  it("centers the focal point when the crop allows", () => {
+    // 2000×1000 source → 500×500 box: scale 0.5, scaled 1000×500.
+    const win = focalCropWindow(2000, 1000, 500, 500, 50, 50);
+    expect(win.scaledW).toBe(1000);
+    expect(win.scaledH).toBe(500);
+    expect(win.left).toBe(250); // focal center 500 − 250
+    expect(win.top).toBe(0);
+  });
+
+  it("clamps at the edges instead of leaving gaps", () => {
+    const hi = focalCropWindow(2000, 1000, 500, 500, 100, 50);
+    expect(hi.left).toBe(hi.scaledW - 500);
+    const lo = focalCropWindow(2000, 1000, 500, 500, 0, 50);
+    expect(lo.left).toBe(0);
+  });
+
+  it("keeps a top-anchored face in frame for a wide banner crop", () => {
+    // Portrait 1000×1500 → 1200×630 banner: face at y=20% must be visible.
+    const win = focalCropWindow(1000, 1500, 1200, 630, 50, 20);
+    const faceY = 0.2 * win.scaledH;
+    expect(faceY).toBeGreaterThanOrEqual(win.top);
+    expect(faceY).toBeLessThanOrEqual(win.top + 630);
+  });
+
+  it("window always fits inside the scaled image", () => {
+    for (const [fx, fy] of [[0, 0], [100, 100], [37, 81], [50, 25]]) {
+      const win = focalCropWindow(800, 1200, 300, 200, fx, fy);
+      expect(win.left).toBeGreaterThanOrEqual(0);
+      expect(win.top).toBeGreaterThanOrEqual(0);
+      expect(win.left + 300).toBeLessThanOrEqual(win.scaledW);
+      expect(win.top + 200).toBeLessThanOrEqual(win.scaledH);
     }
   });
 });

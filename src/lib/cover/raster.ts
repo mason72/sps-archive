@@ -10,10 +10,16 @@ import {
   coverNeedsRaster,
   sanitizeCoverForEvent,
 } from "@/types/event-settings";
-import { layoutMosaic, orderTiles, MOSAIC_TILE_AR } from "@/lib/cover/mosaic";
+import {
+  layoutMosaic,
+  orderTiles,
+  focalCropWindow,
+  MOSAIC_TILE_AR,
+} from "@/lib/cover/mosaic";
 import {
   coverRasterKey,
   coverInputsHash,
+  tileHashKey,
   fetchMosaicPool,
   poolLeads,
 } from "@/lib/cover/pool";
@@ -168,7 +174,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
     const m = cover.mosaic;
     const leads = poolLeads(await fetchMosaicPool(eventId, m.sectionId));
     if (leads.length === 0) return null;
-    hash = coverInputsHash(cover, leads.map((l) => l.id));
+    hash = coverInputsHash(cover, leads.map(tileHashKey));
 
     // Logo first — insert-hole geometry needs its aspect ratio.
     const wantsLogo = m.logoMode !== "none" && !!m.logoKey;
@@ -196,13 +202,30 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
       if (!tile) return null;
       try {
         const buf = await getObjectBuffer(getThumbnailKey(tile.r2_key, "thumb-md"));
-        // "attention" ≈ the live cover's face-biased crop; the residual from
-        // row justification is tiny, so this barely crops at all now.
+        const dstW = Math.max(1, Math.round(rect.w));
+        const dstH = Math.max(1, Math.round(rect.h));
+        // Focal-anchored crop when the image has a subject anchor — same
+        // rule the live tiles apply via object-position. Fall back to
+        // sharp's attention crop (≈ face-biased) when no anchor exists.
+        if (tile.focal_x != null && tile.focal_y != null) {
+          const meta = await sharp(buf).metadata();
+          if (meta.width && meta.height) {
+            const win = focalCropWindow(
+              meta.width,
+              meta.height,
+              dstW,
+              dstH,
+              tile.focal_x,
+              tile.focal_y
+            );
+            return await sharp(buf)
+              .resize(win.scaledW, win.scaledH)
+              .extract({ left: win.left, top: win.top, width: dstW, height: dstH })
+              .toBuffer();
+          }
+        }
         return await sharp(buf)
-          .resize(Math.max(1, Math.round(rect.w)), Math.max(1, Math.round(rect.h)), {
-            fit: "cover",
-            position: sharp.strategy.attention,
-          })
+          .resize(dstW, dstH, { fit: "cover", position: sharp.strategy.attention })
           .toBuffer();
       } catch {
         return null; // a missing thumbnail leaves a gutter-colored patch

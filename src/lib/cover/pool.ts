@@ -27,6 +27,9 @@ export interface TileRow {
   original_filename: string;
   width: number | null;
   height: number | null;
+  /** Subject anchor (0–100) — face-derived or manual; crops center on it. */
+  focal_x: number | null;
+  focal_y: number | null;
 }
 
 /** The section image rows a mosaic/crossfade would draw from, in section order. */
@@ -68,7 +71,9 @@ export async function fetchMosaicPool(
     // raster from the live cover.
     const { data: images } = await supabase
       .from("images")
-      .select("id, r2_key, parsed_name, original_filename, width, height, media_type")
+      .select(
+        "id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y"
+      )
       .in("id", ids)
       .eq("thumbnail_generated", true);
     const byId = new Map((images ?? []).map((img) => [img.id, img]));
@@ -94,9 +99,23 @@ export function poolLeads(pool: TileRow[]): TileRow[] {
 }
 
 /**
+ * Per-tile hash key: identity + its crop anchor. A focal point written after
+ * composition (face scan landing, manual pick) must read as drift — the tile
+ * crops change with it.
+ */
+export function tileHashKey(t: {
+  id: string;
+  focal_x: number | null;
+  focal_y: number | null;
+}): string {
+  return `${t.id}:${t.focal_x ?? ""}:${t.focal_y ?? ""}`;
+}
+
+/**
  * Hash of everything that shapes the raster: the cover settings + the tile
- * pool. If either drifts (photographer re-curates the section, tweaks the
- * overlay), the stored raster's hash no longer matches.
+ * pool (identity AND focal anchors). If any drifts (section re-curated,
+ * overlay tweaked, face scan landed), the stored raster's hash no longer
+ * matches.
  */
 export function coverInputsHash(cover: CoverSettings, tileIds: string[]): string {
   return createHash("sha256")
@@ -146,7 +165,7 @@ export async function resolveCoverRasterUrl(
   let currentHash: string;
   if (cover.type === "mosaic") {
     const leads = poolLeads(await fetchMosaicPool(eventId, cover.mosaic?.sectionId));
-    currentHash = coverInputsHash(cover, leads.map((l) => l.id));
+    currentHash = coverInputsHash(cover, leads.map(tileHashKey));
   } else {
     currentHash = coverInputsHash(cover, []);
   }
