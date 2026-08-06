@@ -12,6 +12,12 @@ interface EmailPreviewProps {
   logoUrl?: string;
   /** Event cover hero (the /api/gallery/[slug]/cover URL). Hidden if it 404s. */
   coverImageUrl?: string;
+  /**
+   * Gallery password, when the sender chose to include it. Mirrors the card
+   * `renderEmailShell` emits — if this preview and that shell ever disagree,
+   * the preview is lying about the email being sent.
+   */
+  password?: string | null;
 }
 
 /**
@@ -25,6 +31,7 @@ export function EmailPreview({
   businessName,
   logoUrl,
   coverImageUrl,
+  password,
 }: EmailPreviewProps) {
   // Hide the hero when the event has no cover (the cover route 404s).
   const [coverFailed, setCoverFailed] = useState(false);
@@ -96,6 +103,20 @@ export function EmailPreview({
               '<p style="color: #a8a29e; font-style: italic;">Email body will appear here…</p>',
           }}
         />
+
+        {/* Password card — mirrors passwordCard() in lib/email/shell.ts */}
+        {password && (
+          <div className="px-6 pb-6 -mt-2">
+            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
+                Gallery Password
+              </p>
+              <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
+                {password}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div

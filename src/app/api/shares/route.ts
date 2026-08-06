@@ -75,7 +75,18 @@ export async function POST(request: NextRequest) {
       ? { ...DEFAULT_SHARING_SETTINGS, ...((eventSettings.sharing ?? {}) as Partial<SharingSettings>) }
       : DEFAULT_SHARING_SETTINGS;
 
-    const resolvedPassword = useEventDefaults ? sharing.password : password;
+    // A password on the EVENT is a security posture, not a "default" — so it
+    // applies to every new share of that event whether or not the caller asked
+    // for defaults. Only an explicit password in the body overrides it. Without
+    // this, the share the email composer auto-creates (which does NOT pass
+    // useEventDefaults) would ship a gallery the photographer believes is
+    // protected, wide open, in the very email announcing it.
+    const eventPassword = (
+      (eventSettings.sharing ?? {}) as Partial<SharingSettings>
+    ).password;
+    const resolvedPassword = useEventDefaults
+      ? sharing.password
+      : (password || eventPassword);
     const resolvedAllowDownload = useEventDefaults ? sharing.allowDownload : (allowDownload ?? true);
     const resolvedAllowFavorites = useEventDefaults ? sharing.allowFavorites : (allowFavorites ?? true);
     const resolvedExpiresAt = useEventDefaults ? sharing.expiresAt : expiresAt;

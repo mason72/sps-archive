@@ -17,6 +17,7 @@ const ACCENT = "#10b981"; // emerald accent
 const INK = "#1c1917"; // stone-900
 const MUTED = "#78716c"; // stone-500
 const HAIRLINE = "#e7e5e4"; // stone-200
+const WASH = "#fafaf9"; // stone-50
 
 function galleryButton(url: string, label = "View Gallery"): string {
   return `
@@ -27,6 +28,28 @@ function galleryButton(url: string, label = "View Gallery"): string {
            style="display:inline-block;padding:14px 32px;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;letter-spacing:0.02em;color:#ffffff;text-decoration:none;border-radius:6px;">
           ${escapeHtml(label)}
         </a>
+      </td>
+    </tr>
+  </table>`;
+}
+
+/**
+ * The password card. Sits under the CTA because it's what you reach for AFTER
+ * tapping through, and it has to survive Outlook — hence a table, a background
+ * on the cell rather than a border-radius'd div, and letter-spaced monospace
+ * so "rn" never reads as "m" when someone retypes it on a phone.
+ */
+function passwordCard(password: string): string {
+  return `
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 4px;">
+    <tr>
+      <td style="padding:16px 20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;" align="center">
+        <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};padding-bottom:8px;">
+          Gallery Password
+        </div>
+        <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:19px;font-weight:600;letter-spacing:0.14em;color:${INK};word-break:break-all;">
+          ${escapeHtml(password)}
+        </div>
       </td>
     </tr>
   </table>`;
@@ -49,6 +72,12 @@ export interface EmailShellOptions {
   eventName?: string | null;
   /** CTA button label (defaults to "View Gallery"). */
   buttonLabel?: string;
+  /**
+   * Gallery password, rendered as a card under the CTA. Caller decides whether
+   * to include it — this only renders what it's handed. Must come from the
+   * server's own read of the event, never from the composer's payload.
+   */
+  password?: string | null;
 }
 
 export function renderEmailShell({
@@ -58,18 +87,22 @@ export function renderEmailShell({
   coverImageUrl,
   eventName,
   buttonLabel,
+  password,
 }: EmailShellOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
   let content = looksHtml ? body : body.replace(/\n/g, "<br/>");
 
   const button = galleryUrl ? galleryButton(galleryUrl, buttonLabel) : "";
+  const credentials = password ? passwordCard(password) : "";
 
   // Replace an explicit {gallery_button} token; otherwise append the button.
+  // The password rides immediately behind the button either way — a client who
+  // scrolls past the CTA has already left the part of the email that matters.
   if (content.includes("{gallery_button}")) {
-    content = content.replace(/\{gallery_button\}/g, button);
-  } else if (button) {
-    content += button;
+    content = content.replace(/\{gallery_button\}/g, button + credentials);
+  } else {
+    content += button + credentials;
   }
 
   const year = ""; // avoid Date in shared code paths; footer year is optional

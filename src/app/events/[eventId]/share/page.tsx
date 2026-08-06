@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Send,
   Link2,
+  Lock,
 } from "lucide-react";
 import type { EmailTemplate } from "@/types/email";
 import { TEMPLATE_VARIABLES } from "@/types/email";
@@ -54,6 +55,10 @@ function ShareComposePage() {
   const [body, setBody] = useState("");
   const [recipients, setRecipients] = useState("");
   const [sendCopy, setSendCopy] = useState(true);
+  // The event's gallery password, if one is set. Owner-only screen — showing
+  // the real value is the point (this is the email he's about to send).
+  const [galleryPassword, setGalleryPassword] = useState("");
+  const [includePassword, setIncludePassword] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const editorRef = useRef<EmailEditorHandle | null>(null);
@@ -88,6 +93,8 @@ function ShareComposePage() {
         if (eventRes.ok) {
           const data = await eventRes.json();
           setEventName(data.event?.name || "Untitled Event");
+          const pw = data.event?.settings?.sharing?.password;
+          if (typeof pw === "string" && pw.trim()) setGalleryPassword(pw.trim());
         }
 
         // Templates
@@ -198,6 +205,9 @@ function ShareComposePage() {
           eventId,
           galleryUrl,
           sendCopy,
+          // Request only — the server reads the password itself and refuses
+          // unless the verified share actually carries a hash.
+          includePassword: !!galleryPassword && includePassword,
         }),
       });
 
@@ -209,7 +219,17 @@ function ShareComposePage() {
     } finally {
       setIsSending(false);
     }
-  }, [recipients, interpolatedSubject, interpolatedBody, eventId, galleryUrl, sendCopy, router]);
+  }, [
+    recipients,
+    interpolatedSubject,
+    interpolatedBody,
+    eventId,
+    galleryUrl,
+    sendCopy,
+    galleryPassword,
+    includePassword,
+    router,
+  ]);
 
   if (!user) return null;
 
@@ -413,6 +433,54 @@ function ShareComposePage() {
                         </div>
                       </div>
 
+                      {/* ─── Include the gallery password ─── */}
+                      {/* Only appears when the event actually has one — an
+                          always-visible dead toggle teaches people to ignore it. */}
+                      {galleryPassword && (
+                        <div className="border border-stone-200 p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Lock size={13} className="text-stone-400 shrink-0" />
+                                <span className="text-[13px] text-stone-700">
+                                  Include the password
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                                This gallery is password-protected. Add it to the
+                                email so your client isn&rsquo;t locked out.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIncludePassword((v) => !v)}
+                              role="switch"
+                              aria-checked={includePassword}
+                              aria-label="Include the gallery password in this email"
+                              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
+                                includePassword ? "bg-emerald-500" : "bg-stone-200"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                                  includePassword ? "translate-x-4" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          {includePassword && (
+                            <div className="mt-3 pt-3 border-t border-stone-100 flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                                Password
+                              </span>
+                              <span className="font-mono text-[13px] tracking-[0.1em] text-stone-900 truncate">
+                                {galleryPassword}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Send me a copy */}
                       <label className="flex items-center gap-2.5 cursor-pointer select-none">
                         <input
@@ -450,6 +518,7 @@ function ShareComposePage() {
                           coverImageUrl={
                             shareSlug ? `/api/gallery/${shareSlug}/cover` : undefined
                           }
+                          password={includePassword ? galleryPassword : null}
                         />
                       </div>
                     </div>

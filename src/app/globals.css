@@ -469,6 +469,26 @@
   100% { transform: scale(1); }
 }
 
+/* ─── Password gate backdrop ───
+   The blurred cover (and the dominant-color field that stands in for it)
+   breathe rather than sit still, so a locked gallery reads as "there's
+   something behind this" instead of a dead wall. Long, offset durations keep
+   it ambient — nothing here should pull the eye off the password field. */
+@keyframes gate-breathe {
+  0%, 100% { transform: scale(1.12); }
+  50% { transform: scale(1.2); }
+}
+
+@keyframes gate-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(4%, -3%, 0) scale(1.12); }
+  66% { transform: translate3d(-3%, 4%, 0) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-breathe, .gate-drift { animation: none !important; }
+}
+
 /* ─── TipTap WYSIWYG Editor ─── */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

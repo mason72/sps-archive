@@ -1,5 +1,49 @@
 # Pixeltrunk - Build Plan
 
+## ACTIVE: Gallery password — set it, gate it, email it [2026-08-05]
+The password *plumbing* already existed (shares.password_hash PBKDF2, /verify + 7-day
+cookie, PasswordGate). What was missing: any UI to set one. `SharingTab.tsx` had the
+only password field and was imported nowhere — dead code since it was written.
+
+**Decided (Mason, 2026-08-05):**
+- Password is **event-level**, set in the Details panel, and **writes through to every
+  active share** of that event. One password per gallery is the mental model; per-share
+  passwords are not a thing anyone asked for.
+- Plaintext lives in `events.settings.sharing.password` (owner-scoped JSONB). This is
+  **forced** by the email feature — you cannot print a hash into an email. `shares.password_hash`
+  stays PBKDF2 and is the only thing the public verify endpoint touches.
+- Gate backdrop = **blurred cover image → dominant-color field fallback**. Real thumbnails
+  behind a CSS blur were rejected: devtools removes a filter in two clicks. The cover is
+  already public by design (the email hero route deliberately skips the gate), so blurring
+  it leaks nothing new; the fallback is built from `images.dominant_color` (populated on
+  12,330/12,330 thumbnailed rows), which is not image data at all.
+
+Phase 1 — Write path:
+- [x] `PUT /api/events/[eventId]/gallery-password` — single home for the logic: writes plaintext
+      to settings.sharing.password AND hashes into every active share. Returns sharesUpdated.
+- [x] Hazard fix: `POST /api/shares` now applies the event password even without
+      `useEventDefaults`. A password on the event is a security posture, not a default —
+      the share auto-created by the email composer must never silently ship unprotected.
+- [x] Details panel: Gallery password block (show/hide, generate, copy, live-link count).
+- [x] Delete dead `SharingTab.tsx` — a second, unreachable password UI beside the real one
+      is a trap for the next session.
+
+Phase 2 — Guest gate:
+- [x] Gallery API requiresAuth payload gains `hasCover` + `palette` (selection-share aware).
+- [x] PasswordGate: blurred cover backdrop / drifting color field, branded modal card.
+
+Phase 3 — Email:
+- [x] `renderEmailShell` renders a password credential card (table-based, monospace, ships
+      to Outlook). Server-side only — `/api/emails/send` re-reads the event's password and
+      refuses to print one unless the *verified* share is actually protected.
+- [x] Compose page: "Include the password" toggle, shown only when one is set.
+- [x] EmailPreview mirrors the card so the preview is honest.
+
+Phase 4 — QA + ship:
+- [x] Unit tests for the write-through + email gating; `next build` green.
+- [x] Live E2E on real data (24/24 checks, verify-gallery-password.ts); gate + email rendered and eyeballed desktop + mobile; docs, lessons 34-36, memory.
+- [x] Shipped 2026-08-06 with Mason's explicit go-ahead ("no live events right now").
+
 ## Cover System v2 — focal point + auto-mosaic covers [BUILT 2026-07-16, verified locally]
 All 7 phases done in one pass; 227 tests green, build green, E2E on live data.
 - **Model:** `cover.type: image | mosaic | solid | crossfade` in events.settings JSONB (no migration). `normalizeCoverSettings()` in event-settings.ts is the ONLY parse point — gallery API, preview API, OG, email cover, raster job all go through it. Legacy rows normalize to `image`.

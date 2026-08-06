@@ -51,9 +51,38 @@ export async function GET(
         // Include branding so the password gate looks branded
         const { data: authEvent } = await supabase
           .from("events")
-          .select("name, user_id")
+          .select("name, user_id, settings")
           .eq("id", share.event_id)
           .single();
+
+        // Backdrop for the gate. NOTHING here is image data:
+        //  - `palette` is per-image dominant_color, a single averaged hex —
+        //    it renders as an abstract color field, not a recoverable photo.
+        //  - `hasCover` only says whether /api/gallery/[slug]/cover will
+        //    resolve. That route is public by design (it's the hero of an
+        //    email the photographer chose to send), so blurring it client-side
+        //    is styling, not a security control, and leaks nothing new.
+        // Real grid thumbnails are deliberately NOT sent: a CSS blur is one
+        // devtools toggle away from being no protection at all.
+        const authCover = normalizeCoverSettings(
+          ((authEvent?.settings ?? {}) as Record<string, unknown>).cover
+        );
+        let paletteQuery = supabase
+          .from("images")
+          .select("dominant_color")
+          .eq("event_id", share.event_id)
+          .eq("thumbnail_generated", true)
+          .not("dominant_color", "is", null)
+          .limit(32);
+        // Selection shares expose only their hand-picked images — even their
+        // colors must not describe frames the curation excluded.
+        if (share.share_type === "selection" && share.image_ids?.length) {
+          paletteQuery = paletteQuery.in("id", share.image_ids);
+        }
+        const { data: paletteRows } = await paletteQuery;
+        const palette = (paletteRows ?? [])
+          .map((row) => row.dominant_color as string)
+          .filter((hex) => /^#[0-9a-fA-F]{6}$/.test(hex));
 
         let authBranding: GalleryBranding | null = null;
         if (authEvent) {
@@ -90,6 +119,8 @@ export async function GET(
           eventName: authEvent?.name || "Gallery",
           customMessage: share.custom_message,
           branding: authBranding,
+          hasCover: authCover.enabled,
+          palette,
         });
       }
     }

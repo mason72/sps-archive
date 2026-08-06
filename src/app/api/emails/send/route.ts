@@ -29,6 +29,10 @@ export async function POST(request: NextRequest) {
     const { recipients, subject, bodyHtml, eventId, templateId, galleryUrl } = body;
     // Copy the photographer on their own send (default on; UI can opt out).
     const sendCopy = body.sendCopy !== false;
+    // Opt-IN: printing a password into an email is a decision, not a default.
+    // Note this is only the *request* — the password itself is read server-side
+    // below; a client-supplied string is never printed.
+    const includePassword = body.includePassword === true;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -65,6 +69,7 @@ export async function POST(request: NextRequest) {
     // share on one of THIS user's events and rebuild the canonical URL.
     let verifiedGalleryUrl: string | null = null;
     let verifiedSlug: string | null = null;
+    let shareIsProtected = false;
     if (typeof galleryUrl === "string" && galleryUrl) {
       const slugMatch = (() => {
         try {
@@ -77,12 +82,13 @@ export async function POST(request: NextRequest) {
       if (candidateSlug) {
         const { data: shareRow } = await supabase
           .from("shares")
-          .select("slug, events!inner(user_id)")
+          .select("slug, password_hash, events!inner(user_id)")
           .eq("slug", candidateSlug)
           .eq("events.user_id", user!.id)
           .maybeSingle();
         if (shareRow) {
           verifiedSlug = shareRow.slug;
+          shareIsProtected = !!shareRow.password_hash;
           const appUrl =
             process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
           verifiedGalleryUrl = `${appUrl.replace(/\/$/, "")}/gallery/${shareRow.slug}`;
@@ -111,6 +117,7 @@ export async function POST(request: NextRequest) {
     // days later, presigns die in hours. Only attach it when a cover is set.
     let coverImageUrl: string | null = null;
     let eventName: string | null = null;
+    let emailPassword: string | null = null;
     if (eventId) {
       const { data: event } = await supabase
         .from("events")
@@ -125,6 +132,23 @@ export async function POST(request: NextRequest) {
       if (cover.imageId && verifiedGalleryUrl && verifiedSlug) {
         coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover`;
       }
+
+      // The password is read HERE, from the owner's own event, and only when
+      // the *verified* share actually carries a hash. Two things this buys:
+      // a compromised composer can't inject arbitrary text styled as a
+      // credential, and we never tell a client "here's your password" for a
+      // link that isn't protected — which is how a photographer ends up
+      // believing a gallery is locked when it isn't.
+      if (includePassword && shareIsProtected) {
+        const eventPassword = (
+          ((event?.settings as Record<string, unknown>)?.sharing ?? {}) as {
+            password?: string;
+          }
+        ).password;
+        if (typeof eventPassword === "string" && eventPassword.trim()) {
+          emailPassword = eventPassword.trim();
+        }
+      }
     }
 
     // Wrap the composer's message in the branded HTML shell (clean layout +
@@ -135,6 +159,7 @@ export async function POST(request: NextRequest) {
       fromName,
       coverImageUrl,
       eventName,
+      password: emailPassword,
     });
 
     // Attempt to send via Resend if configured

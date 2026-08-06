@@ -80,6 +80,8 @@ export default function GalleryPage({
     eventName: string;
     customMessage: string | null;
     branding: GalleryBranding | null;
+    hasCover: boolean;
+    palette: string[];
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +177,8 @@ export default function GalleryPage({
           eventName: data.eventName,
           customMessage: data.customMessage,
           branding: data.branding || null,
+          hasCover: !!data.hasCover,
+          palette: Array.isArray(data.palette) ? data.palette : [],
         });
         return;
       }
@@ -610,6 +614,8 @@ export default function GalleryPage({
         eventName={authMeta.eventName}
         customMessage={authMeta.customMessage}
         branding={authMeta.branding}
+        hasCover={authMeta.hasCover}
+        palette={authMeta.palette}
         onSuccess={handlePasswordSuccess}
       />
     );

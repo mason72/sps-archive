@@ -11,6 +11,7 @@ import {
   Activity,
   Plus,
   Copy,
+  Check,
   Trash2,
   PanelLeftClose,
   PanelLeft,
@@ -878,6 +879,84 @@ function DetailsPanel({
 
   const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
+  /* ─── Gallery password ─── */
+  // Held locally and committed on blur/Enter, NOT per keystroke: every save
+  // re-hashes into every live share, and a half-typed password briefly
+  // becoming the real one is its own kind of lockout.
+  const [password, setPassword] = useState(sharing.password);
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
+  const savedPasswordRef = useRef(sharing.password);
+
+  // Adopt the server's value when the event (or its settings) loads/changes,
+  // but never yank the field out from under someone mid-type.
+  useEffect(() => {
+    if (sharing.password !== savedPasswordRef.current) {
+      savedPasswordRef.current = sharing.password;
+      setPassword(sharing.password);
+    }
+  }, [sharing.password]);
+
+  // `override` lets Generate commit straight away instead of waiting for a
+  // blur — the freshly generated value would still be stale in this closure.
+  const savePassword = useCallback(async (override?: string) => {
+    const next = (override ?? password).trim();
+    if (next === savedPasswordRef.current) return;
+    setPasswordSaving(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/gallery-password`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: next }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      const data = (await res.json()) as {
+        isProtected: boolean;
+        sharesUpdated: number;
+      };
+
+      savedPasswordRef.current = next;
+      setPassword(next);
+      // Keep the in-memory settings honest — the sidebar's other toggles
+      // PATCH the whole blob, and a stale password here would undo this save.
+      if (settings && onSettingsChange) {
+        onSettingsChange({ ...settings, sharing: { ...sharing, password: next } });
+      }
+
+      // Say what actually happened to the links already in clients' inboxes.
+      const links =
+        data.sharesUpdated === 1 ? "1 live link" : `${data.sharesUpdated} live links`;
+      toast.success(
+        data.isProtected ? "Gallery password set" : "Gallery password removed",
+        {
+          description: data.sharesUpdated
+            ? `Applied to ${links}`
+            : "No live share links yet — new links will use it",
+        }
+      );
+    } catch {
+      setPassword(savedPasswordRef.current);
+      toast.error("Failed to save the gallery password");
+    } finally {
+      setPasswordSaving(false);
+    }
+  }, [eventId, password, settings, sharing, onSettingsChange]);
+
+  /** Two short words + digits — readable over the phone, still not guessable. */
+  const generatePassword = () => {
+    const words = [
+      "amber", "harbor", "willow", "cobalt", "meadow", "canyon", "ivory",
+      "cedar", "quartz", "lantern", "marble", "orchard", "saffron", "thistle",
+    ];
+    const pick = () => words[Math.floor(Math.random() * words.length)];
+    const digits = String(Math.floor(10 + Math.random() * 90));
+    const next = `${pick()}-${pick()}-${digits}`;
+    setPassword(next);
+    setShowPassword(true);
+    void savePassword(next);
+  };
+
   const updateSharing = useCallback(
     (partial: Partial<SharingSettings>) => {
       if (!settings || !onSettingsChange) return;
@@ -1051,6 +1130,94 @@ function DetailsPanel({
           </div>
         )}
       </div>
+
+      <div className="h-px bg-stone-100" />
+
+      {/* ─── Gallery password ─── */}
+      {/* Guests hit this before they see a single photo. It's event-level and
+          writes through to every live link, so the state shown here is the
+          state of the links already sitting in clients' inboxes. */}
+      {onSettingsChange && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Lock size={13} className="text-stone-400" />
+            <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+              Gallery Password
+            </span>
+            {savedPasswordRef.current && (
+              <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-emerald-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                On
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onBlur={() => void savePassword()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") {
+                    setPassword(savedPasswordRef.current);
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder="No password — anyone with the link"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={64}
+                className="w-full border border-stone-200 bg-transparent px-2.5 py-1.5 text-[12px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 outline-none transition-colors"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors disabled:opacity-40"
+              disabled={!password}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(savedPasswordRef.current);
+                setPasswordCopied(true);
+                setTimeout(() => setPasswordCopied(false), 2000);
+              }}
+              className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors disabled:opacity-40"
+              disabled={!savedPasswordRef.current}
+              title="Copy password"
+            >
+              {passwordCopied ? (
+                <Check size={14} className="text-emerald-600" />
+              ) : (
+                <Copy size={14} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={generatePassword}
+              className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+              title="Generate a password"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-stone-400">
+            {passwordSaving
+              ? "Saving…"
+              : savedPasswordRef.current
+                ? "Guests enter this before they can see any photos. Applies to every live link for this event."
+                : "Leave empty and anyone with the link can view the gallery."}
+          </p>
+        </div>
+      )}
 
       <div className="h-px bg-stone-100" />
 
