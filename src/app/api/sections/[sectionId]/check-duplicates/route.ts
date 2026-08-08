@@ -62,11 +62,19 @@ export async function POST(
       return NextResponse.json({ duplicates: {} });
     }
 
+    // Only a COMPLETE row proves the photo is actually archived. A "pending"
+    // row is a presign reservation whose binary may never have landed — and
+    // reporting one as a duplicate is actively dangerous: after the HDC // 2026
+    // loss the section held 2,258 backing-less rows, so re-uploading the very
+    // files that went missing would have flagged each one as a duplicate of its
+    // own ghost, and "Skip all duplicates" would have skipped precisely the
+    // photos the photographer was re-uploading to recover.
     const { data: imgs, error: imgError } = await supabase
       .from("images")
       .select("id, original_filename")
       .in("id", imageIds)
-      .in("original_filename", filenames);
+      .in("original_filename", filenames)
+      .eq("processing_status", "complete");
     if (imgError) throw imgError;
 
     const duplicates: Record<string, string[]> = {};
