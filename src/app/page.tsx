@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { UnfinishedUploadsAlert } from "@/components/dashboard/UnfinishedUploadsAlert";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/Nav";
@@ -83,6 +84,10 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
           Your Archive
         </p>
       </div>
+
+      {/* ─── Missing-uploads alert (above the stats: an incomplete archive
+           outranks how many photos are in it) ─── */}
+      <UnfinishedUploadsAlert />
 
       {/* ─── Stats row ─── */}
       <DashboardStats />
