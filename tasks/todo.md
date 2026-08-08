@@ -779,3 +779,24 @@ Triggered by Mason: "~90 images getting stuck" emails. The number was wrong.
 ### Still open
 - [ ] Consider a server-driven unfinished-uploads banner (survives cache clears
       and works cross-device; the localStorage manifest does not).
+
+### Server-driven unfinished-uploads banner — shipped 2026-08-08 (`113ff86`)
+- [x] `GET /api/events/[eventId]/unfinished-uploads` — pending rows older than
+      30 min (the reconciler's threshold, so in-flight uploads are never
+      reported as lost). Exact count + up to 500 filenames.
+- [x] Ownership verified against live data: owner → 2,258 (matches an
+      independent count), foreign user id → 0. Service client + `events!inner`.
+- [x] Banner merges server (durable, cross-device) with localStorage (catches
+      files that died before their presign call ever created a row).
+- [x] Dismiss stores the COUNT, suppressing only an exact repeat — dismissing a
+      2,258-file loss must not silence a later 5-file one.
+- [x] Verified in-browser: server headline, 500-name scroll, "first 500 of
+      2,258", dismiss persists across reload, new smaller loss reappears.
+
+Known limits (deliberate):
+- The route does not HEAD R2, so a row whose binary landed but whose finalize
+  never confirmed is listed alongside genuinely-missing ones (~1% of HDC). One
+  round-trip per row on a page load isn't worth it; the reconciler heals those
+  within a day.
+- Banner is per-event on the upload surface. A cross-event "something is
+  missing" signal (dashboard-level) is still unbuilt.
