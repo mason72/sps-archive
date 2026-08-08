@@ -287,7 +287,12 @@ export const zipBuild = inngest.createFunction(
  */
 const RECONCILE_STALE_MINUTES = 30;
 const RECONCILE_GHOST_HOURS = 24;
-const RECONCILE_BATCH = 400; // rows examined per night
+// Rows examined per night. The expensive step (sharp) has its own budget below,
+// and an R2 HEAD is cheap, so this is sized to clear a bad night's backlog in
+// one run rather than trickling it out over a week — 400 turned the HDC // 2026
+// incident into a six-night drip, with the ghost filenames (the only record of
+// what to re-upload) deleted a slice at a time.
+const RECONCILE_BATCH = 3000;
 const RECONCILE_THUMB_CAP = 50; // sharp runs per night (heavy)
 
 export const uploadReconciler = inngest.createFunction(

@@ -17,9 +17,34 @@ import {
   isVideoMime,
   validateUploadFile,
 } from "@/lib/upload/media";
+import { waitForQueueRoom } from "@/lib/upload/backpressure";
 
 const PRESIGN_CHUNK = 50; // how many files we request presigned URLs for at once
 const MAX_CONCURRENT_UPLOADS = 12;
+
+/**
+ * `fetch(..., {keepalive: true})` bodies are capped at 64 KB IN AGGREGATE across
+ * all in-flight keepalive requests (Fetch standard). The pagehide cleanup used
+ * to fire ceil(n/500) of them at once — ~90 KB for a 2,241-id queue — so the
+ * requests that mattered most were silently rejected at exactly the moment they
+ * were needed. Budget the bytes instead of the count; whatever doesn't fit is
+ * the nightly reconciler's job.
+ */
+const KEEPALIVE_BYTE_BUDGET = 50 * 1024;
+
+/**
+ * localStorage key holding the files a session hadn't finished uploading.
+ *
+ * The work queue lives only in this tab's memory, so a crash/close/sleep used
+ * to erase all knowledge that those files ever existed — the photographer was
+ * never told, and found out when a client asked where their headshots were.
+ * The manifest is rewritten while a session runs and removed when it drains
+ * cleanly, so anything left behind on next mount is, by construction, work that
+ * didn't finish.
+ */
+const unfinishedKey = (eventId: string) => `pixeltrunk:unfinished:${eventId}`;
+/** How often the unfinished manifest is rewritten during a live session. */
+const UNFINISHED_SAVE_MS = 2000;
 const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
 /** Hard ceiling on a single upload so a hung connection can't spin forever. */
@@ -136,6 +161,39 @@ function putWithProgress(
 }
 
 /**
+ * Delete presign-created rows for files that will never be uploaded.
+ *
+ * `duringUnload` is the load-bearing argument. On pagehide the page is dying,
+ * so requests must be `keepalive` — and keepalive bodies share a 64 KB budget
+ * across all in-flight requests, so batches are sized by BYTES and the overflow
+ * is deliberately dropped for the nightly reconciler rather than issued and
+ * silently rejected. With presign backpressure in place the queue is ~60 deep,
+ * so the budget is never the binding constraint in practice; it only matters if
+ * that invariant ever regresses.
+ */
+function deleteRowsInBatches(imageIds: string[], duringUnload: boolean): void {
+  if (imageIds.length === 0) return;
+  let budget = duringUnload ? KEEPALIVE_BYTE_BUDGET : Infinity;
+  for (let s = 0; s < imageIds.length; s += 500) {
+    const slice = imageIds.slice(s, s + 500);
+    const body = JSON.stringify({ imageIds: slice });
+    if (duringUnload) {
+      const size = body.length;
+      if (size > budget) return; // rest is the reconciler's job
+      budget -= size;
+    }
+    fetch("/api/images/batch", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: duringUnload,
+    }).catch(() => {
+      /* the nightly reconciler is the backstop */
+    });
+  }
+}
+
+/**
  * List-row preview. Object URLs render in an <img> for images only; videos
  * (and rejected files with no preview) get a film placeholder instead.
  */
@@ -205,6 +263,8 @@ export function UploadZone({
 }: UploadZoneProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [corsError, setCorsError] = useState(false);
+  /** Filenames a PREVIOUS session left unfinished (see unfinishedKey). */
+  const [unfinished, setUnfinished] = useState<string[]>([]);
   // True while the end-of-session server check runs — holds the auto-clear
   // so a row the server disputes can be flipped back to an error in place.
   const [reconciling, setReconciling] = useState(false);
@@ -224,6 +284,10 @@ export function UploadZone({
   // Capture sectionId at drop time so it doesn't go stale mid-upload.
   const sectionIdRef = useRef(sectionId);
   sectionIdRef.current = sectionId;
+  // Current files, readable from interval callbacks without re-arming them on
+  // every progress tick.
+  const filesRef = useRef<UploadFile[]>([]);
+  filesRef.current = files;
 
   // ─── Shared work queue + worker pool ───
   // Tasks are pushed here as presigned URLs come back. Workers pull from it,
@@ -484,6 +548,16 @@ export function UploadZone({
     async (entries: UploadFile[]) => {
       for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
         if (abortRef.current) break;
+
+        // Wait for the workers to make room before reserving more rows — this
+        // is what bounds how much work can be lost if the tab dies. Policy and
+        // its tests live in @/lib/upload/backpressure.
+        await waitForQueueRoom(
+          () => queueRef.current.length,
+          () => abortRef.current
+        );
+        if (abortRef.current) break;
+
         const chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
         const chunk = chunkEntries.map((e) => e.file);
 
@@ -626,6 +700,21 @@ export function UploadZone({
     };
   }, []);
 
+  // ─── Unfinished-work manifest ───
+  // On mount, anything still recorded for this event is work a previous session
+  // never completed — surface it instead of letting it vanish silently.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(unfinishedKey(eventId));
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { files?: string[] };
+      if (parsed?.files?.length) setUnfinished(parsed.files);
+    } catch {
+      /* corrupt or unavailable storage is not worth breaking upload over */
+    }
+  }, [eventId]);
+
+
   // Politely surface rejected files (wrong format / over the size cap) as
   // error rows instead of silently dropping them.
   const onDropRejected = useCallback(
@@ -687,6 +776,43 @@ export function UploadZone({
   // Skip/Replace decision, not uploading.
   const totalCount = files.filter((f) => f.status !== "duplicate").length;
   const isUploading = inFlight > 0;
+
+  // While a session runs, keep the unfinished manifest current. An INTERVAL, not
+  // a debounce on `files` — progress ticks mutate `files` several times a
+  // second, so a debounce would keep rescheduling and never actually write. The
+  // cleanup runs one final pass, which is what clears the key when a session
+  // drains cleanly.
+  useEffect(() => {
+    if (!isUploading) return;
+    const write = () => {
+      const names = filesRef.current
+        .filter((f) => f.status === "pending" || f.status === "uploading")
+        .map((f) => f.file.name);
+      try {
+        if (names.length) {
+          localStorage.setItem(
+            unfinishedKey(eventId),
+            JSON.stringify({ savedAt: Date.now(), files: names })
+          );
+        } else {
+          localStorage.removeItem(unfinishedKey(eventId));
+        }
+      } catch {
+        /* quota or private mode — the reconciler still backstops the rows */
+      }
+    };
+    const id = setInterval(write, UNFINISHED_SAVE_MS);
+    return () => {
+      clearInterval(id);
+      write();
+    };
+  }, [isUploading, eventId]);
+
+  // A new session starting means the photographer is acting on the recovery
+  // banner — stop showing the previous session's list.
+  useEffect(() => {
+    if (isUploading) setUnfinished([]);
+  }, [isUploading]);
 
   // The displayed list shows what still needs attention: in-flight rows, errors
   // (completed fall off — they're in the grid below). Duplicates render in their
@@ -826,17 +952,9 @@ export function UploadZone({
       });
       return prev.filter((f) => !dropIds.has(f.id) && f.status !== "pending");
     });
-    const queuedIds = queued.map((t) => t.imageId);
-    for (let s = 0; s < queuedIds.length; s += 500) {
-      fetch("/api/images/batch", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: queuedIds.slice(s, s + 500) }),
-        keepalive: true,
-      }).catch(() => {
-        /* the nightly reconciler is the backstop */
-      });
-    }
+    // Cancel runs with the page alive, so these deletes need no keepalive and
+    // no byte budget — every id gets cleaned up.
+    deleteRowsInBatches(queued.map((t) => t.imageId), false);
   }, []);
 
   // ─── Leaving mid-upload: warn, and clean up what provably can't finish ───
@@ -853,14 +971,7 @@ export function UploadZone({
     const onPageHide = () => {
       const queuedIds = queueRef.current.map((t) => t.imageId);
       queueRef.current = [];
-      for (let s = 0; s < queuedIds.length; s += 500) {
-        fetch("/api/images/batch", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: queuedIds.slice(s, s + 500) }),
-          keepalive: true,
-        }).catch(() => {});
-      }
+      deleteRowsInBatches(queuedIds, true);
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     window.addEventListener("pagehide", onPageHide);
@@ -1060,6 +1171,48 @@ export function UploadZone({
   return (
     <div className="space-y-6">
       {/* ─── CORS / infrastructure error banner ─── */}
+      {unfinished.length > 0 && (
+        <div className="flex items-start gap-3 border border-amber-200 bg-amber-50 px-4 py-3">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-[13px] font-medium text-amber-900">
+              {unfinished.length.toLocaleString()}{" "}
+              {unfinished.length === 1 ? "file" : "files"} didn&rsquo;t finish
+              uploading last time
+            </p>
+            <p className="text-[12px] leading-relaxed text-amber-700">
+              That session ended before these reached the archive. Drop them
+              again to finish the job — anything that did make it will be caught
+              as a duplicate, so re-adding the whole folder is safe.
+            </p>
+            <details className="pt-0.5">
+              <summary className="cursor-pointer text-[12px] text-amber-800 underline underline-offset-2">
+                Show filenames
+              </summary>
+              <ul className="mt-1.5 max-h-40 overflow-y-auto pr-2 font-mono text-[11px] leading-relaxed text-amber-800">
+                {unfinished.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            </details>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setUnfinished([]);
+              try {
+                localStorage.removeItem(unfinishedKey(eventId));
+              } catch {
+                /* nothing to clean up */
+              }
+            }}
+            className="shrink-0 text-[12px] text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {corsError && (
         <div className="flex items-start gap-3 border border-red-200 bg-red-50 px-4 py-3">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
