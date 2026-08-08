@@ -43,6 +43,8 @@ Phase 4 — QA + ship:
 - [x] Unit tests for the write-through + email gating; `next build` green.
 - [x] Live E2E on real data (24/24 checks, verify-gallery-password.ts); gate + email rendered and eyeballed desktop + mobile; docs, lessons 34-36, memory.
 - [x] Shipped 2026-08-06 with Mason's explicit go-ahead ("no live events right now").
+      Production E2E 24/24 on pixeltrunk.com; Mason confirmed the logged-in surfaces
+      (Details panel block + email toggle) work in a real session. Feature closed.
 
 ## Cover System v2 — focal point + auto-mosaic covers [BUILT 2026-07-16, verified locally]
 All 7 phases done in one pass; 227 tests green, build green, E2E on live data.
@@ -711,3 +713,40 @@ otherwise it publishes through the existing R2 public lane.
 - `CLOUDFLARE_STREAM_API_TOKEN` — Stream:Edit token (Mason to provision, ~$5/mo tier)
 - `CLOUDFLARE_STREAM_CUSTOMER_CODE` — customer-XXXX code for playback URLs
 - `CLOUDFLARE_ACCOUNT_ID` — optional; falls back to R2_ACCOUNT_ID (same account)
+
+---
+
+## HDC // 2026 upload loss — investigation + reconciler reporting fix (2026-08-08)
+
+Triggered by Mason: "~90 images getting stuck" emails. The number was wrong.
+
+### Findings
+- [x] 404 unique photos never reached R2 (1.25 GB). NOT 2,241 — that was the row
+      count; the shoot was uploaded twice (3,844 distinct files / 7,740 rows).
+- [x] 53 people affected; **12 have nothing**, 17 more have only 1–2 frames →
+      29 subjects are effectively undeliverable.
+- [x] Verified by HEAD-checking every row against R2, controlled against known-good
+      `complete` rows (100% present) so the misses are trustworthy.
+- [x] Root cause: `uploadEntries` awaits only the presign call then calls a
+      non-blocking `drainQueue()` — presign runs unbounded ahead of the upload.
+      3,839 rows minted in 3 min for a ~90 min drain; the tab died at 09:38 UTC
+      and took the in-memory queue with it.
+- [x] Ruled out failed PUTs: `uploadOne` deletes the row on failure, so a surviving
+      `pending` row means never attempted. Server was clean (4,757×200, one 500).
+
+### Shipped (d96f861 — reporting only, no upload path touched)
+- [x] `totalStuckPending` (exact count) + `batchCapped` in reconciler stats
+- [x] Subject line leads with the true stuck count; explicit backlog warning
+- [x] Alert when a backlog EXISTS, not only when work was performed
+      (a pure-"watching" night used to send nothing at all)
+- [x] Ghost filename cap 30 → 500 + pointer to `system_errors.detail`
+- [x] Verified live: triggered `reconciler/run`, run landed 17:24:49 UTC —
+      `2270 stuck; finalized 12 … ghosts deleted 0`, batchCapped=true, email delivered.
+
+### Still open (deferred — touches the live upload path, HDC was still ingesting)
+- [ ] Bound presign to ~2× concurrency ahead of the drain
+- [ ] Persist the upload queue (IndexedDB) so an interrupted session can resume
+      and the photographer is TOLD what didn't make it
+- [ ] `pagehide` cleanup exceeds the fetch keepalive 64KB budget at scale
+      (~90KB for 2,241 ids) — batch under the cap or use sendBeacon
+- [ ] Consider raising `RECONCILE_BATCH`; 2,270 rows takes ~6 nights at 400
