@@ -750,3 +750,32 @@ Triggered by Mason: "~90 images getting stuck" emails. The number was wrong.
 - [ ] `pagehide` cleanup exceeds the fetch keepalive 64KB budget at scale
       (~90KB for 2,241 ids) — batch under the cap or use sendBeacon
 - [ ] Consider raising `RECONCILE_BATCH`; 2,270 rows takes ~6 nights at 400
+
+### Shipped 2026-08-08 (after Mason confirmed the photographers were off-site)
+- [x] `85b7629` Backpressure: `waitForQueueRoom()` caps the un-started presign
+      queue at 60. Exposure is now a constant (~one chunk), not a function of
+      drop size. Own module + 6 tests, one of which reproduces the unbounded
+      producer so the bound assertion can't silently go slack.
+- [x] `85b7629` Unfinished-work manifest in localStorage → recovery banner
+      naming exactly which files to re-drop. Verified in a browser against the
+      real component (disclosure opens, dismiss clears storage, no console errors).
+- [x] `85b7629` `pagehide` deletes now byte-budgeted under the 64KB keepalive
+      aggregate cap; cancel (page alive) still cleans every id.
+- [x] `85b7629` `RECONCILE_BATCH` 400 → 3000 (~75s of HEADs, 800s ceiling).
+- [x] `5a2456a` `check-duplicates` counts only `processing_status='complete'`.
+      Without this the HDC re-upload would have flagged every missing photo as a
+      duplicate of its own ghost row and "Skip all" would have skipped the
+      entire recovery. Lesson 38.
+
+### Re-upload runbook for HDC
+1. Wait for tonight's 09:43 UTC reconciler — with batch 3000 it clears all
+   ~2,258 ghost rows in one pass (all are >24h old by then).
+2. Re-drop the whole folder into the SAME "Unsorted" section.
+3. Do NOT run "Sort into sections" first — it deletes Unsorted, and a fresh
+   section detects no duplicates, so the full ~3,844 files would re-upload.
+4. "Skip all duplicates" is then safe and correct: only the 404 truly-missing
+   photos upload.
+
+### Still open
+- [ ] Consider a server-driven unfinished-uploads banner (survives cache clears
+      and works cross-device; the localStorage manifest does not).
