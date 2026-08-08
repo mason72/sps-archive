@@ -800,3 +800,19 @@ Known limits (deliberate):
   within a day.
 - Banner is per-event on the upload surface. A cross-event "something is
   missing" signal (dashboard-level) is still unbuilt.
+
+### Dashboard-level missing-uploads signal — shipped 2026-08-08 (`f3773f3`)
+- [x] `GET /api/upload/unfinished-summary` — stale-pending rows across ALL the
+      caller's events, grouped by gallery, newest loss first. Ownership verified
+      against live data (owner 2,258 / stranger 0).
+- [x] `UnfinishedUploadsAlert` above the stats row on the dashboard: editorial
+      total, one linked row per gallery, count-based dismiss.
+- [x] Caught + fixed mid-build: PostgREST caps at 1,000 rows and does not error
+      on a larger `.limit()`, so the breakdown reported "1000+" for a real
+      2,258. Now paged with `.range()` + an `id` tiebreaker; per-gallery counts
+      verified to sum to the exact total. Lesson 39.
+- [x] Verified desktop + 375px: no horizontal overflow, ellipsis on long names,
+      links resolve, dismiss persists, no console errors.
+
+The visibility story is now complete at three levels: the upload surface
+(per-event banner), the dashboard (this), and email (nightly reconciler).
