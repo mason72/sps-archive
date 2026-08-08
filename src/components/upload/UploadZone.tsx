@@ -43,6 +43,14 @@ const KEEPALIVE_BYTE_BUDGET = 50 * 1024;
  * didn't finish.
  */
 const unfinishedKey = (eventId: string) => `pixeltrunk:unfinished:${eventId}`;
+/**
+ * Records the unfinished COUNT the photographer last dismissed. The rows are
+ * still unfinished after a dismiss, so without this the server would resurrect
+ * the banner on every page load and it could never be cleared. Storing the
+ * count means it stays dismissed until something NEW goes missing.
+ */
+const unfinishedDismissedKey = (eventId: string) =>
+  `pixeltrunk:unfinished-dismissed:${eventId}`;
 /** How often the unfinished manifest is rewritten during a live session. */
 const UNFINISHED_SAVE_MS = 2000;
 const R2_PUT_RETRIES = 2;
@@ -265,6 +273,8 @@ export function UploadZone({
   const [corsError, setCorsError] = useState(false);
   /** Filenames a PREVIOUS session left unfinished (see unfinishedKey). */
   const [unfinished, setUnfinished] = useState<string[]>([]);
+  /** Exact total, which can exceed the listed filenames on a large loss. */
+  const [unfinishedTotal, setUnfinishedTotal] = useState(0);
   // True while the end-of-session server check runs — holds the auto-clear
   // so a row the server disputes can be flipped back to an error in place.
   const [reconciling, setReconciling] = useState(false);
@@ -700,18 +710,64 @@ export function UploadZone({
     };
   }, []);
 
-  // ─── Unfinished-work manifest ───
-  // On mount, anything still recorded for this event is work a previous session
-  // never completed — surface it instead of letting it vanish silently.
+  // ─── Unfinished-work recovery ───
+  // Two sources, deliberately merged. The SERVER is authoritative and durable:
+  // it knows every row this event registered but never finished, across devices
+  // and cache clears. localStorage adds the tail the server cannot see — files
+  // registered in the UI that died before their presign call ever created a row.
+  // Neither alone covers a session that vanishes mid-drop.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(unfinishedKey(eventId));
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { files?: string[] };
-      if (parsed?.files?.length) setUnfinished(parsed.files);
-    } catch {
-      /* corrupt or unavailable storage is not worth breaking upload over */
-    }
+    let cancelled = false;
+
+    const readLocal = (): string[] => {
+      try {
+        const raw = localStorage.getItem(unfinishedKey(eventId));
+        return raw ? ((JSON.parse(raw) as { files?: string[] })?.files ?? []) : [];
+      } catch {
+        return []; // corrupt or unavailable storage never blocks uploading
+      }
+    };
+    const dismissedAt = (): number => {
+      try {
+        return Number(localStorage.getItem(unfinishedDismissedKey(eventId)) ?? 0);
+      } catch {
+        return 0;
+      }
+    };
+
+    const local = readLocal();
+    const apply = (serverNames: string[], serverCount: number) => {
+      const names = Array.from(new Set([...serverNames, ...local]));
+      const total = Math.max(serverCount, names.length);
+      // Suppress only an EXACT repeat of what was dismissed. Using `<=` would
+      // mean dismissing a 2,270-file loss also silences a later 5-file one —
+      // the banner would go quietly blind exactly as the numbers got smaller
+      // and more recoverable. Any change to the number is new information.
+      if (total === 0 || total === dismissedAt()) return;
+      setUnfinished(names);
+      setUnfinishedTotal(total);
+    };
+
+    apply([], local.length);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/unfinished-uploads`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          count?: number;
+          filenames?: string[];
+        };
+        if (cancelled) return;
+        apply(data.filenames ?? [], data.count ?? 0);
+      } catch {
+        /* the local manifest already covers the offline case */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [eventId]);
 
 
@@ -811,7 +867,10 @@ export function UploadZone({
   // A new session starting means the photographer is acting on the recovery
   // banner — stop showing the previous session's list.
   useEffect(() => {
-    if (isUploading) setUnfinished([]);
+    if (isUploading) {
+      setUnfinished([]);
+      setUnfinishedTotal(0);
+    }
   }, [isUploading]);
 
   // The displayed list shows what still needs attention: in-flight rows, errors
@@ -1176,8 +1235,8 @@ export function UploadZone({
           <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-[13px] font-medium text-amber-900">
-              {unfinished.length.toLocaleString()}{" "}
-              {unfinished.length === 1 ? "file" : "files"} didn&rsquo;t finish
+              {unfinishedTotal.toLocaleString()}{" "}
+              {unfinishedTotal === 1 ? "file" : "files"} didn&rsquo;t finish
               uploading last time
             </p>
             <p className="text-[12px] leading-relaxed text-amber-700">
@@ -1194,17 +1253,32 @@ export function UploadZone({
                   <li key={name}>{name}</li>
                 ))}
               </ul>
+              {unfinishedTotal > unfinished.length && (
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Showing the first {unfinished.length.toLocaleString()} of{" "}
+                  {unfinishedTotal.toLocaleString()}. Re-drop the whole folder —
+                  everything already archived is caught as a duplicate.
+                </p>
+              )}
             </details>
           </div>
           <button
             type="button"
             onClick={() => {
-              setUnfinished([]);
               try {
+                // Remember the count, not just the fact: the rows survive a
+                // dismiss, so the server would otherwise resurrect this banner
+                // on every load. It comes back only if MORE goes missing.
+                localStorage.setItem(
+                  unfinishedDismissedKey(eventId),
+                  String(unfinishedTotal)
+                );
                 localStorage.removeItem(unfinishedKey(eventId));
               } catch {
                 /* nothing to clean up */
               }
+              setUnfinished([]);
+              setUnfinishedTotal(0);
             }}
             className="shrink-0 text-[12px] text-amber-700 underline underline-offset-2 hover:text-amber-900"
           >
