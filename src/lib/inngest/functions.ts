@@ -331,8 +331,22 @@ export const uploadReconciler = inngest.createFunction(
         .limit(100);
       if (thumblessErr) throw thumblessErr;
 
+      // How much is ACTUALLY stuck, independent of what this run can chew
+      // through. Without this the report can only ever describe the batch, so a
+      // 2,270-row incident and a 90-row hiccup file identical-looking emails —
+      // exactly how the HDC // 2026 loss (2,241 photos) read as "~90 stuck" for
+      // three nights. Count first, act second; never let the cap set the story.
+      const { count: totalStuckPending } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("processing_status", "pending")
+        .lt("created_at", staleCutoff);
+
       const result = {
         examined: (stalePending?.length ?? 0) + (thumbless?.length ?? 0),
+        totalStuckPending: totalStuckPending ?? 0,
+        /** True when the backlog outran the batch — more waiting after tonight. */
+        batchCapped: (totalStuckPending ?? 0) > (stalePending?.length ?? 0),
         finalized: 0,
         thumbsBackfilled: 0,
         videosRequeued: 0,
@@ -441,10 +455,14 @@ export const uploadReconciler = inngest.createFunction(
         stats.failures >
       0;
 
-    if (acted) {
+    // A night where everything is merely "watching" (binaries missing, rows too
+    // young to delete) used to send NOTHING — the quietest possible response to
+    // an upload session that just dropped thousands of photos. A backlog is news
+    // even when there is no work to do about it yet.
+    if (acted || stats.totalStuckPending > 0) {
       await step.run("report", async () => {
         const supabase = createServiceClient();
-        const summary = `finalized ${stats.finalized}, thumbs ${stats.thumbsBackfilled}, videos re-queued ${stats.videosRequeued}, ghosts deleted ${stats.ghostsDeleted}, watching ${stats.watching}, failures ${stats.failures}`;
+        const summary = `${stats.totalStuckPending} stuck; finalized ${stats.finalized}, thumbs ${stats.thumbsBackfilled}, videos re-queued ${stats.videosRequeued}, ghosts deleted ${stats.ghostsDeleted}, watching ${stats.watching}, failures ${stats.failures}`;
 
         // Queryable history row (notified=true: this step sends its own email).
         await supabase.from("system_errors").insert({
@@ -458,14 +476,35 @@ export const uploadReconciler = inngest.createFunction(
         const resendKey = process.env.RESEND_API_KEY;
         if (!adminEmail || !resendKey) return;
 
+        // This list IS the recovery instrument — it is the only record of what
+        // the photographer must re-send, and the rows it names have just been
+        // deleted. Truncating it at 30 destroyed evidence faster than it
+        // reported it. Cap high enough to be whole in practice, and always say
+        // where the complete list lives.
+        const GHOST_FILENAME_CAP = 500;
         const ghostLines = Object.entries(stats.ghostsByEvent).flatMap(
           ([eventName, files]) => [
             "",
             `${eventName} — ${files.length} lost upload(s), ask for a re-upload of:`,
-            ...files.slice(0, 30).map((f) => `  • ${f}`),
-            ...(files.length > 30 ? [`  …and ${files.length - 30} more`] : []),
+            ...files.slice(0, GHOST_FILENAME_CAP).map((f) => `  • ${f}`),
+            ...(files.length > GHOST_FILENAME_CAP
+              ? [
+                  `  …and ${files.length - GHOST_FILENAME_CAP} more — full list:`,
+                  `  select detail from system_errors where context='upload.reconciler' order by created_at desc limit 1;`,
+                ]
+              : []),
           ]
         );
+
+        const backlogLines = stats.batchCapped
+          ? [
+              "",
+              `⚠️  BACKLOG: ${stats.totalStuckPending} rows are stuck, but this run could only examine ${stats.examined}.`,
+              `    Tonight's numbers describe the batch, NOT the incident. Expect ~${Math.ceil(
+                stats.totalStuckPending / RECONCILE_BATCH
+              )} more nights to drain at the current cap.`,
+            ]
+          : [];
 
         await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -480,7 +519,10 @@ export const uploadReconciler = inngest.createFunction(
             text: [
               "The nightly upload reconciler found work to do.",
               "",
-              `Examined: ${stats.examined} stale rows`,
+              `TOTAL STUCK (the real number): ${stats.totalStuckPending}`,
+              ...backlogLines,
+              "",
+              `Examined this run: ${stats.examined} stale rows`,
               `Finalized (binary fine, status was stuck): ${stats.finalized}`,
               `Thumbnails backfilled: ${stats.thumbsBackfilled}`,
               `Videos re-queued: ${stats.videosRequeued}`,
