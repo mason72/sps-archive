@@ -816,3 +816,29 @@ Known limits (deliberate):
 
 The visibility story is now complete at three levels: the upload surface
 (per-event banner), the dashboard (this), and email (nightly reconciler).
+
+## Background upload manager (in progress 2026-08-08)
+
+**Why**: `<UploadZone key={uploadTargetId}>` on the event page remounts — and so
+destroys the in-memory queue — on ANY active-section change. Creating a section
+or merely clicking one in the sidebar silently kills an upload, with no warning
+and no row cleanup (`beforeunload`/`pagehide` are page events and don't fire on
+a React unmount). That produced 110 orphans on "Jessica & Koji's Big Day".
+
+**Design**: the engine moves above the pages.
+- [ ] `UploadManagerProvider` in the root layout owns batches, the queue, and the
+      worker pool. A *batch* = one drop, pinned to {eventId, sectionId} at drop
+      time. Survives section changes and in-app navigation.
+- [ ] Global pool of 12 workers pulling ROUND-ROBIN across batches, so a
+      3,000-file dump can't starve a 40-file one. Backpressure stays per batch
+      (high-water 60) — a global mark would let one batch block another's
+      presign loop forever.
+- [ ] `UploadZone` becomes a view: dropzone + duplicate resolution + the file
+      list for this event. Owns no queue, so remounting it is harmless.
+- [ ] `UploadDock` in the layout: floating pill, aggregate progress + speed,
+      click to jump back to the uploading gallery. Hidden only when every active
+      batch belongs to the page you're already on.
+- [ ] Page subscribes to manager events instead of taking callback props; drop
+      the `key`.
+- [ ] Still true after the refactor: closing the tab ends uploads (no browser
+      can upload from a dead tab) — `beforeunload` keeps warning, now globally.

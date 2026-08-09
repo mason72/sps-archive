@@ -14,6 +14,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ToasterProvider } from "@/components/ui/ToasterProvider";
 import { CommandPalette } from "@/components/command/CommandPalette";
+import { UploadManagerProvider } from "@/components/upload/UploadManager";
+import { UploadDock } from "@/components/upload/UploadDock";
 import "./globals.css";
 
 const inter = Inter({
@@ -105,7 +107,13 @@ export default async function RootLayout({
     <html lang="en" className={`${inter.variable} ${playfair.variable} ${libreBaskerville.variable} ${cormorant.variable} ${dmSerif.variable} ${spaceGrotesk.variable} ${sourceSerif.variable} ${lora.variable} ${dmSans.variable}`}>
       <body className="min-h-screen bg-white font-sans text-stone-900 antialiased">
         <AuthProvider initialUser={user}>
-          {children}
+          {/* The upload engine lives ABOVE the router outlet on purpose: pages
+              remount as you move around, and an upload queue owned by a page
+              dies with it. The dock is inside the provider so it can read it. */}
+          <UploadManagerProvider>
+            {children}
+            <UploadDock />
+          </UploadManagerProvider>
         </AuthProvider>
         <ToasterProvider />
         <CommandPalette />

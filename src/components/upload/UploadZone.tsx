@@ -2,203 +2,31 @@
 
 import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import {
-  Upload,
-  Loader2,
-  RotateCcw,
-  ShieldAlert,
-  Copy,
-  Film,
-} from "lucide-react";
+import { Upload, Loader2, RotateCcw, ShieldAlert, Copy, Film } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
-import { extractExif } from "@/lib/upload/parse-filename";
+import { UPLOAD_ACCEPT, isVideoMime, validateUploadFile } from "@/lib/upload/media";
 import {
-  UPLOAD_ACCEPT,
-  isVideoMime,
-  validateUploadFile,
-} from "@/lib/upload/media";
-import { waitForQueueRoom } from "@/lib/upload/backpressure";
-
-const PRESIGN_CHUNK = 50; // how many files we request presigned URLs for at once
-const MAX_CONCURRENT_UPLOADS = 12;
-
-/**
- * `fetch(..., {keepalive: true})` bodies are capped at 64 KB IN AGGREGATE across
- * all in-flight keepalive requests (Fetch standard). The pagehide cleanup used
- * to fire ceil(n/500) of them at once — ~90 KB for a 2,241-id queue — so the
- * requests that mattered most were silently rejected at exactly the moment they
- * were needed. Budget the bytes instead of the count; whatever doesn't fit is
- * the nightly reconciler's job.
- */
-const KEEPALIVE_BYTE_BUDGET = 50 * 1024;
-
-/**
- * localStorage key holding the files a session hadn't finished uploading.
- *
- * The work queue lives only in this tab's memory, so a crash/close/sleep used
- * to erase all knowledge that those files ever existed — the photographer was
- * never told, and found out when a client asked where their headshots were.
- * The manifest is rewritten while a session runs and removed when it drains
- * cleanly, so anything left behind on next mount is, by construction, work that
- * didn't finish.
- */
-const unfinishedKey = (eventId: string) => `pixeltrunk:unfinished:${eventId}`;
-/**
- * Records the unfinished COUNT the photographer last dismissed. The rows are
- * still unfinished after a dismiss, so without this the server would resurrect
- * the banner on every page load and it could never be cleared. Storing the
- * count means it stays dismissed until something NEW goes missing.
- */
-const unfinishedDismissedKey = (eventId: string) =>
-  `pixeltrunk:unfinished-dismissed:${eventId}`;
-/** How often the unfinished manifest is rewritten during a live session. */
-const UNFINISHED_SAVE_MS = 2000;
-const R2_PUT_RETRIES = 2;
-const R2_RETRY_BASE_MS = 1000;
-/** Hard ceiling on a single upload so a hung connection can't spin forever. */
-const R2_PUT_TIMEOUT_MS = 120_000;
-/**
- * Large videos need more than the 2-minute ceiling: scale the timeout so any
- * connection managing at least ~250 KB/s never gets cut off mid-upload (a
- * 500 MB reel gets ~34 min). Images keep the original ceiling.
- */
-const MIN_UPLOAD_BYTES_PER_SEC = 250 * 1024;
-function uploadTimeoutMs(fileSize: number): number {
-  return Math.max(
-    R2_PUT_TIMEOUT_MS,
-    Math.round((fileSize / MIN_UPLOAD_BYTES_PER_SEC) * 1000)
-  );
-}
-/**
- * Files at or below this size upload through our server proxy
- * (PUT /api/upload/[imageId]), which needs no R2 CORS and always works.
- * Larger files go browser→R2 directly to bypass Vercel's ~4.5MB request body
- * limit (that path needs the R2 bucket's CORS policy configured).
- */
-const PROXY_MAX_BYTES = 4 * 1024 * 1024;
-
-/**
- * CORS failures from direct-to-R2 uploads manifest as TypeError("Failed to
- * fetch") with no response body. After this many consecutive TypeErrors on
- * direct R2 PUTs, we surface a CORS configuration error.
- */
-const CORS_FAILURE_THRESHOLD = 3;
+  useUploadManager,
+  unfinishedKey,
+  unfinishedDismissedKey,
+  type UploadFile,
+  type FileStatus,
+} from "./UploadManager";
 
 /**
  * Cap on how many file rows are RENDERED at once. Every rendered row mounts an
  * <img> whose object URL makes the browser decode the ORIGINAL file — a 24 MP
  * JPEG decodes to ~100 MB of bitmap, so a 2000-file drop rendered in full
  * killed the tab before a single byte reached the server (Appfolio, Jul 2026).
- * Workers drain the queue in drop order, so the capped window always shows the
- * rows that are actually moving; a footer counts the rest.
  */
 const MAX_RENDERED_ROWS = 30;
 
-/**
- * EXIF lives in the file header (JPEG APP1 sits right after SOI), so only this
- * much of each file is read for extraction. Reading whole files held up to
- * 12 × 100 MB in memory at peak concurrency.
- */
-const EXIF_SCAN_BYTES = 4 * 1024 * 1024;
-
-type FileStatus = "pending" | "uploading" | "complete" | "error" | "duplicate";
-
-interface UploadFile {
-  id: string;
-  file: File;
-  previewUrl: string;
-  status: FileStatus;
-  /** 0–100, real bytes-sent progress for the current upload. */
-  progress: number;
-  error?: string;
-  imageId?: string;
-  /** When status is "duplicate": the existing image ids in this section that
-   *  share this filename (deleted if the user chooses Replace). */
-  existingImageIds?: string[];
-  /** Error state where the BINARY is safely in R2 but /api/upload/complete
-   *  never succeeded — retry re-finalizes instead of re-uploading. */
-  finalizeNeeded?: boolean;
-}
-
-/**
- * PUT a file via XMLHttpRequest so we get real upload-progress events
- * (fetch() exposes none). Resolves with the HTTP status; rejects on network
- * error/timeout/abort. onProgress receives 0–100.
- */
-function putWithProgress(
-  url: string,
-  file: File,
-  opts: {
-    timeoutMs: number;
-    signal: { aborted: boolean };
-    /** pct is 0–100; loadedBytes is cumulative bytes sent this attempt. */
-    onProgress: (pct: number, loadedBytes: number) => void;
-  }
-): Promise<{ ok: boolean; status: number }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.timeout = opts.timeoutMs;
-    if (file.type) xhr.setRequestHeader("Content-Type", file.type);
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        opts.onProgress(Math.round((e.loaded / e.total) * 100), e.loaded);
-      }
-    };
-    xhr.onload = () => {
-      opts.onProgress(100, file.size);
-      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
-    };
-    xhr.onerror = () => reject(new TypeError("Failed to fetch"));
-    xhr.ontimeout = () => reject(new Error("Upload timed out"));
-    xhr.onabort = () => reject(new Error("aborted"));
-
-    // Cooperative abort: poll the shared abort flag and cancel in flight.
-    const abortPoll = setInterval(() => {
-      if (opts.signal.aborted) {
-        clearInterval(abortPoll);
-        xhr.abort();
-      }
-    }, 250);
-    const clear = () => clearInterval(abortPoll);
-    xhr.addEventListener("loadend", clear);
-
-    xhr.send(file);
-  });
-}
-
-/**
- * Delete presign-created rows for files that will never be uploaded.
- *
- * `duringUnload` is the load-bearing argument. On pagehide the page is dying,
- * so requests must be `keepalive` — and keepalive bodies share a 64 KB budget
- * across all in-flight requests, so batches are sized by BYTES and the overflow
- * is deliberately dropped for the nightly reconciler rather than issued and
- * silently rejected. With presign backpressure in place the queue is ~60 deep,
- * so the budget is never the binding constraint in practice; it only matters if
- * that invariant ever regresses.
- */
-function deleteRowsInBatches(imageIds: string[], duringUnload: boolean): void {
-  if (imageIds.length === 0) return;
-  let budget = duringUnload ? KEEPALIVE_BYTE_BUDGET : Infinity;
-  for (let s = 0; s < imageIds.length; s += 500) {
-    const slice = imageIds.slice(s, s + 500);
-    const body = JSON.stringify({ imageIds: slice });
-    if (duringUnload) {
-      const size = body.length;
-      if (size > budget) return; // rest is the reconciler's job
-      budget -= size;
-    }
-    fetch("/api/images/batch", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body,
-      keepalive: duringUnload,
-    }).catch(() => {
-      /* the nightly reconciler is the backstop */
-    });
-  }
+interface UploadZoneProps {
+  eventId: string;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  /** Files to re-drop (retry), passed down from the page's failed-upload list. */
+  retryFiles?: File[];
 }
 
 /**
@@ -217,7 +45,7 @@ function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={previewUrl}
-      alt={file.name}
+      alt=""
       loading="lazy"
       decoding="async"
       className="h-full w-full object-cover"
@@ -225,484 +53,102 @@ function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
   );
 }
 
-export interface UploadProgress {
-  active: boolean;
-  total: number;
-  uploaded: number;
-  failed: number;
-  inFlight: number;
-}
-
-interface UploadZoneProps {
-  eventId: string;
-  sectionId?: string | null;
-  sectionName?: string | null;
-  onUploadComplete?: (imageIds: string[]) => void;
-  onUploadFailed?: (files: File[]) => void;
-  /** Fires whenever an individual image lands, so the grid can populate live. */
-  onImageUploaded?: (imageId: string) => void;
-  /** Live progress for a single unified bar owned by the page. */
-  onProgressChange?: (p: UploadProgress) => void;
-  retryFiles?: File[];
-}
+/** A file row plus the batch it belongs to — actions need both. */
+type Row = UploadFile & { batchId: string; batchSectionName: string | null };
 
 /**
- * UploadZone — drag/drop uploader.
+ * UploadZone — the VIEW over the upload engine.
  *
- * Design principles (uploading is the most important action):
- *  - New files dropped mid-upload MERGE into the running session immediately:
- *    they're added to state, queued, and the total updates at once.
- *  - A shared worker pool pulls from a single queue, so there are no
- *    sequential "batches" that stall the count at 50.
- *  - The list shows only what still needs attention: a finished upload FALLS
- *    OFF the list (its thumbnail appears in the grid below instead). Errors
- *    stay so they can be retried. An empty list therefore means "all done" —
- *    and the whole block disappears, leaving a clean page.
+ * It owns no queue. Everything durable (tasks, workers, progress, cleanup)
+ * lives in UploadManager, above the router, because this component is mounted
+ * with a key tied to the active section and used to be destroyed — along with
+ * the entire in-flight queue — whenever that section changed.
+ *
+ * It shows every batch for THIS event, not just the selected section: if you
+ * dumped photos into one section and print exports into another, both are
+ * visible while you carry on organizing.
  */
 export function UploadZone({
   eventId,
   sectionId,
   sectionName,
-  onUploadComplete,
-  onUploadFailed,
-  onImageUploaded,
-  onProgressChange,
   retryFiles,
 }: UploadZoneProps) {
-  const [files, setFiles] = useState<UploadFile[]>([]);
-  const [corsError, setCorsError] = useState(false);
-  /** Filenames a PREVIOUS session left unfinished (see unfinishedKey). */
+  const {
+    batches,
+    speedMbps,
+    corsError,
+    startBatch,
+    cancelBatch,
+    removeFiles,
+    updateFile,
+    uploadEntries,
+    retryFinalize,
+  } = useUploadManager();
+
+  const [rejected, setRejected] = useState<UploadFile[]>([]);
   const [unfinished, setUnfinished] = useState<string[]>([]);
-  /** Exact total, which can exceed the listed filenames on a large loss. */
   const [unfinishedTotal, setUnfinishedTotal] = useState(0);
-  // True while the end-of-session server check runs — holds the auto-clear
-  // so a row the server disputes can be flipped back to an error in place.
-  const [reconciling, setReconciling] = useState(false);
 
-  const abortRef = useRef(false);
-  const corsFailureCount = useRef(0);
-  // Cumulative bytes sent this session (all workers, retries included — it
-  // measures real network traffic). A 1s interval turns deltas into the
-  // header's live speed readout.
-  const bytesSentRef = useRef(0);
-  const [speedMbps, setSpeedMbps] = useState<number | null>(null);
-  // Set once the DIRECT (>4MB) path has clearly hit a CORS wall. It short-
-  // circuits further LARGE-file attempts only — small files keep uploading
-  // through the proxy. (Previously a CORS storm tripped the global abort and
-  // stranded the whole batch, including small files that would've worked.)
-  const corsBlockedRef = useRef(false);
-  // Capture sectionId at drop time so it doesn't go stale mid-upload.
-  const sectionIdRef = useRef(sectionId);
-  sectionIdRef.current = sectionId;
-  // Current files, readable from interval callbacks without re-arming them on
-  // every progress tick.
-  const filesRef = useRef<UploadFile[]>([]);
-  filesRef.current = files;
-
-  // ─── Shared work queue + worker pool ───
-  // Tasks are pushed here as presigned URLs come back. Workers pull from it,
-  // so files dropped mid-upload are picked up by idle workers immediately.
-  const queueRef = useRef<UploadTask[]>([]);
-  const activeWorkers = useRef(0);
-  const completedIdsRef = useRef<string[]>([]);
-  const failedFilesRef = useRef<File[]>([]);
-  // Object URLs to revoke on unmount.
-  const objectUrls = useRef<Set<string>>(new Set());
-
-  interface UploadTask {
-    fileId: string;
-    file: File;
-    imageId: string;
-    uploadUrl: string;
-  }
-
-  const updateFile = useCallback(
-    (id: string, update: Partial<UploadFile>) => {
-      setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...update } : f)));
-    },
-    []
+  const myBatches = useMemo(
+    () => batches.filter((b) => b.eventId === eventId),
+    [batches, eventId]
   );
 
-  const removeFiles = useCallback((ids: Set<string>) => {
-    setFiles((prev) => {
-      prev.forEach((f) => {
-        if (ids.has(f.id)) {
-          URL.revokeObjectURL(f.previewUrl);
-          objectUrls.current.delete(f.previewUrl);
-        }
-      });
-      return prev.filter((f) => !ids.has(f.id));
-    });
-  }, []);
-
-  // Delete the DB row pre-created by /api/upload for a file that then failed to
-  // upload, so a failed upload never leaves a backing-less "ghost" image.
-  const deleteOrphanRow = useCallback(async (imageId: string) => {
-    try {
-      await fetch("/api/images/batch", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageIds: [imageId] }),
-      });
-    } catch {
-      /* best-effort cleanup */
-    }
-  }, []);
-
-  // Finalize an upload whose binary is in R2: extract EXIF (best-effort) and
-  // POST /api/upload/complete until it sticks. Returns true only on a
-  // server-confirmed 2xx — the caller must NOT mark the file complete
-  // otherwise (claiming success on an unconfirmed finalize left 458 images
-  // stuck "pending" in the eBay HEADSHOTS incident).
-  const finalizeUpload = useCallback(
-    async (imageId: string, file: File): Promise<boolean> => {
-      let exifData: Record<string, unknown> = {};
-      if (!isVideoMime(file.type)) {
-        try {
-          const buf = await file.slice(0, EXIF_SCAN_BYTES).arrayBuffer();
-          const exif = await extractExif(buf);
-          if (exif) exifData = exif;
-        } catch {
-          // EXIF is non-critical
-        }
-      }
-
-      const COMPLETE_RETRIES = 2;
-      for (let attempt = 0; attempt <= COMPLETE_RETRIES; attempt++) {
-        try {
-          const res = await fetch("/api/upload/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              imageId,
-              width: (exifData as { width?: number }).width ?? null,
-              height: (exifData as { height?: number }).height ?? null,
-              exif: exifData,
-            }),
-          });
-          if (res.ok) return true;
-        } catch {
-          // retry
-        }
-        if (attempt < COMPLETE_RETRIES) {
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        }
-      }
-      return false;
-    },
-    []
+  const rows = useMemo<Row[]>(
+    () =>
+      myBatches.flatMap((b) =>
+        b.files.map((f) => ({
+          ...f,
+          batchId: b.id,
+          batchSectionName: b.sectionName,
+        }))
+      ),
+    [myBatches]
   );
 
-  // A task abandoned mid-session (Cancel, navigation) must not leave its
-  // pre-created DB row behind as a ghost tile.
-  const cancelTask = useCallback(
-    async (task: UploadTask) => {
-      removeFiles(new Set([task.fileId]));
-      await deleteOrphanRow(task.imageId);
-    },
-    [removeFiles, deleteOrphanRow]
+  const allRows = useMemo<Row[]>(
+    () => [
+      ...rows,
+      ...rejected.map((f) => ({
+        ...f,
+        batchId: "",
+        batchSectionName: null,
+      })),
+    ],
+    [rows, rejected]
   );
 
-  // ─── Upload a single task (proxy for small files, direct for large) ───
-  const uploadOne = useCallback(
-    async (task: UploadTask) => {
-      if (abortRef.current) {
-        await cancelTask(task);
-        return;
-      }
-
-      const useProxy = task.file.size <= PROXY_MAX_BYTES;
-
-      // Large files can only go direct-to-R2, which needs bucket CORS. If that
-      // path is already known-blocked, fail this file fast with a clear reason
-      // — but DON'T touch the queue, so small files keep flowing.
-      if (!useProxy && corsBlockedRef.current) {
-        failedFilesRef.current.push(task.file);
-        await deleteOrphanRow(task.imageId);
-        updateFile(task.fileId, {
-          status: "error",
-          error: "Files over 4 MB need storage (CORS) configured — see settings",
-        });
-        return;
-      }
-
-      updateFile(task.fileId, { status: "uploading", progress: 0 });
-      const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
-
-      let ok = false;
-      let lastErr: unknown;
-      for (let attempt = 0; attempt <= R2_PUT_RETRIES; attempt++) {
-        if (abortRef.current) {
-          await cancelTask(task);
-          return;
-        }
-        try {
-          // Progress events fire far more often than the integer pct changes;
-          // only distinct values hit React state (a 2000-file session otherwise
-          // re-renders the list thousands of times per second).
-          let lastPct = -1;
-          let lastLoaded = 0;
-          const res = await putWithProgress(target, task.file, {
-            timeoutMs: uploadTimeoutMs(task.file.size),
-            signal: { get aborted() { return abortRef.current; } },
-            onProgress: (pct, loaded) => {
-              // Bytes accounting is ref-only (no render): accumulate the delta
-              // since the last event for the session speed readout.
-              bytesSentRef.current += Math.max(0, loaded - lastLoaded);
-              lastLoaded = loaded;
-              if (pct === lastPct) return;
-              lastPct = pct;
-              updateFile(task.fileId, { progress: pct });
-            },
-          });
-          if (res.ok) {
-            ok = true;
-            break;
-          }
-          lastErr = new Error(`Upload failed (${res.status})`);
-        } catch (err) {
-          lastErr = err;
-          // TypeError on the DIRECT path = CORS wall. Flag it so subsequent
-          // large files fail fast (above) — but never abort the small-file
-          // (proxy) work, which doesn't depend on CORS.
-          if (!useProxy && err instanceof TypeError) {
-            corsFailureCount.current++;
-            if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
-              corsBlockedRef.current = true;
-              setCorsError(true);
-              break;
-            }
-          }
-        }
-        if (attempt < R2_PUT_RETRIES) {
-          // Reset the bar before retrying so it doesn't look stuck mid-fill.
-          updateFile(task.fileId, { progress: 0 });
-          await new Promise((r) =>
-            setTimeout(r, R2_RETRY_BASE_MS * Math.pow(2, attempt))
-          );
-        }
-      }
-
-      if (!ok) {
-        // A batch canceled mid-flight is cleanup, not an error.
-        if (abortRef.current) {
-          await cancelTask(task);
-          return;
-        }
-        failedFilesRef.current.push(task.file);
-        // Clean up the pre-created DB row so a failed upload never leaves a
-        // backing-less "ghost" image (the cause of broken tiles).
-        await deleteOrphanRow(task.imageId);
-        updateFile(task.fileId, {
-          status: "error",
-          error:
-            !useProxy && (lastErr instanceof TypeError || corsBlockedRef.current)
-              ? "Files over 4 MB need storage (CORS) configured — see settings"
-              : lastErr instanceof Error
-              ? lastErr.message
-              : "Upload failed",
-        });
-        return;
-      }
-
-      corsFailureCount.current = 0;
-
-      // Tell the server we're done. If finalize can't be CONFIRMED, the file
-      // is an error the user can see and retry — never a silent "complete".
-      // (The binary is safe in R2, so retry only re-finalizes.)
-      const finalized = await finalizeUpload(task.imageId, task.file);
-      if (!finalized) {
-        failedFilesRef.current.push(task.file);
-        updateFile(task.fileId, {
-          status: "error",
-          error: "Uploaded, but not confirmed — retry",
-          imageId: task.imageId,
-          finalizeNeeded: true,
-        });
-        return;
-      }
-
-      // Mark complete — the binary is in R2 and the server confirmed the row.
-      // The grid can show it now, and the row falls off the upload list (it's
-      // filtered out of the displayed list below).
-      updateFile(task.fileId, { status: "complete", progress: 100, imageId: task.imageId });
-      completedIdsRef.current.push(task.imageId);
-      onImageUploaded?.(task.imageId);
-    },
-    [updateFile, onImageUploaded, deleteOrphanRow, finalizeUpload, cancelTask]
+  const completedCount = allRows.filter((f) => f.status === "complete").length;
+  const errorCount = allRows.filter((f) => f.status === "error").length;
+  const duplicateRows = useMemo(
+    () => allRows.filter((f) => f.status === "duplicate"),
+    [allRows]
   );
+  const duplicateCount = duplicateRows.length;
+  const inFlight = allRows.filter(
+    (f) => f.status === "pending" || f.status === "uploading"
+  ).length;
+  const totalCount = allRows.filter((f) => f.status !== "duplicate").length;
+  const isUploading = inFlight > 0;
 
-  // ─── Worker pool: pulls from the shared queue until it's drained ───
-  const drainQueue = useCallback(() => {
-    while (
-      activeWorkers.current < MAX_CONCURRENT_UPLOADS &&
-      queueRef.current.length > 0
-    ) {
-      const task = queueRef.current.shift()!;
-      activeWorkers.current++;
-      uploadOne(task)
-        .catch(() => {
-          /* uploadOne never throws, but guard anyway */
-        })
-        .finally(() => {
-          activeWorkers.current--;
-          // Pick up any work that arrived while we were busy.
-          drainQueue();
-        });
-    }
-  }, [uploadOne]);
-
-  // ─── Presign + enqueue a set of already-registered entries ───
-  // (Shared by the normal drop path and the "Replace"/"upload anyway" paths.)
-  const uploadEntries = useCallback(
-    async (entries: UploadFile[]) => {
-      // Pin the destination for THIS drop, once.
-      //
-      // Presigning used to finish within seconds of the drop, so reading the
-      // live ref per chunk was harmless. Backpressure deliberately spreads it
-      // across the whole session — an hour for a big drop — so a live read
-      // would scatter the tail of one folder into whatever section happened to
-      // be selected when each chunk was minted. A drop goes where it was
-      // dropped; only the NEXT drop follows the new selection.
-      const targetSectionId = sectionIdRef.current;
-
-      for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
-        if (abortRef.current) break;
-
-        // Wait for the workers to make room before reserving more rows — this
-        // is what bounds how much work can be lost if the tab dies. Policy and
-        // its tests live in @/lib/upload/backpressure.
-        await waitForQueueRoom(
-          () => queueRef.current.length,
-          () => abortRef.current
-        );
-        if (abortRef.current) break;
-
-        const chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
-        const chunk = chunkEntries.map((e) => e.file);
-
-        let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
-        try {
-          const response = await fetch("/api/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              eventId,
-              sectionId: targetSectionId || undefined,
-              files: chunk.map((f) => ({ name: f.name, type: f.type, size: f.size })),
-            }),
-          });
-          if (!response.ok) {
-            for (const e of chunkEntries) {
-              failedFilesRef.current.push(e.file);
-              updateFile(e.id, {
-                status: "error",
-                error: `Server error (${response.status})`,
-              });
-            }
-            continue;
-          }
-          uploads = (await response.json()).uploads;
-        } catch (err) {
-          for (const e of chunkEntries) {
-            failedFilesRef.current.push(e.file);
-            updateFile(e.id, {
-              status: "error",
-              error: err instanceof Error ? err.message : "Network error",
-            });
-          }
-          continue;
-        }
-
-        if (!Array.isArray(uploads) || uploads.length < chunkEntries.length) {
-          for (let i = uploads?.length ?? 0; i < chunkEntries.length; i++) {
-            failedFilesRef.current.push(chunkEntries[i].file);
-            updateFile(chunkEntries[i].id, {
-              status: "error",
-              error: "Server returned no upload URL",
-            });
-          }
-        }
-
-        (uploads ?? []).forEach((u, i) => {
-          if (!chunkEntries[i]) return;
-          queueRef.current.push({
-            fileId: chunkEntries[i].id,
-            file: chunk[i],
-            imageId: u.imageId,
-            uploadUrl: u.uploadUrl,
-          });
-        });
-        drainQueue();
-      }
-    },
-    [eventId, updateFile, drainQueue]
-  );
-
-  // ─── Drop handler: register files, hold duplicates, upload the rest ───
+  // ─── Drop ───
   const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      if (acceptedFiles.length === 0) return;
-      abortRef.current = false;
-      setCorsError(false);
-
-      // 1. Register every dropped file immediately (instant feedback).
-      const baseId = `${performance.now()}`;
-      const newEntries: UploadFile[] = acceptedFiles.map((file, i) => {
-        const previewUrl = URL.createObjectURL(file);
-        objectUrls.current.add(previewUrl);
-        return {
-          id: `${baseId}-${i}`,
-          file,
-          previewUrl,
-          status: "pending" as FileStatus,
-          progress: 0,
-        };
+    (accepted: File[]) => {
+      if (accepted.length === 0) return;
+      setUnfinished([]);
+      setUnfinishedTotal(0);
+      void startBatch({
+        eventId,
+        sectionId: sectionId ?? null,
+        sectionName: sectionName ?? null,
+        files: accepted,
       });
-      setFiles((prev) => [...prev, ...newEntries]);
-
-      // 2. Check which filenames already exist in the target section. Dupes are
-      //    HELD (status "duplicate") for Skip/Replace; the rest upload now.
-      let dupMap: Record<string, string[]> = {};
-      const targetSection = sectionIdRef.current;
-      if (targetSection) {
-        try {
-          const res = await fetch(
-            `/api/sections/${targetSection}/check-duplicates`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                filenames: [...new Set(acceptedFiles.map((f) => f.name))],
-              }),
-            }
-          );
-          if (res.ok) dupMap = (await res.json()).duplicates ?? {};
-        } catch {
-          // If the check fails, fall through and upload everything (no worse
-          // than before — better to allow than to block on a flaky check).
-        }
-      }
-
-      const toUpload: UploadFile[] = [];
-      for (const entry of newEntries) {
-        const existing = dupMap[entry.file.name];
-        if (existing && existing.length > 0) {
-          updateFile(entry.id, {
-            status: "duplicate",
-            existingImageIds: existing,
-          });
-        } else {
-          toUpload.push(entry);
-        }
-      }
-
-      await uploadEntries(toUpload);
     },
-    [updateFile, uploadEntries]
+    [eventId, sectionId, sectionName, startBatch]
   );
 
-  // Retry: when retryFiles prop changes, re-drop those files.
+  // Retry: when retryFiles changes, re-drop those files.
   const retryFilesRef = useRef<File[] | undefined>(undefined);
   useEffect(() => {
     if (retryFiles && retryFiles.length > 0 && retryFiles !== retryFilesRef.current) {
@@ -711,110 +157,34 @@ export function UploadZone({
     }
   }, [retryFiles, onDrop]);
 
-  // Revoke all object URLs on unmount.
-  useEffect(() => {
-    const urls = objectUrls.current;
-    return () => {
-      urls.forEach((u) => URL.revokeObjectURL(u));
-      urls.clear();
-    };
+  // Politely surface rejected files (wrong format / over the size cap).
+  const onDropRejected = useCallback((rejections: readonly FileRejection[]) => {
+    if (rejections.length === 0) return;
+    const baseId = `rejected-${performance.now()}`;
+    setRejected((prev) => [
+      ...prev,
+      ...rejections.map((r, i) => ({
+        id: `${baseId}-${i}`,
+        file: r.file,
+        previewUrl: "",
+        status: "error" as FileStatus,
+        progress: 0,
+        error:
+          validateUploadFile({
+            name: r.file.name,
+            type: r.file.type,
+            size: r.file.size,
+          }) ||
+          r.errors[0]?.message ||
+          "Unsupported file",
+      })),
+    ]);
   }, []);
-
-  // ─── Unfinished-work recovery ───
-  // Two sources, deliberately merged. The SERVER is authoritative and durable:
-  // it knows every row this event registered but never finished, across devices
-  // and cache clears. localStorage adds the tail the server cannot see — files
-  // registered in the UI that died before their presign call ever created a row.
-  // Neither alone covers a session that vanishes mid-drop.
-  useEffect(() => {
-    let cancelled = false;
-
-    const readLocal = (): string[] => {
-      try {
-        const raw = localStorage.getItem(unfinishedKey(eventId));
-        return raw ? ((JSON.parse(raw) as { files?: string[] })?.files ?? []) : [];
-      } catch {
-        return []; // corrupt or unavailable storage never blocks uploading
-      }
-    };
-    const dismissedAt = (): number => {
-      try {
-        return Number(localStorage.getItem(unfinishedDismissedKey(eventId)) ?? 0);
-      } catch {
-        return 0;
-      }
-    };
-
-    const local = readLocal();
-    const apply = (serverNames: string[], serverCount: number) => {
-      const names = Array.from(new Set([...serverNames, ...local]));
-      const total = Math.max(serverCount, names.length);
-      // Suppress only an EXACT repeat of what was dismissed. Using `<=` would
-      // mean dismissing a 2,270-file loss also silences a later 5-file one —
-      // the banner would go quietly blind exactly as the numbers got smaller
-      // and more recoverable. Any change to the number is new information.
-      if (total === 0 || total === dismissedAt()) return;
-      setUnfinished(names);
-      setUnfinishedTotal(total);
-    };
-
-    apply([], local.length);
-
-    (async () => {
-      try {
-        const res = await fetch(`/api/events/${eventId}/unfinished-uploads`);
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          count?: number;
-          filenames?: string[];
-        };
-        if (cancelled) return;
-        apply(data.filenames ?? [], data.count ?? 0);
-      } catch {
-        /* the local manifest already covers the offline case */
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [eventId]);
-
-
-  // Politely surface rejected files (wrong format / over the size cap) as
-  // error rows instead of silently dropping them.
-  const onDropRejected = useCallback(
-    (rejections: readonly FileRejection[]) => {
-      if (rejections.length === 0) return;
-      const baseId = `rejected-${performance.now()}`;
-      setFiles((prev) => [
-        ...prev,
-        ...rejections.map((r, i) => ({
-          id: `${baseId}-${i}`,
-          file: r.file,
-          previewUrl: "",
-          status: "error" as FileStatus,
-          progress: 0,
-          error:
-            validateUploadFile({
-              name: r.file.name,
-              type: r.file.type,
-              size: r.file.size,
-            }) ||
-            r.errors[0]?.message ||
-            "Unsupported file",
-        })),
-      ]);
-    },
-    []
-  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     onDropRejected,
     accept: UPLOAD_ACCEPT,
-    // Per-type size caps (100 MB images / 500 MB videos) live in the shared
-    // validator, mirrored server-side in /api/upload.
     validator: (file) => {
       const problem = validateUploadFile({
         name: file.name,
@@ -826,56 +196,51 @@ export function UploadZone({
     useFsAccessApi: false, // traditional file dialog so CMD+A works in Finder
   });
 
-  // ─── Counts (cumulative this session — completed rows stay counted even
-  //     after they fall off the displayed list) ───
-  const completedCount = files.filter((f) => f.status === "complete").length;
-  const errorCount = files.filter((f) => f.status === "error").length;
-  const duplicateFiles = useMemo(
-    () => files.filter((f) => f.status === "duplicate"),
-    [files]
-  );
-  const duplicateCount = duplicateFiles.length;
-  const inFlight = files.filter(
-    (f) => f.status === "pending" || f.status === "uploading"
-  ).length;
-  // Held duplicates aren't counted in the total/progress — they're awaiting a
-  // Skip/Replace decision, not uploading.
-  const totalCount = files.filter((f) => f.status !== "duplicate").length;
-  const isUploading = inFlight > 0;
-
-  // While a session runs, keep the unfinished manifest current. An INTERVAL, not
-  // a debounce on `files` — progress ticks mutate `files` several times a
-  // second, so a debounce would keep rescheduling and never actually write. The
-  // cleanup runs one final pass, which is what clears the key when a session
-  // drains cleanly.
+  // ─── Unfinished-work recovery (server-authoritative, localStorage tail) ───
   useEffect(() => {
-    if (!isUploading) return;
-    const write = () => {
-      const names = filesRef.current
-        .filter((f) => f.status === "pending" || f.status === "uploading")
-        .map((f) => f.file.name);
+    let cancelled = false;
+    const readLocal = (): string[] => {
       try {
-        if (names.length) {
-          localStorage.setItem(
-            unfinishedKey(eventId),
-            JSON.stringify({ savedAt: Date.now(), files: names })
-          );
-        } else {
-          localStorage.removeItem(unfinishedKey(eventId));
-        }
+        const raw = localStorage.getItem(unfinishedKey(eventId));
+        return raw ? ((JSON.parse(raw) as { files?: string[] })?.files ?? []) : [];
       } catch {
-        /* quota or private mode — the reconciler still backstops the rows */
+        return [];
       }
     };
-    const id = setInterval(write, UNFINISHED_SAVE_MS);
-    return () => {
-      clearInterval(id);
-      write();
+    const dismissedAt = (): number => {
+      try {
+        return Number(localStorage.getItem(unfinishedDismissedKey(eventId)) ?? 0);
+      } catch {
+        return 0;
+      }
     };
-  }, [isUploading, eventId]);
+    const local = readLocal();
+    const apply = (serverNames: string[], serverCount: number) => {
+      const names = Array.from(new Set([...serverNames, ...local]));
+      const total = Math.max(serverCount, names.length);
+      // Exact repeats only: dismissing a 2,258-file loss must not silence a
+      // later 5-file one.
+      if (total === 0 || total === dismissedAt()) return;
+      setUnfinished(names);
+      setUnfinishedTotal(total);
+    };
+    apply([], local.length);
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/unfinished-uploads`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { count?: number; filenames?: string[] };
+        if (cancelled) return;
+        apply(data.filenames ?? [], data.count ?? 0);
+      } catch {
+        /* the local manifest already covers the offline case */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
 
-  // A new session starting means the photographer is acting on the recovery
-  // banner — stop showing the previous session's list.
   useEffect(() => {
     if (isUploading) {
       setUnfinished([]);
@@ -883,18 +248,15 @@ export function UploadZone({
     }
   }, [isUploading]);
 
-  // The displayed list shows what still needs attention: in-flight rows, errors
-  // (completed fall off — they're in the grid below). Duplicates render in their
-  // own group, so they're excluded here.
+  // ─── Displayed list ───
   const visibleFiles = useMemo(
-    () => files.filter((f) => f.status === "pending" || f.status === "uploading" || f.status === "error"),
-    [files]
+    () =>
+      allRows.filter(
+        (f) =>
+          f.status === "pending" || f.status === "uploading" || f.status === "error"
+      ),
+    [allRows]
   );
-
-  // Only a window of rows actually mounts (each row decodes its original file
-  // for the thumbnail — see MAX_RENDERED_ROWS). Errors need action, so they
-  // always render first; active rows fill the rest and a footer counts the
-  // queued remainder.
   const renderedFiles = useMemo(() => {
     if (visibleFiles.length <= MAX_RENDERED_ROWS) return visibleFiles;
     const errors = visibleFiles.filter((f) => f.status === "error");
@@ -903,44 +265,19 @@ export function UploadZone({
   }, [visibleFiles]);
   const hiddenRowCount = visibleFiles.length - renderedFiles.length;
 
-  // Overall session progress for the header bar: each file is one unit, with
-  // in-flight files contributing their fractional bytes-sent — so the bar
-  // creeps smoothly instead of stepping 1/2000th at a time.
   const overallPct = useMemo(() => {
     if (totalCount === 0) return 0;
-    const inFlightSum = files.reduce(
+    const inFlightSum = allRows.reduce(
       (acc, f) => acc + (f.status === "uploading" ? f.progress : 0),
       0
     );
-    const done = files.filter((f) => f.status === "complete").length;
-    return Math.min(100, ((done + inFlightSum / 100) / totalCount) * 100);
-  }, [files, totalCount]);
+    return Math.min(100, ((completedCount + inFlightSum / 100) / totalCount) * 100);
+  }, [allRows, completedCount, totalCount]);
 
-  // Live throughput: sample cumulative bytes once a second and smooth with an
-  // EMA so the readout doesn't twitch with every TCP burst.
-  useEffect(() => {
-    if (!isUploading) {
-      setSpeedMbps(null);
-      return;
-    }
-    let prevBytes = bytesSentRef.current;
-    let ema: number | null = null;
-    const id = setInterval(() => {
-      const now = bytesSentRef.current;
-      const instMbps = ((now - prevBytes) * 8) / 1e6;
-      prevBytes = now;
-      ema = ema === null ? instMbps : ema * 0.7 + instMbps * 0.3;
-      setSpeedMbps(ema);
-    }, 1000);
-    return () => clearInterval(id);
-  }, [isUploading]);
-
-  // Remaining-bytes ETA from the smoothed speed. Null until the speed settles
-  // or when it would be meaningless (stalled at ~0).
   const etaLabel = useMemo(() => {
     if (!speedMbps || speedMbps < 0.05) return null;
     let remaining = 0;
-    for (const f of files) {
+    for (const f of allRows) {
       if (f.status === "pending") remaining += f.file.size;
       else if (f.status === "uploading")
         remaining += f.file.size * (1 - f.progress / 100);
@@ -951,42 +288,49 @@ export function UploadZone({
     const mins = Math.round(secs / 60);
     if (mins < 60) return `~${mins} min left`;
     return `~${Math.floor(mins / 60)}h ${mins % 60}m left`;
-  }, [files, speedMbps]);
+  }, [allRows, speedMbps]);
 
-  // ─── Duplicate resolution: Skip / Replace (per-file and bulk) ───
-  const skipDuplicate = useCallback(
-    (id: string) => removeFiles(new Set([id])),
+  // ─── Row-level actions ───
+  const dropRow = useCallback(
+    (row: Row) => {
+      if (!row.batchId) setRejected((prev) => prev.filter((r) => r.id !== row.id));
+      else removeFiles(row.batchId, new Set([row.id]));
+    },
     [removeFiles]
   );
 
+  const skipDuplicate = useCallback((row: Row) => dropRow(row), [dropRow]);
+
   const replaceDuplicate = useCallback(
-    async (entry: UploadFile) => {
-      // Delete the existing image(s) with this filename in the section, then
-      // upload the new file in their place.
-      if (entry.existingImageIds?.length) {
+    async (row: Row) => {
+      if (row.existingImageIds?.length) {
         try {
           await fetch("/api/images/batch", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds: entry.existingImageIds }),
+            body: JSON.stringify({ imageIds: row.existingImageIds }),
           });
         } catch {
           /* best-effort; upload still proceeds */
         }
       }
-      updateFile(entry.id, { status: "pending", progress: 0 });
-      await uploadEntries([{ ...entry, status: "pending" }]);
+      updateFile(row.batchId, row.id, { status: "pending", progress: 0 });
+      await uploadEntries(row.batchId, [{ ...row, status: "pending" }]);
     },
     [updateFile, uploadEntries]
   );
 
   const skipAllDuplicates = useCallback(() => {
-    removeFiles(new Set(duplicateFiles.map((f) => f.id)));
-  }, [duplicateFiles, removeFiles]);
+    for (const b of myBatches) {
+      const ids = new Set(
+        b.files.filter((f) => f.status === "duplicate").map((f) => f.id)
+      );
+      if (ids.size) removeFiles(b.id, ids);
+    }
+  }, [myBatches, removeFiles]);
 
   const replaceAllDuplicates = useCallback(async () => {
-    const dupes = [...duplicateFiles];
-    const allExisting = dupes.flatMap((d) => d.existingImageIds ?? []);
+    const allExisting = duplicateRows.flatMap((d) => d.existingImageIds ?? []);
     if (allExisting.length) {
       try {
         await fetch("/api/images/batch", {
@@ -998,248 +342,69 @@ export function UploadZone({
         /* best-effort */
       }
     }
-    dupes.forEach((d) => updateFile(d.id, { status: "pending", progress: 0 }));
-    await uploadEntries(dupes.map((d) => ({ ...d, status: "pending" as FileStatus })));
-  }, [duplicateFiles, updateFile, uploadEntries]);
-
-  // ─── Cancel: stop the session AND clean up every pre-created row ───
-  // The old cancel just emptied the queue, stranding one presign-created DB
-  // row per queued file — the largest single source of the eBay HEADSHOTS
-  // ghost tiles. In-flight workers clean their own rows via the abort path
-  // in uploadOne; not-yet-presigned entries have no rows to clean.
-  const cancelUpload = useCallback(() => {
-    abortRef.current = true;
-    const queued = queueRef.current;
-    queueRef.current = [];
-    const dropIds = new Set(queued.map((t) => t.fileId));
-    setFiles((prev) => {
-      prev.forEach((f) => {
-        if (dropIds.has(f.id) || f.status === "pending") {
-          URL.revokeObjectURL(f.previewUrl);
-          objectUrls.current.delete(f.previewUrl);
-        }
-      });
-      return prev.filter((f) => !dropIds.has(f.id) && f.status !== "pending");
-    });
-    // Cancel runs with the page alive, so these deletes need no keepalive and
-    // no byte budget — every id gets cleaned up.
-    deleteRowsInBatches(queued.map((t) => t.imageId), false);
-  }, []);
-
-  // ─── Leaving mid-upload: warn, and clean up what provably can't finish ───
-  // beforeunload prompts before the tab closes/navigates while uploads run.
-  // pagehide (fires even when the user leaves anyway) deletes the rows of
-  // QUEUED-but-never-started files via keepalive fetch. In-flight uploads die
-  // with the page and can't be cleaned from here — the nightly reconciler
-  // sweeps those.
-  useEffect(() => {
-    if (!isUploading) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    const onPageHide = () => {
-      const queuedIds = queueRef.current.map((t) => t.imageId);
-      queueRef.current = [];
-      deleteRowsInBatches(queuedIds, true);
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    window.addEventListener("pagehide", onPageHide);
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      window.removeEventListener("pagehide", onPageHide);
-    };
-  }, [isUploading]);
-
-  // ─── End-of-session truth check against the server ───
-  // Ask /api/upload/reconcile whether every id we counted as complete is
-  // actually finalized. Anything the server disputes flips back to a visible,
-  // retryable error — local bookkeeping never gets the last word.
-  const reconcileCompleted = useCallback(
-    async (ids: string[]) => {
-      const unfinalized = new Set<string>();
-      const missing = new Set<string>();
-      for (let s = 0; s < ids.length; s += 500) {
-        try {
-          const res = await fetch("/api/upload/reconcile", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds: ids.slice(s, s + 500) }),
-          });
-          if (res.ok) {
-            const data = (await res.json()) as {
-              unfinalized?: string[];
-              missing?: string[];
-            };
-            data.unfinalized?.forEach((id) => unfinalized.add(id));
-            data.missing?.forEach((id) => missing.add(id));
-          }
-        } catch {
-          /* best-effort; the nightly reconciler is the backstop */
-        }
-      }
-      if (unfinalized.size === 0 && missing.size === 0) return;
-      setFiles((prev) =>
-        prev.map((f) => {
-          if (!f.imageId || f.status !== "complete") return f;
-          if (unfinalized.has(f.imageId)) {
-            // Binary landed; only the finalize is missing.
-            return {
-              ...f,
-              status: "error" as FileStatus,
-              error: "Not confirmed by server — retry",
-              finalizeNeeded: true,
-            };
-          }
-          if (missing.has(f.imageId)) {
-            // Row vanished entirely — needs a full re-upload.
-            return {
-              ...f,
-              status: "error" as FileStatus,
-              error: "Upload lost — retry",
-              finalizeNeeded: false,
-            };
-          }
-          return f;
-        })
+    // Re-queue per batch, so each file returns to the section it was dropped on.
+    for (const b of myBatches) {
+      const dupes = b.files.filter((f) => f.status === "duplicate");
+      if (!dupes.length) continue;
+      dupes.forEach((d) => updateFile(b.id, d.id, { status: "pending", progress: 0 }));
+      await uploadEntries(
+        b.id,
+        dupes.map((d) => ({ ...d, status: "pending" as FileStatus }))
       );
-    },
-    []
-  );
-
-  // ─── Report progress up to the page (single unified bar lives there) ───
-  useEffect(() => {
-    onProgressChange?.({
-      active: isUploading,
-      total: totalCount,
-      uploaded: completedCount,
-      failed: errorCount,
-      inFlight,
-    });
-  }, [isUploading, totalCount, completedCount, errorCount, inFlight, onProgressChange]);
-
-  // ─── Fire parent callbacks once the queue fully drains ───
-  const wasUploadingRef = useRef(false);
-  useEffect(() => {
-    if (isUploading) {
-      wasUploadingRef.current = true;
-      return;
     }
-    if (wasUploadingRef.current) {
-      wasUploadingRef.current = false;
-      if (failedFilesRef.current.length > 0) {
-        onUploadFailed?.(failedFilesRef.current);
-        failedFilesRef.current = [];
-      }
-      if (completedIdsRef.current.length > 0) {
-        const completedIds = completedIdsRef.current;
-        completedIdsRef.current = [];
-        onUploadComplete?.(completedIds);
-        // Verify against the server before letting the rows clear.
-        setReconciling(true);
-        reconcileCompleted(completedIds).finally(() => setReconciling(false));
-      }
-    }
-  }, [isUploading, onUploadComplete, onUploadFailed, reconcileCompleted]);
+  }, [duplicateRows, myBatches, updateFile, uploadEntries]);
 
-  // ─── Auto-clear once everything has succeeded ───
-  // When nothing is in flight and there's nothing left to act on (no errors,
-  // no held duplicates), drop the completed rows so the block disappears — an
-  // empty list is the "you're done" signal. Held duplicates/errors keep the
-  // block alive until resolved. Only complete rows are cleared.
-  useEffect(() => {
-    if (!isUploading && !reconciling && errorCount === 0 && duplicateCount === 0 && files.length > 0) {
-      const t = setTimeout(() => {
-        setFiles((prev) => {
-          prev.forEach((f) => {
-            if (f.status === "complete") {
-              URL.revokeObjectURL(f.previewUrl);
-              objectUrls.current.delete(f.previewUrl);
-            }
-          });
-          return prev.filter((f) => f.status !== "complete");
-        });
-      }, 600);
-      return () => clearTimeout(t);
-    }
-  }, [isUploading, reconciling, errorCount, duplicateCount, files.length]);
-
-  // Retry a finalize-only failure: the binary is already in R2, so just
-  // re-run /api/upload/complete rather than re-uploading the bytes.
-  const retryFinalize = useCallback(
-    async (entry: UploadFile) => {
-      if (!entry.imageId) return;
-      updateFile(entry.id, { status: "uploading", progress: 100, error: undefined });
-      const finalized = await finalizeUpload(entry.imageId, entry.file);
-      if (finalized) {
-        updateFile(entry.id, { status: "complete", finalizeNeeded: false });
-        completedIdsRef.current.push(entry.imageId);
-        onImageUploaded?.(entry.imageId);
-      } else {
-        updateFile(entry.id, {
-          status: "error",
-          error: "Uploaded, but not confirmed — retry",
-        });
-      }
-    },
-    [updateFile, finalizeUpload, onImageUploaded]
-  );
-
-  const retryFile = useCallback(
-    async (entry: UploadFile) => {
-      if (entry.finalizeNeeded && entry.imageId) {
-        await retryFinalize(entry);
+  const retryRow = useCallback(
+    async (row: Row) => {
+      if (row.finalizeNeeded && row.imageId && row.batchId) {
+        await retryFinalize(row.batchId, row);
         return;
       }
-      if (entry.imageId) {
+      if (row.imageId) {
         try {
           await fetch("/api/images/batch", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageIds: [entry.imageId] }),
+            body: JSON.stringify({ imageIds: [row.imageId] }),
           });
         } catch {
           /* non-critical */
         }
       }
-      removeFiles(new Set([entry.id]));
-      onDrop([entry.file]);
+      const batch = myBatches.find((b) => b.id === row.batchId);
+      dropRow(row);
+      void startBatch({
+        eventId,
+        // Retries return to the section the file was originally dropped on.
+        sectionId: batch?.sectionId ?? sectionId ?? null,
+        sectionName: batch?.sectionName ?? sectionName ?? null,
+        files: [row.file],
+      });
     },
-    [onDrop, removeFiles, retryFinalize]
+    [dropRow, eventId, myBatches, retryFinalize, sectionId, sectionName, startBatch]
   );
 
   const retryAllFailed = useCallback(async () => {
-    const errorFiles = files.filter((f) => f.status === "error");
+    const errors = allRows.filter((f) => f.status === "error");
+    for (const row of errors) await retryRow(row);
+  }, [allRows, retryRow]);
 
-    // Finalize-only failures re-confirm in place (binary already in R2).
-    const finalizeRetries = errorFiles.filter((f) => f.finalizeNeeded && f.imageId);
-    await Promise.all(finalizeRetries.map((f) => retryFinalize(f)));
-
-    // True upload failures re-upload from scratch (delete ghost row first).
-    const reuploads = errorFiles.filter((f) => !(f.finalizeNeeded && f.imageId));
-    if (reuploads.length === 0) return;
-    const errorIds = new Set(reuploads.map((f) => f.id));
-    const orphanImageIds = reuploads
-      .map((f) => f.imageId)
-      .filter(Boolean) as string[];
-    if (orphanImageIds.length > 0) {
-      try {
-        await fetch("/api/images/batch", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: orphanImageIds }),
-        });
-      } catch {
-        /* non-critical */
-      }
+  const dismissErrors = useCallback(() => {
+    setRejected([]);
+    for (const b of myBatches) {
+      const ids = new Set(
+        b.files.filter((f) => f.status === "error").map((f) => f.id)
+      );
+      if (ids.size) removeFiles(b.id, ids);
     }
-    const rawFiles = reuploads.map((f) => f.file);
-    removeFiles(errorIds);
-    onDrop(rawFiles);
-  }, [files, onDrop, removeFiles, retryFinalize]);
+  }, [myBatches, removeFiles]);
+
+  const cancelAll = useCallback(() => {
+    for (const b of myBatches) cancelBatch(b.id);
+  }, [myBatches, cancelBatch]);
 
   return (
     <div className="space-y-6">
-      {/* ─── CORS / infrastructure error banner ─── */}
       {unfinished.length > 0 && (
         <div className="flex items-start gap-3 border border-amber-200 bg-amber-50 px-4 py-3">
           <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -1276,9 +441,6 @@ export function UploadZone({
             type="button"
             onClick={() => {
               try {
-                // Remember the count, not just the fact: the rows survive a
-                // dismiss, so the server would otherwise resurrect this banner
-                // on every load. It comes back only if MORE goes missing.
                 localStorage.setItem(
                   unfinishedDismissedKey(eventId),
                   String(unfinishedTotal)
@@ -1357,8 +519,8 @@ export function UploadZone({
         {isUploading && (
           <p className="mt-3 text-[11px] text-stone-400">
             Uploading {completedCount} of {totalCount}
-            {errorCount > 0 && ` · ${errorCount} failed`} — you can keep adding
-            files
+            {errorCount > 0 && ` · ${errorCount} failed`} — keep adding files, or
+            switch sections and keep working
           </p>
         )}
       </div>
@@ -1387,7 +549,7 @@ export function UploadZone({
             </div>
           </div>
           <div className="max-h-[220px] space-y-px overflow-y-auto">
-            {duplicateFiles.slice(0, MAX_RENDERED_ROWS).map((f) => (
+            {duplicateRows.slice(0, MAX_RENDERED_ROWS).map((f) => (
               <div
                 key={f.id}
                 className="flex items-center gap-3 border-b border-amber-100/70 py-1.5 text-[13px] last:border-b-0"
@@ -1395,7 +557,9 @@ export function UploadZone({
                 <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-stone-100">
                   <FilePreview file={f.file} previewUrl={f.previewUrl} />
                 </div>
-                <span className="flex-1 truncate text-stone-700">{f.file.name}</span>
+                <span className="flex-1 truncate text-stone-700">
+                  {f.file.name}
+                </span>
                 <button
                   onClick={() => replaceDuplicate(f)}
                   className="text-[12px] font-medium text-amber-900 hover:text-amber-700 transition-colors"
@@ -1403,7 +567,7 @@ export function UploadZone({
                   Replace
                 </button>
                 <button
-                  onClick={() => skipDuplicate(f.id)}
+                  onClick={() => skipDuplicate(f)}
                   className="text-[12px] text-stone-500 hover:text-stone-800 transition-colors"
                 >
                   Skip
@@ -1421,9 +585,6 @@ export function UploadZone({
       )}
 
       {/* ─── Active/error list ─── */}
-      {/* Shown only while there's something to act on: in-flight uploads or
-          errors. Completed rows fall off; when the list empties the block is
-          gone, signalling "all done". */}
       {visibleFiles.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
@@ -1441,9 +602,6 @@ export function UploadZone({
                 {etaLabel && <span className="text-stone-300"> · {etaLabel}</span>}
               </span>
             )}
-            {/* Live session progress — fills the dead space between the count
-                and the actions. Count-weighted with fractional credit for
-                in-flight files, so it creeps rather than steps. */}
             {isUploading && (
               <div className="hidden sm:block h-[3px] flex-1 rounded-full bg-stone-200 overflow-hidden">
                 <div
@@ -1464,7 +622,7 @@ export function UploadZone({
               )}
               {isUploading && (
                 <button
-                  onClick={cancelUpload}
+                  onClick={cancelAll}
                   className="text-[12px] text-red-400 hover:text-red-600 transition-colors duration-300"
                 >
                   Cancel
@@ -1472,7 +630,7 @@ export function UploadZone({
               )}
               {!isUploading && errorCount > 0 && (
                 <button
-                  onClick={() => removeFiles(new Set(files.map((f) => f.id)))}
+                  onClick={dismissErrors}
                   className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
                 >
                   Dismiss
@@ -1481,16 +639,12 @@ export function UploadZone({
             </div>
           </div>
 
-          {/* List with thumbnails — in-flight + errors only (windowed) */}
           <div className="max-h-[340px] space-y-px overflow-y-auto">
             {renderedFiles.map((f) => (
               <div
                 key={f.id}
                 className="relative flex items-center gap-3 border-b border-stone-100 px-0 py-2 text-[13px]"
               >
-                {/* Determinate progress: gray track + green fill that grows
-                    left→right with real bytes-sent, so a quick upload visibly
-                    fills then the row drops off. */}
                 {(f.status === "pending" || f.status === "uploading") && (
                   <span className="pointer-events-none absolute bottom-0 left-0 h-[2px] w-full bg-stone-200">
                     <span
@@ -1500,7 +654,6 @@ export function UploadZone({
                   </span>
                 )}
 
-                {/* Thumbnail preview */}
                 <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-stone-100">
                   <div
                     className={cn(
@@ -1517,7 +670,16 @@ export function UploadZone({
                   )}
                 </div>
 
-                <span className="flex-1 truncate text-stone-600">{f.file.name}</span>
+                <span className="flex-1 truncate text-stone-600">
+                  {f.file.name}
+                </span>
+                {/* Which section this file is bound for — only worth saying when
+                    more than one batch is running for this event. */}
+                {myBatches.length > 1 && f.batchSectionName && (
+                  <span className="shrink-0 text-[11px] text-stone-300">
+                    → {f.batchSectionName}
+                  </span>
+                )}
                 <span className="shrink-0 text-[12px] text-stone-300">
                   {formatFileSize(f.file.size)}
                 </span>
@@ -1528,7 +690,7 @@ export function UploadZone({
                       {f.error || "Upload failed"}
                     </span>
                     <button
-                      onClick={() => retryFile(f)}
+                      onClick={() => retryRow(f)}
                       className="flex items-center gap-0.5 text-[11px] text-stone-400 hover:text-stone-700 transition-colors duration-200"
                     >
                       <RotateCcw className="h-3 w-3" />

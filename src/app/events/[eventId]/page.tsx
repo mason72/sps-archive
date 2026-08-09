@@ -6,6 +6,10 @@ import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
+import {
+  useEventUploadProgress,
+  useUploadManager,
+} from "@/components/upload/UploadManager";
 import { SearchBar } from "@/components/search/SearchBar";
 import { ImageGrid, type TileBadge } from "@/components/gallery/ImageGrid";
 import { FilmStrip } from "@/components/gallery/FilmStrip";
@@ -271,12 +275,9 @@ export default function EventPage({
   // Live upload-session state: suppresses the empty state mid-upload, feeds
   // the Sort modal's mid-upload preview, and arms the sort nudge. (The visual
   // progress bar itself lives in UploadZone's list header.)
-  const [uploadProgress, setUploadProgress] = useState({
-    active: false,
-    total: 0,
-    uploaded: 0,
-    failed: 0,
-  });
+  // Read straight from the upload manager, which owns every batch for this
+  // event regardless of which section is selected or which page started them.
+  const uploadProgress = useEventUploadProgress(eventId);
 
   // "Sort into sections" modal — page-owned so one instance serves both the
   // sidebar button and the post-upload nudge (and can preview mid-upload).
@@ -482,6 +483,27 @@ export default function EventPage({
       `${files.length} ${files.length === 1 ? "image" : "images"} failed to upload`
     );
   }, []);
+
+  // The manager runs above this page, so it pushes events rather than the page
+  // passing callbacks down. Filtered to this event — another gallery may be
+  // uploading in the same session.
+  const { subscribe } = useUploadManager();
+  useEffect(
+    () =>
+      subscribe((e) => {
+        if (e.eventId !== eventId) return;
+        if (e.type === "image-uploaded") handleImageUploaded();
+        else if (e.type === "batch-complete") handleUploadComplete(e.imageIds);
+        else if (e.type === "batch-failed") handleUploadFailed(e.files);
+      }),
+    [
+      subscribe,
+      eventId,
+      handleImageUploaded,
+      handleUploadComplete,
+      handleUploadFailed,
+    ]
+  );
 
   const handleRetryUpload = useCallback((files: File[]) => {
     // Clear the failed list and trigger retry via the UploadZone retryFiles prop
@@ -1280,15 +1302,15 @@ export default function EventPage({
                     </p>
                   </div>
                 ) : (
+                // NO `key` here, deliberately. It used to be keyed on the
+                // upload target, so switching sections destroyed the component
+                // — and the in-flight queue with it. The engine lives in
+                // UploadManager now; this is just a view and may re-render
+                // freely as the selection changes.
                 <UploadZone
-                  key={uploadTargetId ?? "no-section"}
                   eventId={eventId}
                   sectionId={uploadTargetId}
                   sectionName={uploadTargetName}
-                  onUploadComplete={handleUploadComplete}
-                  onUploadFailed={handleUploadFailed}
-                  onImageUploaded={handleImageUploaded}
-                  onProgressChange={setUploadProgress}
                   retryFiles={retryFiles}
                 />
                 )}
