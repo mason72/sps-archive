@@ -32,12 +32,6 @@ interface CoverSectionProps {
  * cover shows a title at all — a client logo replaces it); "above"/"below"
  * stay the parent's job.
  */
-/**
- * Fewest images that can still read as a photo wall. Below this the justified
- * rows collapse and the "mosaic" is a single stretched frame.
- */
-const MIN_MOSAIC_POOL = 6;
-
 export function CoverSection({
   settings: s,
   images,
@@ -64,15 +58,16 @@ export function CoverSection({
           .map((id) => byId.get(id))
           .filter((x): x is GalleryImage => !!x)
       : [];
-    // Fall back to EVERY image, not to whichever section happens to sort first.
-    // A mosaic sheds rows rather than repeating tiles, so a thin pool renders
-    // as one stretched photo — which is exactly what a cover pointed at (or
-    // defaulted to) a 1-image "Highlights" produced. Prefer the configured
-    // section only when it can actually tile.
-    const pool =
-      sectionPool.length >= MIN_MOSAIC_POOL || sectionPool.length >= images.length
-        ? sectionPool
-        : images;
+    // No configured section (or it isn't in this payload) means EVERY image —
+    // never "whichever section sorts first". That arbitrary fallback is the
+    // actual bug: a cover with no section chosen landed on a 1-image
+    // "Highlights", and since a mosaic sheds rows rather than repeating tiles,
+    // the cover rendered as one stretched photo.
+    //
+    // A section the photographer DID choose is honoured at any size — a
+    // deliberate 4-image cover section is a choice, not a fault, and silently
+    // swapping in the whole event would override it.
+    const pool = section ? sectionPool : images;
     // Videos never tile a cover (poster frames read as random blurry shots).
     // Must match the raster pool's media_type filter or the seeded
     // arrangement desyncs between live cover and email/OG raster.
