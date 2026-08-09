@@ -14,6 +14,7 @@
  * cents, not dollars — but it is a real production write, hence dry-run first.
  *
  *   npx tsx scripts/backfill-event-focal.ts "Appfolio Headshots // Goleta office"
+ *   npx tsx scripts/backfill-event-focal.ts <event-uuid> --write   # names are not unique
  *   npx tsx scripts/backfill-event-focal.ts "Appfolio Headshots // Goleta office" --write
  */
 import fs from "node:fs";
@@ -43,15 +44,34 @@ async function main() {
     process.exit(1);
   }
 
-  const { data: event } = await supabase
-    .from("events")
-    .select("id, name")
-    .eq("name", EVENT_NAME)
-    .single();
-  if (!event) {
-    console.error(`No event named ${EVENT_NAME}`);
+  // Accept an id OR a name. Names are NOT unique — the archive has two events
+  // called "COLLEGEBOARD // NASAI", one empty and one with 2,542 photos — and a
+  // .single() lookup errors on the duplicate and reports it as "not found",
+  // which silently skipped the real event in a backfill run. Ambiguity must be
+  // surfaced, never guessed at.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    EVENT_NAME
+  );
+  const { data: matches, error: lookupErr } = isUuid
+    ? await supabase.from("events").select("id, name").eq("id", EVENT_NAME)
+    : await supabase.from("events").select("id, name").eq("name", EVENT_NAME);
+  if (lookupErr) throw lookupErr;
+  if (!matches?.length) {
+    console.error(`No event matching ${EVENT_NAME}`);
     process.exit(1);
   }
+  if (matches.length > 1) {
+    console.error(`${matches.length} events named "${EVENT_NAME}" — re-run with an id:`);
+    for (const m of matches) {
+      const { count } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", m.id);
+      console.error(`  ${m.id}  (${count ?? 0} images)`);
+    }
+    process.exit(1);
+  }
+  const event = matches[0];
 
   // Every image still missing an anchor, paged (PostgREST caps at 1000).
   const pending: Array<{ id: string; r2_key: string }> = [];
