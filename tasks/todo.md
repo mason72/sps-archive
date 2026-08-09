@@ -817,7 +817,7 @@ Known limits (deliberate):
 The visibility story is now complete at three levels: the upload surface
 (per-event banner), the dashboard (this), and email (nightly reconciler).
 
-## Background upload manager (in progress 2026-08-08)
+## Background upload manager (shipped 2026-08-08 — `34c8e69`, `aa8a934`)
 
 **Why**: `<UploadZone key={uploadTargetId}>` on the event page remounts — and so
 destroys the in-memory queue — on ANY active-section change. Creating a section
@@ -825,20 +825,51 @@ or merely clicking one in the sidebar silently kills an upload, with no warning
 and no row cleanup (`beforeunload`/`pagehide` are page events and don't fire on
 a React unmount). That produced 110 orphans on "Jessica & Koji's Big Day".
 
-**Design**: the engine moves above the pages.
-- [ ] `UploadManagerProvider` in the root layout owns batches, the queue, and the
+**Design**: the engine moved above the pages.
+- [x] `UploadManagerProvider` in the root layout owns batches, the queue, and the
       worker pool. A *batch* = one drop, pinned to {eventId, sectionId} at drop
       time. Survives section changes and in-app navigation.
-- [ ] Global pool of 12 workers pulling ROUND-ROBIN across batches, so a
+- [x] Global pool of 12 workers pulling ROUND-ROBIN across batches, so a
       3,000-file dump can't starve a 40-file one. Backpressure stays per batch
       (high-water 60) — a global mark would let one batch block another's
       presign loop forever.
-- [ ] `UploadZone` becomes a view: dropzone + duplicate resolution + the file
+- [x] `UploadZone` becomes a view: dropzone + duplicate resolution + the file
       list for this event. Owns no queue, so remounting it is harmless.
-- [ ] `UploadDock` in the layout: floating pill, aggregate progress + speed,
+- [x] `UploadDock` in the layout: floating pill, aggregate progress + speed,
       click to jump back to the uploading gallery. Hidden only when every active
       batch belongs to the page you're already on.
-- [ ] Page subscribes to manager events instead of taking callback props; drop
-      the `key`.
-- [ ] Still true after the refactor: closing the tab ends uploads (no browser
+- [x] Page subscribes to manager events instead of taking callback props; the
+      `key` is gone.
+- [x] Still true after the refactor: closing the tab ends uploads (no browser
       can upload from a dead tab) — `beforeunload` keeps warning, now globally.
+- [x] `75aeedd` (prerequisite): pin a drop's destination section at drop time.
+      Backpressure had spread presigning across the whole session, so reading
+      the live section ref per chunk would scatter the tail of a folder into
+      whatever section was selected an hour later. Masked only because the
+      remount killed the upload first — had to be correct before the key went.
+- [x] `aa8a934`: dock counts distinct galleries (it was counting batches) and
+      names the gallery on each row when more than one is in flight.
+
+### Review
+Verified against the real engine with a stubbed network (`fetch` for the JSON
+endpoints, `XMLHttpRequest` for the binary PUT):
+- An upload **survived a mid-flight section switch** — 0→12 done, 0 errors,
+  while the view moved to another section. That is the exact action that used
+  to destroy the queue.
+- **No starvation**: a 10-file batch finished and retired while a 200-file
+  batch was still at 86/200.
+- **Dock**: read "12 of 120 · 2 galleries", expanded to per-batch rows, and
+  disappeared when the queue drained. Checked at desktop and 375px, no
+  horizontal overflow.
+- 255 tests green, `next build` clean, no console errors.
+
+**Known limits (deliberate)**
+- Closing the tab still ends uploads. Background Fetch API would survive it but
+  is Chrome-only with no Safari path, so it would mean maintaining two upload
+  implementations. Considered, not built.
+- The dock aggregates ALL active batches, so if you're on gallery A's page while
+  B also uploads, the pill's total includes A. Honest, but slightly odd.
+
+### Still open
+- [ ] Two identical drops into the same section render as two indistinguishable
+      dock rows. Harmless, but there's no way to tell them apart.
