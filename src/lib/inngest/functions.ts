@@ -564,6 +564,33 @@ export const uploadReconciler = inngest.createFunction(
       });
     }
 
+    // AI-index backstop: nudge any event holding unindexed displayable images
+    // (catches SPS imports and anything that missed the finalize-time
+    // dispatch). Debounce + the job's own pending-uploads check make this
+    // safe to over-fire; it no-ops entirely while AI_INDEXING_ENABLED is off.
+    const aiEventIds = await step.run("ai-index-sweep", async () => {
+      const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
+      if (!isAiIndexingEnabled()) return [] as string[];
+      const supabase = createServiceClient();
+      const { data } = await supabase
+        .from("images")
+        .select("event_id")
+        .is("ai_indexed_at", null)
+        .eq("thumbnail_generated", true)
+        .eq("media_type", "image")
+        .limit(5000);
+      return [...new Set((data ?? []).map((r) => r.event_id))].slice(0, 25);
+    });
+    if (aiEventIds.length) {
+      await step.sendEvent(
+        "ai-index-nudges",
+        aiEventIds.map((eventId) => ({
+          name: "ai/index.requested" as const,
+          data: { eventId },
+        }))
+      );
+    }
+
     return stats;
   }
 );
@@ -794,5 +821,82 @@ export const coverFocal = inngest.createFunction(
       });
     }
     return { eventId: event.data.eventId, written };
+  }
+);
+
+/**
+ * AI indexing v2 — SigLIP-2 embeddings + face embeddings + quality scores for
+ * an event, batched through the Modal sps-archive-ai app (tasks/todo.md "AI
+ * revival" Phase 0).
+ *
+ * Settlement-triggered, twice over: the 15m per-event debounce means an
+ * upload session fires this once after the dust settles, and the job ALSO
+ * verifies zero pending upload rows before touching anything — if uploads are
+ * still in flight it exits and waits for the next finalize/reconcile to
+ * re-fire it (the nightly reconciler sweep is the backstop). Uploading always
+ * outranks indexing; this job never runs in any upload request path.
+ *
+ * Kill switch: AI_INDEXING_ENABLED. Unset/false = this function no-ops and
+ * the product behaves byte-for-byte like the pre-AI build.
+ *
+ * Write contract lives in src/lib/ai-index/index-event.ts — AI columns and
+ * faces rows only, never processing_status or anything display reads.
+ */
+const AI_INDEX_BUDGET_MS = 8 * 60 * 1000;
+
+export const aiIndex = inngest.createFunction(
+  {
+    id: "ai-index",
+    retries: 2,
+    concurrency: { limit: 2 },
+    debounce: { key: "event.data.eventId", period: "15m", timeout: "1h" },
+  },
+  { event: "ai/index.requested" },
+  async ({ event, step }) => {
+    const result = await step.run("index-event", async () => {
+      const { isAiIndexingEnabled, countPendingUploads, indexEventBatch } =
+        await import("@/lib/ai-index/index-event");
+      if (!isAiIndexingEnabled()) {
+        return { skipped: "disabled", indexed: 0, faces: 0, remaining: 0 };
+      }
+
+      const supabase = createServiceClient();
+      const pending = await countPendingUploads(supabase, event.data.eventId);
+      if (pending > 0) {
+        return { skipped: "uploads-in-flight", pending, indexed: 0, faces: 0, remaining: 0 };
+      }
+
+      const started = Date.now();
+      let indexed = 0;
+      let faces = 0;
+      let remaining = 0;
+      try {
+        for (;;) {
+          if (Date.now() - started > AI_INDEX_BUDGET_MS) break;
+          const r = await indexEventBatch(supabase, event.data.eventId);
+          indexed += r.indexed;
+          faces += r.faces;
+          remaining = r.remaining;
+          // A batch that indexed nothing means every candidate errored —
+          // stop rather than spin on the same broken images.
+          if (r.remaining === 0 || r.indexed === 0) break;
+        }
+      } catch (err) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("ai-index", err, { eventId: event.data.eventId, indexed });
+        throw err; // let Inngest retry
+      }
+      return { indexed, faces, remaining };
+    });
+
+    // Budget exhausted with work left: continue in a fresh run (the debounce
+    // delays it ~15m, which is fine — nothing user-facing waits on indexing).
+    if (!("skipped" in result) && result.indexed > 0 && result.remaining > 0) {
+      await step.sendEvent("continue-ai-index", {
+        name: "ai/index.requested",
+        data: { eventId: event.data.eventId },
+      });
+    }
+    return result;
   }
 );

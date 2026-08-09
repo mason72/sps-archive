@@ -1,6 +1,94 @@
 # Pixeltrunk - Build Plan
 
-## ACTIVE: Gallery password — set it, gate it, email it [2026-08-05]
+## ACTIVE: AI revival — search, faces, sections [2026-08-09]
+Reviving the shelved AI features on a rebuilt foundation. Full review found the old
+`modal/ai_pipeline.py` is a prototype (double-GPU endpoint, fake batch, no auth, no baked
+weights, broken scene-tag softmax, heuristic "aesthetics") — rebuild it clean on the
+`face_pipeline.py` pattern. Architecture shape (Modal compute + pgvector + Inngest +
+Next-owns-persistence) confirmed correct. Old embeddings columns are EMPTY (pipeline
+never deployed) so schema changes are free.
+
+**Decided (Mason, 2026-08-09):** phased order foundation → search → faces → sections;
+rebuild-from-scratch quality bar, no sunk-cost reuse; sections are suggest-only forever.
+
+**Safety invariants (non-negotiable, from the 2026-06-01 shutdown post-mortem):**
+1. AI NEVER writes `processing_status` or any column the upload/display path reads.
+   AI state lives in its own columns (`ai_indexed_at`, `embedding_model`). If every AI
+   job fails, galleries look exactly like today.
+2. AI never applies — it only suggests. Sections go through the existing preview→apply
+   contract (`is_auto`-only wipe, additive membership, respects `locked`).
+3. Trigger = event settlement: Inngest debounce per event + a zero-pending-uploads check
+   before running. Nothing AI runs in any Vercel request path; inputs are `thumb-lg`
+   presigned GETs, never originals.
+4. Kill switch: `AI_INDEXING_ENABLED` env var; off = today's behavior byte-for-byte.
+5. Every new API route carries ownership filters (getAuthUser = service client — the
+   IDOR class from lessons #2/#14).
+
+**Model choices (from-scratch review, 2026-08-09):** SigLIP-2 ViT-SO400M for image/text
+embeddings (1152-dim; 2026 SOTA open retrieval model, better compositional queries than
+CLIP ViT-L-14). ArcFace buffalo_l stays (still the standard; already live for focal
+points — enable recognition module alongside detection). Aesthetics = learned head over
+the stored embeddings, not Laplacian heuristics. Scene tags are NOT persisted at ingest —
+zero-shot classification is a dot product over stored embeddings, computed at suggest
+time with per-event-type taxonomies (iterate labels without GPU reruns).
+
+Phase 0 — Foundation:
+- [x] Rebuild `modal/ai_pipeline.py` (2026-08-09): SigLIP-2 so400m (fixed-res checkpoints
+      are `model_type: siglip` — use SiglipTextModel/AutoImageProcessor, NOT AutoProcessor
+      whose SiglipProcessor hardcodes a sentencepiece tokenizer) + buffalo_l full +
+      aesthetic-predictor-v2.5; batched ≤100, pipeline_key auth (shares VIDEO_PIPELINE_KEY),
+      baked weights, per-image isolation; embed_text is a separate CPU fn (text tower only,
+      6GB — Gemma vocab is 1.2GB) so searches never wait on a GPU. Deployed
+      (mason72--sps-archive-ai-*); scripts/verify-ai-pipeline.ts ALL PASS — auth 401s,
+      dims/norms valid, retrieval semantically ranks ("photo booth with props" →
+      CEMAPhotobooth). eyes_open is ADVISORY (106-pt landmark order unvalidated).
+      Modal CLI lives in ~/.venvs/modal-cli (was lost to a python upgrade).
+- [x] Migration 034_ai_indexing_v2 (applied live): dropped clip_embedding (verified 0
+      rows), added siglip_embedding vector(1152) + HNSW + partial unindexed index,
+      embedding_model, ai_indexed_at; new search_images_by_embedding REQUIRES
+      target_user_id (IDOR-proof) and gates on thumbnail_generated, NOT the legacy
+      processing_status. Types hand-delta'd (CLI gen types clobbered the file with an
+      auth error — restore from git if that recurs). SigLIP thresholds are small:
+      RPC default 0.02, not CLIP's 0.2.
+- [x] Inngest `ai-index` (registered): debounce 15m/event + zero-pending-uploads check +
+      AI_INDEXING_ENABLED kill switch; logic in src/lib/ai-index/index-event.ts (writes
+      ONLY AI columns + replace-per-image faces rows; focal_x/y untouched). Fired
+      fire-and-forget from /api/upload/complete beside focal/auto.suggest; nightly
+      reconciler sweep is the backstop (catches SPS imports). Dead src/lib/ai/* deleted;
+      search route rewired (MODAL_AI_EMBED_TEXT_URL, batch texts contract,
+      target_user_id, reportSystemError). 269/269 tests, next build green.
+- [~] Backfill: scripts/backfill-ai-index.ts (--status/--event/--all; pages past the
+      1000-row PostgREST cap). TRUE total: 19,629 unindexed across 18 events, ~35
+      images/min single-container ≈ 9h wall, ~$5-6 T4. Sandbox event (1,019) indexing
+      now; full-archive run after sandbox verification.
+Phase 1 — Semantic search:
+- [ ] Fix env wiring (route reads `MODAL_API_URL` but .env defines `MODAL_EMBED_TEXT_URL`
+      — standardize), semantic mode → embed_text → RPC, ownership-scoped.
+- [ ] Unhide SearchBar semantic mode + Q3 discovery prompts; expectation-setting copy.
+- [ ] QA: real queries on real events ("signage", "people laughing", compound queries).
+Phase 2 — Faces:
+- [ ] Clustering v2 (rewrite, not revive): incremental assignment to existing persons;
+      named persons never auto-deleted; full recluster only on demand; handles
+      detected-but-not-embedded rows from ensure-focal.
+- [ ] Editor Face view: people grid → click person → all their photos; rename person.
+- [ ] Guest selfie search: share-scoped endpoint, rate-limited, per-event toggle +
+      consent line (privacy default = Mason's call, question pending).
+- [ ] "Find my photos" QR card for live events (selfie → embedding → existing RPC).
+Phase 3 — Face stacks:
+- [ ] Render-time many-to-many stacks from `faces` (photo appears in every person's
+      stack) as a sibling of filename `buildStacks`; best-shot ranking from aesthetic +
+      eyes-open. Old persisted `stacks` path stays dead.
+Phase 4 — Section suggester:
+- [ ] On-demand zero-shot over stored embeddings, per-event-type taxonomy
+      (wedding/headshot/conference), multi-membership, through the existing
+      SortSectionsModal preview→apply flow. Suggest-only.
+Phase 5 — Cull assist:
+- [ ] "Needs review" filter (blinks/soft focus), Highlights auto-suggest (quality +
+      everyone-appears coverage), smart cover candidates.
+Every phase: tests + `next build` + live E2E + SPS live-event gate before push; verify
+uploads unaffected (run a real upload during AI indexing) before calling any phase done.
+
+## Gallery password — set it, gate it, email it [SHIPPED 2026-08-06]
 The password *plumbing* already existed (shares.password_hash PBKDF2, /verify + 7-day
 cookie, PasswordGate). What was missing: any UI to set one. `SharingTab.tsx` had the
 only password field and was imported nowhere — dead code since it was written.

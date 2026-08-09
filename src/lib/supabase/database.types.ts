@@ -79,7 +79,9 @@ export type Database = {
           iso: number | null;
           gps_lat: number | null;
           gps_lng: number | null;
-          clip_embedding: string | null;
+          siglip_embedding: string | null;
+          embedding_model: string | null;
+          ai_indexed_at: string | null;
           aesthetic_score: number | null;
           sharpness_score: number | null;
           is_eyes_open: boolean | null;
@@ -125,7 +127,9 @@ export type Database = {
           iso?: number | null;
           gps_lat?: number | null;
           gps_lng?: number | null;
-          clip_embedding?: string | null;
+          siglip_embedding?: string | null;
+          embedding_model?: string | null;
+          ai_indexed_at?: string | null;
           aesthetic_score?: number | null;
           sharpness_score?: number | null;
           is_eyes_open?: boolean | null;
@@ -171,7 +175,9 @@ export type Database = {
           iso?: number | null;
           gps_lat?: number | null;
           gps_lng?: number | null;
-          clip_embedding?: string | null;
+          siglip_embedding?: string | null;
+          embedding_model?: string | null;
+          ai_indexed_at?: string | null;
           aesthetic_score?: number | null;
           sharpness_score?: number | null;
           is_eyes_open?: boolean | null;
@@ -777,6 +783,7 @@ export type Database = {
       search_images_by_embedding: {
         Args: {
           query_embedding: string;
+          target_user_id: string;
           target_event_id?: string | null;
           match_threshold?: number;
           match_count?: number;

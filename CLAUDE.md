@@ -24,7 +24,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 - AI processing via Modal serverless GPU
 - pgvector for CLIP semantic search
 - Smart Stacks group similar images, surface best shot
-- Auto Sections from AI scene classification
+- AI indexing v2 (`src/lib/ai-index/`, Modal app `sps-archive-ai`): SigLIP-2 embeddings + face embeddings + quality scores, settlement-triggered via Inngest `ai-index` (15m debounce + zero-pending check), kill switch `AI_INDEXING_ENABLED`. Writes ONLY AI columns + `faces` rows — NEVER `processing_status` or anything display reads. Modal CLI: `~/.venvs/modal-cli/bin/modal`
 - Cover types (image/mosaic/solid/crossfade) — `src/lib/cover/*`; `normalizeCoverSettings()` is the single parse point; email/OG raster composes ONLY in the Inngest `cover-raster` job (pool.ts stays sharp-free for routes)
 - SPS integration via shared R2 bucket (zero-copy imports)
 
@@ -42,7 +42,7 @@ npm run dev          # Start dev server (port 3000)
 npm run build        # Production build
 npm run lint         # ESLint
 npm run db:gen-types # Regenerate Supabase types
-modal deploy modal/ai_pipeline.py  # Deploy AI pipeline
+~/.venvs/modal-cli/bin/modal deploy modal/ai_pipeline.py  # Deploy AI pipeline (CLI lives in this venv)
 ```
 
 ## Hard-won gotchas (full log: `tasks/lessons.md` — skim it before touching API routes)

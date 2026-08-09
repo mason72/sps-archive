@@ -11,7 +11,7 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
  * Unified search across the archive.
  *
  * Search types:
- *   - semantic: Uses CLIP embeddings to find visually/conceptually matching images
+ *   - semantic: SigLIP-2 embeddings, visually/conceptually matching images
  *     e.g., "first dance", "people laughing", "food"
  *   - filename: Direct filename/parsed name search
  *     e.g., "Smith", "IMG_4532"
@@ -77,8 +77,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchType === "semantic" || searchType === "auto") {
-      // Semantic search requires Modal API — gracefully skip if not configured
-      if (!process.env.MODAL_API_URL) {
+      // Semantic search requires the Modal embed_text endpoint — skip if unset
+      if (!process.env.MODAL_AI_EMBED_TEXT_URL) {
         return NextResponse.json({
           type: "filename",
           results: [],
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const semanticResults = await searchBySemantic(supabase, query, scopeEventIds, limit);
+      const semanticResults = await searchBySemantic(supabase, user!.id, query, scopeEventIds, limit);
       return NextResponse.json({
         type: "semantic",
         results: semanticResults,
@@ -97,7 +97,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ error: "Invalid search type" }, { status: 400 });
   } catch (error) {
-    console.error("Search error:", error);
+    const { reportSystemError } = await import("@/lib/monitoring/report");
+    await reportSystemError("search", error, { searchType });
     return NextResponse.json({ error: "Search failed" }, { status: 500 });
   }
 }
@@ -149,43 +150,40 @@ async function searchByFilename(
   );
 }
 
-/** Search by semantic similarity using CLIP embeddings */
+/** Search by semantic similarity using SigLIP-2 embeddings */
 async function searchBySemantic(
   supabase: SupabaseDB,
+  userId: string,
   query: string,
   scopeEventIds: string[],
   limit: number
 ) {
-  // Get text embedding from Modal
-  const embeddingResponse = await fetch(
-    process.env.MODAL_API_URL + "/embed-text",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: query }),
-    }
-  );
+  const embeddingResponse = await fetch(process.env.MODAL_AI_EMBED_TEXT_URL!, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pipeline_key: process.env.VIDEO_PIPELINE_KEY,
+      texts: [query],
+    }),
+  });
 
   if (!embeddingResponse.ok) {
-    throw new Error("Failed to generate text embedding");
+    throw new Error(`Failed to generate text embedding (${embeddingResponse.status})`);
   }
 
-  const { embedding } = await embeddingResponse.json();
+  const { embeddings } = (await embeddingResponse.json()) as { embeddings: number[][] };
 
-  // The RPC scopes to a single event; when searching across all the caller's
-  // events we pass null and post-filter to the owned set below. Either way the
-  // result set can never escape the caller's events. Because that post-filter
-  // runs AFTER the RPC's match_count cap, over-fetch when spanning multiple
-  // events so the caller's own matches aren't crowded out before scoping, then
-  // truncate to the requested limit. (Semantic search is currently disabled —
-  // MODAL_API_URL is unset — so this path is belt-and-suspenders.)
+  // The RPC requires the caller's user id and scopes at the DB level (a caller
+  // cannot forget ownership). The post-filter below is belt-and-suspenders.
+  // Threshold note: SigLIP cosines are small in magnitude — a real match is
+  // often ~0.05-0.15 — so the floor mostly exists to drop pure noise.
   const singleEvent = scopeEventIds.length === 1 ? scopeEventIds[0] : null;
-  const fetchCount = singleEvent ? limit : Math.min(limit * 10, 2000);
   const { data, error } = await supabase.rpc("search_images_by_embedding", {
-    query_embedding: embedding,
+    query_embedding: JSON.stringify(embeddings[0]),
+    target_user_id: userId,
     target_event_id: singleEvent,
-    match_threshold: 0.2,
-    match_count: fetchCount,
+    match_threshold: 0.02,
+    match_count: limit,
   });
 
   if (error) throw error;

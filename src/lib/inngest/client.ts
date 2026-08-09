@@ -64,6 +64,17 @@ type Events = {
       eventId: string;
     };
   };
+  /**
+   * AI-index an event (SigLIP-2 embeddings, face embeddings, quality scores).
+   * Settlement-triggered: debounced 15m per event AND the job re-checks that
+   * no uploads are pending before touching anything. Fired from upload
+   * finalize/reconcile paths and the nightly reconciler sweep.
+   */
+  "ai/index.requested": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({
