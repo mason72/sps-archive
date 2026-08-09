@@ -21,6 +21,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { reorderWithStacks } from "@/lib/gallery/reorder";
 import { SmartStack } from "./SmartStack";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
@@ -135,7 +136,9 @@ export function ImageGrid({
   if (dndEnabled) {
     return (
       <SortableImageGrid
+        stacks={stacks}
         standalone={standalone}
+        onSetCover={onSetCover}
         onToggleSelect={onToggleSelect}
         onRangeSelect={onRangeSelect}
         onImageDoubleClick={onImageDoubleClick}
@@ -236,7 +239,9 @@ export function ImageGrid({
 /* ─────────────────────────── Manual (sortable) grid ─────────────────────── */
 
 function SortableImageGrid({
+  stacks,
   standalone,
+  onSetCover,
   onToggleSelect,
   onRangeSelect,
   onImageDoubleClick,
@@ -251,6 +256,7 @@ function SortableImageGrid({
   coverImageId,
   positionBadges,
 }: {
+  stacks: StackData[];
   standalone: ImageData[];
   onToggleSelect?: (imageId: string) => void;
   onRangeSelect?: (imageId: string) => void;
@@ -265,24 +271,54 @@ function SortableImageGrid({
   showFocalBadge?: boolean;
   coverImageId?: string | null;
   positionBadges?: Map<string, TileBadge>;
+  onSetCover?: (stackId: string, imageId: string) => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const ids = useMemo(() => standalone.map((i) => i.id), [standalone]);
-  const byId = useMemo(
-    () => new Map(standalone.map((i) => [i.id, i])),
-    [standalone]
+  // A sortable ITEM is a stack or a loose image. The manual order persisted
+  // server-side is still one row per image, so a stack is expanded back into
+  // its members on drop — the stack is a handle, not a new kind of record.
+  type SortItem =
+    | { type: "stack"; id: string; data: StackData }
+    | { type: "image"; id: string; data: ImageData };
+
+  const items = useMemo<SortItem[]>(
+    () => [
+      ...stacks.map((st) => ({ type: "stack" as const, id: st.id, data: st })),
+      ...standalone.map((img) => ({ type: "image" as const, id: img.id, data: img })),
+    ],
+    [stacks, standalone]
+  );
+
+  const ids = useMemo(() => items.map((i) => i.id), [items]);
+  const itemById = useMemo(
+    () => new Map(items.map((i) => [i.id, i])),
+    [items]
+  );
+  /** Item id -> the image ids it stands for, in display order. */
+  const expand = useCallback(
+    (id: string): string[] => {
+      const item = itemById.get(id);
+      if (!item) return [];
+      return item.type === "stack"
+        ? item.data.images.map((img) => img.id)
+        : [item.data.id];
+    },
+    [itemById]
   );
 
   // The move set for the in-flight drag (the whole selection if the dragged
   // tile is part of a multi-selection, else just the dragged tile).
+  // Multi-select drag applies to loose images only; a stack always moves as
+  // itself, which is the whole point of dragging one.
   const moveSet = useMemo(() => {
     if (!activeId) return [] as string[];
-    if (selectedIds?.has(activeId) && selectedIds.size > 1) {
-      return ids.filter((id) => selectedIds.has(id)); // current visual order
+    const active = itemById.get(activeId);
+    if (active?.type === "image" && selectedIds?.has(activeId) && selectedIds.size > 1) {
+      return ids.filter((id) => itemById.get(id)?.type === "image" && selectedIds.has(id));
     }
     return [activeId];
-  }, [activeId, ids, selectedIds]);
+  }, [activeId, ids, itemById, selectedIds]);
 
   const sensors = useSensors(
     // 8px activation distance so a click still selects and a double-click still
@@ -302,28 +338,22 @@ function SortableImageGrid({
       setActiveId(null);
       if (!over || over === active) return;
 
+      const activeItem = itemById.get(active);
       const set =
-        selectedIds?.has(active) && selectedIds.size > 1
-          ? ids.filter((id) => selectedIds.has(id))
+        activeItem?.type === "image" && selectedIds?.has(active) && selectedIds.size > 1
+          ? ids.filter((id) => itemById.get(id)?.type === "image" && selectedIds.has(id))
           : [active];
-      const setLookup = new Set(set);
-      if (setLookup.has(over)) return; // dropped onto a member of the move set
 
-      const remaining = ids.filter((id) => !setLookup.has(id));
-      const insertAt = remaining.indexOf(over);
-      if (insertAt === -1) return;
-
-      const next = [
-        ...remaining.slice(0, insertAt),
-        ...set,
-        ...remaining.slice(insertAt),
-      ];
-      onReorder?.(next);
+      // Expansion back to image ids lives in @/lib/gallery/reorder, with the
+      // "output is always a permutation of every image on screen" invariant
+      // under test — dropping or duplicating an id here corrupts a section.
+      const next = reorderWithStacks({ ids, expand, active, over, moveSet: set });
+      if (next) onReorder?.(next);
     },
-    [ids, selectedIds, onReorder]
+    [ids, itemById, expand, selectedIds, onReorder]
   );
 
-  if (standalone.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="font-editorial text-xl text-stone-400 italic">
@@ -333,10 +363,18 @@ function SortableImageGrid({
     );
   }
 
-  const columns = distributeBalanced(standalone, colCount, (img) =>
-    img.width && img.height ? img.height / img.width : 4 / 3
-  );
-  const activeImage = activeId ? byId.get(activeId) : null;
+  const columns = distributeBalanced(items, colCount, (item) => {
+    const d = item.type === "image" ? item.data : item.data.images[0];
+    return d && d.width && d.height ? d.height / d.width : 4 / 3;
+  });
+  const activeItem = activeId ? itemById.get(activeId) : null;
+  const activeImage = activeItem
+    ? activeItem.type === "image"
+      ? activeItem.data
+      : activeItem.data.images[0]
+    : null;
+  const activeStackCount =
+    activeItem?.type === "stack" ? activeItem.data.imageCount : 0;
 
   return (
     <DndContext
@@ -350,28 +388,41 @@ function SortableImageGrid({
         <div className="flex items-start" style={{ gap: `${gapPx}px` }}>
           {columns.map((col, ci) => (
             <div key={ci} className="min-w-0 flex-1">
-              {col.map((image) => (
-                <div key={image.id} style={{ marginBottom: `${gapPx}px` }}>
-                  <SortableTile
-                    image={image}
-                    isSelected={selectedIds?.has(image.id) ?? false}
-                    inMoveSet={
-                      activeId ? moveSet.includes(image.id) : false
-                    }
-                    hasSelection={hasSelection}
-                    selectedIds={selectedIds}
-                    onSelect={() => onToggleSelect?.(image.id)}
-                    onRangeSelect={() => onRangeSelect?.(image.id)}
-                    onDoubleClick={() => onImageDoubleClick?.(image.id)}
-                    uniform={style === "uniform"}
-                    showFilename={showFilenames}
-                    sizes={`${Math.round(100 / colCount)}vw`}
-                    showFocalBadge={showFocalBadge}
-                    isCover={image.id === coverImageId}
-                    badge={positionBadges?.get(image.id)}
-                  />
-                </div>
-              ))}
+              {col.map((item) =>
+                item.type === "stack" ? (
+                  <div key={item.id} style={{ marginBottom: `${gapPx}px` }}>
+                    <SortableStackTile
+                      stack={item.data}
+                      inMoveSet={activeId ? moveSet.includes(item.id) : false}
+                      onToggleSelect={onToggleSelect}
+                      onImageDoubleClick={onImageDoubleClick}
+                      onSetCover={onSetCover}
+                      hasSelection={hasSelection}
+                      selectedIds={selectedIds}
+                      showFilename={showFilenames}
+                    />
+                  </div>
+                ) : (
+                  <div key={item.id} style={{ marginBottom: `${gapPx}px` }}>
+                    <SortableTile
+                      image={item.data}
+                      isSelected={selectedIds?.has(item.id) ?? false}
+                      inMoveSet={activeId ? moveSet.includes(item.id) : false}
+                      hasSelection={hasSelection}
+                      selectedIds={selectedIds}
+                      onSelect={() => onToggleSelect?.(item.id)}
+                      onRangeSelect={() => onRangeSelect?.(item.id)}
+                      onDoubleClick={() => onImageDoubleClick?.(item.id)}
+                      uniform={style === "uniform"}
+                      showFilename={showFilenames}
+                      sizes={`${Math.round(100 / colCount)}vw`}
+                      showFocalBadge={showFocalBadge}
+                      isCover={item.id === coverImageId}
+                      badge={positionBadges?.get(item.id)}
+                    />
+                  </div>
+                )
+              )}
             </div>
           ))}
         </div>
@@ -405,15 +456,71 @@ function SortableImageGrid({
                 }
               />
             </div>
-            {moveSet.length > 1 && (
+            {(activeStackCount > 1 || moveSet.length > 1) && (
               <div className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-accent px-1.5 text-[12px] font-semibold text-white shadow-md">
-                {moveSet.length}
+                {activeStackCount > 1 ? activeStackCount : moveSet.length}
               </div>
             )}
           </div>
         ) : null}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+/**
+ * A reorderable STACK: SmartStack wrapped in useSortable, so a person's whole
+ * set moves as one gesture. Dropping it expands to its member image ids (see
+ * handleDragEnd), keeping the persisted manual order one row per image.
+ */
+function SortableStackTile({
+  stack,
+  inMoveSet,
+  onToggleSelect,
+  onImageDoubleClick,
+  onSetCover,
+  hasSelection,
+  selectedIds,
+  showFilename,
+}: {
+  stack: StackData;
+  inMoveSet: boolean;
+  onToggleSelect?: (imageId: string) => void;
+  onImageDoubleClick?: (imageId: string) => void;
+  onSetCover?: (stackId: string, imageId: string) => void;
+  hasSelection?: boolean;
+  selectedIds?: Set<string>;
+  showFilename?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: stack.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging || inMoveSet ? 0.35 : 1,
+        touchAction: "none" as const,
+      }}
+      {...attributes}
+      {...listeners}
+    >
+      <SmartStack
+        stackId={stack.id}
+        stackType={stack.stackType}
+        imageCount={stack.imageCount}
+        images={stack.images.map((img) => ({ ...img, stackRank: img.stackRank ?? 0 }))}
+        personName={stack.personName}
+        onToggleSelect={onToggleSelect}
+        onImageDoubleClick={onImageDoubleClick}
+        onSetCover={onSetCover}
+        hasSelection={hasSelection}
+        selectedIds={selectedIds}
+        showFilename={showFilename}
+      />
+    </div>
   );
 }
 

@@ -865,20 +865,22 @@ export default function EventPage({
   // Stacks toggle — editor-only, persisted to grid.showStacks, defaults ON.
   const showStacks = eventSettings.grid?.showStacks ?? true;
 
-  // When Manual is active OR a drag could begin, every tile must be an
-  // individually-reorderable image, so stacks are expanded into loose tiles;
-  // otherwise same-person photos group into stacks. Grouping is the SAME
-  // filename derivation the public gallery uses (buildStacks) — no AI needed,
-  // so the editor shows exactly the stacks a guest would see. Groups of one
-  // fall back to standalone tiles.
-  const expandTiles = manualMode || dndEnabled;
+  // Stacks used to be flattened whenever Manual was active OR a drag could
+  // begin — and `dndEnabled` is true in every unlocked section. Since EVERY
+  // image must live in a section ("All Images" is a derived view), that gated
+  // stacks out of the only place the work actually happens: the feature was
+  // effectively dead in the editor from the day it shipped. Stacks now render
+  // in section views and drag as a single block; ImageGrid expands a dropped
+  // stack into its member ids so the manual order stays one row per image.
+  // Grouping is the SAME filename derivation the public gallery uses
+  // (buildStacks), so the editor shows exactly the stacks a guest would see.
+  // Groups of one fall back to standalone tiles.
   const { gridStacks, gridStandalone } = useMemo<{
     gridStacks: StackData[];
     gridStandalone: ImageData[];
   }>(() => {
-    // Expanded-tile modes and search (a flat result list) show every photo
-    // loose, and the toggle can turn grouping off entirely.
-    if (expandTiles || isSearching || !showStacks) {
+    // Search is a flat result list, and the toggle turns grouping off entirely.
+    if (isSearching || !showStacks) {
       return { gridStacks: [], gridStandalone: sortedImages };
     }
     const stacks: StackData[] = [];
@@ -898,7 +900,7 @@ export default function EventPage({
       }
     }
     return { gridStacks: stacks, gridStandalone: loose };
-  }, [expandTiles, isSearching, showStacks, sortedImages]);
+  }, [isSearching, showStacks, sortedImages]);
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
