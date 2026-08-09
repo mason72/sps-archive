@@ -310,19 +310,10 @@ export const uploadReconciler = inngest.createFunction(
         Date.now() - RECONCILE_GHOST_HOURS * 60 * 60 * 1000
       ).toISOString();
 
-      // Stuck-pending rows, oldest first.
-      const { data: stalePending, error: pendingErr } = await supabase
-        .from("images")
-        .select(
-          "id, r2_key, event_id, filename, original_filename, media_type, thumbnail_generated, width, height, created_at, events!event_id(name)"
-        )
-        .eq("processing_status", "pending")
-        .lt("created_at", staleCutoff)
-        .order("created_at", { ascending: true })
-        .limit(RECONCILE_BATCH);
-      if (pendingErr) throw pendingErr;
-
       // Complete-but-thumbless images (thumbnail generation failed earlier).
+      // Fetched first so the stale-pending page loop can borrow its inferred
+      // row type — both selects use the identical column list, and deriving the
+      // type beats hand-writing an interface that can silently drift from it.
       const { data: thumbless, error: thumblessErr } = await supabase
         .from("images")
         .select(
@@ -335,6 +326,38 @@ export const uploadReconciler = inngest.createFunction(
         .order("created_at", { ascending: true })
         .limit(100);
       if (thumblessErr) throw thumblessErr;
+
+      type StaleRow = NonNullable<typeof thumbless>[number];
+
+      // Stuck-pending rows, oldest first.
+      //
+      // PAGED, not `.limit(RECONCILE_BATCH)`. PostgREST caps every response at
+      // 1,000 rows and does NOT error when you ask for more, so raising the
+      // batch from 400 to 3,000 silently kept doing 1,000 — the 2026-08-09 run
+      // examined exactly 1000 of 2258 stuck rows and would have needed three
+      // nights instead of one. Same trap as the dashboard summary route
+      // (lessons.md #39), missed here because only the constant was changed.
+      const RECONCILE_PAGE = 1000;
+      const stalePending: StaleRow[] = [];
+      for (let from = 0; from < RECONCILE_BATCH; from += RECONCILE_PAGE) {
+        const { data: page, error: pendingErr } = await supabase
+          .from("images")
+          .select(
+            "id, r2_key, event_id, filename, original_filename, media_type, thumbnail_generated, width, height, created_at, events!event_id(name)"
+          )
+          .eq("processing_status", "pending")
+          .lt("created_at", staleCutoff)
+          // created_at is NOT unique — a presign chunk stamps 50 rows with the
+          // same value — so ordering on it alone lets rows shuffle between
+          // pages, duplicating some and skipping others. id breaks the tie.
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, Math.min(from + RECONCILE_PAGE, RECONCILE_BATCH) - 1);
+        if (pendingErr) throw pendingErr;
+        if (!page?.length) break;
+        stalePending.push(...(page as StaleRow[]));
+        if (page.length < RECONCILE_PAGE) break;
+      }
 
       // How much is ACTUALLY stuck, independent of what this run can chew
       // through. Without this the report can only ever describe the batch, so a
@@ -362,7 +385,7 @@ export const uploadReconciler = inngest.createFunction(
       };
       let thumbBudget = RECONCILE_THUMB_CAP;
 
-      type Row = NonNullable<typeof stalePending>[number];
+      type Row = StaleRow;
       const heal = async (row: Row, wasPending: boolean) => {
         const exists = await objectExistsInR2(row.r2_key);
 
