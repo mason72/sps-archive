@@ -115,13 +115,15 @@ export interface EventSettings {
     style: GridStyle;
     showFilenames?: boolean;
     sortBy?: "upload" | "filename" | "date-taken" | "manual";
-    /** Public gallery groups same-person photos (by filename) into stacks. */
-    smartStacks?: boolean;
     /**
-     * Editor-only: group same-person photos into stacks in the management grid
-     * (independent of the public `smartStacks`). Defaults ON when unset.
+     * Group same-person photos (by filename) into stacks — ONE setting for the
+     * editor and the guest gallery. There used to be a second, editor-only
+     * `showStacks` defaulting ON while this defaulted OFF, so the admin showed
+     * stacks the gallery never had. Unset means "decide from the filenames"
+     * (see detectStackable): headshot days stack, weddings and photo booth
+     * dumps don't.
      */
-    showStacks?: boolean;
+    smartStacks?: boolean;
   };
   sharing: SharingSettings;
 }

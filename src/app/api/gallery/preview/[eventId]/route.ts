@@ -5,6 +5,7 @@ import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
+import { detectStackable } from "@/lib/gallery/stackable";
 
 /**
  * GET /api/gallery/preview/[eventId]
@@ -168,7 +169,18 @@ export async function GET(
       gridSort: (["manual", "upload", "filename", "date-taken"].includes(gridSort ?? "")
         ? gridSort
         : "manual") as GallerySettings["gridSort"],
-      smartStacks: grid.smartStacks === true,
+      // Detected from the filenames when the photographer hasn't chosen, so a
+      // headshot day stacks and a wedding or photo booth doesn't. Resolved with
+      // the SAME function the editor uses, so guest and admin can never disagree.
+      smartStacks:
+        grid.smartStacks ??
+        detectStackable(
+          (rawImages ?? []).map((r) => ({
+            parsedName: (r as { parsed_name: string | null }).parsed_name,
+            originalFilename:
+              (r as { original_filename: string }).original_filename,
+          }))
+        ).stackable,
     };
 
     // Generate presigned URL for cover image if cover is enabled

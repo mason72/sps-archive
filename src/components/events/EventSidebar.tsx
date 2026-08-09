@@ -67,6 +67,13 @@ interface CoverImage {
 
 interface EventSidebarProps {
   eventId: string;
+  /**
+   * What Smart Stacks resolves to RIGHT NOW — the stored setting if the
+   * photographer chose one, otherwise what the filenames detect. The toggle has
+   * to show the effective state: rendering `undefined` as OFF while the gallery
+   * stacks is exactly the lying control we just removed elsewhere.
+   */
+  stacksResolved?: boolean;
   eventName: string;
   eventType?: string | null;
   eventDate?: string | null;
@@ -130,6 +137,7 @@ function jobStatusFor(
  */
 export function EventSidebar({
   eventId,
+  stacksResolved,
   eventName,
   eventType,
   eventDate,
@@ -271,6 +279,7 @@ export function EventSidebar({
             images={images}
             sections={sections}
             onRefreshImages={onRefreshImages}
+            stacksResolved={stacksResolved}
           />
         )}
         {activePanel === "details" && (
@@ -703,6 +712,7 @@ function DesignPanel({
   images,
   sections,
   onRefreshImages,
+  stacksResolved,
 }: {
   eventId: string;
   settings: EventSettings;
@@ -710,6 +720,7 @@ function DesignPanel({
   images?: CoverImage[];
   sections?: SectionItem[];
   onRefreshImages?: () => void;
+  stacksResolved?: boolean;
 }) {
   const [designTab, setDesignTab] = useState<"cover" | "typography" | "color" | "grid">("cover");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -812,7 +823,7 @@ function DesignPanel({
             gap={settings.grid?.gap || "normal"}
             style={settings.grid?.style || "masonry"}
             showFilenames={settings.grid?.showFilenames}
-            smartStacks={settings.grid?.smartStacks}
+            smartStacks={settings.grid?.smartStacks ?? stacksResolved}
             onChange={(updates) =>
               handleChange({ grid: { ...settings.grid, ...updates } })
             }

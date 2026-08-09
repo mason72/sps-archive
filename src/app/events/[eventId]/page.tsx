@@ -35,6 +35,7 @@ import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, C
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
+import { detectStackable } from "@/lib/gallery/stackable";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
 import { findIntakeSectionId } from "@/lib/sections/intake";
@@ -862,8 +863,12 @@ export default function EventPage({
   const dndEnabled =
     !!activeSection && !isSearching && !favoritesOnly && !activeSectionData?.locked;
 
-  // Stacks toggle — editor-only, persisted to grid.showStacks, defaults ON.
-  const showStacks = eventSettings.grid?.showStacks ?? true;
+  // Stacks default themselves from the FILENAMES rather than a blanket ON.
+  // Headshot days stack; photo booth dumps and weddings must not (a wedding's
+  // two filename prefixes would collapse 1,000 photos into two tiles — see
+  // detectStackable). An explicit setting always wins.
+  const stackDetection = useMemo(() => detectStackable(images), [images]);
+  const showStacks = eventSettings.grid?.smartStacks ?? stackDetection.stackable;
 
   // Stacks used to be flattened whenever Manual was active OR a drag could
   // begin — and `dndEnabled` is true in every unlocked section. Since EVERY
@@ -1095,12 +1100,15 @@ export default function EventPage({
     } catch {
       /* non-critical */
     }
-  }, [gridSettings, eventId]);
+  }, [gridSettings, eventId, stackDetection.stackable]);
 
-  // Toggle stack grouping in the editor grid (persists; defaults on when unset)
+  // ONE stacks setting, driving the editor AND the guest gallery. They used to
+  // be separate (`showStacks` defaulting ON here, `smartStacks` defaulting OFF
+  // publicly), so the editor showed stacks the gallery never had — the split was
+  // invisible and nobody could have guessed it.
   const toggleStacks = useCallback(async () => {
-    const newVal = !(gridSettings?.showStacks ?? true);
-    const newGrid = { ...gridSettings, showStacks: newVal };
+    const newVal = !(gridSettings?.smartStacks ?? stackDetection.stackable);
+    const newGrid = { ...gridSettings, smartStacks: newVal };
     setEventSettings((prev) => ({ ...prev, grid: newGrid }));
     try {
       await fetch(`/api/events/${eventId}`, {
@@ -1122,6 +1130,7 @@ export default function EventPage({
       {event && (
         <EventSidebar
           eventId={eventId}
+          stacksResolved={showStacks}
           eventName={event.name}
           eventType={event.event_type}
           eventDate={event.event_date}

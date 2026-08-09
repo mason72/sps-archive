@@ -40,7 +40,6 @@ export default function PreviewGalleryPage({
 
   // Mirror the guest experience: per-visitor stacks toggle (not persisted in
   // preview) and the stack mini-gallery modal.
-  const [guestStacks, setGuestStacks] = useState(true);
   const [openStack, setOpenStack] = useState<GalleryStack | null>(null);
 
   // Search state
@@ -118,11 +117,11 @@ export default function PreviewGalleryPage({
     } else {
       list = gallery?.images ?? [];
     }
-    if (gallery?.settings?.smartStacks && guestStacks) {
+    if (gallery?.settings?.smartStacks) {
       list = buildStacks(list).flatMap((stack) => stack.images);
     }
     return list;
-  }, [gallery, searchQuery, filteredImages, sectionVisibleImages, guestStacks]);
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
 
   const selectedImage = gallery?.images.find((img) => img.id === selectedImageId);
   // Opened from a stack's mini gallery: navigate just that stack (same as the
@@ -428,12 +427,7 @@ export default function PreviewGalleryPage({
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
             defaultSort={s?.gridSort}
-            smartStacks={s?.smartStacks && guestStacks}
-            stacksToggle={
-              s?.smartStacks
-                ? { on: guestStacks, onToggle: () => setGuestStacks((v) => !v) }
-                : undefined
-            }
+            smartStacks={s?.smartStacks}
             colors={colors}
             showAllTab
             onVisibleImagesChange={setSectionVisibleImages}

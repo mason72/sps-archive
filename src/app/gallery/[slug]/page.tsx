@@ -110,7 +110,6 @@ export default function GalleryPage({
 
   // Guest-side Smart Stacks preference — local to this visitor, persisted per
   // share. Only meaningful when the event has stacks enabled.
-  const [guestStacks, setGuestStacks] = useState(true);
   // Open stack mini-gallery (click a stack card → its members in a modal).
   const [openStack, setOpenStack] = useState<GalleryStack | null>(null);
 
@@ -150,11 +149,11 @@ export default function GalleryPage({
     } else {
       list = gallery?.images ?? [];
     }
-    if (gallery?.settings?.smartStacks && guestStacks) {
+    if (gallery?.settings?.smartStacks) {
       list = buildStacks(list).flatMap((stack) => stack.images);
     }
     return list;
-  }, [gallery, searchQuery, filteredImages, sectionVisibleImages, guestStacks]);
+  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -189,14 +188,6 @@ export default function GalleryPage({
       // Load favorites from localStorage
       loadFavorites(data.shareId);
 
-      // Restore this visitor's stacks preference for this share
-      try {
-        if (localStorage.getItem(`stacks_${data.shareId}`) === "off") {
-          setGuestStacks(false);
-        }
-      } catch {
-        // localStorage not available
-      }
     } catch {
       setError("Failed to load gallery.");
     } finally {
@@ -626,20 +617,10 @@ export default function GalleryPage({
   const b = gallery.branding;
   const s = gallery.settings;
 
-  // Stacks render only when the event enables them AND this guest hasn't
-  // turned them off for themselves.
-  const stacksActive = !!s?.smartStacks && guestStacks;
-  const toggleGuestStacks = () => {
-    setGuestStacks((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(`stacks_${gallery.shareId}`, next ? "on" : "off");
-      } catch {
-        // localStorage not available
-      }
-      return next;
-    });
-  };
+  // Stacks are the photographer's curation decision, so guests don't get to
+  // switch them off wholesale — clicking a stack still expands it, which is the
+  // escape hatch that actually matters ("where are the rest?").
+  const stacksActive = !!s?.smartStacks;
 
   // Resolve font classes
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
@@ -992,11 +973,6 @@ export default function GalleryPage({
             gridGap={s?.gridGap}
             defaultSort={s?.gridSort}
             smartStacks={stacksActive}
-            stacksToggle={
-              s?.smartStacks
-                ? { on: guestStacks, onToggle: toggleGuestStacks }
-                : undefined
-            }
             colors={colors}
             onActiveSectionChange={setActiveSectionInfo}
             onVisibleImagesChange={setSectionVisibleImages}
