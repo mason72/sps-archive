@@ -140,8 +140,10 @@ export default function EventPage({
     Record<string, string[]>
   >({});
   const sortRef = useRef<HTMLDivElement>(null);
-  const [hasActiveShare, setHasActiveShare] = useState(false);
-  const [activeShareSlug, setActiveShareSlug] = useState<string | null>(null);
+  /** A FULL share exists — i.e. the gallery itself is published. */
+  const [hasFullShare, setHasFullShare] = useState(false);
+  /** Slug of the full share only; never a selection share. */
+  const [fullShareSlug, setFullShareSlug] = useState<string | null>(null);
 
   // Stable ref for activeSection so UploadZone always has the current value
   const activeSectionRef = useRef<string | null>(null);
@@ -393,7 +395,14 @@ export default function EventPage({
         }
       }
 
-      // Check for active shares (for Publish/Share button + Preview link)
+      // The event's gallery link is the FULL share, and only that.
+      //
+      // This used to fall back to "any active share", so a one-off selection
+      // link — 20 photos of one person, made to hand to that person — became
+      // the event's identity: Preview opened HER gallery instead of the event,
+      // the button read "Share" as though the gallery were published, and the
+      // compose page targeted the 20-image subset. A subset is a delivery, not
+      // a publication.
       try {
         const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
         if (sharesRes.ok) {
@@ -401,12 +410,11 @@ export default function EventPage({
           const activeShares = sharesData.shares?.filter(
             (s: { isActive: boolean }) => s.isActive
           ) || [];
-          setHasActiveShare(activeShares.length > 0);
-          // Prefer "full" share for preview; fall back to any active share
           const fullShare = activeShares.find(
             (s: { shareType: string }) => s.shareType === "full"
           );
-          setActiveShareSlug(fullShare?.slug || activeShares[0]?.slug || null);
+          setHasFullShare(!!fullShare);
+          setFullShareSlug(fullShare?.slug ?? null);
         }
       } catch {
         // Non-critical — default to no active shares
@@ -637,8 +645,8 @@ export default function EventPage({
         if (!createRes.ok) throw new Error("Failed to create share");
         const createData = await createRes.json();
         activeShare = createData.share;
-        setHasActiveShare(true);
-        setActiveShareSlug(activeShare.slug);
+        setHasFullShare(true);
+        setFullShareSlug(activeShare.slug);
       }
 
       const res = await fetch("/api/images/batch", {
@@ -652,7 +660,7 @@ export default function EventPage({
       });
       if (!res.ok) throw new Error("Favorite failed");
       deselectAll();
-      const msg = !hasActiveShare
+      const msg = !hasFullShare
         ? `Share link created. ${selectionCount} images starred.`
         : `Starred ${selectionCount} images`;
       toast.success(msg);
@@ -660,7 +668,7 @@ export default function EventPage({
       console.error("Batch favorite failed:", err);
       toast.error("Failed to star images");
     }
-  }, [eventId, selectedArray, selectionCount, deselectAll, hasActiveShare]);
+  }, [eventId, selectedArray, selectionCount, deselectAll, hasFullShare]);
 
   const handleCreateSelectionLink = useCallback(() => {
     setShareModalImageIds([...selectedArray]);
@@ -974,8 +982,8 @@ export default function EventPage({
       onToggleUpload: () => setShowUpload((v) => !v),
       onShare: () => {
         // Navigate to email compose page
-        window.location.href = hasActiveShare
-          ? `/events/${eventId}/share?slug=${activeShareSlug}`
+        window.location.href = hasFullShare
+          ? `/events/${eventId}/share?slug=${fullShareSlug}`
           : `/events/${eventId}/share`;
       },
       selectionCount: selection.count,
@@ -1206,9 +1214,16 @@ export default function EventPage({
           {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
         </button>
 
-        {/* Preview — opens client gallery in new tab */}
+        {/* Preview — ALWAYS the owner preview route, never a live share URL.
+            Opening the share meant (a) a selection link could hijack it, which
+            is how Preview once landed on one person's gallery, (b) every
+            preview ran increment_share_views and logged a share_view, so
+            checking your own work inflated the client's view count, and (c) a
+            password-protected gallery made the photographer type the password
+            to see their own event. The preview route mirrors the public
+            gallery by design. */}
         <a
-          href={activeShareSlug ? `/gallery/${activeShareSlug}` : `/gallery/preview/${eventId}`}
+          href={`/gallery/preview/${eventId}`}
           target="_blank"
           rel="noopener noreferrer"
           className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
@@ -1217,12 +1232,12 @@ export default function EventPage({
         </a>
 
         {/* Publish / Share — both go to email compose page */}
-        <Link href={hasActiveShare
-          ? `/events/${eventId}/share?slug=${activeShareSlug}`
+        <Link href={hasFullShare
+          ? `/events/${eventId}/share?slug=${fullShareSlug}`
           : `/events/${eventId}/share`
         }>
-          <BrandButton size={hasActiveShare ? "sm" : "md"} color={hasActiveShare ? "blue" : "emerald"} celebrate={!hasActiveShare}>
-            {hasActiveShare ? "Share" : "Publish"}
+          <BrandButton size={hasFullShare ? "sm" : "md"} color={hasFullShare ? "blue" : "emerald"} celebrate={!hasFullShare}>
+            {hasFullShare ? "Share" : "Publish"}
           </BrandButton>
         </Link>
       </Nav>
