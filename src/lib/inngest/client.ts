@@ -54,6 +54,16 @@ type Events = {
       eventId: string;
     };
   };
+  /**
+   * Give an event's images face-based focal points. Debounced per event, so an
+   * hour-long upload session fires it once after the dust settles rather than
+   * per photo. Self-continues while candidates remain.
+   */
+  "focal/auto.suggest": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

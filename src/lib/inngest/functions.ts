@@ -642,6 +642,91 @@ export const coverRaster = inngest.createFunction(
  * pick the new anchors up immediately (serve-time hash drift would catch it
  * anyway — this just closes the gap).
  */
+/**
+ * Auto focal points for a whole event's photos.
+ *
+ * Mason: "99% of our images have people" — so anchoring is the norm, not an
+ * opt-in chore. The gallery grid and stack cards crop with focal_x/focal_y, and
+ * without one a tall tile crops through the face; a fixed upward bias helps but
+ * is blind to a subject standing off-centre (measured range on a real headshot
+ * day: focal_x 48-61%, focal_y 15-36%).
+ *
+ * Debounced 5 minutes per event so a long upload session triggers ONE sweep
+ * after it settles instead of one per photo. Each run works for a time budget
+ * and re-fires itself while candidates remain, so a 5,000-image event finishes
+ * across several short runs rather than one that outlives its maxDuration.
+ *
+ * Faceless and group frames are simply skipped — ensureAutoFocal only writes an
+ * anchor for a single confident subject, and it fills NULLS ONLY, so a manual
+ * pick is never overwritten.
+ */
+/** Images per Modal call (its endpoint caps at 200). */
+const AUTO_FOCAL_BATCH = 200;
+/** Stop starting new batches past this, well inside the route's maxDuration. */
+const AUTO_FOCAL_BUDGET_MS = 8 * 60 * 1000;
+
+export const autoFocal = inngest.createFunction(
+  {
+    id: "auto-focal",
+    retries: 1,
+    concurrency: { limit: 2 },
+    debounce: { key: "event.data.eventId", period: "5m", timeout: "30m" },
+  },
+  { event: "focal/auto.suggest" },
+  async ({ event, step }) => {
+    const result = await step.run("sweep", async () => {
+      const { ensureAutoFocal } = await import("@/lib/faces/ensure-focal");
+      const { isFaceDetectionConfigured } = await import("@/lib/faces/detect");
+      if (!isFaceDetectionConfigured()) return { written: 0, remaining: 0 };
+
+      const supabase = createServiceClient();
+      const started = Date.now();
+      let written = 0;
+
+      for (;;) {
+        if (Date.now() - started > AUTO_FOCAL_BUDGET_MS) break;
+        const { data: batch } = await supabase
+          .from("images")
+          .select("id, r2_key")
+          .eq("event_id", event.data.eventId)
+          .is("focal_x", null)
+          .neq("media_type", "video")
+          .order("id", { ascending: true })
+          .limit(AUTO_FOCAL_BATCH);
+        if (!batch?.length) break;
+
+        const n = await ensureAutoFocal(supabase, batch, {
+          scanCap: AUTO_FOCAL_BATCH,
+        });
+        written += n;
+        // No anchors from a full batch means these frames have no single
+        // subject (group shots, product stills). They stay NULL, so the next
+        // query would return them again — stop rather than spin on them.
+        if (n === 0) break;
+      }
+
+      const { count: remaining } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", event.data.eventId)
+        .is("focal_x", null)
+        .neq("media_type", "video");
+
+      return { written, remaining: remaining ?? 0 };
+    });
+
+    // More to do and we made progress: continue in a fresh run so each stays
+    // short. No progress means the rest are unanchacheable, so stop.
+    if (result.written > 0 && result.remaining > 0) {
+      await step.sendEvent("continue-focal", {
+        name: "focal/auto.suggest",
+        data: { eventId: event.data.eventId },
+      });
+    }
+    return result;
+  }
+);
+
 export const coverFocal = inngest.createFunction(
   {
     id: "cover-focal",

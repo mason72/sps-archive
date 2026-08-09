@@ -127,6 +127,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, imageId });
     }
 
+    // Give this event's photos face-based focal points. Debounced 5 minutes
+    // per event inside the job, so a long upload session triggers ONE sweep
+    // after it settles rather than one per photo. Fire-and-forget: an upload
+    // must never fail because a nicety didn't dispatch.
+    inngest
+      .send({ name: "focal/auto.suggest", data: { eventId: image.event_id } })
+      .catch((err) => console.error("auto-focal dispatch failed:", err));
+
     // Direct (>4MB) uploads never hit the server, so they have no thumbnail yet.
     // Generate it here from the R2 original — display gates on thumbnail_generated,
     // so without this a large upload would be invisible in the gallery. Proxy
