@@ -556,6 +556,16 @@ export function UploadZone({
   // (Shared by the normal drop path and the "Replace"/"upload anyway" paths.)
   const uploadEntries = useCallback(
     async (entries: UploadFile[]) => {
+      // Pin the destination for THIS drop, once.
+      //
+      // Presigning used to finish within seconds of the drop, so reading the
+      // live ref per chunk was harmless. Backpressure deliberately spreads it
+      // across the whole session — an hour for a big drop — so a live read
+      // would scatter the tail of one folder into whatever section happened to
+      // be selected when each chunk was minted. A drop goes where it was
+      // dropped; only the NEXT drop follows the new selection.
+      const targetSectionId = sectionIdRef.current;
+
       for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
         if (abortRef.current) break;
 
@@ -578,7 +588,7 @@ export function UploadZone({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               eventId,
-              sectionId: sectionIdRef.current || undefined,
+              sectionId: targetSectionId || undefined,
               files: chunk.map((f) => ({ name: f.name, type: f.type, size: f.size })),
             }),
           });
