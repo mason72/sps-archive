@@ -203,11 +203,20 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(quickShareUrl);
-                    toast.success("Copied!");
+                    // Confirm on the control you actually clicked — a toast in
+                    // the far corner is easy to miss when your eye is on the
+                    // button. Same check-then-revert the share list already uses.
+                    setCopiedSlug(quickShareUrl);
+                    setTimeout(() => setCopiedSlug(null), 2000);
                   }}
+                  aria-label={copiedSlug === quickShareUrl ? "Copied" : "Copy link"}
                   className="p-1 text-stone-400 hover:text-stone-700 shrink-0 transition-colors"
                 >
-                  <Copy className="h-3.5 w-3.5" />
+                  {copiedSlug === quickShareUrl ? (
+                    <Check className="h-3.5 w-3.5 text-accent" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
                 </button>
               </div>
             </div>

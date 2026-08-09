@@ -273,6 +273,15 @@ export async function GET(
     );
 
     // 6. Build gallery settings from event settings
+    //
+    // A SELECTION share is a handful of photos the photographer picked — not a
+    // small version of the gallery. The event's cover and its section structure
+    // both describe the WHOLE event, so neither belongs here: a mosaic cover of
+    // 800 photos fronting 20, and a "Highlights" section that happens to hold 1
+    // of those 20, which is what a guest then lands on (share Sg3o4kBF5H opened
+    // showing a single photo of the 20 it contained).
+    const isSelectionShare =
+      share.share_type === "selection" && (share.image_ids?.length ?? 0) > 0;
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };
@@ -280,6 +289,8 @@ export async function GET(
 
     const gallerySettings: GallerySettings = {
       ...(await coverGalleryFields(cover, share.event_id)),
+      // A subset opens straight into the photos.
+      ...(isSelectionShare ? { coverEnabled: false } : {}),
       headingFont: typography.headingFont,
       bodyFont: typography.bodyFont,
       colorPrimary: color.primary,
@@ -399,7 +410,8 @@ export async function GET(
       requirePinBulk: share.require_pin_bulk ?? false,
       requirePinIndividual: share.require_pin_individual ?? false,
       images,
-      sections: sections.length > 0 ? sections : undefined,
+      sections:
+        !isSelectionShare && sections.length > 0 ? sections : undefined,
       shareId: share.id,
       branding,
       settings: gallerySettings,

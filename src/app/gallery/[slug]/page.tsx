@@ -121,6 +121,21 @@ export default function GalleryPage({
     name: string;
     count: number;
   } | null>(null);
+  // ─── Single-person view ───
+  // A share of one person's photos resolves to exactly ONE stack, and a stack
+  // of one tile is a worse gallery than no stack at all: the guest lands on a
+  // single mystery thumbnail with 19 photos hidden behind a click. When the set
+  // is one person, lead with their NAME and lay every frame out flat.
+  const singlePerson = useMemo(() => {
+    const imgs = gallery?.images ?? [];
+    if (imgs.length < 2) return null;
+    const groups = buildStacks(imgs);
+    if (groups.length !== 1) return null;
+    const only = groups[0];
+    if (only.images.length !== imgs.length) return null;
+    return only.personName?.trim() || null;
+  }, [gallery]);
+
   const filteredImages = useMemo(() => {
     if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
     const q = searchQuery.toLowerCase();
@@ -620,7 +635,8 @@ export default function GalleryPage({
   // Stacks are the photographer's curation decision, so guests don't get to
   // switch them off wholesale — clicking a stack still expands it, which is the
   // escape hatch that actually matters ("where are the rest?").
-  const stacksActive = !!s?.smartStacks;
+  // Stacking one person into one tile is the thing we're avoiding.
+  const stacksActive = !!s?.smartStacks && !singlePerson;
 
   // Resolve font classes
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
@@ -687,7 +703,7 @@ export default function GalleryPage({
               className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
               style={{ color: colors.primary }}
             >
-              {gallery.eventName}
+              {singlePerson ?? gallery.eventName}
             </h1>
             {b && (b.logoUrl || b.businessName) && (
               <div className="flex items-center gap-3 shrink-0">
@@ -730,7 +746,7 @@ export default function GalleryPage({
               className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
               style={{ color: colors.primary }}
             >
-              {gallery.eventName}
+              {singlePerson ?? gallery.eventName}
             </h1>
             {b && (b.logoUrl || b.businessName) && (
               <div className="flex items-center gap-3 shrink-0">
@@ -774,7 +790,7 @@ export default function GalleryPage({
                 className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
                 style={{ color: colors.primary }}
               >
-                {gallery.eventName}
+                {singlePerson ?? gallery.eventName}
               </h1>
             )}
           </>
