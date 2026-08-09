@@ -313,6 +313,16 @@ function GalleryCard({
         className={`w-full object-cover transition-[opacity,transform] duration-300 group-hover:scale-[1.03] ${
           uniform ? "aspect-square" : "h-full"
         } ${isLoaded ? "opacity-100" : "opacity-0"}`}
+        // Honour the subject anchor. The payload has carried focalX/focalY for
+        // every image all along; the guest grid just never read it, so every
+        // tile centre-cropped and tall crops cut through faces. No anchor keeps
+        // the browser default (centre) — a loose image isn't necessarily a
+        // portrait, so only stacks get the upward bias.
+        style={
+          image.focalX != null && image.focalY != null
+            ? { objectPosition: `${image.focalX}% ${image.focalY}%` }
+            : undefined
+        }
         loading="lazy"
         decoding="async"
         onLoad={() => setIsLoaded(true)}

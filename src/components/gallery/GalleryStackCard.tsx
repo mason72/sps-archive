@@ -5,6 +5,24 @@ import { Download, Heart, Layers } from "lucide-react";
 import type { GalleryStack } from "@/lib/gallery/stacks";
 
 /**
+ * Rotation cadence. A single stack flipping every 4-8s felt fine in isolation
+ * and awful in aggregate: ~46 stacks on screen meant something moved roughly
+ * every 130ms, which reads as the whole gallery flickering at once rather than
+ * as photos breathing. What matters is the COMBINED rate, so the per-stack
+ * interval has to be long enough that a wall of them is still calm.
+ */
+const ROTATE_MIN_MS = 10_000;
+const ROTATE_JITTER_MS = 10_000;
+/** Slow enough to read as a dissolve rather than a cut. */
+const CROSSFADE_MS = 1_400;
+/**
+ * Where to crop a portrait with no subject anchor. Dead centre puts the crop
+ * through the face on a tall tile; the house rule is to bias toward the top.
+ */
+const PORTRAIT_FALLBACK_POSITION = "50% 28%";
+
+
+/**
  * GalleryStackCard — one tile representing a person's whole set of photos.
  *
  * The card slowly rotates through its members (gentle crossfade, jittered
@@ -71,8 +89,7 @@ export function GalleryStackCard({
 
     let timer: ReturnType<typeof setTimeout>;
     const scheduleNext = () => {
-      // 4–8s with jitter so a grid of stacks breathes instead of ticking.
-      const delay = 4000 + Math.random() * 4000;
+      const delay = ROTATE_MIN_MS + Math.random() * ROTATE_JITTER_MS;
       timer = setTimeout(() => {
         if (!isPaused.current) {
           setActiveIdx((prev) => {
@@ -83,8 +100,9 @@ export function GalleryStackCard({
         scheduleNext();
       }, delay);
     };
-    // Random initial offset so stacks don't all flip at once on load.
-    timer = setTimeout(scheduleNext, Math.random() * 4000);
+    // Spread the FIRST flip across a whole cycle. Offsetting by only a few
+    // seconds still clustered every stack into the same early window.
+    timer = setTimeout(scheduleNext, Math.random() * (ROTATE_MIN_MS + ROTATE_JITTER_MS));
     return () => clearTimeout(timer);
   }, [count, isLoaded, isVisible]);
 
@@ -155,8 +173,18 @@ export function GalleryStackCard({
               }
               sizes={image.thumbnailLgUrl ? sizes : undefined}
               alt={stack.personName}
-              className="absolute inset-0 h-full w-full object-cover transition-opacity duration-500"
-              style={{ opacity: isActive && isLoaded ? 1 : 0 }}
+              className="absolute inset-0 h-full w-full object-cover transition-opacity ease-in-out"
+              style={{
+                opacity: isActive && isLoaded ? 1 : 0,
+                transitionDuration: `${CROSSFADE_MS}ms`,
+                // Respect the subject anchor when we have one; a stack is by
+                // definition a person, so with no anchor bias UP rather than
+                // centre — a dead-centre crop of a portrait cuts the face.
+                objectPosition:
+                  image.focalX != null && image.focalY != null
+                    ? `${image.focalX}% ${image.focalY}%`
+                    : PORTRAIT_FALLBACK_POSITION,
+              }}
               loading={i === 0 ? "lazy" : "eager"}
               decoding="async"
               onLoad={() => i === 0 && setIsLoaded(true)}

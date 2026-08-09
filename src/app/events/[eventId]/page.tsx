@@ -1513,7 +1513,7 @@ export default function EventPage({
               <div className="flex items-center gap-3">
                 {/* Focal sweep — set focal points for the whole section, no
                     selection needed. Starts at the first image without one. */}
-                {isWebsiteContext && images.length > 0 && (
+                {images.length > 0 && (
                   <>
                     <button
                       onClick={() => {
@@ -1852,7 +1852,7 @@ export default function EventPage({
                     showFilenames={gridSettings?.showFilenames}
                     dndEnabled={dndEnabled}
                     onReorder={handleReorder}
-                    showFocalBadge={isWebsiteContext}
+                    showFocalBadge
                     coverImageId={jobCoverImageId}
                     positionBadges={positionBadges}
                   />
@@ -1947,7 +1947,7 @@ export default function EventPage({
             // site crops focal-aware everywhere, so the tool follows the
             // image, not the view. Opens the sweep at the first selected
             // image — ←/→ then reach the whole visible set.
-            selection.count >= 1 && isWebsiteContext
+            selection.count >= 1
               ? () => {
                   // From a selection, keep display order and start at the pick.
                   setFocalUnsetFirst(false);
