@@ -1309,6 +1309,7 @@ export default function EventPage({
                 // freely as the selection changes.
                 <UploadZone
                   eventId={eventId}
+                  eventName={event?.name ?? null}
                   sectionId={uploadTargetId}
                   sectionName={uploadTargetName}
                   retryFiles={retryFiles}

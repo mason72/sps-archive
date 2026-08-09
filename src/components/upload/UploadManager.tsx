@@ -79,6 +79,8 @@ export interface UploadFile {
 export interface Batch {
   id: string;
   eventId: string;
+  /** Gallery name, so the dock can say WHICH gallery is uploading. */
+  eventName: string | null;
   /** Pinned at drop time — a drop goes where it was dropped. */
   sectionId: string | null;
   sectionName: string | null;
@@ -170,6 +172,7 @@ interface UploadManagerValue {
   corsError: boolean;
   startBatch: (input: {
     eventId: string;
+    eventName?: string | null;
     sectionId: string | null;
     sectionName: string | null;
     files: File[];
@@ -579,11 +582,13 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
   const startBatch = useCallback(
     async ({
       eventId,
+      eventName = null,
       sectionId,
       sectionName,
       files,
     }: {
       eventId: string;
+      eventName?: string | null;
       sectionId: string | null;
       sectionName: string | null;
       files: File[];
@@ -609,6 +614,7 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
         {
           id: batchId,
           eventId,
+          eventName,
           sectionId,
           sectionName,
           files: entries,

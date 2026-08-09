@@ -23,6 +23,8 @@ const MAX_RENDERED_ROWS = 30;
 
 interface UploadZoneProps {
   eventId: string;
+  /** Gallery name — carried onto the batch so the dock can name it. */
+  eventName?: string | null;
   sectionId?: string | null;
   sectionName?: string | null;
   /** Files to re-drop (retry), passed down from the page's failed-upload list. */
@@ -70,6 +72,7 @@ type Row = UploadFile & { batchId: string; batchSectionName: string | null };
  */
 export function UploadZone({
   eventId,
+  eventName,
   sectionId,
   sectionName,
   retryFiles,
@@ -140,12 +143,13 @@ export function UploadZone({
       setUnfinishedTotal(0);
       void startBatch({
         eventId,
+        eventName: eventName ?? null,
         sectionId: sectionId ?? null,
         sectionName: sectionName ?? null,
         files: accepted,
       });
     },
-    [eventId, sectionId, sectionName, startBatch]
+    [eventId, eventName, sectionId, sectionName, startBatch]
   );
 
   // Retry: when retryFiles changes, re-drop those files.
@@ -375,13 +379,23 @@ export function UploadZone({
       dropRow(row);
       void startBatch({
         eventId,
+        eventName: batch?.eventName ?? eventName ?? null,
         // Retries return to the section the file was originally dropped on.
         sectionId: batch?.sectionId ?? sectionId ?? null,
         sectionName: batch?.sectionName ?? sectionName ?? null,
         files: [row.file],
       });
     },
-    [dropRow, eventId, myBatches, retryFinalize, sectionId, sectionName, startBatch]
+    [
+      dropRow,
+      eventId,
+      eventName,
+      myBatches,
+      retryFinalize,
+      sectionId,
+      sectionName,
+      startBatch,
+    ]
   );
 
   const retryAllFailed = useCallback(async () => {

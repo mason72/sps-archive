@@ -33,6 +33,7 @@ export function UploadDock() {
           return {
             id: b.id,
             eventId: b.eventId,
+            eventName: b.eventName,
             sectionName: b.sectionName,
             remaining: inFlight.length,
             done: b.files.filter((f) => f.status === "complete").length,
@@ -55,6 +56,10 @@ export function UploadDock() {
   // The event page already shows all of this inline.
   if (active.every((b) => onThisEventPage(b.eventId))) return null;
 
+  // Count distinct GALLERIES, not batches — two folders dropped into different
+  // sections of one event are two batches but one gallery, and "2 galleries"
+  // would be a lie about where the work is.
+  const galleryCount = new Set(active.map((b) => b.eventId)).size;
   const total = active.reduce((a, b) => a + b.total, 0);
   const done = active.reduce((a, b) => a + b.done, 0);
   const fractional = active.reduce((a, b) => a + b.fractional, 0);
@@ -74,6 +79,14 @@ export function UploadDock() {
                     href={`/events/${b.eventId}`}
                     className="block truncate text-[13px] text-stone-800 hover:text-stone-950"
                   >
+                    {/* Name the GALLERY when more than one is running — a bare
+                        section name can't tell you where the work is. */}
+                    {galleryCount > 1 && b.eventName ? (
+                      <>
+                        <span className="text-stone-500">{b.eventName}</span>
+                        <span className="text-stone-300"> · </span>
+                      </>
+                    ) : null}
                     {b.sectionName || "Unsorted"}
                   </Link>
                   <p className="mt-0.5 text-[11px] tabular-nums text-stone-500">
@@ -111,12 +124,11 @@ export function UploadDock() {
               <span className="tabular-nums">
                 {done.toLocaleString()} of {total.toLocaleString()}
               </span>
-              {active.length > 1 && (
-                <span className="text-stone-400">
-                  {" "}
-                  · {active.length} galleries
-                </span>
-              )}
+              {galleryCount > 1 ? (
+                <span className="text-stone-400"> · {galleryCount} galleries</span>
+              ) : active.length > 1 ? (
+                <span className="text-stone-400"> · {active.length} sections</span>
+              ) : null}
             </p>
             <p className="mt-0.5 text-[11px] text-stone-500">
               {speed ? `${speed} · ` : ""}tap to view
