@@ -32,6 +32,12 @@ interface CoverSectionProps {
  * cover shows a title at all — a client logo replaces it); "above"/"below"
  * stay the parent's job.
  */
+/**
+ * Fewest images that can still read as a photo wall. Below this the justified
+ * rows collapse and the "mosaic" is a single stretched frame.
+ */
+const MIN_MOSAIC_POOL = 6;
+
 export function CoverSection({
   settings: s,
   images,
@@ -52,11 +58,21 @@ export function CoverSection({
     const withImages = (sections ?? []).filter((sec) =>
       sec.imageIds.some((id) => byId.has(id))
     );
-    const section =
-      withImages.find((sec) => sec.id === sourceSectionId) ?? withImages[0];
-    const pool = section
-      ? section.imageIds.map((id) => byId.get(id)).filter((x): x is GalleryImage => !!x)
-      : images;
+    const section = withImages.find((sec) => sec.id === sourceSectionId);
+    const sectionPool = section
+      ? section.imageIds
+          .map((id) => byId.get(id))
+          .filter((x): x is GalleryImage => !!x)
+      : [];
+    // Fall back to EVERY image, not to whichever section happens to sort first.
+    // A mosaic sheds rows rather than repeating tiles, so a thin pool renders
+    // as one stretched photo — which is exactly what a cover pointed at (or
+    // defaulted to) a 1-image "Highlights" produced. Prefer the configured
+    // section only when it can actually tile.
+    const pool =
+      sectionPool.length >= MIN_MOSAIC_POOL || sectionPool.length >= images.length
+        ? sectionPool
+        : images;
     // Videos never tile a cover (poster frames read as random blurry shots).
     // Must match the raster pool's media_type filter or the seeded
     // arrangement desyncs between live cover and email/OG raster.

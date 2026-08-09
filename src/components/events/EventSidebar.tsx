@@ -74,6 +74,10 @@ interface EventSidebarProps {
    * stacks is exactly the lying control we just removed elsewhere.
    */
   stacksResolved?: boolean;
+  /** True while stacks come from the filenames rather than an explicit choice. */
+  stacksAreAuto?: boolean;
+  /** People with multiple shots detected in the filenames. */
+  stacksDetectedPeople?: number;
   eventName: string;
   eventType?: string | null;
   eventDate?: string | null;
@@ -138,6 +142,8 @@ function jobStatusFor(
 export function EventSidebar({
   eventId,
   stacksResolved,
+  stacksAreAuto,
+  stacksDetectedPeople,
   eventName,
   eventType,
   eventDate,
@@ -280,6 +286,8 @@ export function EventSidebar({
             sections={sections}
             onRefreshImages={onRefreshImages}
             stacksResolved={stacksResolved}
+            stacksAreAuto={stacksAreAuto}
+            stacksDetectedPeople={stacksDetectedPeople}
           />
         )}
         {activePanel === "details" && (
@@ -713,6 +721,8 @@ function DesignPanel({
   sections,
   onRefreshImages,
   stacksResolved,
+  stacksAreAuto,
+  stacksDetectedPeople,
 }: {
   eventId: string;
   settings: EventSettings;
@@ -721,6 +731,10 @@ function DesignPanel({
   sections?: SectionItem[];
   onRefreshImages?: () => void;
   stacksResolved?: boolean;
+  /** True while stacks come from the filenames rather than an explicit choice. */
+  stacksAreAuto?: boolean;
+  /** People with multiple shots detected in the filenames. */
+  stacksDetectedPeople?: number;
 }) {
   const [designTab, setDesignTab] = useState<"cover" | "typography" | "color" | "grid">("cover");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -824,6 +838,8 @@ function DesignPanel({
             style={settings.grid?.style || "masonry"}
             showFilenames={settings.grid?.showFilenames}
             smartStacks={settings.grid?.smartStacks ?? stacksResolved}
+            stacksAreAuto={stacksAreAuto}
+            stacksDetectedPeople={stacksDetectedPeople}
             onChange={(updates) =>
               handleChange({ grid: { ...settings.grid, ...updates } })
             }

@@ -869,6 +869,8 @@ export default function EventPage({
   // detectStackable). An explicit setting always wins.
   const stackDetection = useMemo(() => detectStackable(images), [images]);
   const showStacks = eventSettings.grid?.smartStacks ?? stackDetection.stackable;
+  /** True while the value is coming from the filenames rather than a choice. */
+  const stacksAreAuto = eventSettings.grid?.smartStacks === undefined;
 
   // Stacks used to be flattened whenever Manual was active OR a drag could
   // begin — and `dndEnabled` is true in every unlocked section. Since EVERY
@@ -1100,7 +1102,7 @@ export default function EventPage({
     } catch {
       /* non-critical */
     }
-  }, [gridSettings, eventId, stackDetection.stackable]);
+  }, [gridSettings, eventId]);
 
   // ONE stacks setting, driving the editor AND the guest gallery. They used to
   // be separate (`showStacks` defaulting ON here, `smartStacks` defaulting OFF
@@ -1119,7 +1121,7 @@ export default function EventPage({
     } catch {
       /* non-critical */
     }
-  }, [gridSettings, eventId]);
+  }, [gridSettings, eventId, stackDetection.stackable]);
 
   return (
     <div className="flex min-h-screen">
@@ -1131,6 +1133,8 @@ export default function EventPage({
         <EventSidebar
           eventId={eventId}
           stacksResolved={showStacks}
+          stacksAreAuto={stacksAreAuto}
+          stacksDetectedPeople={stackDetection.people}
           eventName={event.name}
           eventType={event.event_type}
           eventDate={event.event_date}
@@ -1628,18 +1632,47 @@ export default function EventPage({
 
                 <div className="w-px h-4 bg-stone-200" />
 
-                {/* Stacks toggle — group same-person photos into stacks */}
+                {/* Stacks — LABELLED, because this one setting also decides
+                    what guests see. An unlabelled icon among the view toggles
+                    read as a view preference; Mason went looking for it in the
+                    Details panel and Jerrick assumed the admin state was the
+                    gallery state. The chip states who's steering (Auto when it
+                    came from the filenames), matching the focal picker. */}
                 <button
                   onClick={toggleStacks}
-                  className={`p-1.5 transition-colors ${showStacks ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
-                  aria-label="Toggle image stacks"
-                  title={
+                  className={`flex items-center gap-1.5 px-2 py-1 transition-colors ${
                     showStacks
-                      ? "Showing image stacks — click to show every photo"
-                      : "Show image stacks (group same-person photos)"
+                      ? "text-stone-900"
+                      : "text-stone-400 hover:text-stone-600"
+                  }`}
+                  aria-label={
+                    showStacks
+                      ? "Stacks on — click to show every photo"
+                      : "Stacks off — click to group photos by person"
+                  }
+                  title={
+                    stacksAreAuto
+                      ? `Stacks ${showStacks ? "on" : "off"} automatically — ${
+                          stackDetection.people
+                        } people detected in the filenames. Guests see this too. Click to set it yourself.`
+                      : `Stacks ${showStacks ? "on" : "off"} — you set this. Guests see this too.`
                   }
                 >
-                  <Layers className="h-4 w-4" />
+                  <Layers className="h-4 w-4 shrink-0" />
+                  {/* The word drops on narrow screens; the state chip never
+                      does, since that's the part you can't infer from an icon. */}
+                  <span className="hidden sm:inline text-[11px] uppercase tracking-[0.12em] font-medium">
+                    Stacks
+                  </span>
+                  <span
+                    className={`text-[10px] uppercase tracking-[0.1em] px-1 py-px border ${
+                      showStacks
+                        ? "border-accent/40 text-accent"
+                        : "border-stone-200 text-stone-400"
+                    }`}
+                  >
+                    {stacksAreAuto ? "Auto" : showStacks ? "On" : "Off"}
+                  </span>
                 </button>
 
                 <div className="w-px h-4 bg-stone-200" />

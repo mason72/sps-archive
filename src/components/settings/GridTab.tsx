@@ -9,6 +9,10 @@ interface GridTabProps {
   style: GridStyle;
   showFilenames?: boolean;
   smartStacks?: boolean;
+  /** True while the value comes from the filenames rather than a choice. */
+  stacksAreAuto?: boolean;
+  /** People with multiple shots that the filenames revealed. */
+  stacksDetectedPeople?: number;
   onChange: (updates: Partial<{ columns: number; gap: GridGap; style: GridStyle; showFilenames: boolean; smartStacks: boolean }>) => void;
 }
 
@@ -28,7 +32,16 @@ const STYLE_OPTIONS: { value: GridStyle; label: string; description: string }[] 
 /**
  * GridTab — Configure grid column count, gap, and layout style.
  */
-export function GridTab({ columns, gap, style, showFilenames, smartStacks, onChange }: GridTabProps) {
+export function GridTab({
+  columns,
+  gap,
+  style,
+  showFilenames,
+  smartStacks,
+  stacksAreAuto,
+  stacksDetectedPeople,
+  onChange,
+}: GridTabProps) {
   return (
     <div className="space-y-8">
       {/* Column count */}
@@ -153,13 +166,32 @@ export function GridTab({ columns, gap, style, showFilenames, smartStacks, onCha
 
       {/* Smart stacks toggle */}
       <div>
-        <h3 className="text-[15px] font-medium text-stone-900 mb-1">
-          Smart Stacks
-        </h3>
+        <div className="mb-1 flex items-center gap-2">
+          <h3 className="text-[15px] font-medium text-stone-900">Smart Stacks</h3>
+          {/* Say who's steering, like the focal picker does — otherwise an
+              automatic ON is indistinguishable from one you chose. */}
+          <span
+            className={cn(
+              "text-[10px] uppercase tracking-[0.1em] px-1.5 py-px border",
+              stacksAreAuto
+                ? "border-accent/40 text-accent"
+                : "border-stone-200 text-stone-400"
+            )}
+          >
+            {stacksAreAuto ? "Auto" : "Manual"}
+          </span>
+        </div>
+        <p className="text-[12px] text-stone-400 mb-2">
+          Group photos of the same person (by filename) into a single stack, in
+          the editor <em>and</em> the shared gallery. Guests can favorite the
+          whole stack at once.
+        </p>
         <p className="text-[12px] text-stone-400 mb-4">
-          Group photos of the same person (by filename) into a single rotating
-          stack in the shared gallery. Guests can favorite the whole stack at
-          once.
+          {stacksAreAuto
+            ? stacksDetectedPeople
+              ? `Set automatically from the filenames — ${stacksDetectedPeople} people with multiple shots. Headshot days stack; weddings and photo booth sets don't.`
+              : "Set automatically from the filenames — these don't look like repeat shots of the same people, so stacking stays off."
+            : "You set this yourself, so it won't change when photos are added."}
         </p>
         <button
           onClick={() => onChange({ smartStacks: !smartStacks })}
@@ -187,6 +219,14 @@ export function GridTab({ columns, gap, style, showFilenames, smartStacks, onCha
             />
           </div>
         </button>
+        {!stacksAreAuto && (
+          <button
+            onClick={() => onChange({ smartStacks: undefined })}
+            className="mt-2 text-[12px] text-stone-400 underline underline-offset-2 transition-colors hover:text-stone-700"
+          >
+            Reset to automatic
+          </button>
+        )}
       </div>
 
       {/* Preview */}
