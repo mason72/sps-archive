@@ -9,7 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:gen-types": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > src/lib/supabase/database.types.ts"
+    "db:gen-types": "bash scripts/gen-types.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1078.0",

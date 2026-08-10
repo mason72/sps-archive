@@ -17,14 +17,9 @@ export interface Subscription {
   updated_at: string;
 }
 
-/**
- * Helper to query the subscriptions table with proper typing.
- * The `subscriptions` table isn't in the generated Supabase types yet
- * (needs SQL migration), so we cast through `unknown`.
- */
+/** Helper to query the subscriptions table. */
 function subscriptionsTable(supabase: ReturnType<typeof createServiceClient>) {
-  // subscriptions table not in generated types yet — cast through unknown
-  return supabase.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof supabase.from>;
+  return supabase.from("subscriptions");
 }
 
 /**

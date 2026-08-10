@@ -1,830 +1,1285 @@
-/**
- * Database types for Pixeltrunk.
- * Manually maintained to match migrations 001–008.
- * Run `npm run db:gen-types` to auto-regenerate if Supabase CLI is configured.
- */
-
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.1"
+  }
   public: {
     Tables: {
-      events: {
-        Row: {
-          id: string;
-          user_id: string;
-          name: string;
-          slug: string;
-          description: string | null;
-          event_date: string | null;
-          event_type: string | null;
-          cover_image_id: string | null;
-          city: string | null;
-          pinned_at: string | null;
-          settings: Json;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          name: string;
-          slug: string;
-          description?: string | null;
-          event_date?: string | null;
-          event_type?: string | null;
-          cover_image_id?: string | null;
-          city?: string | null;
-          pinned_at?: string | null;
-          settings?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          name?: string;
-          slug?: string;
-          description?: string | null;
-          event_date?: string | null;
-          event_type?: string | null;
-          cover_image_id?: string | null;
-          city?: string | null;
-          pinned_at?: string | null;
-          settings?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      images: {
-        Row: {
-          id: string;
-          event_id: string;
-          filename: string;
-          original_filename: string;
-          r2_key: string;
-          file_size: number;
-          width: number | null;
-          height: number | null;
-          mime_type: string;
-          parsed_name: string | null;
-          taken_at: string | null;
-          camera_make: string | null;
-          camera_model: string | null;
-          lens: string | null;
-          focal_length: number | null;
-          aperture: number | null;
-          shutter_speed: string | null;
-          iso: number | null;
-          gps_lat: number | null;
-          gps_lng: number | null;
-          siglip_embedding: string | null;
-          embedding_model: string | null;
-          ai_indexed_at: string | null;
-          aesthetic_score: number | null;
-          sharpness_score: number | null;
-          is_eyes_open: boolean | null;
-          scene_tags: string[] | null;
-          stack_id: string | null;
-          stack_rank: number | null;
-          processing_status: string;
-          thumbnail_generated: boolean;
-          dominant_color: string | null;
-          site_scene: string | null;
-          service: string | null;
-          featured: boolean;
-          display_order: number;
-          site_published_at: string | null;
-          focal_x: number | null;
-          focal_y: number | null;
-          media_type: string;
-          duration_seconds: number | null;
-          has_audio: boolean | null;
-          stream_uid: string | null;
-          processing_error: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          event_id: string;
-          filename: string;
-          original_filename: string;
-          r2_key: string;
-          file_size: number;
-          width?: number | null;
-          height?: number | null;
-          mime_type: string;
-          parsed_name?: string | null;
-          taken_at?: string | null;
-          camera_make?: string | null;
-          camera_model?: string | null;
-          lens?: string | null;
-          focal_length?: number | null;
-          aperture?: number | null;
-          shutter_speed?: string | null;
-          iso?: number | null;
-          gps_lat?: number | null;
-          gps_lng?: number | null;
-          siglip_embedding?: string | null;
-          embedding_model?: string | null;
-          ai_indexed_at?: string | null;
-          aesthetic_score?: number | null;
-          sharpness_score?: number | null;
-          is_eyes_open?: boolean | null;
-          scene_tags?: string[] | null;
-          stack_id?: string | null;
-          stack_rank?: number | null;
-          processing_status?: string;
-          thumbnail_generated?: boolean;
-          dominant_color?: string | null;
-          site_scene?: string | null;
-          service?: string | null;
-          featured?: boolean;
-          display_order?: number;
-          site_published_at?: string | null;
-          focal_x?: number | null;
-          focal_y?: number | null;
-          media_type?: string;
-          duration_seconds?: number | null;
-          has_audio?: boolean | null;
-          stream_uid?: string | null;
-          processing_error?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          event_id?: string;
-          filename?: string;
-          original_filename?: string;
-          r2_key?: string;
-          file_size?: number;
-          width?: number | null;
-          height?: number | null;
-          mime_type?: string;
-          parsed_name?: string | null;
-          taken_at?: string | null;
-          camera_make?: string | null;
-          camera_model?: string | null;
-          lens?: string | null;
-          focal_length?: number | null;
-          aperture?: number | null;
-          shutter_speed?: string | null;
-          iso?: number | null;
-          gps_lat?: number | null;
-          gps_lng?: number | null;
-          siglip_embedding?: string | null;
-          embedding_model?: string | null;
-          ai_indexed_at?: string | null;
-          aesthetic_score?: number | null;
-          sharpness_score?: number | null;
-          is_eyes_open?: boolean | null;
-          scene_tags?: string[] | null;
-          stack_id?: string | null;
-          stack_rank?: number | null;
-          processing_status?: string;
-          thumbnail_generated?: boolean;
-          dominant_color?: string | null;
-          site_scene?: string | null;
-          service?: string | null;
-          featured?: boolean;
-          display_order?: number;
-          site_published_at?: string | null;
-          focal_x?: number | null;
-          focal_y?: number | null;
-          media_type?: string;
-          duration_seconds?: number | null;
-          has_audio?: boolean | null;
-          stream_uid?: string | null;
-          processing_error?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      faces: {
-        Row: {
-          id: string;
-          image_id: string;
-          bbox_x: number;
-          bbox_y: number;
-          bbox_w: number;
-          bbox_h: number;
-          embedding: string | null;
-          person_id: string | null;
-          confidence: number | null;
-          is_eyes_open: boolean;
-          quality: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          image_id: string;
-          bbox_x: number;
-          bbox_y: number;
-          bbox_w: number;
-          bbox_h: number;
-          embedding?: string | null;
-          person_id?: string | null;
-          confidence?: number | null;
-          is_eyes_open?: boolean;
-          quality?: number;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          image_id?: string;
-          bbox_x?: number;
-          bbox_y?: number;
-          bbox_w?: number;
-          bbox_h?: number;
-          embedding?: string | null;
-          person_id?: string | null;
-          confidence?: number | null;
-          is_eyes_open?: boolean;
-          quality?: number;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      persons: {
-        Row: {
-          id: string;
-          event_id: string;
-          name: string | null;
-          representative_face_id: string | null;
-          face_count: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          event_id: string;
-          name?: string | null;
-          representative_face_id?: string | null;
-          face_count?: number;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          event_id?: string;
-          name?: string | null;
-          representative_face_id?: string | null;
-          face_count?: number;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      stacks: {
-        Row: {
-          id: string;
-          event_id: string;
-          stack_type: string;
-          cover_image_id: string | null;
-          image_count: number;
-          person_id: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          event_id: string;
-          stack_type?: string;
-          cover_image_id?: string | null;
-          image_count?: number;
-          person_id?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          event_id?: string;
-          stack_type?: string;
-          cover_image_id?: string | null;
-          image_count?: number;
-          person_id?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      sections: {
-        Row: {
-          id: string;
-          event_id: string;
-          name: string;
-          description: string | null;
-          sort_order: number;
-          is_auto: boolean;
-          filter_query: string | null;
-          site_scene_key: string | null;
-          locked: boolean;
-          job_meta: Json | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          event_id: string;
-          name: string;
-          description?: string | null;
-          sort_order?: number;
-          is_auto?: boolean;
-          filter_query?: string | null;
-          site_scene_key?: string | null;
-          locked?: boolean;
-          job_meta?: Json | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          event_id?: string;
-          name?: string;
-          description?: string | null;
-          sort_order?: number;
-          is_auto?: boolean;
-          filter_query?: string | null;
-          site_scene_key?: string | null;
-          locked?: boolean;
-          job_meta?: Json | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      section_images: {
-        Row: {
-          section_id: string;
-          image_id: string;
-          sort_order: number;
-          relevance_score: number | null;
-        };
-        Insert: {
-          section_id: string;
-          image_id: string;
-          sort_order?: number;
-          relevance_score?: number | null;
-        };
-        Update: {
-          section_id?: string;
-          image_id?: string;
-          sort_order?: number;
-          relevance_score?: number | null;
-        };
-        Relationships: [];
-      };
-      shares: {
-        Row: {
-          id: string;
-          event_id: string;
-          slug: string;
-          password_hash: string | null;
-          pin: string | null;
-          expires_at: string | null;
-          is_active: boolean;
-          share_type: string;
-          section_id: string | null;
-          person_id: string | null;
-          image_ids: string[] | null;
-          allow_download: boolean;
-          allow_favorites: boolean;
-          download_quality: string;
-          custom_message: string | null;
-          download_pin: string | null;
-          require_pin_bulk: boolean;
-          require_pin_individual: boolean;
-          view_count: number;
-          last_viewed_at: string | null;
-          digested_at: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          event_id: string;
-          slug: string;
-          password_hash?: string | null;
-          pin?: string | null;
-          expires_at?: string | null;
-          is_active?: boolean;
-          share_type?: string;
-          section_id?: string | null;
-          person_id?: string | null;
-          image_ids?: string[] | null;
-          allow_download?: boolean;
-          allow_favorites?: boolean;
-          download_quality?: string;
-          custom_message?: string | null;
-          download_pin?: string | null;
-          require_pin_bulk?: boolean;
-          require_pin_individual?: boolean;
-          view_count?: number;
-          last_viewed_at?: string | null;
-          digested_at?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          event_id?: string;
-          slug?: string;
-          password_hash?: string | null;
-          pin?: string | null;
-          expires_at?: string | null;
-          is_active?: boolean;
-          share_type?: string;
-          section_id?: string | null;
-          person_id?: string | null;
-          image_ids?: string[] | null;
-          allow_download?: boolean;
-          allow_favorites?: boolean;
-          download_quality?: string;
-          custom_message?: string | null;
-          download_pin?: string | null;
-          require_pin_bulk?: boolean;
-          require_pin_individual?: boolean;
-          view_count?: number;
-          last_viewed_at?: string | null;
-          digested_at?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      favorites: {
-        Row: {
-          id: string;
-          share_id: string;
-          image_id: string;
-          client_name: string | null;
-          client_email: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          share_id: string;
-          image_id: string;
-          client_name?: string | null;
-          client_email?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          share_id?: string;
-          image_id?: string;
-          client_name?: string | null;
-          client_email?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      user_profiles: {
-        Row: {
-          user_id: string;
-          display_name: string | null;
-          business_name: string | null;
-          bio: string | null;
-          logo_url: string | null;
-          website: string | null;
-          phone: string | null;
-          location: string | null;
-          branding: Json;
-          gallery_defaults: Json;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          user_id: string;
-          display_name?: string | null;
-          business_name?: string | null;
-          bio?: string | null;
-          logo_url?: string | null;
-          website?: string | null;
-          phone?: string | null;
-          location?: string | null;
-          branding?: Json;
-          gallery_defaults?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          user_id?: string;
-          display_name?: string | null;
-          business_name?: string | null;
-          bio?: string | null;
-          logo_url?: string | null;
-          website?: string | null;
-          phone?: string | null;
-          location?: string | null;
-          branding?: Json;
-          gallery_defaults?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      email_templates: {
-        Row: {
-          id: string;
-          user_id: string;
-          name: string;
-          subject: string;
-          body_html: string;
-          is_default: boolean;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          name: string;
-          subject?: string;
-          body_html?: string;
-          is_default?: boolean;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          name?: string;
-          subject?: string;
-          body_html?: string;
-          is_default?: boolean;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      event_templates: {
-        Row: {
-          id: string;
-          user_id: string;
-          name: string;
-          description: string | null;
-          event_type: string | null;
-          settings: Json;
-          sections: Json;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          name: string;
-          description?: string | null;
-          event_type?: string | null;
-          settings?: Json;
-          sections?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          name?: string;
-          description?: string | null;
-          event_type?: string | null;
-          settings?: Json;
-          sections?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      email_sends: {
-        Row: {
-          id: string;
-          user_id: string;
-          event_id: string | null;
-          template_id: string | null;
-          recipients: Json;
-          subject: string;
-          body_html: string;
-          status: string;
-          sent_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          event_id?: string | null;
-          template_id?: string | null;
-          recipients: Json;
-          subject: string;
-          body_html?: string;
-          status?: string;
-          sent_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          event_id?: string | null;
-          template_id?: string | null;
-          recipients?: Json;
-          subject?: string;
-          body_html?: string;
-          status?: string;
-          sent_at?: string;
-        };
-        Relationships: [];
-      };
       activity_log: {
         Row: {
-          id: string;
-          user_id: string;
-          event_id: string | null;
-          share_id: string | null;
-          image_id: string | null;
-          action: string;
-          metadata: Json;
-          created_at: string;
-        };
+          action: string
+          created_at: string
+          event_id: string | null
+          id: string
+          image_id: string | null
+          metadata: Json | null
+          share_id: string | null
+          user_id: string
+        }
         Insert: {
-          id?: string;
-          user_id: string;
-          event_id?: string | null;
-          share_id?: string | null;
-          image_id?: string | null;
-          action: string;
-          metadata?: Json;
-          created_at?: string;
-        };
+          action: string
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          image_id?: string | null
+          metadata?: Json | null
+          share_id?: string | null
+          user_id: string
+        }
         Update: {
-          id?: string;
-          user_id?: string;
-          event_id?: string | null;
-          share_id?: string | null;
-          image_id?: string | null;
-          action?: string;
-          metadata?: Json;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
+          action?: string
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          image_id?: string | null
+          metadata?: Json | null
+          share_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_log_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_log_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_log_share_id_fkey"
+            columns: ["share_id"]
+            isOneToOne: false
+            referencedRelation: "shares"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      allowed_signups: {
+        Row: {
+          email: string
+          invited_at: string
+          invited_by: string | null
+          joined_at: string | null
+          note: string | null
+        }
+        Insert: {
+          email: string
+          invited_at?: string
+          invited_by?: string | null
+          joined_at?: string | null
+          note?: string | null
+        }
+        Update: {
+          email?: string
+          invited_at?: string
+          invited_by?: string | null
+          joined_at?: string | null
+          note?: string | null
+        }
+        Relationships: []
+      }
       auth_attempts: {
         Row: {
-          key: string;
-          attempts: number;
-          window_start: string;
-        };
+          attempts: number
+          key: string
+          window_start: string
+        }
         Insert: {
-          key: string;
-          attempts?: number;
-          window_start?: string;
-        };
+          attempts?: number
+          key: string
+          window_start?: string
+        }
         Update: {
-          key?: string;
-          attempts?: number;
-          window_start?: string;
-        };
-        Relationships: [];
-      };
-      zip_jobs: {
+          attempts?: number
+          key?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
+      email_sends: {
         Row: {
-          id: string;
-          share_id: string;
-          scope: Json;
-          scope_key: string;
-          status: string;
-          zip_filename: string;
-          r2_key: string | null;
-          size_bytes: number | null;
-          image_count: number | null;
-          images_done: number;
-          error: string | null;
-          created_at: string;
-          ready_at: string | null;
-          expires_at: string | null;
-        };
+          body_html: string
+          event_id: string | null
+          id: string
+          recipients: Json
+          sent_at: string
+          status: string
+          subject: string
+          template_id: string | null
+          user_id: string
+        }
         Insert: {
-          id?: string;
-          share_id: string;
-          scope?: Json;
-          scope_key: string;
-          status?: string;
-          zip_filename: string;
-          r2_key?: string | null;
-          size_bytes?: number | null;
-          image_count?: number | null;
-          images_done?: number;
-          error?: string | null;
-          created_at?: string;
-          ready_at?: string | null;
-          expires_at?: string | null;
-        };
+          body_html?: string
+          event_id?: string | null
+          id?: string
+          recipients?: Json
+          sent_at?: string
+          status?: string
+          subject: string
+          template_id?: string | null
+          user_id: string
+        }
         Update: {
-          id?: string;
-          share_id?: string;
-          scope?: Json;
-          scope_key?: string;
-          status?: string;
-          zip_filename?: string;
-          r2_key?: string | null;
-          size_bytes?: number | null;
-          image_count?: number | null;
-          images_done?: number;
-          error?: string | null;
-          created_at?: string;
-          ready_at?: string | null;
-          expires_at?: string | null;
-        };
-        Relationships: [];
-      };
+          body_html?: string
+          event_id?: string | null
+          id?: string
+          recipients?: Json
+          sent_at?: string
+          status?: string
+          subject?: string
+          template_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_sends_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_sends_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "email_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_templates: {
+        Row: {
+          body_html: string
+          created_at: string
+          id: string
+          is_default: boolean
+          name: string
+          subject: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body_html?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name: string
+          subject?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body_html?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name?: string
+          subject?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      event_templates: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          event_type: string | null
+          id: string
+          name: string
+          sections: Json | null
+          settings: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          event_type?: string | null
+          id?: string
+          name: string
+          sections?: Json | null
+          settings?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          event_type?: string | null
+          id?: string
+          name?: string
+          sections?: Json | null
+          settings?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      events: {
+        Row: {
+          city: string | null
+          cover_image_id: string | null
+          created_at: string
+          description: string | null
+          event_date: string | null
+          event_type: string | null
+          id: string
+          name: string
+          pinned_at: string | null
+          settings: Json
+          slug: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          city?: string | null
+          cover_image_id?: string | null
+          created_at?: string
+          description?: string | null
+          event_date?: string | null
+          event_type?: string | null
+          id?: string
+          name: string
+          pinned_at?: string | null
+          settings?: Json
+          slug: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          city?: string | null
+          cover_image_id?: string | null
+          created_at?: string
+          description?: string | null
+          event_date?: string | null
+          event_type?: string | null
+          id?: string
+          name?: string
+          pinned_at?: string | null
+          settings?: Json
+          slug?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_events_cover_image"
+            columns: ["cover_image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faces: {
+        Row: {
+          bbox_h: number
+          bbox_w: number
+          bbox_x: number
+          bbox_y: number
+          confidence: number | null
+          created_at: string
+          embedding: string | null
+          id: string
+          image_id: string
+          is_eyes_open: boolean | null
+          person_id: string | null
+          quality: number | null
+        }
+        Insert: {
+          bbox_h: number
+          bbox_w: number
+          bbox_x: number
+          bbox_y: number
+          confidence?: number | null
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          image_id: string
+          is_eyes_open?: boolean | null
+          person_id?: string | null
+          quality?: number | null
+        }
+        Update: {
+          bbox_h?: number
+          bbox_w?: number
+          bbox_x?: number
+          bbox_y?: number
+          confidence?: number | null
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          image_id?: string
+          is_eyes_open?: boolean | null
+          person_id?: string | null
+          quality?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faces_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_faces_person"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      favorites: {
+        Row: {
+          client_email: string | null
+          client_name: string | null
+          created_at: string
+          id: string
+          image_id: string
+          share_id: string
+        }
+        Insert: {
+          client_email?: string | null
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          image_id: string
+          share_id: string
+        }
+        Update: {
+          client_email?: string | null
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          image_id?: string
+          share_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "favorites_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "favorites_share_id_fkey"
+            columns: ["share_id"]
+            isOneToOne: false
+            referencedRelation: "shares"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      images: {
+        Row: {
+          aesthetic_score: number | null
+          ai_indexed_at: string | null
+          aperture: number | null
+          camera_make: string | null
+          camera_model: string | null
+          created_at: string
+          display_order: number
+          dominant_color: string | null
+          duration_seconds: number | null
+          embedding_model: string | null
+          event_id: string
+          featured: boolean
+          file_size: number
+          filename: string
+          focal_length: number | null
+          focal_x: number | null
+          focal_y: number | null
+          gps_lat: number | null
+          gps_lng: number | null
+          has_audio: boolean | null
+          height: number | null
+          id: string
+          is_eyes_open: boolean | null
+          iso: number | null
+          last_error: string | null
+          lens: string | null
+          media_type: string
+          mime_type: string
+          original_filename: string
+          parsed_name: string | null
+          processing_error: string | null
+          processing_status: string
+          r2_key: string
+          scene_tags: string[] | null
+          service: string | null
+          sharpness_score: number | null
+          shutter_speed: string | null
+          siglip_embedding: string | null
+          site_published_at: string | null
+          site_scene: string | null
+          stack_id: string | null
+          stack_rank: number | null
+          starred: boolean
+          stream_uid: string | null
+          taken_at: string | null
+          thumbnail_generated: boolean | null
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          aesthetic_score?: number | null
+          ai_indexed_at?: string | null
+          aperture?: number | null
+          camera_make?: string | null
+          camera_model?: string | null
+          created_at?: string
+          display_order?: number
+          dominant_color?: string | null
+          duration_seconds?: number | null
+          embedding_model?: string | null
+          event_id: string
+          featured?: boolean
+          file_size: number
+          filename: string
+          focal_length?: number | null
+          focal_x?: number | null
+          focal_y?: number | null
+          gps_lat?: number | null
+          gps_lng?: number | null
+          has_audio?: boolean | null
+          height?: number | null
+          id?: string
+          is_eyes_open?: boolean | null
+          iso?: number | null
+          last_error?: string | null
+          lens?: string | null
+          media_type?: string
+          mime_type: string
+          original_filename: string
+          parsed_name?: string | null
+          processing_error?: string | null
+          processing_status?: string
+          r2_key: string
+          scene_tags?: string[] | null
+          service?: string | null
+          sharpness_score?: number | null
+          shutter_speed?: string | null
+          siglip_embedding?: string | null
+          site_published_at?: string | null
+          site_scene?: string | null
+          stack_id?: string | null
+          stack_rank?: number | null
+          starred?: boolean
+          stream_uid?: string | null
+          taken_at?: string | null
+          thumbnail_generated?: boolean | null
+          updated_at?: string
+          width?: number | null
+        }
+        Update: {
+          aesthetic_score?: number | null
+          ai_indexed_at?: string | null
+          aperture?: number | null
+          camera_make?: string | null
+          camera_model?: string | null
+          created_at?: string
+          display_order?: number
+          dominant_color?: string | null
+          duration_seconds?: number | null
+          embedding_model?: string | null
+          event_id?: string
+          featured?: boolean
+          file_size?: number
+          filename?: string
+          focal_length?: number | null
+          focal_x?: number | null
+          focal_y?: number | null
+          gps_lat?: number | null
+          gps_lng?: number | null
+          has_audio?: boolean | null
+          height?: number | null
+          id?: string
+          is_eyes_open?: boolean | null
+          iso?: number | null
+          last_error?: string | null
+          lens?: string | null
+          media_type?: string
+          mime_type?: string
+          original_filename?: string
+          parsed_name?: string | null
+          processing_error?: string | null
+          processing_status?: string
+          r2_key?: string
+          scene_tags?: string[] | null
+          service?: string | null
+          sharpness_score?: number | null
+          shutter_speed?: string | null
+          siglip_embedding?: string | null
+          site_published_at?: string | null
+          site_scene?: string | null
+          stack_id?: string | null
+          stack_rank?: number | null
+          starred?: boolean
+          stream_uid?: string | null
+          taken_at?: string | null
+          thumbnail_generated?: boolean | null
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_images_stack"
+            columns: ["stack_id"]
+            isOneToOne: false
+            referencedRelation: "stacks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "images_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      persons: {
+        Row: {
+          created_at: string
+          event_id: string
+          face_count: number
+          id: string
+          name: string | null
+          representative_face_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          face_count?: number
+          id?: string
+          name?: string | null
+          representative_face_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          face_count?: number
+          id?: string
+          name?: string | null
+          representative_face_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "persons_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      section_images: {
+        Row: {
+          image_id: string
+          relevance_score: number | null
+          section_id: string
+          sort_order: number
+        }
+        Insert: {
+          image_id: string
+          relevance_score?: number | null
+          section_id: string
+          sort_order?: number
+        }
+        Update: {
+          image_id?: string
+          relevance_score?: number | null
+          section_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "section_images_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_images_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sections: {
+        Row: {
+          created_at: string
+          description: string | null
+          event_id: string
+          filter_query: string | null
+          id: string
+          is_auto: boolean
+          job_meta: Json | null
+          locked: boolean
+          name: string
+          site_scene_key: string | null
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          event_id: string
+          filter_query?: string | null
+          id?: string
+          is_auto?: boolean
+          job_meta?: Json | null
+          locked?: boolean
+          name: string
+          site_scene_key?: string | null
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          event_id?: string
+          filter_query?: string | null
+          id?: string
+          is_auto?: boolean
+          job_meta?: Json | null
+          locked?: boolean
+          name?: string
+          site_scene_key?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sections_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shares: {
+        Row: {
+          allow_download: boolean
+          allow_favorites: boolean
+          created_at: string
+          custom_message: string | null
+          digested_at: string | null
+          download_pin: string | null
+          download_quality: string
+          event_id: string
+          expires_at: string | null
+          id: string
+          image_ids: string[] | null
+          is_active: boolean
+          last_viewed_at: string | null
+          password_hash: string | null
+          person_id: string | null
+          pin: string | null
+          require_pin_bulk: boolean | null
+          require_pin_individual: boolean | null
+          section_id: string | null
+          share_type: string
+          slug: string
+          view_count: number
+        }
+        Insert: {
+          allow_download?: boolean
+          allow_favorites?: boolean
+          created_at?: string
+          custom_message?: string | null
+          digested_at?: string | null
+          download_pin?: string | null
+          download_quality?: string
+          event_id: string
+          expires_at?: string | null
+          id?: string
+          image_ids?: string[] | null
+          is_active?: boolean
+          last_viewed_at?: string | null
+          password_hash?: string | null
+          person_id?: string | null
+          pin?: string | null
+          require_pin_bulk?: boolean | null
+          require_pin_individual?: boolean | null
+          section_id?: string | null
+          share_type?: string
+          slug: string
+          view_count?: number
+        }
+        Update: {
+          allow_download?: boolean
+          allow_favorites?: boolean
+          created_at?: string
+          custom_message?: string | null
+          digested_at?: string | null
+          download_pin?: string | null
+          download_quality?: string
+          event_id?: string
+          expires_at?: string | null
+          id?: string
+          image_ids?: string[] | null
+          is_active?: boolean
+          last_viewed_at?: string | null
+          password_hash?: string | null
+          person_id?: string | null
+          pin?: string | null
+          require_pin_bulk?: boolean | null
+          require_pin_individual?: boolean | null
+          section_id?: string | null
+          share_type?: string
+          slug?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shares_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shares_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stacks: {
+        Row: {
+          cover_image_id: string | null
+          created_at: string
+          event_id: string
+          id: string
+          image_count: number
+          person_id: string | null
+          stack_type: string
+        }
+        Insert: {
+          cover_image_id?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          image_count?: number
+          person_id?: string | null
+          stack_type?: string
+        }
+        Update: {
+          cover_image_id?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          image_count?: number
+          person_id?: string | null
+          stack_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stacks_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stacks_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_events: {
+        Row: {
+          event_id: string
+          event_type: string
+          received_at: string
+        }
+        Insert: {
+          event_id: string
+          event_type: string
+          received_at?: string
+        }
+        Update: {
+          event_id?: string
+          event_type?: string
+          received_at?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          billing_interval: string | null
+          cancel_at_period_end: boolean | null
+          created_at: string | null
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          plan: string
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          trial_end: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          billing_interval?: string | null
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_end?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          billing_interval?: string | null
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_end?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       system_errors: {
         Row: {
-          id: string;
-          context: string;
-          message: string;
-          detail: Json | null;
-          notified: boolean;
-          created_at: string;
-        };
+          context: string
+          created_at: string
+          detail: Json | null
+          id: string
+          message: string
+          notified: boolean
+        }
         Insert: {
-          id?: string;
-          context: string;
-          message: string;
-          detail?: Json | null;
-          notified?: boolean;
-          created_at?: string;
-        };
+          context: string
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          message: string
+          notified?: boolean
+        }
         Update: {
-          id?: string;
-          context?: string;
-          message?: string;
-          detail?: Json | null;
-          notified?: boolean;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-    };
-    Views: Record<string, never>;
+          context?: string
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          message?: string
+          notified?: boolean
+        }
+        Relationships: []
+      }
+      user_profiles: {
+        Row: {
+          bio: string | null
+          branding: Json
+          business_name: string | null
+          created_at: string
+          display_name: string | null
+          gallery_defaults: Json
+          is_admin: boolean
+          location: string | null
+          logo_url: string | null
+          phone: string | null
+          updated_at: string
+          user_id: string
+          website: string | null
+        }
+        Insert: {
+          bio?: string | null
+          branding?: Json
+          business_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          gallery_defaults?: Json
+          is_admin?: boolean
+          location?: string | null
+          logo_url?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id: string
+          website?: string | null
+        }
+        Update: {
+          bio?: string | null
+          branding?: Json
+          business_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          gallery_defaults?: Json
+          is_admin?: boolean
+          location?: string | null
+          logo_url?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id?: string
+          website?: string | null
+        }
+        Relationships: []
+      }
+      zip_jobs: {
+        Row: {
+          created_at: string
+          error: string | null
+          expires_at: string | null
+          id: string
+          image_count: number | null
+          images_done: number
+          r2_key: string | null
+          ready_at: string | null
+          scope: Json
+          scope_key: string
+          share_id: string
+          size_bytes: number | null
+          status: string
+          zip_filename: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          image_count?: number | null
+          images_done?: number
+          r2_key?: string | null
+          ready_at?: string | null
+          scope?: Json
+          scope_key: string
+          share_id: string
+          size_bytes?: number | null
+          status?: string
+          zip_filename: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          image_count?: number | null
+          images_done?: number
+          r2_key?: string | null
+          ready_at?: string | null
+          scope?: Json
+          scope_key?: string
+          share_id?: string
+          size_bytes?: number | null
+          status?: string
+          zip_filename?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zip_jobs_share_id_fkey"
+            columns: ["share_id"]
+            isOneToOne: false
+            referencedRelation: "shares"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
     Functions: {
-      record_auth_attempt: {
-        Args: { p_key: string; p_max: number; p_window_seconds: number };
-        Returns: boolean;
-      };
+      create_section_at_top: {
+        Args: { p_description?: string; p_event_id: string; p_name: string }
+        Returns: {
+          created_at: string
+          description: string | null
+          event_id: string
+          filter_query: string | null
+          id: string
+          is_auto: boolean
+          job_meta: Json | null
+          locked: boolean
+          name: string
+          site_scene_key: string | null
+          sort_order: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "sections"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      event_image_status_counts: {
+        Args: { p_event_id: string }
+        Returns: {
+          complete: number
+          failed: number
+          pending: number
+          processing: number
+          total: number
+        }[]
+      }
       first_image_per_event: {
-        Args: { p_event_ids: string[] };
-        Returns: { event_id: string; r2_key: string }[];
-      };
-      get_activity_totals: {
-        Args: { p_user_id: string };
-        Returns: Json;
-      };
+        Args: { p_event_ids: string[] }
+        Returns: {
+          event_id: string
+          r2_key: string
+        }[]
+      }
+      get_activity_totals: { Args: { p_user_id: string }; Returns: Json }
       get_daily_activity: {
-        Args: {
-          p_user_id: string;
-          p_days?: number;
-        };
+        Args: { p_days?: number; p_user_id: string }
         Returns: {
-          day: string;
-          action: string;
-          total: number;
-        }[];
-      };
+          action: string
+          day: string
+          total: number
+        }[]
+      }
       increment_share_views: {
-        Args: { p_share_id: string };
-        Returns: undefined;
-      };
-      search_images_by_embedding: {
-        Args: {
-          query_embedding: string;
-          target_user_id: string;
-          target_event_id?: string | null;
-          match_threshold?: number;
-          match_count?: number;
-        };
+        Args: { p_share_id: string }
+        Returns: undefined
+      }
+      record_auth_attempt: {
+        Args: { p_key: string; p_max: number; p_window_seconds: number }
+        Returns: boolean
+      }
+      reorder_sections: {
+        Args: { p_event_id: string; p_section_ids: string[] }
+        Returns: undefined
+      }
+      resolve_share_by_slug: {
+        Args: { p_slug: string }
         Returns: {
-          id: string;
-          event_id: string;
-          filename: string;
-          original_filename: string;
-          r2_key: string;
-          similarity: number;
-        }[];
-      };
+          allow_download: boolean
+          allow_favorites: boolean
+          custom_message: string
+          event_id: string
+          expires_at: string
+          has_password: boolean
+          id: string
+          image_ids: string[]
+          is_active: boolean
+          person_id: string
+          require_pin_bulk: boolean
+          require_pin_individual: boolean
+          section_id: string
+          share_type: string
+        }[]
+      }
       score_images_by_embedding: {
         Args: {
-          query_embedding: string;
-          target_user_id: string;
-          target_event_id: string;
-        };
+          query_embedding: string
+          target_event_id: string
+          target_user_id: string
+        }
         Returns: {
-          id: string;
-          similarity: number;
-        }[];
-      };
+          id: string
+          similarity: number
+        }[]
+      }
       search_faces_by_embedding: {
         Args: {
-          query_embedding: string;
-          target_user_id: string;
-          target_event_id?: string | null;
-          match_threshold?: number;
-          match_count?: number;
-        };
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+          target_event_id?: string
+          target_user_id: string
+        }
         Returns: {
-          face_id: string;
-          image_id: string;
-          person_id: string;
-          similarity: number;
-        }[];
-      };
-    };
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
-  };
-};
+          face_id: string
+          image_id: string
+          person_id: string
+          similarity: number
+        }[]
+      }
+      search_images_by_embedding: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+          target_event_id?: string
+          target_user_id: string
+        }
+        Returns: {
+          event_id: string
+          filename: string
+          id: string
+          original_filename: string
+          r2_key: string
+          similarity: number
+        }[]
+      }
+      set_stack_cover: {
+        Args: { p_image_id: string; p_stack_id: string }
+        Returns: undefined
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

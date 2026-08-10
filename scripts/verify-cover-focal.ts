@@ -80,7 +80,7 @@ async function main() {
     .in("image_id", leadsAfter.map((l) => l.id));
   const strong = new Map<string, number>();
   for (const f of faceCounts ?? []) {
-    if (f.quality >= 0.3) strong.set(f.image_id, (strong.get(f.image_id) ?? 0) + 1);
+    if ((f.quality ?? 0) >= 0.3) strong.set(f.image_id, (strong.get(f.image_id) ?? 0) + 1);
   }
   for (const l of withFocal) {
     if ((strong.get(l.id) ?? 0) !== 1) {

@@ -76,6 +76,8 @@ export async function sendShareDigest(
     .eq("id", candidate.eventId)
     .single();
   if (eventError || !event) throw eventError ?? new Error("event not found");
+  // events.user_id is nullable — an ownerless event has nobody to digest to.
+  if (!event.user_id) return "skipped-no-owner-email";
 
   const { data: owner } = await supabase.auth.admin.getUserById(event.user_id);
   const ownerEmail = owner?.user?.email;

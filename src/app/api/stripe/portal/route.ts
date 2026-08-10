@@ -23,13 +23,11 @@ export async function POST() {
     }
 
     const service = createServiceClient();
-    // subscriptions table not in generated types yet — cast through unknown
-    const { data: sub } = await (service.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof service.from>)
+    const { data: customerIdRow } = await service
+      .from("subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .single();
-
-    const customerIdRow = sub as { stripe_customer_id?: string } | null;
 
     if (!customerIdRow?.stripe_customer_id) {
       return NextResponse.json(

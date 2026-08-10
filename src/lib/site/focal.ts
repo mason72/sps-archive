@@ -96,10 +96,13 @@ export async function autoFocalForImages(
   if (error) throw error;
 
   const byImage = new Map<string, FaceBox[]>();
-  for (const face of faces ?? []) {
-    const arr = byImage.get(face.image_id);
+  for (const row of faces ?? []) {
+    // faces.quality is `real default 0` and nullable — an unscored face sorts
+    // to the bottom, which is the safe direction for a confidence picker.
+    const face: FaceBox = { ...row, quality: row.quality ?? 0 };
+    const arr = byImage.get(row.image_id);
     if (arr) arr.push(face);
-    else byImage.set(face.image_id, [face]);
+    else byImage.set(row.image_id, [face]);
   }
 
   for (const [imageId, imageFaces] of byImage) {

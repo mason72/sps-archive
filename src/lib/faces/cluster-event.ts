@@ -53,7 +53,7 @@ async function fetchEventFaces(
         imageId: row.image_id,
         // pgvector comes back as its text form, which is valid JSON.
         embedding: JSON.parse(row.embedding as unknown as string),
-        quality: row.quality,
+        quality: row.quality ?? 0,
         personId: row.person_id,
       });
       const img = row.images as unknown as { original_filename: string };

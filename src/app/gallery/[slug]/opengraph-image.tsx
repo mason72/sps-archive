@@ -42,11 +42,13 @@ export default async function OGImage({
   }
 
   // 3. Fetch branding
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("business_name, logo_url, branding")
-    .eq("user_id", event.user_id)
-    .single();
+  const { data: profile } = event.user_id
+    ? await supabase
+        .from("user_profiles")
+        .select("business_name, logo_url, branding")
+        .eq("user_id", event.user_id)
+        .single()
+    : { data: null };
 
   const businessName = profile?.business_name || null;
   const brandColors = (profile?.branding ?? {}) as Record<string, unknown>;

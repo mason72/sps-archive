@@ -195,7 +195,9 @@ async function searchBySemantic(
   const { filterSemanticMatches, SEMANTIC_RPC_THRESHOLD } = await import(
     "@/lib/ai-index/search-filter"
   );
-  const singleEvent = scopeEventIds.length === 1 ? scopeEventIds[0] : null;
+  // Omit rather than pass null — the RPC arg is `uuid default null::uuid`,
+  // so an absent key takes the same all-events path.
+  const singleEvent = scopeEventIds.length === 1 ? scopeEventIds[0] : undefined;
   const { data, error } = await supabase.rpc("search_images_by_embedding", {
     query_embedding: JSON.stringify(embeddings[0]),
     target_user_id: userId,

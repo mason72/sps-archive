@@ -24,7 +24,8 @@ async function main() {
     .select("user_id")
     .eq("name", "Two Dudes Sample Images")
     .single();
-  const userId = seed!.user_id;
+  const userId = seed?.user_id;
+  if (!userId) throw new Error("seed event has no user_id");
 
   const { data: events } = await supabase
     .from("events")

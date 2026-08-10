@@ -20,8 +20,7 @@ function getSubscriptionPeriod(sub: Stripe.Subscription) {
 }
 
 function subscriptionsTable(supabase: ReturnType<typeof createServiceClient>) {
-  // subscriptions table not in generated types yet — cast through unknown
-  return supabase.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof supabase.from>;
+  return supabase.from("subscriptions");
 }
 
 /**
@@ -164,7 +163,7 @@ export async function POST(request: NextRequest) {
               status: "past_due",
               updated_at: new Date().toISOString(),
             })
-            .eq("user_id", (sub as { user_id: string }).user_id);
+            .eq("user_id", sub.user_id);
         }
 
         break;

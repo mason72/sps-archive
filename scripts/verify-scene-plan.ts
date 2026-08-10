@@ -30,6 +30,7 @@ async function main() {
     .eq("id", eventId)
     .single();
   if (!event) throw new Error("event not found");
+  if (!event.user_id) throw new Error("event has no user_id");
 
   const t0 = Date.now();
   const { plan, indexedCount } = await buildScenePlan(

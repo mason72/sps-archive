@@ -70,6 +70,11 @@ export async function GET(
       .eq("id", share.event_id)
       .single();
     if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // events.user_id is nullable — an ownerless event has no owner scope to
+    // search within, so fail closed rather than run the RPC unscoped.
+    if (!event.user_id) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
     const sharing = ((event.settings ?? {}) as { sharing?: { guestSearch?: boolean } })
       .sharing;

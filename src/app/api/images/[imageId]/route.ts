@@ -64,7 +64,9 @@ export async function GET(
 
     // Face-based focal suggestion (single confident subject, eye level) — the
     // focal point picker pre-places its marker here when none is set yet.
-    const suggestedFocal = computeAutoFocal(facesResult.data ?? []);
+    const suggestedFocal = computeAutoFocal(
+      (facesResult.data ?? []).map((f) => ({ ...f, quality: f.quality ?? 0 }))
+    );
 
     return NextResponse.json({
       id: image.id,

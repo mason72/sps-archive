@@ -86,7 +86,7 @@ export async function GET(
           .filter((hex) => /^#[0-9a-fA-F]{6}$/.test(hex));
 
         let authBranding: GalleryBranding | null = null;
-        if (authEvent) {
+        if (authEvent?.user_id) {
           const { data: authProfile } = await supabase
             .from("user_profiles")
             .select("business_name, logo_url, website, branding")
@@ -139,11 +139,13 @@ export async function GET(
 
     // 4. Fetch photographer branding
     let branding: GalleryBranding | null = null;
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("display_name, business_name, logo_url, website, branding")
-      .eq("user_id", event.user_id)
-      .single();
+    const { data: profile } = event.user_id
+      ? await supabase
+          .from("user_profiles")
+          .select("display_name, business_name, logo_url, website, branding")
+          .eq("user_id", event.user_id)
+          .single()
+      : { data: null };
 
     if (profile) {
       const b = (profile.branding ?? {}) as Record<string, unknown>;
@@ -399,6 +401,9 @@ export async function GET(
     after(async () => {
       const svc = createServiceClient();
       await svc.rpc("increment_share_views", { p_share_id: share.id });
+      // activity_log.user_id is NOT NULL — an ownerless event has nothing to
+      // attribute the view to, so skip the log rather than fail the insert.
+      if (!event.user_id) return;
       logActivity({
         userId: event.user_id,
         action: "share_view",

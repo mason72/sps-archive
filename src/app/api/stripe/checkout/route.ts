@@ -33,16 +33,14 @@ export async function POST(request: NextRequest) {
 
     // Get or create Stripe customer
     const service = createServiceClient();
-    // subscriptions table not in generated types yet — cast through unknown
-    const subs = service.from("subscriptions" as unknown as "profiles") as unknown as ReturnType<typeof service.from>;
 
-    const { data: sub } = await subs
+    const { data: sub } = await service
+      .from("subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .single();
 
-    let customerId = (sub as { stripe_customer_id?: string } | null)
-      ?.stripe_customer_id;
+    let customerId = sub?.stripe_customer_id ?? undefined;
 
     if (!customerId) {
       // Create Stripe customer
@@ -53,7 +51,8 @@ export async function POST(request: NextRequest) {
       customerId = customer.id;
 
       // Store customer ID
-      await subs
+      await service
+        .from("subscriptions")
         .update({
           stripe_customer_id: customerId,
           updated_at: new Date().toISOString(),

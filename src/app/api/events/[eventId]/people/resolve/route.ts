@@ -70,7 +70,7 @@ export async function POST(
             id: row.id,
             imageId: row.image_id,
             embedding: JSON.parse(row.embedding as unknown as string),
-            quality: row.quality,
+            quality: row.quality ?? 0,
             filename: (row.images as unknown as { original_filename: string })
               .original_filename,
           });
