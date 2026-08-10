@@ -43,6 +43,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // ─── Ops domain: ops.pixeltrunk.com → /ops/... ───
+  // Auth + is_admin are enforced server-side in src/app/ops/layout.tsx and
+  // requireAdmin() in every /api/ops route (both fail closed), so the rewrite
+  // itself carries no trust. /api/* passes through untouched — the ops UI
+  // calls /api/ops/* by path on whichever host it's served from.
+  if (hostname === "ops.pixeltrunk.com" && !pathname.startsWith("/api/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/ops" : `/ops${pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
   // ─── /m routes accessible directly in dev (localhost:3002/m/...) ───
   if (pathname.startsWith("/m")) {
     // Allow direct access to marketing routes (for dev + internal linking)

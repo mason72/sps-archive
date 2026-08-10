@@ -51,6 +51,19 @@ export const KIND_UNIT_COST: Record<UsageKind, number> = {
  */
 export const ESTIMATED_THUMB_RATIO = 0.03;
 
+/**
+ * Fixed monthly platform overhead — costs that exist regardless of usage,
+ * shown as their own line on /ops so the total is honest. These are
+ * CONFIGURED ESTIMATES, not billed amounts — correct them as real invoices
+ * arrive. The Modal $30/mo free credit is modeled as a negative line: while
+ * measured Modal usage stays under it, AI compute is effectively free.
+ */
+export const PLATFORM_OVERHEAD_MONTHLY: { label: string; monthly: number }[] = [
+  { label: "Vercel Pro", monthly: 20 },
+  { label: "Supabase Pro", monthly: 25 },
+  { label: "Modal free credit offset", monthly: -30 },
+];
+
 /** Cost in dollars for one usage_events row's quantity. */
 export function costOf(kind: UsageKind, quantity: number): number {
   return KIND_UNIT_COST[kind] * quantity;
