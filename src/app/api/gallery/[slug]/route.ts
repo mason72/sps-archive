@@ -9,6 +9,7 @@ import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-se
 import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
 import { detectStackable } from "@/lib/gallery/stackable";
+import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 
 /**
  * GET /api/gallery/[slug]
@@ -44,6 +45,13 @@ export async function GET(
       return NextResponse.json({ error: "This gallery link has expired" }, { status: 410 });
     }
 
+    // What this share is allowed to show, resolved once for every query below.
+    // A type nothing here knows how to narrow serves nothing (see share-scope).
+    const scope = resolveShareImageScope(share);
+    if (scope.kind === "none") {
+      return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+    }
+
     // 2. Check password protection
     if (share.password_hash) {
       const authCookie = request.cookies.get(`gallery_auth_${slug}`);
@@ -77,8 +85,8 @@ export async function GET(
           .limit(32);
         // Selection shares expose only their hand-picked images — even their
         // colors must not describe frames the curation excluded.
-        if (share.share_type === "selection" && share.image_ids?.length) {
-          paletteQuery = paletteQuery.in("id", share.image_ids);
+        if (scope.kind === "images") {
+          paletteQuery = paletteQuery.in("id", scope.imageIds);
         }
         const { data: paletteRows } = await paletteQuery;
         const palette = (paletteRows ?? [])
@@ -203,8 +211,8 @@ export async function GET(
 
       pageQuery = pageQuery.range(imgOffset, imgOffset + IMG_PAGE - 1);
 
-      if (share.share_type === "selection" && share.image_ids?.length) {
-        pageQuery = pageQuery.in("id", share.image_ids);
+      if (scope.kind === "images") {
+        pageQuery = pageQuery.in("id", scope.imageIds);
       }
 
       const { data, error: pageError } = await pageQuery;
@@ -282,8 +290,7 @@ export async function GET(
     // 800 photos fronting 20, and a "Highlights" section that happens to hold 1
     // of those 20, which is what a guest then lands on (share Sg3o4kBF5H opened
     // showing a single photo of the 20 it contained).
-    const isSelectionShare =
-      share.share_type === "selection" && (share.image_ids?.length ?? 0) > 0;
+    const isSelectionShare = scope.kind === "images";
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
     const typography = (eventSettings.typography ?? DEFAULT_EVENT_SETTINGS.typography) as { headingFont: string; bodyFont: string };
     const color = (eventSettings.color ?? DEFAULT_EVENT_SETTINGS.color) as { primary: string; secondary: string; accent: string; background: string };

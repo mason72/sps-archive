@@ -70,13 +70,22 @@ policies from 002 were already dropped live in July, never backported),
 origin fallback removed + rate limited ("forgot" scope).
 - [ ] Individual-download PIN server-side (chip spawned) — presigned originals
       ship in gallery JSON even when require_pin_individual; bulk PIN is fine.
-- [ ] section/person share types fail closed in all 7 guest resolvers (chip
-      spawned) — latent: creatable share types are full/selection only today.
+- [x] section/person share types fail closed — `src/lib/gallery/share-scope.ts`
+      is now the single resolver (`resolveShareImageScope` + `shareScopeIdFilter`,
+      which yields an EMPTY set for a denied scope so a caller who forgets the
+      404 branch still shows nothing). Wired into all 7 audited sites plus two
+      the audit missed: the OG card (`src/app/gallery/[slug]/opengraph-image.tsx`)
+      and the favorites writer (the LOW below). 18 tests incl. a synthetic
+      section-share route test; mutation-checked (reverting the default to
+      `event` turns 8 red). Live DB confirms 22 active shares, all full/selection
+      — zero behavior change, verified by diffing prod vs local `/cover` responses.
 - [ ] LOWs: validate Stripe priceId against plan map (webhook falls back to
       "pro"!); scope site/gallery DELETE website-sections query; ownership-check
       emails/send templateId + eventId before writing to email_sends/usage_events;
-      uniform 404s on processing-status/share-readiness (existence oracle);
-      intersect selection-share favorites writes with image_ids.
+      uniform 404s on processing-status/share-readiness (existence oracle).
+- [x] LOW closed with the above: selection-share favorites writes now intersect
+      `image_ids` — mattered because `/fav-thumb/[imageId]` treats a favorite row
+      as authorization to serve that thumbnail (UUID-guess-gated, but real).
 
 ### Phase 2 — ops.pixeltrunk.com dashboard
 - [ ] ops.pixeltrunk.com domain on the Vercel project + DNS; middleware host branch →

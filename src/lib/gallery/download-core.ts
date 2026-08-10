@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { timingSafeEqualStr } from "@/lib/shares/hash";
 import { verifyDownloadToken } from "@/lib/shares/download-token";
 import { checkAuthRateLimit } from "@/lib/security/rate-limit";
+import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 
 /**
  * Shared core for gallery ZIP downloads — used by the synchronous streaming
@@ -96,6 +97,11 @@ export async function authorizeShareDownload(
   if (share.expires_at && new Date(share.expires_at) < new Date()) {
     return { ok: false, status: 410, message: "Link expired" };
   }
+  // A share type nothing knows how to narrow exposes no images, so there is
+  // nothing to authorize a download of (see share-scope).
+  if (resolveShareImageScope(share).kind === "none") {
+    return { ok: false, status: 404, message: "Gallery not found" };
+  }
   if (!share.allow_download) {
     return { ok: false, status: 403, message: "Downloads not allowed" };
   }
@@ -156,10 +162,14 @@ export async function selectDownloadImages(
   scope: DownloadScope
 ): Promise<SelectionResult> {
   // Paginate: a single select caps at 1000 rows and large events exceed it.
-  const selectionIds =
-    share.share_type === "selection" && share.image_ids?.length
-      ? (share.image_ids as string[])
-      : null;
+  // What the SHARE exposes (distinct from `scope`, which is what the guest
+  // asked for). Re-resolved rather than inherited from the auth call: this
+  // function is exported and the background ZIP builder calls it on its own.
+  const shareScope = resolveShareImageScope(share);
+  if (shareScope.kind === "none") {
+    return { ok: false, status: 404, message: "No images available" };
+  }
+  const selectionIds = shareScope.kind === "images" ? shareScope.imageIds : null;
   const allImages: DownloadImage[] = [];
   const IMG_PAGE = 1000;
   for (let off = 0; ; off += IMG_PAGE) {

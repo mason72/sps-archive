@@ -4,6 +4,7 @@ import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
 import { resolveCoverRasterUrl, fetchMosaicPool, poolLeads } from "@/lib/cover/pool";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 export const runtime = "nodejs";
 export const alt = "Gallery Preview";
@@ -27,6 +28,13 @@ export default async function OGImage({
     .single();
 
   if (!share) {
+    return fallbackImage("Gallery");
+  }
+
+  // A share type nothing knows how to narrow exposes no photos — the card
+  // degrades to the wordmark rather than picking a frame from the event.
+  const scope = resolveShareImageScope(share);
+  if (scope.kind === "none") {
     return fallbackImage("Gallery");
   }
 
@@ -68,12 +76,7 @@ export default async function OGImage({
 
   // Selection shares expose only their hand-picked image_ids — never the
   // whole-section raster or an unselected fallback photo.
-  const selectedIds =
-    share.share_type === "selection" &&
-    Array.isArray(share.image_ids) &&
-    share.image_ids.length > 0
-      ? new Set<string>(share.image_ids)
-      : null;
+  const selectedIds = shareScopeIdFilter(scope);
 
   // Mosaic/solid: composed raster (enqueues a refresh if inputs drifted).
   if (!selectedIds && coverNeedsRaster(cover)) {

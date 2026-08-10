@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
 import { resolveCoverRasterUrl, fetchMosaicPool, poolLeads } from "@/lib/cover/pool";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
  * GET /api/gallery/[slug]/cover
@@ -39,6 +40,11 @@ export async function GET(
       return NextResponse.json({ error: "Expired" }, { status: 410 });
     }
 
+    const scope = resolveShareImageScope(share);
+    if (scope.kind === "none") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     const { data: event } = await supabase
       .from("events")
       .select("settings")
@@ -50,13 +56,9 @@ export async function GET(
 
     // Selection shares expose only their hand-picked image_ids — the raster
     // (composed from the whole source section) and any unselected fallback
-    // must never leak photos the curation deliberately excluded.
-    const selectedIds =
-      share.share_type === "selection" &&
-      Array.isArray(share.image_ids) &&
-      share.image_ids.length > 0
-        ? new Set<string>(share.image_ids)
-        : null;
+    // must never leak photos the curation deliberately excluded. `null` here
+    // means an unrestricted (full) share, never "unknown type".
+    const selectedIds = shareScopeIdFilter(scope);
 
     // Mosaic/solid covers serve the composed raster (stale-while-revalidate;
     // resolveCoverRasterUrl enqueues a refresh when inputs drifted). Falls
