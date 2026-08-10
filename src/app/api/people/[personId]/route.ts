@@ -19,8 +19,10 @@ export async function PATCH(
     if (authError) return authError;
 
     const body = (await request.json()) as { name?: string | null };
-    const name =
+    let name =
       typeof body.name === "string" ? body.name.trim().slice(0, 120) || null : null;
+    // Typing the UI's own "Unnamed" label is a request to clear, not a name.
+    if (name && name.toLowerCase() === "unnamed") name = null;
 
     const { data: person } = await supabase
       .from("persons")

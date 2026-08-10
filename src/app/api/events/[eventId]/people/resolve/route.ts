@@ -43,6 +43,7 @@ export async function POST(
       intoId?: string;
       key?: string;
       fullName?: string;
+      manual?: boolean;
       groups?: { name?: string | null; faceIds: string[] }[];
     };
 
@@ -99,6 +100,23 @@ export async function POST(
       const filenameOf = new Map(faces.map((f) => [f.imageId, f.filename]));
       const proposal = proposeSplit(faces, filenameOf, extractPersonName, isPersonLike);
       if (!proposal) {
+        // Manual split (opened from the person modal, no suggestion card):
+        // the photographer knows better than the algorithm — hand them all
+        // the faces in one column and let them click photos across.
+        if (body.manual) {
+          return NextResponse.json({
+            proposal: {
+              basis: "manual",
+              groups: [
+                {
+                  seedName: person.name,
+                  faces: faces.map((f) => ({ faceId: f.id, imageId: f.imageId })),
+                },
+                { seedName: null, faces: [] },
+              ],
+            },
+          });
+        }
         return NextResponse.json({
           proposal: null,
           message: "These faces don't separate cleanly — this looks like one person.",
