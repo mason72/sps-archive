@@ -25,6 +25,10 @@ export interface PlanConfig {
   storageLimitGB: number;
   eventLimit: number | null; // null = unlimited
   seatLimit: number;
+  /** Monthly list price in USD (null = custom). Must match the marketing
+   *  pricing page (src/app/m/pricing/page.tsx) — used by the ops pricing
+   *  summary to map measured usage onto a tier and compute margin. */
+  monthlyPriceUsd: number | null;
   features: {
     proofing: boolean;
     batchOps: boolean;
@@ -35,6 +39,7 @@ export interface PlanConfig {
 export const PLANS: Record<PlanId, PlanConfig> = {
   free: {
     name: "Free",
+    monthlyPriceUsd: 0,
     storageLimitGB: 10,
     eventLimit: 1,
     seatLimit: 1,
@@ -42,6 +47,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
   solo: {
     name: "Solo",
+    monthlyPriceUsd: 25,
     storageLimitGB: 100,
     eventLimit: null,
     seatLimit: 1,
@@ -49,6 +55,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
   pro: {
     name: "Pro",
+    monthlyPriceUsd: 59,
     storageLimitGB: 750,
     eventLimit: null,
     seatLimit: 3,
@@ -56,6 +63,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
   studio: {
     name: "Studio",
+    monthlyPriceUsd: 99,
     storageLimitGB: 2048,
     eventLimit: null,
     seatLimit: 10,
@@ -63,6 +71,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
   enterprise: {
     name: "Enterprise",
+    monthlyPriceUsd: null,
     storageLimitGB: Infinity,
     eventLimit: null,
     seatLimit: Infinity,

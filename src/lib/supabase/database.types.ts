@@ -560,6 +560,24 @@ export type Database = {
           },
         ]
       }
+      ops_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       persons: {
         Row: {
           created_at: string

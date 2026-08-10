@@ -14,6 +14,10 @@ import {
   aiIndex,
   faceCluster,
 } from "@/lib/inngest/functions";
+import {
+  usageAnomalyDaily,
+  pricingSummaryWeekly,
+} from "@/lib/inngest/ops-functions";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
 // execution route the Fluid ceiling, same reasoning as the download route.
@@ -34,5 +38,7 @@ export const { GET, POST, PUT } = serve({
     autoFocal,
     aiIndex,
     faceCluster,
+    usageAnomalyDaily,
+    pricingSummaryWeekly,
   ],
 });

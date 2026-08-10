@@ -42,6 +42,13 @@ type Events = {
   "reconciler/run": {
     data: Record<string, never>;
   };
+  // Manual triggers for the ops crons (first-run verification, on-demand).
+  "ops/anomaly.run": {
+    data: Record<string, never>;
+  };
+  "ops/pricing-summary.run": {
+    data: Record<string, never>;
+  };
   // Recompose the cover raster (mosaic/solid) for email/OG serving.
   "cover/raster.generate": {
     data: {

@@ -116,13 +116,29 @@ origin fallback removed + rate limited ("forgot" scope).
       (they ARE system_errors rows) — consider a separate "reports" section;
       browser-pane a11y tree flaked during QA (tooling, not app).
 
-### Phase 3 — Alerts + weekly pricing summary
-- [ ] Daily Inngest cron: per-user daily cost; alert via reportSystemError rail when
-      > 2× max(7-day avg, baseline). Baseline stored in an ops-editable config row,
-      seeded from measured TDP usage after ~a week of data.
-- [ ] Weekly Inngest cron → email to Mason: per-user activity/storage/cost, mapped
-      pricing tier (stripe/config.ts plans finally earn their keep), implied margin.
-- [ ] Verify both crons on their first real run (verify-automations rule).
+### Phase 3 — Alerts + weekly pricing summary — SHIPPED 2026-08-10
+- [x] usage-anomaly-daily (Inngest, 8:07am PT + ops/anomaly.run trigger):
+      yesterday > multiplier × max(7d avg, baseline) per user; ONE
+      reportSystemError carries all flagged users (throttle can't swallow the
+      second). Knobs in ops_config key "anomaly" (migration 042), baseline
+      seeded $1/day — RECALIBRATE from measured TDP usage after ~a week.
+- [x] pricing-summary-weekly (Mon 8:11am PT + ops/pricing-summary.run):
+      shadow invoice to ADMIN_ALERT_EMAIL via getUsageOverview (same numbers
+      as /ops by construction); tier fit from PLANS (monthlyPriceUsd added —
+      must match m/pricing page) + implied margin.
+- [x] First real run verified (scripts/verify-ops-crons.ts): anomaly checked
+      cleanly, summary SENT to mason@ for 2 accounts.
+- [ ] verify-automations follow-up: confirm the 8:07/8:11am PT cron firings
+      actually happen after the next deploy registers them (check Inngest
+      dashboard or system_errors tomorrow).
+
+### Also shipped 2026-08-10 (unplanned, Mason requests)
+- [x] Personal admin account mason@twodudesphoto.com (is_admin), shared
+      info@ demoted; admin-only Ops nav link.
+- [x] Admin act-as (signed cookie, real-identity ops gate, banner, "work as"
+      on /ops) — Mason works in the team account without its password.
+      Future: real workspace/team model for joey@/justin@ (content owned by
+      a team, not a user) — a proper migration, not scheduled.
 
 ### Verification gates
 - [ ] Bypass test: direct anon signUp fails; non-whitelisted email 403s; whitelisted joins.
