@@ -345,7 +345,9 @@ function CompareModal({
         className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-white p-8"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-6">
+        {/* Actions live in the header — long photo grids must never scroll
+            the decision off-screen. */}
+        <div className="flex items-start justify-between gap-6 mb-6 flex-wrap">
           <div>
             <h2 className="font-editorial text-2xl text-stone-900">
               Is this {card.personName}?
@@ -355,12 +357,26 @@ function CompareModal({
               {card.personName}.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={onDismiss}
+              className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
+            >
+              Not the same — dismiss
+            </button>
+            <button
+              onClick={onFix}
+              className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors"
+            >
+              It&apos;s {card.personName.split(" ")[0]} — fix the name
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -401,20 +417,6 @@ function CompareModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 mt-8">
-          <button
-            onClick={onDismiss}
-            className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
-          >
-            Not the same — dismiss
-          </button>
-          <button
-            onClick={onFix}
-            className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors"
-          >
-            It&apos;s {card.personName.split(" ")[0]} — fix the name
-          </button>
-        </div>
       </div>
     </div>
   );
