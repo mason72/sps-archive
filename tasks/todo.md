@@ -20,35 +20,48 @@ metering and an ops dashboard. Decided with Mason 2026-08-10:
 - **Thorough error logging**: `system_errors` gains user_id/event_id; every new surface
   reports through `reportSystemError`.
 
-### Phase 0 — Lock the door (before any invite goes out)
-- [ ] Verify prod signup gate: is `ALLOWED_SIGNUP_EMAILS` set in Vercel? (If unset,
-      signup is currently OPEN.)
-- [ ] Close the bypass: disable public email signups in Supabase auth settings
-      (our route uses `admin.createUser`, unaffected). Verify direct
-      `supabase.auth.signUp()` with anon key now fails.
-- [ ] Migration: `is_admin boolean` on `user_profiles` (default false, true for Mason).
-- [ ] Migration: `allowed_signups` (email PK, invited_by, invited_at, joined_at, note).
-      Signup route checks the table (service client, case-insensitive); seed with
-      current env-var value; mark joined_at on successful signup.
+### Phase 0 — Lock the door (before any invite goes out) — DONE 2026-08-10 (de91ba3)
+- [x] Prod signup gate verified: `ALLOWED_SIGNUP_EMAILS` WAS set in Vercel (160d).
+      Now retired from code; env var can be deleted from Vercel (harmless if left).
+      `.env.example:34` still shows it — protected file, Mason to edit.
+- [x] Bypass closed: public signups disabled in Supabase dashboard (sps-prism,
+      hfusdrtrizabzzcdhnyy). Verified: direct anon signUp → 422 signup_disabled;
+      admin.createUser still works (probe user created + deleted).
+      NOTE: mailer_autoconfirm was ON — the bypass gave instant confirmed accounts.
+- [x] Migration 037_alpha_access applied live: is_admin (seeded true for
+      info@twodudesphoto.com) + allowed_signups (seeded, joined_at set).
+- [x] Signup route on the table, fail-closed, joined_at write-back,
+      reportSystemError. Types hand-delta'd (CLI gen clobbered the file again —
+      restored from git; use the Supabase MCP generate_typescript_types instead).
 
-### Phase 1 — Metering at the source
-- [ ] Migration: `usage_events` (id, user_id, event_id, kind, quantity, unit,
-      metadata jsonb, created_at) + indexes on (user_id, created_at) and (kind, created_at).
-      Service-role writes only; RLS deny-all to clients.
-- [ ] `src/lib/usage/` — `recordUsage()` (never throws into the caller's path) +
-      `costs.ts` unit-cost table (Modal $/s per GPU type, R2 $/GB-mo, Resend $/send,
-      egress $/GB). ONE home, imported everywhere.
-- [ ] Instrument Modal lanes with measured wall-time: ai_index batches
-      (src/lib/ai-index/index-event.ts — timing already measured, currently discarded),
-      embed_text (search + gallery + scene-plan), embed_selfie, video processing.
-- [ ] Instrument: zip builds (size_bytes exists), cover raster, email sends — including
-      the 5 paths that bypass email_sends (signup, reset, alerts, digest, reconciler).
-- [ ] Record thumbnail variant bytes at generation (metadata on images or usage event) —
-      stops the R2 number undercounting by the ~3-variant overhead.
-- [ ] Migration: `system_errors` + user_id/event_id (nullable); `reportSystemError`
-      accepts + passes them; update call sites with user context.
-- [ ] Storage rollup helper: per-user sum(images.file_size) + thumb bytes + zip artifacts
-      — one exported function, used by dashboard AND weekly summary (same-code-path rule).
+### Phase 1 — Metering at the source — DONE 2026-08-10
+- [x] Migration 040_usage_metering applied live (renumbered from 038 — a
+      parallel session's events-user_id-NOT-NULL migration took 038): usage_events (+2 indexes, RLS
+      deny-all), images.thumb_bytes, system_errors.user_id/event_id, and the
+      get_user_storage(p_user_id) SQL rollup (one authoritative storage home).
+- [x] src/lib/usage/: costs.ts (real Modal prices fetched 2026-08-10: T4
+      $0.000164/s, CPU+mem composite for embed_text/video; R2 $0.015/GB-mo;
+      egress is FREE on R2 — no egress meter needed. $30/mo Modal free credits
+      = overhead offset), record.ts (never throws; failures → reportSystemError),
+      storage.ts (stock rollup, thumb estimate for pre-metering rows).
+- [x] embed_text unified into src/lib/ai-index/embed-text.ts — ONE client for
+      archive search / guest search / scene-plan (3 copy-pasted fetches deleted);
+      guest work bills the event owner. ai_index + selfie + video timed at the
+      fetch. NOTE: video posters written by Modal have unknown thumb_bytes (NULL
+      → estimated).
+- [x] zip_build (bytes), cover_raster, email_send (gallery emails w/ recipient
+      count + favorites digest) metered. Signup/reset/alert emails deliberately
+      NOT metered — system overhead, not user cost.
+- [x] thumb_bytes written at all 7 generation sites (upload proxy, complete,
+      Inngest, reconciler, regenerate, batch, site-scene). Pre-existing rows
+      estimated at ESTIMATED_THUMB_RATIO=0.03 (recalibrate from measured rows
+      later; backfill via R2 listing possible if we ever care).
+- [x] reportSystemError lifts userId/eventId from `detail` into the new
+      queryable columns — existing call sites that already pass them get
+      attribution for free.
+- [x] VERIFIED LIVE (scripts/verify-usage-metering.ts): real embed round-trip →
+      usage_events row (16.186s, $0.000428) → storage rollup 73.53 GB
+      (71.39 originals + 2.14 est. thumbs). 319 tests, build green.
 
 ### Phase 2 — ops.pixeltrunk.com dashboard
 - [ ] ops.pixeltrunk.com domain on the Vercel project + DNS; middleware host branch →

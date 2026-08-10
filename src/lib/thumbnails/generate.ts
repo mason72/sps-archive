@@ -30,6 +30,8 @@ export interface ThumbnailResult {
   height: number | null;
   /** "#RRGGBB" dominant hue — the gallery's loading-placeholder color (G1). */
   dominantColor: string | null;
+  /** Real R2 bytes of the three variants summed — persist to images.thumb_bytes. */
+  thumbBytes: number;
 }
 
 /**
@@ -118,7 +120,7 @@ export async function generateThumbnailsFromBuffer(
 
       const key = buildImageKey(eventId, thumbFilename, variant.name);
       await uploadToR2(key, resized, "image/jpeg");
-      return { variant: variant.name, key };
+      return { variant: variant.name, key, bytes: resized.length };
     })
   );
 
@@ -129,5 +131,6 @@ export async function generateThumbnailsFromBuffer(
     width,
     height,
     dominantColor,
+    thumbBytes: results.reduce((sum, r) => sum + r.bytes, 0),
   };
 }

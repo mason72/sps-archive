@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
+import { reportSystemError } from "@/lib/monitoring/report";
 import { resetPasswordEmailHtml } from "@/lib/emails/reset-password-template";
 
 /**
@@ -22,7 +24,33 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient();
-    const origin = process.env.NEXT_PUBLIC_APP_URL || request.headers.get("origin") || "";
+
+    // Recovery emails are a real send per request — rate-limit per address+IP
+    // so one target can't be email-bombed through us.
+    const limited = !(await checkAuthRateLimit(
+      supabase,
+      "forgot",
+      email.trim().toLowerCase(),
+      clientIp(request)
+    ));
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
+    // Never fall back to the request's Origin header: an attacker-supplied
+    // Origin would wrap a REAL recovery token in an attacker-controlled link
+    // (account takeover if the env var were ever unset). Fail loudly instead.
+    const origin = process.env.NEXT_PUBLIC_APP_URL;
+    if (!origin) {
+      await reportSystemError(
+        "auth.forgot-password",
+        "NEXT_PUBLIC_APP_URL is not set — refusing to build recovery links"
+      );
+      return NextResponse.json(
+        { error: "Something went wrong. Please try again." },
+        { status: 500 }
+      );
+    }
 
     // Generate a recovery link (requires service role)
     const { data, error: linkError } = await supabase.auth.admin.generateLink({

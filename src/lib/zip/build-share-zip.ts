@@ -10,6 +10,7 @@ import {
 import { appendImagesToArchive, missingFilesManifest } from "./append-images";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { logActivity } from "@/lib/analytics/log";
+import { recordUsage } from "@/lib/usage/record";
 
 /**
  * Build one zip_jobs row: stream the archive straight into R2 (multipart,
@@ -116,6 +117,15 @@ export async function buildShareZip(jobId: string): Promise<{
       .eq("id", jobId);
 
     if (selection.eventUserId) {
+      // Awaited: the step ends right after this — void would drop the row.
+      await recordUsage({
+        userId: selection.eventUserId,
+        eventId: share.event_id,
+        kind: "zip_build",
+        quantity: sizeBytes,
+        unit: "bytes",
+        metadata: { imageCount: selection.images.length, jobId },
+      });
       logActivity({
         userId: selection.eventUserId,
         action: "gallery_download",

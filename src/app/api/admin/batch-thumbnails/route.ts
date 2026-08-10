@@ -79,10 +79,10 @@ export async function POST(request: NextRequest) {
       const batch = images.slice(i, i + concurrency);
       const results = await Promise.allSettled(
         batch.map(async (image) => {
-          await generateThumbnails(image.r2_key, image.event_id, image.filename);
+          const thumbs = await generateThumbnails(image.r2_key, image.event_id, image.filename);
           await supabase
             .from("images")
-            .update({ thumbnail_generated: true })
+            .update({ thumbnail_generated: true, thumb_bytes: thumbs.thumbBytes })
             .eq("id", image.id);
         })
       );

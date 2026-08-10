@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
           image.filename
         );
         updateData.thumbnail_generated = true;
+        updateData.thumb_bytes = result.thumbBytes;
         // Backfill real pixel dimensions if the client didn't supply them.
         if (!width && result.width) updateData.width = result.width;
         if (!height && result.height) updateData.height = result.height;

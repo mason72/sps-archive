@@ -64,11 +64,13 @@ export async function PUT(
     //    the ffmpeg pipeline that /api/upload/complete dispatches.
     let thumbnailed = false;
     let dominantColor: string | null = null;
+    let thumbBytes: number | null = null;
     let dims: { width: number | null; height: number | null } = { width: null, height: null };
     if (image.media_type !== "video") {
       try {
         const thumbs = await generateThumbnailsFromBuffer(body, image.event_id, image.filename);
         dominantColor = thumbs.dominantColor;
+        thumbBytes = thumbs.thumbBytes;
         dims = { width: thumbs.width, height: thumbs.height };
         thumbnailed = true;
       } catch (thumbErr) {
@@ -92,6 +94,7 @@ export async function PUT(
         .from("images")
         .update({
           thumbnail_generated: true,
+          ...(thumbBytes != null ? { thumb_bytes: thumbBytes } : {}),
           ...(dims.width ? { width: dims.width } : {}),
           ...(dims.height ? { height: dims.height } : {}),
           ...(dominantColor ? { dominant_color: dominantColor } : {}),

@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { recordUsage } from "@/lib/usage/record";
 import {
   selectDigestCandidates,
   buildDigestEmailBody,
@@ -129,6 +130,15 @@ export async function sendShareDigest(
     });
     throw new Error(`Resend ${res.status}: ${err.slice(0, 200)}`);
   }
+
+  await recordUsage({
+    userId: event.user_id,
+    eventId: candidate.eventId,
+    kind: "email_send",
+    quantity: 1,
+    unit: "emails",
+    metadata: { purpose: "favorites_digest", shareId: candidate.shareId },
+  });
 
   // Watermark AFTER a successful send — a failed send retries next cron tick.
   const { error: markError } = await supabase

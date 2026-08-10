@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { recordUsage } from "@/lib/usage/record";
 import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
 
@@ -187,8 +188,20 @@ export async function POST(request: NextRequest) {
         if (!res.ok) {
           const err = await res.json();
           console.error("Resend API error:", err);
-          void reportSystemError("emails.send", JSON.stringify(err));
+          void reportSystemError("emails.send", JSON.stringify(err), {
+            userId: user!.id,
+            eventId: eventId || undefined,
+          });
           status = "failed";
+        } else {
+          await recordUsage({
+            userId: user!.id,
+            eventId: eventId || null,
+            kind: "email_send",
+            quantity: recipients.length,
+            unit: "emails",
+            metadata: { purpose: "gallery_email" },
+          });
         }
       } catch (err) {
         console.error("Resend send failed:", err);

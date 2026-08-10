@@ -38,11 +38,19 @@ export async function reportSystemError(
     const resendKey = process.env.RESEND_API_KEY;
     const shouldNotify = !recent?.length && !!adminEmail && !!resendKey;
 
+    // Alpha triage: if the caller's detail carries userId/eventId (many
+    // already do), lift them into the queryable attribution columns so
+    // "whose action broke it" is one WHERE clause, not a jsonb dig.
+    const userId = typeof detail?.userId === "string" ? detail.userId : null;
+    const eventId = typeof detail?.eventId === "string" ? detail.eventId : null;
+
     await supabase.from("system_errors").insert({
       context,
       message,
       detail: detail ? JSON.parse(JSON.stringify(detail)) : null,
       notified: shouldNotify,
+      user_id: userId,
+      event_id: eventId,
     });
 
     if (shouldNotify) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { embedTexts } from "@/lib/ai-index/embed-text";
 import { createServiceClient } from "@/lib/supabase/server";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
@@ -82,17 +83,12 @@ export async function GET(
       return NextResponse.json({ error: "Search disabled" }, { status: 403 });
     }
 
-    const embedRes = await fetch(process.env.MODAL_AI_EMBED_TEXT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pipeline_key: process.env.VIDEO_PIPELINE_KEY,
-        texts: [query],
-      }),
-      signal: AbortSignal.timeout(45_000),
+    // Guest search bills the event owner (see embed-text.ts).
+    const embeddings = await embedTexts([query], {
+      userId: event.user_id,
+      eventId: share.event_id,
+      purpose: "guest_search",
     });
-    if (!embedRes.ok) throw new Error(`embed_text ${embedRes.status}`);
-    const { embeddings } = (await embedRes.json()) as { embeddings: number[][] };
 
     const { data: matches, error: rpcErr } = await supabase.rpc(
       "search_images_by_embedding",

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { embedTexts } from "@/lib/ai-index/embed-text";
+
+// A cold Modal start is ~16s measured; without this, default function limits
+// could kill a cold-start search before the embed client's own 45s abort.
+export const maxDuration = 60;
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -169,20 +174,11 @@ async function searchBySemantic(
   scopeEventIds: string[],
   limit: number
 ) {
-  const embeddingResponse = await fetch(process.env.MODAL_AI_EMBED_TEXT_URL!, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pipeline_key: process.env.VIDEO_PIPELINE_KEY,
-      texts: [query],
-    }),
+  const embeddings = await embedTexts([query], {
+    userId,
+    eventId: scopeEventIds.length === 1 ? scopeEventIds[0] : null,
+    purpose: "archive_search",
   });
-
-  if (!embeddingResponse.ok) {
-    throw new Error(`Failed to generate text embedding (${embeddingResponse.status})`);
-  }
-
-  const { embeddings } = (await embeddingResponse.json()) as { embeddings: number[][] };
 
   // The RPC requires the caller's user id and scopes at the DB level (a caller
   // cannot forget ownership). The post-filter below is belt-and-suspenders.

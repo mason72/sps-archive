@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { recordUsage, secondsSince } from "@/lib/usage/record";
 
 export const runtime = "nodejs";
 
@@ -83,6 +84,7 @@ export async function POST(
     }
 
     // Embed in memory on Modal; nothing is persisted anywhere.
+    const embedStarted = Date.now();
     const embedRes = await fetch(process.env.MODAL_AI_SELFIE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -93,6 +95,14 @@ export async function POST(
       signal: AbortSignal.timeout(60_000),
     });
     if (!embedRes.ok) throw new Error(`embed_selfie ${embedRes.status}`);
+    // Guest selfie search bills the event owner. Awaited — see embed-text.ts.
+    await recordUsage({
+      userId: event.user_id,
+      eventId: share.event_id,
+      kind: "ai_embed_selfie",
+      quantity: secondsSince(embedStarted),
+      unit: "seconds",
+    });
     const { faces } = (await embedRes.json()) as {
       faces: { embedding: number[] | null; quality: number }[];
     };

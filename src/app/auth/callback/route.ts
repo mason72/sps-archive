@@ -12,8 +12,12 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
   const type = searchParams.get("type");
-  // Recovery flows always go to /reset-password regardless of `next`
-  const next = type === "recovery" ? "/reset-password" : (searchParams.get("next") || "/");
+  // Recovery flows always go to /reset-password regardless of `next`.
+  // `next` must be a same-origin path: "https://evil.com" or "//evil.com"
+  // would bounce a freshly-authenticated user off-site (open redirect).
+  const rawNext = searchParams.get("next") || "/";
+  const safeNext = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  const next = type === "recovery" ? "/reset-password" : safeNext;
 
   if (code) {
     const response = NextResponse.redirect(new URL(next, origin));

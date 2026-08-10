@@ -15,6 +15,7 @@
  * event — the apply route consumes the "Unsorted" intake afterwards, which is
  * only safe under full coverage.
  */
+import { embedTexts } from "@/lib/ai-index/embed-text";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 import { taxonomyByKey, type SceneTaxonomy } from "./scene-taxonomies";
@@ -116,19 +117,12 @@ export async function buildScenePlan(
 }> {
   const taxonomy = taxonomyByKey(taxonomyKey);
   if (!taxonomy) throw new Error(`Unknown taxonomy "${taxonomyKey}"`);
-  if (!process.env.MODAL_AI_EMBED_TEXT_URL) throw new Error("AI search is not configured");
 
-  const embedRes = await fetch(process.env.MODAL_AI_EMBED_TEXT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pipeline_key: process.env.VIDEO_PIPELINE_KEY,
-      texts: taxonomy.scenes.map((s) => s.prompt),
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!embedRes.ok) throw new Error(`embed_text ${embedRes.status}`);
-  const { embeddings } = (await embedRes.json()) as { embeddings: number[][] };
+  const embeddings = await embedTexts(
+    taxonomy.scenes.map((s) => s.prompt),
+    { userId: ownerUserId, eventId, purpose: "scene_plan" },
+    60_000
+  );
 
   // Score every indexed image against every label — exact, no ANN. PAGED:
   // PostgREST caps RPC responses at 1000 rows like any other read (lesson 39

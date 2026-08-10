@@ -6,6 +6,7 @@ import { syncSitePublication } from "@/lib/site/membership";
 import { processVideoViaModal } from "@/lib/video/process";
 import { findDigestCandidates, sendShareDigest } from "@/lib/favorites/digest-send";
 import { buildShareZip } from "@/lib/zip/build-share-zip";
+import { recordUsage } from "@/lib/usage/record";
 import { deleteFromR2, objectExistsInR2 } from "@/lib/r2/client";
 
 /**
@@ -73,6 +74,7 @@ export const processUploadedImage = inngest.createFunction(
         .update({
           thumbnail_generated: true,
           processing_status: "complete",
+          thumb_bytes: thumbs.thumbBytes,
           ...(thumbs.dominantColor ? { dominant_color: thumbs.dominantColor } : {}),
         })
         .eq("id", imageId);
@@ -111,10 +113,19 @@ export const processUploadedVideo = inngest.createFunction(
   },
   { event: "video/uploaded" },
   async ({ event, step }) => {
-    const { imageId, r2Key } = event.data;
+    const { imageId, eventId, r2Key } = event.data;
 
     const probe = await step.run("probe-and-poster", async () => {
-      return processVideoViaModal(r2Key);
+      const supabase = createServiceClient();
+      const { data: owner } = await supabase
+        .from("events")
+        .select("user_id")
+        .eq("id", eventId)
+        .single();
+      return processVideoViaModal(
+        r2Key,
+        owner?.user_id ? { userId: owner.user_id, eventId } : undefined
+      );
     });
 
     if (!probe.ok) {
@@ -435,6 +446,7 @@ export const uploadReconciler = inngest.createFunction(
               row.filename
             );
             update.thumbnail_generated = true;
+            update.thumb_bytes = thumbs.thumbBytes;
             if (!row.width && thumbs.width) update.width = thumbs.width;
             if (!row.height && thumbs.height) update.height = thumbs.height;
             if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
@@ -650,9 +662,26 @@ export const coverRaster = inngest.createFunction(
   { event: "cover/raster.generate" },
   async ({ event, step }) => {
     const { composeCoverRaster } = await import("@/lib/cover/raster");
-    const key = await step.run("compose", () =>
-      composeCoverRaster(event.data.eventId)
-    );
+    const key = await step.run("compose", async () => {
+      const composed = await composeCoverRaster(event.data.eventId);
+      const supabase = createServiceClient();
+      const { data: owner } = await supabase
+        .from("events")
+        .select("user_id")
+        .eq("id", event.data.eventId)
+        .single();
+      if (owner?.user_id) {
+        // Awaited: last statement of the step — void would lose the row.
+        await recordUsage({
+          userId: owner.user_id,
+          eventId: event.data.eventId,
+          kind: "cover_raster",
+          quantity: 1,
+          unit: "images",
+        });
+      }
+      return composed;
+    });
     return { eventId: event.data.eventId, key };
   }
 );

@@ -4,6 +4,7 @@ import {
   getThumbnailKey,
   getVideoDisplayKey,
 } from "@/lib/r2/client";
+import { recordUsage, secondsSince } from "@/lib/usage/record";
 
 /**
  * Bridge to the Modal video pipeline (modal/video_pipeline.py).
@@ -31,7 +32,10 @@ export interface VideoProcessResult {
   hasAudio: boolean;
 }
 
-export async function processVideoViaModal(r2Key: string): Promise<VideoProcessResult> {
+export async function processVideoViaModal(
+  r2Key: string,
+  attribution?: { userId: string; eventId?: string | null }
+): Promise<VideoProcessResult> {
   const url = process.env.VIDEO_PIPELINE_URL;
   if (!url) {
     throw new Error(
@@ -50,6 +54,7 @@ export async function processVideoViaModal(r2Key: string): Promise<VideoProcessR
       : getPresignedUploadUrl(displayKey, "video/mp4", 3600),
   ]);
 
+  const started = Date.now();
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -65,6 +70,18 @@ export async function processVideoViaModal(r2Key: string): Promise<VideoProcessR
     throw new Error(
       `Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`
     );
+  }
+
+  // Awaited: this runs at the tail of an Inngest step — a void insert races
+  // the invocation freeze and loses the row.
+  if (attribution) {
+    await recordUsage({
+      userId: attribution.userId,
+      eventId: attribution.eventId,
+      kind: "video_process",
+      quantity: secondsSince(started),
+      unit: "seconds",
+    });
   }
 
   const json = (await res.json()) as {

@@ -282,10 +282,12 @@ export async function POST(
 
     let width: number | null = null;
     let height: number | null = null;
+    let thumbBytes: number | null = null;
     try {
       const thumbs = await generateThumbnailsFromBuffer(buffer, eventId, filename);
       width = thumbs.width;
       height = thumbs.height;
+      thumbBytes = thumbs.thumbBytes;
     } catch (thumbErr) {
       console.error("Site scene POST thumbnail error:", thumbErr);
       return NextResponse.json(
@@ -302,6 +304,7 @@ export async function POST(
       original_filename: body.filename || filename,
       r2_key: r2Key,
       file_size: buffer.length,
+      thumb_bytes: thumbBytes,
       mime_type: mimeType,
       media_type: "image",
       processing_status: "complete",

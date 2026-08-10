@@ -20,6 +20,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { recordUsage, secondsSince } from "@/lib/usage/record";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -95,6 +96,15 @@ export async function indexEventBatch(
     ),
   };
 
+  // Owner looked up BEFORE the clock starts so the metered seconds are pure
+  // Modal wall-time, not Modal + a DB roundtrip.
+  const { data: owner } = await supabase
+    .from("events")
+    .select("user_id")
+    .eq("id", eventId)
+    .single();
+
+  const started = Date.now();
   const res = await fetch(process.env.MODAL_AI_INDEX_URL!, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -109,6 +119,24 @@ export async function indexEventBatch(
     results: Record<string, IndexedImage>;
     errors: Record<string, string>;
   };
+
+  // Meter the GPU round-trip against the event owner. events.user_id is
+  // nullable — ownerless events just go unmetered. Awaited: a void insert
+  // races the Inngest step boundary and drops the final batch's row.
+  if (owner?.user_id) {
+    await recordUsage({
+      userId: owner.user_id,
+      eventId,
+      kind: "ai_index",
+      quantity: secondsSince(started),
+      unit: "seconds",
+      metadata: {
+        images: batch.length,
+        indexed: Object.keys(out.results).length,
+        errors: Object.keys(out.errors).length,
+      },
+    });
+  }
 
   const indexedIds = Object.keys(out.results);
   let faceCount = 0;

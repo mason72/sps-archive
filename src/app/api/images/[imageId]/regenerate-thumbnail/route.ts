@@ -73,12 +73,13 @@ export async function POST(
     // Rebuild all three thumbnail sizes from the original.
     try {
       const thumbs = await generateThumbnails(image.r2_key, image.event_id, image.filename);
-      if (thumbs.dominantColor) {
-        await supabase
-          .from("images")
-          .update({ dominant_color: thumbs.dominantColor })
-          .eq("id", imageId);
-      }
+      await supabase
+        .from("images")
+        .update({
+          thumb_bytes: thumbs.thumbBytes,
+          ...(thumbs.dominantColor ? { dominant_color: thumbs.dominantColor } : {}),
+        })
+        .eq("id", imageId);
     } catch (genErr) {
       console.error(`Regenerate thumbnail failed for ${imageId}:`, genErr);
       // NoSuchKey = the ORIGINAL is gone: this is a ghost row (a DB record
