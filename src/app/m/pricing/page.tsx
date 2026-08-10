@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { BrandButton } from "@/components/ui/brand-button";
 import { Check, Minus } from "lucide-react";
 
@@ -368,7 +369,7 @@ export default function PricingPage() {
 
                 {/* CTA */}
                 {plan.highlight ? (
-                  <a href="/#invite">
+                  <Link href="/#invite">
                     <BrandButton
                       size="sm"
                       color="emerald"
@@ -376,7 +377,7 @@ export default function PricingPage() {
                     >
                       {plan.cta}
                     </BrandButton>
-                  </a>
+                  </Link>
                 ) : isEnterprise ? (
                   <a
                     href="mailto:hello@pixeltrunk.com"
@@ -385,12 +386,12 @@ export default function PricingPage() {
                     Contact Us
                   </a>
                 ) : (
-                  <a
+                  <Link
                     href="/#invite"
                     className="inline-flex items-center justify-center h-8 px-4 text-[11px] uppercase tracking-[0.12em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300 whitespace-nowrap"
                   >
                     {plan.cta}
-                  </a>
+                  </Link>
                 )}
               </div>
             );
@@ -427,11 +428,11 @@ export default function PricingPage() {
           Want in?
         </p>
         <div className="reveal" style={{ animationDelay: "0.05s" }}>
-          <a href="/#invite">
+          <Link href="/#invite">
             <BrandButton size="lg" color="emerald" celebrate>
               Request an Invite
             </BrandButton>
-          </a>
+          </Link>
         </div>
         <p
           className="mt-3 text-[12px] text-stone-300 reveal"
