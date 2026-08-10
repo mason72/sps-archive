@@ -84,6 +84,8 @@ export interface GallerySettings {
   favoriteMilestones?: boolean;
   /** Guest semantic search enabled for this gallery (default true). */
   guestSearch?: boolean;
+  /** Guest selfie search enabled for this gallery (opt-in, default false). */
+  selfieSearch?: boolean;
 }
 
 export interface GallerySection {

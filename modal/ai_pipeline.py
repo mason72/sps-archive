@@ -135,6 +135,31 @@ class AIIndexer:
         print("models loaded")
 
     @modal.fastapi_endpoint(method="POST")
+    def embed_selfie(self, payload: dict) -> dict:
+        """
+        Guest selfie → face embeddings, statelessly: the image arrives as
+        base64 in the request, is embedded in memory, and is never written
+        anywhere. {pipeline_key, image_b64} → {ok, faces: [{bbox, embedding,
+        quality}]} (same face contract as index_images, minus eyes).
+        """
+        import base64
+
+        from fastapi import HTTPException
+
+        _check_key(payload)
+        b64 = payload.get("image_b64") or ""
+        if not b64 or len(b64) > 8_000_000:  # ~6MB decoded ceiling
+            raise HTTPException(status_code=400, detail="image_b64 required, ≤6MB")
+        try:
+            pil = self._decode(base64.b64decode(b64))
+        except Exception:
+            raise HTTPException(status_code=400, detail="not a decodable image")
+        faces = self._faces(pil)
+        for f in faces:
+            f.pop("eyesOpen", None)
+        return {"ok": True, "faces": faces}
+
+    @modal.fastapi_endpoint(method="POST")
     def index_images(self, payload: dict) -> dict:
         import httpx
         import numpy as np

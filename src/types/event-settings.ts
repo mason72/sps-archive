@@ -26,6 +26,12 @@ export interface SharingSettings {
   favoriteMilestones?: boolean;
   /** Guests can search the gallery by description (semantic). Default on. */
   guestSearch?: boolean;
+  /**
+   * Guests can find their own photos with a selfie. OPT-IN (default off) —
+   * biometric-adjacent, so the photographer flips it per event deliberately
+   * (decided 2026-08-09). The selfie is embedded in memory and never stored.
+   */
+  selfieSearch?: boolean;
   password: string;
   expiresAt: string;
   customMessage: string;
@@ -135,6 +141,7 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   allowFavorites: true,
   favoriteMilestones: true,
   guestSearch: true,
+  selfieSearch: false,
   password: "",
   expiresAt: "",
   customMessage: "",

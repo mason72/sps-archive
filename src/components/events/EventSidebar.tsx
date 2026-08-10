@@ -1290,6 +1290,28 @@ function DetailsPanel({
             </button>
           </div>
 
+          {/* Selfie search ("Find my photos") — OPT-IN, off by default:
+              biometric-adjacent, so enabling is a deliberate per-event call. */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">
+              Selfie search
+              <span className="block text-[10px] text-stone-400">
+                Guests find their photos with a selfie
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => updateSharing({ selfieSearch: sharing.selfieSearch !== true })}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.selfieSearch === true ? "bg-emerald-500" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.selfieSearch === true ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
           {/* PIN for bulk download */}
           <div className="flex items-center justify-between">
             <span className="text-[12px] text-stone-600">PIN for Download All</span>

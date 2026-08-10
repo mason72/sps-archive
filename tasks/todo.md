@@ -123,9 +123,24 @@ Phase 2 — Faces:
       imageIds + one presigned rep-face thumb each; ownership-scoped. QA'd live in a
       real session incl. the filter view (which neatly VISUALIZES the one known
       cluster error — Jenna/Katie look-alikes).
-- [ ] Guest selfie search: share-scoped endpoint, rate-limited, per-event toggle +
-      consent line (privacy default = Mason's call, question pending).
-- [ ] "Find my photos" QR card for live events (selfie → embedding → existing RPC).
+- [x] Guest selfie search [2026-08-10]: Modal embed_selfie (selfie → embedding IN
+      MEMORY, never stored — the consent line says so honestly); migration 035
+      hardens the face RPC (thumbnail_generated gate + required target_user_id);
+      route votes face hits into a PERSON and returns the person's complete set
+      (sunglasses-proof recall) with raw-hit fallback; ids only + selection-share
+      intersection; OPT-IN per event (selfieSearch default OFF, enforced
+      server-side) + Details-panel toggle; camera+upload modal w/ client-side 800px
+      downscale. E2E: guest photo as probe → matchedPerson=true, 21/21 recall
+      (scripts/verify-selfie-search.ts). Wedding event left enabled as the demo.
+- [ ] "Find my photos" QR card for live events (print artifact linking the share).
+- [ ] Focal unification: autoFocal should consume ai-index faces rows instead of
+      re-detecting (halves Modal spend); group-shot focals via union-of-faces box
+      (today groups get none). Mason asked 2026-08-10.
+- [ ] People-view "Suggestions" strip (Mason's design, 2026-08-10): surface
+      face-vs-filename conflicts — mislabeled file ("filed as Katie, looks like
+      Jenna" → one click fixes parsed_name, stack re-derives) and split-person
+      merges. Suggest-only, never auto-applied. The Jenna/Katie case PROVED the
+      cluster right and the filename wrong.
 Phase 3 — Face stacks:
 - [ ] Render-time many-to-many stacks from `faces` (photo appears in every person's
       stack) as a sibling of filename `buildStacks`; best-shot ranking from aesthetic +

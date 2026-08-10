@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use, useMemo } from "react";
-import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search } from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search, ScanFace } from "lucide-react";
+import { FindMyPhotos } from "@/components/gallery/FindMyPhotos";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
@@ -115,6 +116,9 @@ export default function GalleryPage({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  // Selfie search (opt-in per event): matched image ids, or null when idle.
+  const [selfieOpen, setSelfieOpen] = useState(false);
+  const [selfieMatches, setSelfieMatches] = useState<string[] | null>(null);
   // Active section (reported up from SectionedGallery) for the header label.
   const [activeSectionInfo, setActiveSectionInfo] = useState<{
     id: string;
@@ -210,6 +214,14 @@ export default function GalleryPage({
     GalleryImage[] | null
   >(null);
 
+  // "Your photos" view after a selfie match — ids resolved against the
+  // payload's visible set, same containment as guest search.
+  const selfieImages = useMemo(() => {
+    if (!gallery || !selfieMatches) return [];
+    const keep = new Set(selfieMatches);
+    return gallery.images.filter((img) => keep.has(img.id));
+  }, [gallery, selfieMatches]);
+
   // The list the lightbox navigates: exactly what's on screen, in on-screen
   // order. With smart stacks on, flatten in stack order so a person's photos
   // are adjacent (open a stack → arrows walk that person first).
@@ -217,6 +229,8 @@ export default function GalleryPage({
     let list: GalleryImage[];
     if (searchQuery.trim()) {
       list = filteredImages;
+    } else if (selfieMatches) {
+      list = selfieImages;
     } else if (gallery?.sections?.length && sectionVisibleImages) {
       list = sectionVisibleImages;
     } else {
@@ -226,7 +240,7 @@ export default function GalleryPage({
       list = buildStacks(list).flatMap((stack) => stack.images);
     }
     return list;
-  }, [gallery, searchQuery, filteredImages, sectionVisibleImages]);
+  }, [gallery, searchQuery, filteredImages, selfieMatches, selfieImages, sectionVisibleImages]);
 
   const fetchGallery = useCallback(async () => {
     try {
@@ -1001,7 +1015,53 @@ export default function GalleryPage({
               )}
             </div>
 
+            {gallery.settings?.selfieSearch && (
+              <button
+                onClick={() => setSelfieOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 border text-[12px] tracking-wide transition-colors hover:opacity-70"
+                style={{ color: colors.primary, borderColor: `${colors.secondary}60` }}
+              >
+                <ScanFace className="h-4 w-4" />
+                Find my photos
+              </button>
+            )}
           </div>
+        )}
+
+        {/* ─── "Your photos" chip after a selfie match ─── */}
+        {selfieMatches && !searchQuery.trim() && (
+          <div className="mb-8 flex items-center gap-2 text-[12px]">
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 border"
+              style={{ color: colors.primary, borderColor: `${colors.secondary}60` }}
+            >
+              <ScanFace className="h-3 w-3" />
+              Your photos
+              <span style={{ color: colors.secondary }} className="tabular-nums">
+                {selfieImages.length}
+              </span>
+            </span>
+            <button
+              onClick={() => setSelfieMatches(null)}
+              aria-label="Show all photos"
+              className="p-1 transition-colors hover:opacity-70"
+              style={{ color: colors.secondary }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {selfieOpen && (
+          <FindMyPhotos
+            slug={slug}
+            colors={colors}
+            onResults={(ids) => {
+              setSelfieMatches(ids);
+              setSelfieOpen(false);
+            }}
+            onClose={() => setSelfieOpen(false)}
+          />
         )}
 
         {/* When searching, show flat results; otherwise show sections */}
@@ -1049,6 +1109,24 @@ export default function GalleryPage({
               No photos match &ldquo;{searchQuery}&rdquo;
             </p>
           )
+        ) : selfieMatches ? (
+          <GalleryGrid
+            images={selfieImages}
+            allowDownload={gallery.allowDownload}
+            allowFavorites={gallery.allowFavorites}
+            favoriteIds={favoriteIds}
+            onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
+            onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
+            onImageClick={(id) => setSelectedImageId(id)}
+            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onOpenStack={setOpenStack}
+            onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
+            celebrateFirstFavorite={favoriteIds.size === 0}
+            gridStyle={s?.gridStyle}
+            gridColumns={s?.gridColumns}
+            gridGap={s?.gridGap}
+            smartStacks={false}
+          />
         ) : gallery.sections && gallery.sections.length > 0 ? (
           <SectionedGallery
             images={gallery.images}

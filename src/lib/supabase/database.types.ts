@@ -800,6 +800,7 @@ export type Database = {
       search_faces_by_embedding: {
         Args: {
           query_embedding: string;
+          target_user_id: string;
           target_event_id?: string | null;
           match_threshold?: number;
           match_count?: number;

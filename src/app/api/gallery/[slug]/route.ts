@@ -324,6 +324,9 @@ export async function GET(
       guestSearch:
         ((eventSettings.sharing ?? {}) as { guestSearch?: boolean })
           .guestSearch !== false,
+      selfieSearch:
+        ((eventSettings.sharing ?? {}) as { selfieSearch?: boolean })
+          .selfieSearch === true,
     };
 
     // Generate presigned URL for cover image if cover is enabled
