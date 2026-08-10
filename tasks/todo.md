@@ -136,11 +136,17 @@ Phase 2 — Faces:
 - [ ] Focal unification: autoFocal should consume ai-index faces rows instead of
       re-detecting (halves Modal spend); group-shot focals via union-of-faces box
       (today groups get none). Mason asked 2026-08-10.
-- [ ] People-view "Suggestions" strip (Mason's design, 2026-08-10): surface
-      face-vs-filename conflicts — mislabeled file ("filed as Katie, looks like
-      Jenna" → one click fixes parsed_name, stack re-derives) and split-person
-      merges. Suggest-only, never auto-applied. The Jenna/Katie case PROVED the
-      cluster right and the filename wrong.
+- [x] People-view "Suggestions" strip [SHIPPED 2026-08-10, e27466e]: pure engine
+      (lib/faces/suggestions.ts, 7 tests) + resolve endpoint (fix-label / merge /
+      dismiss-persisted-in-settings) + cards in PeopleView. Fix writes parsed_name
+      ONLY (original_filename is load-bearing: dupes, downloads). GOTCHA CAUGHT
+      LIVE: raw parsed_name keeps upload-time event tokens ("Katie Zeff Appfolio")
+      — comparing it to clean person names made every member a false conflict and
+      the majority-guard suppressed everything; the signal must be the filename
+      extraction, with exact parsed_name match only as the accepted-fix marker.
+      E2E on live data: the real Jenna/Katie card surfaces → fix clears + restacks
+      → restored (card left in prod for Mason to click). Chrome localhost QA was
+      blocked this session (possible VPN) — UI eyeball happens on prod.
 Phase 3 — Face stacks:
 - [ ] Render-time many-to-many stacks from `faces` (photo appears in every person's
       stack) as a sibling of filename `buildStacks`; best-shot ranking from aesthetic +
