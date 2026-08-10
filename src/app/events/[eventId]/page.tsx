@@ -217,9 +217,16 @@ export default function EventPage({
     return base.filter((img) => keep.has(img.id));
   }, [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds, personFilter]);
 
-  // Thumbnail lookup for the People compare view (already-presigned grid URLs).
+  // Thumbnail + filename lookup for the People compare view
+  // (already-presigned grid URLs; filenames for the compare captions).
   const imageThumbById = useMemo(
-    () => new Map(allImages.map((img) => [img.id, img.thumbnailUrl])),
+    () =>
+      new Map(
+        allImages.map((img) => [
+          img.id,
+          { thumbnailUrl: img.thumbnailUrl, filename: img.originalFilename ?? "" },
+        ])
+      ),
     [allImages]
   );
 

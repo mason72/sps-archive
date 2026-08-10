@@ -48,8 +48,8 @@ export function PeopleView({
   eventId: string;
   activePersonId: string | null;
   onSelectPerson: (person: Person | null) => void;
-  /** imageId → grid thumbnail URL, from the editor's already-loaded images. */
-  imageById?: Map<string, string>;
+  /** imageId → thumb + filename, from the editor's already-loaded images. */
+  imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   /** Reports the live suggestion count (drives the People-button badge). */
   onSuggestionsCount?: (count: number) => void;
 }) {
@@ -330,19 +330,21 @@ function CompareModal({
 }: {
   card: MislabelCard;
   person: Person | null;
-  imageById?: Map<string, string>;
+  imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   onFix: () => void;
   onDismiss: () => void;
   onClose: () => void;
 }) {
   const otherIds = (person?.imageIds ?? []).filter((id) => id !== card.imageId);
+  const [showFilenames, setShowFilenames] = useState(true);
+  const questionFilename = imageById?.get(card.imageId)?.filename;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-white p-8"
+        className="w-full max-w-4xl max-h-[85vh] bg-white p-8 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Actions pinned top-right — never wrapping, never scrolled away. */}
@@ -378,9 +380,11 @@ function CompareModal({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3">
+        {/* Split panes: the reference photo stays put, only the person's
+            grid scrolls — scrolling must never lose the thing being compared. */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="min-h-0 flex flex-col">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3 shrink-0">
               The photo in question
             </p>
             {/* Full frame, not a crop — context matters for the call. */}
@@ -389,30 +393,58 @@ function CompareModal({
               <img
                 src={card.face.thumbnailUrl}
                 alt=""
-                className="w-full bg-stone-100"
+                className="w-full min-h-0 object-contain object-top bg-stone-100"
               />
             ) : (
               <div className="aspect-[3/4] bg-stone-100" />
             )}
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3">
-              {card.personName} · {otherIds.length} other photo{otherIds.length === 1 ? "" : "s"}
-            </p>
-            <div className="grid grid-cols-3 gap-1.5">
-              {otherIds.slice(0, 30).map((id) => {
-                const url = imageById?.get(id);
-                return url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={id} src={url} alt="" className="aspect-square object-cover object-top bg-stone-100" />
-                ) : (
-                  <div key={id} className="aspect-square bg-stone-100" />
-                );
-              })}
-            </div>
-            {otherIds.length > 30 && (
-              <p className="mt-2 text-[11px] text-stone-400">+{otherIds.length - 30} more</p>
+            {showFilenames && questionFilename && (
+              <p className="mt-2 text-[11px] text-stone-400 truncate shrink-0">
+                {questionFilename}
+              </p>
             )}
+          </div>
+          <div className="min-h-0 flex flex-col">
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+                {card.personName} · {otherIds.length} other photo{otherIds.length === 1 ? "" : "s"}
+              </p>
+              <button
+                onClick={() => setShowFilenames((v) => !v)}
+                className={`text-[11px] transition-colors ${
+                  showFilenames ? "text-stone-600" : "text-stone-300 hover:text-stone-500"
+                }`}
+              >
+                Filenames
+              </button>
+            </div>
+            <div className="min-h-0 overflow-y-auto pr-1">
+              <div className="grid grid-cols-3 gap-x-1.5 gap-y-2">
+                {otherIds.map((id) => {
+                  const entry = imageById?.get(id);
+                  return (
+                    <figure key={id}>
+                      {entry ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={entry.thumbnailUrl}
+                          alt=""
+                          loading="lazy"
+                          className="aspect-square w-full object-cover object-top bg-stone-100"
+                        />
+                      ) : (
+                        <div className="aspect-square bg-stone-100" />
+                      )}
+                      {showFilenames && entry?.filename && (
+                        <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
+                          {entry.filename}
+                        </figcaption>
+                      )}
+                    </figure>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
