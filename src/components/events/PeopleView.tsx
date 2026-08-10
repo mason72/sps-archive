@@ -855,6 +855,7 @@ export function PersonModal({
   onClose: () => void;
 }) {
   useBodyScrollLock();
+  const [showFilenames, setShowFilenames] = useState(true);
   const [editing, setEditing] = useState(startEditing ?? !personName);
   const [draft, setDraft] = useState(personName ?? "");
   const [saving, setSaving] = useState(false);
@@ -937,12 +938,22 @@ export function PersonModal({
               often reveal who this is.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-stone-300 hover:text-stone-600 transition-colors shrink-0"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setShowFilenames((v) => !v)}
+              className={`text-[11px] transition-colors ${
+                showFilenames ? "text-stone-600" : "text-stone-300 hover:text-stone-500"
+              }`}
+            >
+              Filenames
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 overflow-y-auto pr-1">
@@ -962,7 +973,7 @@ export function PersonModal({
                   ) : (
                     <div className="aspect-square bg-stone-100" />
                   )}
-                  {entry?.filename && (
+                  {showFilenames && entry?.filename && (
                     <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
                       {entry.filename}
                     </figcaption>
@@ -1034,6 +1045,7 @@ function SplitPersonModal({
 }) {
   useBodyScrollLock();
   const [faces, setFaces] = useState<{ faceId: string; imageId: string }[] | null>(null);
+  const [showFilenames, setShowFilenames] = useState(true);
   const [inB, setInB] = useState<Set<string>>(new Set());
   const [names, setNames] = useState<[string, string]>(["", ""]);
   const [message, setMessage] = useState<string | null>(null);
@@ -1124,33 +1136,39 @@ function SplitPersonModal({
         {group.length} photo{group.length === 1 ? "" : "s"}
       </p>
       <div className="min-h-0 overflow-y-auto pr-1">
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-3 gap-x-1.5 gap-y-2">
           {group.map((f) => {
             const entry = imageById?.get(f.imageId);
             return (
-              <button
-                key={f.faceId}
-                onClick={() =>
-                  setInB((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(f.faceId)) next.delete(f.faceId);
-                    else next.add(f.faceId);
-                    return next;
-                  })
-                }
-                title={entry?.filename ?? "Move to the other group"}
-                className="relative aspect-square overflow-hidden bg-stone-100 hover:ring-2 hover:ring-stone-300 transition-all"
-              >
-                {entry && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={entry.thumbnailUrl}
-                    alt=""
-                    loading="lazy"
-                    className="h-full w-full object-cover object-top"
-                  />
+              <figure key={f.faceId}>
+                <button
+                  onClick={() =>
+                    setInB((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(f.faceId)) next.delete(f.faceId);
+                      else next.add(f.faceId);
+                      return next;
+                    })
+                  }
+                  title={entry?.filename ?? "Move to the other group"}
+                  className="relative block w-full aspect-square overflow-hidden bg-stone-100 hover:ring-2 hover:ring-stone-300 transition-all"
+                >
+                  {entry && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={entry.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover object-top"
+                    />
+                  )}
+                </button>
+                {showFilenames && entry?.filename && (
+                  <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
+                    {entry.filename}
+                  </figcaption>
                 )}
-              </button>
+              </figure>
             );
           })}
         </div>
@@ -1176,6 +1194,14 @@ function SplitPersonModal({
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setShowFilenames((v) => !v)}
+              className={`text-[11px] transition-colors ${
+                showFilenames ? "text-stone-600" : "text-stone-300 hover:text-stone-500"
+              }`}
+            >
+              Filenames
+            </button>
             <button
               onClick={onDismiss}
               className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
@@ -1237,6 +1263,7 @@ function MergeCompareModal({
   onClose: () => void;
 }) {
   useBodyScrollLock();
+  const [showFilenames, setShowFilenames] = useState(true);
   const column = (person: Person | null, label: string) => (
     <div className="min-h-0 flex flex-col">
       <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium shrink-0">
@@ -1260,7 +1287,7 @@ function MergeCompareModal({
                 ) : (
                   <div className="aspect-square bg-stone-100" />
                 )}
-                {entry?.filename && (
+                {showFilenames && entry?.filename && (
                   <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
                     {entry.filename}
                   </figcaption>
@@ -1292,6 +1319,14 @@ function MergeCompareModal({
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setShowFilenames((v) => !v)}
+              className={`text-[11px] transition-colors ${
+                showFilenames ? "text-stone-600" : "text-stone-300 hover:text-stone-500"
+              }`}
+            >
+              Filenames
+            </button>
             <button
               onClick={onDismiss}
               className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
