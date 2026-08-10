@@ -1,0 +1,252 @@
+{
+  "eventId": "693eda99-4545-4638-b370-3c6d87f855db",
+  "sectionId": "c91574ce-93bc-4586-85c5-cbfc4d292629",
+  "source": "SPS public R2 lane (re-compressed) — replace with photographer originals",
+  "added": [
+    {
+      "id": "c32a2ea1-73f0-40cc-bc92-e78218d16fd2",
+      "frame": 31,
+      "name": "260710_Future of Us Festival0031 1.jpg",
+      "bytes": 1976267,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/c32a2ea1-73f0-40cc-bc92-e78218d16fd2.jpg"
+    },
+    {
+      "id": "c390f932-a7da-46ce-9ade-c1079f334f32",
+      "frame": 33,
+      "name": "260710_Future of Us Festival0033.jpg",
+      "bytes": 1939740,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/c390f932-a7da-46ce-9ade-c1079f334f32.jpg"
+    },
+    {
+      "id": "9aaf0d96-6555-47bc-98c7-27d991a40d1e",
+      "frame": 34,
+      "name": "260710_Future of Us Festival0034.jpg",
+      "bytes": 2054063,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/9aaf0d96-6555-47bc-98c7-27d991a40d1e.jpg"
+    },
+    {
+      "id": "63c38cb4-7a17-4d77-b351-45355b0ff9de",
+      "frame": 35,
+      "name": "260710_Future of Us Festival0035.jpg",
+      "bytes": 2559113,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/63c38cb4-7a17-4d77-b351-45355b0ff9de.jpg"
+    },
+    {
+      "id": "5c732623-979a-49b4-8614-4aad68c74705",
+      "frame": 41,
+      "name": "260710_Future of Us Festival0041.jpg",
+      "bytes": 1088421,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/5c732623-979a-49b4-8614-4aad68c74705.jpg"
+    },
+    {
+      "id": "4ab6e741-2003-417e-8001-827d8ce6a69b",
+      "frame": 44,
+      "name": "260710_Future of Us Festival0044.jpg",
+      "bytes": 1172182,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/4ab6e741-2003-417e-8001-827d8ce6a69b.jpg"
+    },
+    {
+      "id": "ab17e511-1102-40ed-bef8-d1469d7489fa",
+      "frame": 118,
+      "name": "260710_Future of Us Festival0118.jpg",
+      "bytes": 1052418,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/ab17e511-1102-40ed-bef8-d1469d7489fa.jpg"
+    },
+    {
+      "id": "9a5e5c53-db79-4e22-96e4-c5ebbe504bfb",
+      "frame": 152,
+      "name": "260710_Future of Us Festival0152.jpg",
+      "bytes": 1103159,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/9a5e5c53-db79-4e22-96e4-c5ebbe504bfb.jpg"
+    },
+    {
+      "id": "f8bdd672-0b05-4544-a1bf-61b6945e001e",
+      "frame": 154,
+      "name": "260710_Future of Us Festival0154.jpg",
+      "bytes": 1112532,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/f8bdd672-0b05-4544-a1bf-61b6945e001e.jpg"
+    },
+    {
+      "id": "fe43a09c-ed26-4da0-84d5-6fb6b7d1d630",
+      "frame": 172,
+      "name": "260710_Future of Us Festival0172.jpg",
+      "bytes": 1269528,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/fe43a09c-ed26-4da0-84d5-6fb6b7d1d630.jpg"
+    },
+    {
+      "id": "6a96a095-dac2-4636-9189-f816a3c4253a",
+      "frame": 177,
+      "name": "260710_Future of Us Festival0177.jpg",
+      "bytes": 1264673,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/6a96a095-dac2-4636-9189-f816a3c4253a.jpg"
+    },
+    {
+      "id": "69d40473-ad52-4fba-a119-19a3ab3a63cc",
+      "frame": 178,
+      "name": "260710_Future of Us Festival0178.jpg",
+      "bytes": 1251025,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/69d40473-ad52-4fba-a119-19a3ab3a63cc.jpg"
+    },
+    {
+      "id": "3759addd-2f6f-4fc0-917c-94d70c81c4c3",
+      "frame": 179,
+      "name": "260710_Future of Us Festival0179.jpg",
+      "bytes": 1151726,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/3759addd-2f6f-4fc0-917c-94d70c81c4c3.jpg"
+    },
+    {
+      "id": "490fc220-01d9-44e6-bca8-c52ab1d8be31",
+      "frame": 180,
+      "name": "260710_Future of Us Festival0180.jpg",
+      "bytes": 1107121,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/490fc220-01d9-44e6-bca8-c52ab1d8be31.jpg"
+    },
+    {
+      "id": "b304e614-0359-4775-a1cf-4d37782ebd16",
+      "frame": 181,
+      "name": "260710_Future of Us Festival0181.jpg",
+      "bytes": 1076232,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/b304e614-0359-4775-a1cf-4d37782ebd16.jpg"
+    },
+    {
+      "id": "4624bac2-b6a9-4264-8f93-afc245565fa5",
+      "frame": 189,
+      "name": "260710_Future of Us Festival0189 1.jpg",
+      "bytes": 964277,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/4624bac2-b6a9-4264-8f93-afc245565fa5.jpg"
+    },
+    {
+      "id": "8b2d286e-6761-4d61-9577-e2a4f3ec6085",
+      "frame": 194,
+      "name": "260710_Future of Us Festival0194.jpg",
+      "bytes": 897895,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/8b2d286e-6761-4d61-9577-e2a4f3ec6085.jpg"
+    },
+    {
+      "id": "eaf1f220-a6cf-4dc4-a2c6-e97a9f537eb7",
+      "frame": 213,
+      "name": "260710_Future of Us Festival0213.jpg",
+      "bytes": 1265449,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/eaf1f220-a6cf-4dc4-a2c6-e97a9f537eb7.jpg"
+    },
+    {
+      "id": "c599ce50-293e-4473-a621-476b4262a690",
+      "frame": 215,
+      "name": "260710_Future of Us Festival0215.jpg",
+      "bytes": 1253029,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/c599ce50-293e-4473-a621-476b4262a690.jpg"
+    },
+    {
+      "id": "cbdd1020-aed2-4fe6-b7d7-dda5d7ef68cd",
+      "frame": 217,
+      "name": "260710_Future of Us Festival0217 1.jpg",
+      "bytes": 1753931,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/cbdd1020-aed2-4fe6-b7d7-dda5d7ef68cd.jpg"
+    },
+    {
+      "id": "f919be85-85da-4318-9468-bf3d40b00b80",
+      "frame": 223,
+      "name": "260710_Future of Us Festival0223.jpg",
+      "bytes": 1324198,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/f919be85-85da-4318-9468-bf3d40b00b80.jpg"
+    },
+    {
+      "id": "b929aa57-6f06-49fd-bdb6-a07b553971e9",
+      "frame": 228,
+      "name": "260710_Future of Us Festival0228.jpg",
+      "bytes": 1011666,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/b929aa57-6f06-49fd-bdb6-a07b553971e9.jpg"
+    },
+    {
+      "id": "947bbb5c-643a-4ea4-9788-2c49a8ce7d27",
+      "frame": 229,
+      "name": "260710_Future of Us Festival0229.jpg",
+      "bytes": 850644,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/947bbb5c-643a-4ea4-9788-2c49a8ce7d27.jpg"
+    },
+    {
+      "id": "b709f843-8bef-4c3f-b056-22a89a78ba96",
+      "frame": 230,
+      "name": "260710_Future of Us Festival0230.jpg",
+      "bytes": 818352,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/b709f843-8bef-4c3f-b056-22a89a78ba96.jpg"
+    },
+    {
+      "id": "c68e2dff-017f-44b2-891b-968db67f8d0f",
+      "frame": 235,
+      "name": "260710_Future of Us Festival0235.jpg",
+      "bytes": 884233,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/c68e2dff-017f-44b2-891b-968db67f8d0f.jpg"
+    },
+    {
+      "id": "29c3a5ce-b459-4596-858b-6d5d43b2b706",
+      "frame": 238,
+      "name": "260710_Future of Us Festival0238.jpg",
+      "bytes": 1608401,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/29c3a5ce-b459-4596-858b-6d5d43b2b706.jpg"
+    },
+    {
+      "id": "6bc0dfad-147e-4571-b05d-c688ec8a5376",
+      "frame": 268,
+      "name": "260710_Future of Us Festival0268.jpg",
+      "bytes": 876337,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/6bc0dfad-147e-4571-b05d-c688ec8a5376.jpg"
+    },
+    {
+      "id": "3b98bb7e-c179-47c2-9783-2bfd4a25ab25",
+      "frame": 271,
+      "name": "260710_Future of Us Festival0271.jpg",
+      "bytes": 1097030,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/3b98bb7e-c179-47c2-9783-2bfd4a25ab25.jpg"
+    },
+    {
+      "id": "1df7218d-4bad-4c8b-8b58-a01035632b20",
+      "frame": 300,
+      "name": "260710_Future of Us Festival0300.jpg",
+      "bytes": 1472812,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/1df7218d-4bad-4c8b-8b58-a01035632b20.jpg"
+    },
+    {
+      "id": "6c7ce47a-efc8-4b6a-9ddb-450a840fb260",
+      "frame": 301,
+      "name": "260710_Future of Us Festival0301.jpg",
+      "bytes": 1447428,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/6c7ce47a-efc8-4b6a-9ddb-450a840fb260.jpg"
+    },
+    {
+      "id": "c48cc777-9ece-4690-a3b7-75de93b1450d",
+      "frame": 313,
+      "name": "260710_Future of Us Festival0313.jpg",
+      "bytes": 976920,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/c48cc777-9ece-4690-a3b7-75de93b1450d.jpg"
+    },
+    {
+      "id": "9642b79f-a2e8-458d-8ae8-6090c8b84bb1",
+      "frame": 320,
+      "name": "260710_Future of Us Festival0320.jpg",
+      "bytes": 993996,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/9642b79f-a2e8-458d-8ae8-6090c8b84bb1.jpg"
+    },
+    {
+      "id": "39c1108b-23c8-4e3a-8aa5-b62f83386945",
+      "frame": 362,
+      "name": "260710_Future of Us Festival0362.jpg",
+      "bytes": 971673,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/39c1108b-23c8-4e3a-8aa5-b62f83386945.jpg"
+    },
+    {
+      "id": "0fe4d85c-84f0-4f0c-8c94-d4a2ab3718c2",
+      "frame": 387,
+      "name": "260710_Future of Us Festival0387.jpg",
+      "bytes": 775080,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/0fe4d85c-84f0-4f0c-8c94-d4a2ab3718c2.jpg"
+    },
+    {
+      "id": "d1eaa303-387f-4797-ab3f-54dd2b59c479",
+      "frame": 464,
+      "name": "260710_Future of Us Festival0464.jpg",
+      "bytes": 789702,
+      "r2Key": "events/693eda99-4545-4638-b370-3c6d87f855db/originals/d1eaa303-387f-4797-ab3f-54dd2b59c479.jpg"
+    }
+  ]
+}

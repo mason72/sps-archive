@@ -5,9 +5,16 @@ import type { SPSEventImport, ArchiveEnhancements } from "./types";
 /**
  * Import an event from SPS into Archive.
  *
- * Key insight: Since SPS and Archive share the same R2 bucket,
- * images DON'T need to be re-uploaded or copied. We just create
- * Archive metadata records pointing to the same R2 keys.
+ * ⚠️ BROKEN PREMISE (verified 2026-08-10) — do not use this path until fixed.
+ * It was written believing SPS and Archive share one R2 bucket, so images
+ * needn't be copied: just point Archive rows at the same keys. SPS v2 actually
+ * serves from its own lane (`pub-7363d57d….r2.dev`) while the archive reads
+ * `sps-prism`; listing `sps-prism` under an SPS key prefix returns 0 objects.
+ * Rows minted here would reference keys the archive cannot read — ghost tiles
+ * (lessons #21–23, #54). A correct import must MOVE THE BYTES; note also that
+ * SPS re-compresses on ingest (~⅓ the bytes at identical pixel dimensions), so
+ * it is a lossy source for an archive that is meant to hold the good copy.
+ * Working reference: `scripts/backfill-sps-fou26.ts`.
  *
  * Flow:
  *   1. SPS sends event + image metadata via API

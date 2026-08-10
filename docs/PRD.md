@@ -91,7 +91,7 @@ The design notes for these features are preserved in `docs/TECHNICAL.md` section
 
 ## 6. SPS Integration — partial
 
-Both products share one R2 bucket, so importing a shoot from SPS does not re-upload files (zero-copy: Archive creates metadata rows pointing at existing R2 keys). Import (`/api/sps/import`) and an enhancements endpoint (`/api/sps/enhancements/[eventId]`) exist. The enhancement payloads depend on the dormant AI pipeline, so the round-trip is not fully live yet.
+Import was designed around both products sharing one R2 bucket (zero-copy: Archive creates metadata rows pointing at existing R2 keys). **That premise is false as of 2026-08-10** — SPS v2 serves from its own bucket, so an import must copy bytes, and SPS's re-compression makes it a lossy source. See `docs/TECHNICAL.md` and `tasks/sps-fou26-backfill.md`. Import (`/api/sps/import`) and an enhancements endpoint (`/api/sps/enhancements/[eventId]`) exist. The enhancement payloads depend on the dormant AI pipeline, so the round-trip is not fully live yet.
 
 ---
 

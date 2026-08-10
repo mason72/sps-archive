@@ -287,7 +287,9 @@ Email templates, analytics, stats, search, SPS, stacks, Inngest:
 
 ## 9. SPS Integration
 
-Both SPS and Archive use the **same R2 bucket**; binaries are stored once at `events/{eventId}/originals/{filename}`. Importing from SPS (`/api/sps/import`) creates metadata rows pointing at the existing R2 keys — zero-copy, no re-upload. The enhancements export (`/api/sps/enhancements/[eventId]`) returns AI-derived sections/stacks/scene tags and therefore only produces meaningful output once the Modal pipeline is active.
+> **Corrected 2026-08-10 — the shared-bucket premise below is false.** SPS v2 serves from its own public lane (`pub-7363d57d….r2.dev`); the archive stores in `sps-prism`. A `ListObjectsV2` against `sps-prism` with an SPS key prefix returns 0 objects. `/api/sps/import` as written would therefore create rows pointing at keys the archive cannot read — ghost tiles. A real import must copy bytes; SPS additionally re-compresses on ingest (~⅓ the bytes at identical pixel dimensions), so it is a lossy source. See `scripts/backfill-sps-fou26.ts` for a working byte-moving import and `tasks/sps-fou26-backfill.md` for the measurements.
+
+Binaries are stored at `events/{eventId}/originals/{filename}`. Importing from SPS (`/api/sps/import`) creates metadata rows pointing at existing R2 keys — which was intended to be zero-copy, no re-upload. The enhancements export (`/api/sps/enhancements/[eventId]`) returns AI-derived sections/stacks/scene tags and therefore only produces meaningful output once the Modal pipeline is active.
 
 ---
 

@@ -26,7 +26,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 - Smart Stacks group similar images, surface best shot
 - AI suite (FULL DOC: `docs/AI.md` — read it before touching anything AI): SigLIP-2 semantic search (archive/editor/guest/selfie), face clustering + People view + identity-suggestion engine, scene sections + smart sections, group focal points. Settlement-triggered Inngest lanes, kill switch `AI_INDEXING_ENABLED`. Two invariants: AI writes ONLY its own columns (never `processing_status` or anything display reads), and AI suggests — humans apply. Modal CLI: `~/.venvs/modal-cli/bin/modal`
 - Cover types (image/mosaic/solid/crossfade) — `src/lib/cover/*`; `normalizeCoverSettings()` is the single parse point; email/OG raster composes ONLY in the Inngest `cover-raster` job (pool.ts stays sharp-free for routes)
-- SPS integration via shared R2 bucket (zero-copy imports)
+- **SPS integration is NOT zero-copy — the shared-bucket premise is false** (verified 2026-08-10). `import.ts` assumes SPS and Archive share one R2 bucket and only mints metadata rows; in reality SPS v2 serves from `pub-7363d57d….r2.dev` while the archive stores in `sps-prism`, so an import must MOVE BYTES or it creates ghost tiles. SPS also re-compresses on ingest (~⅓ the bytes at identical dimensions), so it is a lossy source. Working reference: `scripts/backfill-sps-fou26.ts` + `tasks/sps-fou26-backfill.md`.
 
 ## Design System
 
