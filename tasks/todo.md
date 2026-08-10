@@ -1287,11 +1287,18 @@ galleries?" from a worry into a fact.
       plain no-download share keeps its full-res lightbox.
 
 ### Still open (product decisions, not defects)
-- [ ] `require_pin_individual` and `require_pin_bulk` are independent toggles,
-      so gating individual downloads while leaving bulk open lets a guest take
-      everything as one ZIP without a PIN — the individual gate then buys
-      nothing. Either couple them in the UI or warn on that combination.
-      **This is the largest remaining gap in the feature.**
+- [x] **Closed 2026-08-10.** `require_pin_individual` and `require_pin_bulk`
+      were independent toggles, so gating individual downloads while leaving
+      bulk open let a guest take everything as one ZIP without a PIN. The
+      per-image PIN is now an escalation OF the bulk PIN: the sidebar renders
+      it as an indented sub-option only while "PIN for Download All" is on,
+      turning the parent off clears it, and `normalizeDownloadPins()` in
+      `src/types/event-settings.ts` re-applies the rule server-side in
+      `POST /api/shares` so the email composer and direct API calls can't write
+      the combination either. It also drops both flags when no PIN is set,
+      since `authorizeShareDownload` fails closed on that and would otherwise
+      produce a gallery nobody can download from. Mason's normal setup (bulk
+      only) is untouched — verified against production before and after.
 - [ ] `allow_download=false` still ships full-res `originalUrl`, so a guest can
       right-click-save from the lightbox. Deliberate for now (see above), but it
       means "downloads off" is a soft deterrent, not a control. Worth deciding

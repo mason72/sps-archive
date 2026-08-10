@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { hashPassword } from "@/lib/shares/hash";
 import { logActivity } from "@/lib/analytics/log";
-import { DEFAULT_SHARING_SETTINGS } from "@/types/event-settings";
+import { DEFAULT_SHARING_SETTINGS, normalizeDownloadPins } from "@/types/event-settings";
 import type { SharingSettings } from "@/types/event-settings";
 
 /**
@@ -91,9 +91,21 @@ export async function POST(request: NextRequest) {
     const resolvedAllowFavorites = useEventDefaults ? sharing.allowFavorites : (allowFavorites ?? true);
     const resolvedExpiresAt = useEventDefaults ? sharing.expiresAt : expiresAt;
     const resolvedCustomMessage = useEventDefaults ? sharing.customMessage : customMessage;
-    const resolvedDownloadPin = useEventDefaults ? sharing.downloadPin : downloadPin;
-    const resolvedRequirePinBulk = useEventDefaults ? sharing.requirePinBulk : (requirePinBulk ?? false);
-    const resolvedRequirePinIndividual = useEventDefaults ? sharing.requirePinIndividual : (requirePinIndividual ?? false);
+    // The per-image PIN is an escalation of the bulk PIN, not a peer, and
+    // neither survives without a PIN to check. Normalized HERE rather than
+    // trusted from the body: the sidebar enforces the same rule, but a share
+    // can also be created by the email composer or a direct API call.
+    const {
+      downloadPin: resolvedDownloadPin,
+      requirePinBulk: resolvedRequirePinBulk,
+      requirePinIndividual: resolvedRequirePinIndividual,
+    } = normalizeDownloadPins({
+      downloadPin: useEventDefaults ? sharing.downloadPin : downloadPin,
+      requirePinBulk: useEventDefaults ? sharing.requirePinBulk : (requirePinBulk ?? false),
+      requirePinIndividual: useEventDefaults
+        ? sharing.requirePinIndividual
+        : (requirePinIndividual ?? false),
+    });
 
     const slug = nanoid(10);
     const passwordHash = resolvedPassword ? await hashPassword(resolvedPassword) : null;

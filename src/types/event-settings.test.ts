@@ -5,6 +5,7 @@ import {
   sanitizeCoverForEvent,
   coverShowsTitle,
   coverNeedsRaster,
+  normalizeDownloadPins,
 } from "./event-settings";
 
 const EVENT = "11111111-2222-3333-4444-555555555555";
@@ -111,5 +112,82 @@ describe("coverShowsTitle / coverNeedsRaster", () => {
     expect(
       coverNeedsRaster(normalizeCoverSettings({ enabled: true, type: "crossfade" }))
     ).toBe(false);
+  });
+});
+
+/**
+ * The per-image PIN is an escalation of the bulk PIN, never a peer. These
+ * pin down the combinations the UI must never be able to produce.
+ */
+describe("normalizeDownloadPins", () => {
+  it("keeps the common setup untouched: bulk PIN only", () => {
+    expect(
+      normalizeDownloadPins({
+        requirePinBulk: true,
+        requirePinIndividual: false,
+        downloadPin: "1234",
+      })
+    ).toEqual({
+      requirePinBulk: true,
+      requirePinIndividual: false,
+      downloadPin: "1234",
+    });
+  });
+
+  it("keeps both on when both are asked for", () => {
+    const r = normalizeDownloadPins({
+      requirePinBulk: true,
+      requirePinIndividual: true,
+      downloadPin: "1234",
+    });
+    expect(r.requirePinBulk).toBe(true);
+    expect(r.requirePinIndividual).toBe(true);
+  });
+
+  it("drops individual when bulk is off — the combination that gated nothing", () => {
+    const r = normalizeDownloadPins({
+      requirePinBulk: false,
+      requirePinIndividual: true,
+      downloadPin: "1234",
+    });
+    expect(r.requirePinIndividual).toBe(false);
+    expect(r.requirePinBulk).toBe(false);
+  });
+
+  it("never escalates: individual must not switch bulk ON", () => {
+    const r = normalizeDownloadPins({
+      requirePinBulk: false,
+      requirePinIndividual: true,
+      downloadPin: "1234",
+    });
+    expect(r.requirePinBulk).toBe(false);
+  });
+
+  it("drops both flags when no PIN is set — a gate with no secret refuses everyone", () => {
+    const r = normalizeDownloadPins({
+      requirePinBulk: true,
+      requirePinIndividual: true,
+      downloadPin: "",
+    });
+    expect(r.requirePinBulk).toBe(false);
+    expect(r.requirePinIndividual).toBe(false);
+  });
+
+  it("treats missing flags as off", () => {
+    const r = normalizeDownloadPins({ downloadPin: "1234" });
+    expect(r.requirePinBulk).toBe(false);
+    expect(r.requirePinIndividual).toBe(false);
+  });
+
+  it("leaves unrelated fields alone", () => {
+    const r = normalizeDownloadPins({
+      requirePinBulk: true,
+      requirePinIndividual: false,
+      downloadPin: "1234",
+      password: "hunter2",
+      allowDownload: true,
+    } as Record<string, unknown> & { requirePinBulk: boolean });
+    expect(r.password).toBe("hunter2");
+    expect(r.allowDownload).toBe(true);
   });
 });

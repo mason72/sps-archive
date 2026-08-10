@@ -1351,7 +1351,11 @@ function DetailsPanel({
             </button>
           </div>
 
-          {/* PIN for bulk download */}
+          {/* PIN for bulk download. Turning it OFF also clears the per-image
+              escalation nested under it — gating single photos while
+              "Download All" stays open gates nothing, since the guest just
+              takes the ZIP instead. normalizeDownloadPins is the same rule,
+              re-applied server-side on every share write. */}
           <div className="flex items-center justify-between">
             <span className="text-[12px] text-stone-600">PIN for Download All</span>
             <button
@@ -1359,7 +1363,11 @@ function DetailsPanel({
               onClick={() => {
                 const next = !sharing.requirePinBulk;
                 const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
-                updateSharing({ requirePinBulk: next, downloadPin: pin });
+                updateSharing({
+                  requirePinBulk: next,
+                  downloadPin: pin,
+                  ...(next ? {} : { requirePinIndividual: false }),
+                });
               }}
               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
                 sharing.requirePinBulk ? "bg-stone-900" : "bg-stone-200"
@@ -1371,28 +1379,36 @@ function DetailsPanel({
             </button>
           </div>
 
-          {/* PIN for individual downloads */}
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] text-stone-600">PIN for individual</span>
-            <button
-              type="button"
-              onClick={() => {
-                const next = !sharing.requirePinIndividual;
-                const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
-                updateSharing({ requirePinIndividual: next, downloadPin: pin });
-              }}
-              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
-                sharing.requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
-              }`}
-            >
-              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                sharing.requirePinIndividual ? "translate-x-4" : ""
-              }`} />
-            </button>
-          </div>
+          {/* Per-image PIN — an escalation of the above, so it only exists
+              while that is on. Indented and rule-led to read as a sub-option. */}
+          {sharing.requirePinBulk && (
+            <div className="flex items-center justify-between pl-3 border-l border-stone-200">
+              <span className="text-[12px] text-stone-600">
+                Also for single photos
+                <span className="block text-[10px] text-stone-400">
+                  Same PIN, asked before each download
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !sharing.requirePinIndividual;
+                  const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
+                  updateSharing({ requirePinIndividual: next, downloadPin: pin });
+                }}
+                className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                  sharing.requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
+                }`}
+              >
+                <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                  sharing.requirePinIndividual ? "translate-x-4" : ""
+                }`} />
+              </button>
+            </div>
+          )}
 
           {/* PIN input */}
-          {(sharing.requirePinBulk || sharing.requirePinIndividual) && (
+          {sharing.requirePinBulk && (
             <div className="pt-1">
               <label className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-1.5 block">
                 PIN Code
