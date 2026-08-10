@@ -391,8 +391,17 @@ export function getVideoDisplayKey(r2Key: string): string {
  * (JPEG/PNG/WebP/…) display at full resolution as before. Video originals
  * resolve to their web-playable mp4 rendition (for a <video> tag — posters
  * for <img> contexts come from the thumbnail variants instead).
+ *
+ * `fullRes: false` forces the 800px rendition even for a web-viewable
+ * original. Guest galleries pass it when the share withholds originals (no
+ * downloads, or a per-image PIN): for a JPEG the display key IS the original
+ * key, so serving it would hand over the exact bytes the gate exists to
+ * withhold. Video is unaffected — its display key is already a transcode, and
+ * there is no smaller playable rendition to fall back to.
  */
-export function getDisplayKey(r2Key: string): string {
+export function getDisplayKey(r2Key: string, fullRes = true): string {
   if (isVideoKey(r2Key)) return getVideoDisplayKey(r2Key);
-  return isWebViewable(r2Key) ? r2Key : getThumbnailKey(r2Key, "thumb-lg");
+  return fullRes && isWebViewable(r2Key)
+    ? r2Key
+    : getThumbnailKey(r2Key, "thumb-lg");
 }

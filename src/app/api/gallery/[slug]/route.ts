@@ -241,21 +241,38 @@ export async function GET(
     // 5b. Generate presigned URLs (grid thumbnails at 400px + 800px for
     // srcset, original for lightbox). Thumbnails use the presign memo so
     // repeat visits within a session keep cache-friendly, stable URLs.
+    //
+    // ONE rule decides whether original bytes go in this payload: a guest gets
+    // them only when they're already entitled to them with no further check.
+    // A per-image PIN was previously enforced in the browser alone, so every
+    // original was presigned into the JSON and readable from the Network tab
+    // without the prompt (pre-alpha audit, 2026-08-10). Note this gates
+    // originalUrl too, not just downloadUrl: for a JPEG the display key IS the
+    // original key, so leaving the lightbox at full res would serve the same
+    // bytes through the other field and the PIN would still mean nothing.
+    // When withheld, the lightbox shows the 800px rendition and the original
+    // comes from POST /api/gallery/[slug]/image-download after the PIN.
+    const originalsWithheld =
+      !share.allow_download || (share.require_pin_individual ?? false);
+
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
         const urls = await Promise.all([
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Lightbox/full view: web-viewable original, or the 800px JPEG for
-          // non-renderable formats (TIFF). Download still gets the raw original.
-          getCachedDownloadUrl(getDisplayKey(img.r2_key), 14400),
-          share.allow_download
-            ? getCachedDownloadUrl(
+          // non-renderable formats (TIFF) and for withheld originals.
+          getCachedDownloadUrl(
+            getDisplayKey(img.r2_key, !originalsWithheld),
+            14400
+          ),
+          originalsWithheld
+            ? Promise.resolve(null)
+            : getCachedDownloadUrl(
                 img.r2_key,
                 3600,
                 img.original_filename || "image"
-              )
-            : Promise.resolve(null),
+              ),
         ]);
 
         const result: Record<string, unknown> = {
@@ -338,9 +355,16 @@ export async function GET(
           .selfieSearch === true,
     };
 
-    // Generate presigned URL for cover image if cover is enabled
+    // Generate presigned URL for cover image if cover is enabled. The hero is
+    // an event photo like any other, so it obeys the same withholding rule —
+    // otherwise a PIN-gated share still handed out one full original. (The
+    // public /cover route, which fronts emails and OG cards, has always served
+    // the 800px rendition.)
     if (cover.enabled && cover.imageId && coverImageRow) {
-      gallerySettings.coverImageUrl = await getPresignedDownloadUrl(coverImageRow.r2_key, 14400);
+      gallerySettings.coverImageUrl = await getPresignedDownloadUrl(
+        getDisplayKey(coverImageRow.r2_key, !originalsWithheld),
+        14400
+      );
       // No manual crop anchor on the cover → fall back to the image's own
       // focal point (face-derived or picked in the editor) so faces survive
       // the hero crop by default.

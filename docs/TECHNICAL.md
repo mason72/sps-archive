@@ -266,6 +266,21 @@ Sharing & public galleries:
     routes clients before they hit it), client-abort detection.
   - PIN shares: verify-pin returns an HMAC download token (4h, share-scoped); bulk
     URLs carry `?dt=<token>` so the PIN never lands in access logs.
+- `POST /api/gallery/[slug]/image-download` — one original, for the **per-image** PIN
+  (`require_pin_individual`). Body `{imageId, dt?, pin?}`; it runs the same
+  `authorizeShareDownload` as the ZIP with `kind:"individual"`, resolves the image
+  through the same share-membership predicate, and returns a 10-minute presigned URL.
+
+**Originals are withheld from the guest payload unless the guest is already entitled
+to them.** `GET /api/gallery/[slug]` computes
+`originalsWithheld = !allow_download || require_pin_individual`; when set, images carry
+no `downloadUrl` **and** `originalUrl` drops to the 800px `thumb-lg` rendition (via
+`getDisplayKey(key, /* fullRes */ false)`), as does `settings.coverImageUrl`. The
+per-image PIN used to be enforced only in the browser while every original sat
+presigned in the JSON, so a guest past the password gate could read them out of the
+Network tab (pre-alpha audit 2026-08-10, lesson #54). Note both fields must be gated,
+not just `downloadUrl`: for a JPEG the display key **is** the original key, so a
+full-res lightbox serves the identical bytes through the other field.
 
 **Gallery Smart Stacks (live, filename-based — distinct from the dormant AI stacks):**
 `grid.smartStacks` in event settings (Design → Grid) groups same-person photos in the
