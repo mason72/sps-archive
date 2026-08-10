@@ -41,11 +41,15 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
   const supabase = await createServerSupabaseClient();
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("display_name, business_name")
+    .select("display_name, business_name, is_admin")
     .eq("user_id", user.id)
     .single();
 
-  const p = profile as { display_name?: string; business_name?: string } | null;
+  const p = profile as {
+    display_name?: string;
+    business_name?: string;
+    is_admin?: boolean;
+  } | null;
   const displayName =
     p?.display_name?.split(" ")[0] ||
     p?.business_name ||
@@ -72,6 +76,16 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
         >
           Account
         </Link>
+        {/* Rendered from a server-read is_admin; the /ops page re-gates
+            server-side regardless — this link is a convenience, not the lock. */}
+        {p?.is_admin && (
+          <Link
+            href="/ops"
+            className="editorial-link text-emerald-700 hover:text-emerald-800 transition-colors duration-300"
+          >
+            Ops
+          </Link>
+        )}
         <SignOutButton />
       </Nav>
 
