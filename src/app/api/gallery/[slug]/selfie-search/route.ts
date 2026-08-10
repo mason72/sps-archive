@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { recordUsage, secondsSince } from "@/lib/usage/record";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,13 @@ export async function POST(
       if (cookie?.value !== share.id) {
         return NextResponse.json({ error: "Locked" }, { status: 401 });
       }
+    }
+
+    // Resolved before the GPU call — an unnarrowable share type can't match
+    // anything, so it must not spend the owner's money finding that out.
+    const scope = resolveShareImageScope(share);
+    if (scope.kind === "none") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     if (!(await checkAuthRateLimit(supabase, "search", slug, clientIp(request)))) {
@@ -167,10 +175,7 @@ export async function POST(
     }
 
     // Selection shares expose a subset — intersect server-side; ids only.
-    const allowed =
-      share.share_type === "selection" && share.image_ids?.length
-        ? new Set(share.image_ids)
-        : null;
+    const allowed = shareScopeIdFilter(scope);
     const results = imageIds.filter((id) => !allowed || allowed.has(id));
 
     return NextResponse.json({ results, matchedPerson: Boolean(winner) });

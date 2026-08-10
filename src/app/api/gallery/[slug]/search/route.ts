@@ -7,6 +7,7 @@ import {
   filterSemanticMatches,
   SEMANTIC_RPC_THRESHOLD,
 } from "@/lib/ai-index/search-filter";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
  * GET /api/gallery/[slug]/search?q=<query>
@@ -50,6 +51,13 @@ export async function GET(
     if (!share) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (share.expires_at && new Date(share.expires_at) < new Date()) {
       return NextResponse.json({ error: "Expired" }, { status: 410 });
+    }
+
+    // Resolved before the embed call — an unnarrowable share type can't match
+    // anything, so it must not spend the owner's tokens finding that out.
+    const scope = resolveShareImageScope(share);
+    if (scope.kind === "none") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     // Same gate as the gallery payload route: a protected share needs the
@@ -103,10 +111,7 @@ export async function GET(
     if (rpcErr) throw rpcErr;
 
     // Selection shares expose an explicit subset — intersect server-side.
-    const allowed =
-      share.share_type === "selection" && share.image_ids?.length
-        ? new Set(share.image_ids)
-        : null;
+    const allowed = shareScopeIdFilter(scope);
     const results = filterSemanticMatches(matches ?? [])
       .filter((m: { id: string }) => !allowed || allowed.has(m.id))
       .map((m: { id: string; similarity: number }) => ({

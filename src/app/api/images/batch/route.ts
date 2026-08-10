@@ -5,6 +5,7 @@ import { unpublishAssetFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
 import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
 import { mediaExtension, stripMediaExtension } from "@/lib/upload/media";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
  * DELETE /api/images/batch — Delete multiple images.
@@ -388,7 +389,7 @@ export async function PATCH(request: NextRequest) {
         // another tenant's share.
         const { data: share, error: shareError } = await supabase
           .from("shares")
-          .select("id, event_id, events!event_id!inner(user_id)")
+          .select("id, event_id, share_type, image_ids, events!event_id!inner(user_id)")
           .eq("id", shareId)
           .eq("is_active", true)
           .eq("events.user_id", user!.id)
@@ -398,26 +399,45 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: "Share not found" }, { status: 404 });
         }
 
+        // A pick must land inside what the share actually exposes. Favorite
+        // rows are read back by guest-facing routes (/favorites, /fav-thumb),
+        // so a row outside a selection share's curation would be a photo the
+        // photographer excluded, reachable by anyone holding the slug. Those
+        // readers now scope-check too — this keeps the row from existing.
+        const inScope = shareScopeIdFilter(resolveShareImageScope(share));
+        const scopedIds = inScope
+          ? ownedIds.filter((id: string) => inScope.has(id))
+          : ownedIds;
+
         // Upsert favorites for each image (photographer adding on behalf of client)
         // Use a sentinel email so the unique constraint (share_id, image_id, client_email)
         // properly deduplicates — NULL values are treated as distinct in Postgres.
         const PHOTOGRAPHER_EMAIL = "photographer@pixeltrunk.internal";
-        const rows = ownedIds.map((imageId) => ({
+        const rows = scopedIds.map((imageId: string) => ({
           share_id: shareId,
           image_id: imageId,
           client_name: "Photographer Pick",
           client_email: PHOTOGRAPHER_EMAIL,
         }));
 
-        const { error: favError } = await supabase
-          .from("favorites")
-          .upsert(rows, { onConflict: "share_id,image_id,client_email" });
+        if (rows.length > 0) {
+          const { error: favError } = await supabase
+            .from("favorites")
+            .upsert(rows, { onConflict: "share_id,image_id,client_email" });
 
-        if (favError) {
-          return NextResponse.json({ error: favError.message }, { status: 500 });
+          if (favError) {
+            return NextResponse.json({ error: favError.message }, { status: 500 });
+          }
         }
 
-        return NextResponse.json({ updated: ownedIds.length, action });
+        // Report what was actually written, not what was asked for — a count
+        // that silently includes dropped out-of-scope picks is a lie the UI
+        // would render as success.
+        return NextResponse.json({
+          updated: rows.length,
+          skippedOutOfScope: ownedIds.length - rows.length,
+          action,
+        });
       }
 
       case "rename": {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/analytics/log";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
  * POST /api/gallery/[slug]/favorites — Add a favorite.
@@ -35,7 +36,7 @@ export async function POST(
     // Verify share is active and allows favorites
     const { data: share, error: shareError } = await supabase
       .from("shares")
-      .select("id, allow_favorites, event_id")
+      .select("id, allow_favorites, event_id, share_type, image_ids")
       .eq("id", shareId)
       .eq("slug", slug)
       .eq("is_active", true)
@@ -48,15 +49,19 @@ export async function POST(
       );
     }
 
-    // The imageId must actually belong to this share's event — never let a
-    // guest write a favorite row pointing at some other tenant's image.
+    // The imageId must belong to this share's event AND to what this share
+    // actually exposes — never let a guest write a favorite row pointing at
+    // another tenant's image, or at a photo the share's own scope excludes.
+    // The scope matters here because GET /fav-thumb/[imageId] treats a
+    // favorite row as authorization to serve that thumbnail.
+    const allowed = shareScopeIdFilter(resolveShareImageScope(share));
     const { data: img } = await supabase
       .from("images")
       .select("id")
       .eq("id", imageId)
       .eq("event_id", share.event_id)
       .maybeSingle();
-    if (!img) {
+    if (!img || (allowed && !allowed.has(imageId))) {
       return NextResponse.json(
         { error: "Image not in this gallery" },
         { status: 404 }
@@ -146,7 +151,7 @@ export async function GET(
     // /api/events/[eventId]/favorites endpoint instead).
     const { data: share } = await supabase
       .from("shares")
-      .select("id")
+      .select("id, share_type, image_ids")
       .eq("id", shareId)
       .eq("slug", slug)
       .eq("is_active", true)
@@ -162,11 +167,18 @@ export async function GET(
 
     if (error) throw error;
 
+    // Ids only, but still scoped: favorite rows have a second writer (the
+    // photographer's "Pick"), so this list can name images the share's own
+    // curation excludes — and the client turns each id into a fav-thumb URL.
+    const allowed = shareScopeIdFilter(resolveShareImageScope(share));
+
     return NextResponse.json({
-      favorites: (data || []).map((f) => ({
-        imageId: f.image_id,
-        createdAt: f.created_at,
-      })),
+      favorites: (data || [])
+        .filter((f) => !allowed || allowed.has(f.image_id))
+        .map((f) => ({
+          imageId: f.image_id,
+          createdAt: f.created_at,
+        })),
     });
   } catch (error) {
     console.error("List favorites error:", error);
