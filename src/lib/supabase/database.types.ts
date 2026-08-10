@@ -1037,6 +1037,33 @@ export type Database = {
         }
         Relationships: []
       }
+      waitlist: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          reviewed_at: string | null
+          status: string
+          work_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          reviewed_at?: string | null
+          status?: string
+          work_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          reviewed_at?: string | null
+          status?: string
+          work_url?: string | null
+        }
+        Relationships: []
+      }
       zip_jobs: {
         Row: {
           created_at: string

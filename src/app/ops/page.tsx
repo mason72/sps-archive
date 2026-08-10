@@ -4,6 +4,7 @@ import { PLATFORM_OVERHEAD_MONTHLY } from "@/lib/usage/costs";
 import { getUsageOverview, type UserUsageSummary } from "@/lib/usage/summary";
 import type { UsageKind } from "@/lib/usage/record";
 import { InvitePanel, type InviteRow } from "./InvitePanel";
+import { WaitlistPanel, type WaitlistRow } from "./WaitlistPanel";
 import { ActAsButton } from "./ActAsButton";
 
 export const dynamic = "force-dynamic";
@@ -55,12 +56,17 @@ export default async function OpsPage() {
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-  const [overview, invitesRes, errorsRes, activityRes] = await Promise.all([
+  const [overview, invitesRes, waitlistRes, errorsRes, activityRes] = await Promise.all([
     getUsageOverview(supabase, monthStart),
     supabase
       .from("allowed_signups")
       .select("email, invited_at, joined_at, note")
       .order("invited_at", { ascending: false }),
+    supabase
+      .from("waitlist")
+      .select("email, work_url, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(100),
     supabase
       .from("system_errors")
       .select("id, context, message, user_id, event_id, created_at")
@@ -153,6 +159,12 @@ export default async function OpsPage() {
         <section className="rounded-xl border border-stone-200/80 bg-white p-6">
           <SectionHead title="Alpha invites" />
           <InvitePanel initialInvites={(invitesRes.data ?? []) as InviteRow[]} />
+        </section>
+
+        {/* Waitlist */}
+        <section className="rounded-xl border border-stone-200/80 bg-white p-6">
+          <SectionHead title="Waitlist applications" />
+          <WaitlistPanel initialRows={(waitlistRes.data ?? []) as WaitlistRow[]} />
         </section>
 
         {/* Overhead */}

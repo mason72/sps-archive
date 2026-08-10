@@ -4,7 +4,6 @@ import { useState } from "react";
 import { BrandButton } from "@/components/ui/brand-button";
 import { Check, Minus } from "lucide-react";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
 const PLANS = [
   {
@@ -25,7 +24,7 @@ const PLANS = [
       batch: false,
       analytics: false,
     },
-    cta: "Get Started",
+    cta: "Request an Invite",
     highlight: false,
   },
   {
@@ -46,7 +45,7 @@ const PLANS = [
       batch: false,
       analytics: false,
     },
-    cta: "Start Free Trial",
+    cta: "Request an Invite",
     highlight: false,
   },
   {
@@ -67,7 +66,7 @@ const PLANS = [
       batch: false,
       analytics: false,
     },
-    cta: "Start Free Trial",
+    cta: "Request an Invite",
     highlight: true,
     badge: "Most Popular",
   },
@@ -89,7 +88,7 @@ const PLANS = [
       batch: true,
       analytics: true,
     },
-    cta: "Start Free Trial",
+    cta: "Request an Invite",
     highlight: false,
     extraStorage: "$5 / 100 GB / mo",
   },
@@ -130,12 +129,12 @@ const FEATURE_LABELS: Record<string, string> = {
 
 const FAQS = [
   {
-    q: "What happens after the 14-day trial?",
-    a: "Your account downgrades to the Free plan. All your data is preserved — you just can't upload beyond the Free limits until you subscribe.",
+    q: "How do I get access?",
+    a: "Pixeltrunk is invitation-only while we work closely with a small group of photographers. Request an invite with a link to your work — we review every application personally and send invites in small batches.",
   },
   {
-    q: "Do I need a credit card to start?",
-    a: "No. The trial starts immediately with no payment info required. You'll only enter payment details when you choose to subscribe.",
+    q: "Does the alpha cost anything?",
+    a: "No. Invited photographers use Pixeltrunk free during the alpha. Paid plans start when we open up — and you'll get plenty of notice before anything changes.",
   },
   {
     q: "What counts toward my storage?",
@@ -369,7 +368,7 @@ export default function PricingPage() {
 
                 {/* CTA */}
                 {plan.highlight ? (
-                  <a href={`${APP_URL}/signup`}>
+                  <a href="/#invite">
                     <BrandButton
                       size="sm"
                       color="emerald"
@@ -387,7 +386,7 @@ export default function PricingPage() {
                   </a>
                 ) : (
                   <a
-                    href={`${APP_URL}/signup`}
+                    href="/#invite"
                     className="inline-flex items-center justify-center h-8 px-4 text-[11px] uppercase tracking-[0.12em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-colors duration-300 whitespace-nowrap"
                   >
                     {plan.cta}
@@ -425,12 +424,12 @@ export default function PricingPage() {
       {/* ─── Bottom CTA ─── */}
       <section className="border-t border-stone-200 py-20 text-center">
         <p className="font-editorial text-[clamp(20px,3vw,28px)] text-stone-900 mb-6 reveal">
-          Ready to organize your archive?
+          Want in?
         </p>
         <div className="reveal" style={{ animationDelay: "0.05s" }}>
-          <a href={`${APP_URL}/signup`}>
+          <a href="/#invite">
             <BrandButton size="lg" color="emerald" celebrate>
-              Start Your Free Trial
+              Request an Invite
             </BrandButton>
           </a>
         </div>
@@ -438,7 +437,7 @@ export default function PricingPage() {
           className="mt-3 text-[12px] text-stone-300 reveal"
           style={{ animationDelay: "0.1s" }}
         >
-          14-day Pro trial · No credit card · Cancel anytime
+          Invitation-only · We review every application
         </p>
       </section>
     </div>

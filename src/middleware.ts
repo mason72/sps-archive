@@ -112,6 +112,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/reset-password" ||
     pathname.startsWith("/auth/callback") ||
     pathname.startsWith("/api/auth/") ||
+    // Public waitlist application (marketing site) — its own rate limit.
+    pathname === "/api/waitlist" ||
     pathname.startsWith("/gallery") ||
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||

@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Pixeltrunk is in private beta. Request an invite at hello@pixeltrunk.com",
+            "Pixeltrunk is invitation-only right now. Request an invite at pixeltrunk.com",
         },
         { status: 403 }
       );

@@ -9,13 +9,12 @@ import {
   Shield,
   Camera,
 } from "lucide-react";
-
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+import { WaitlistForm } from "./WaitlistForm";
 
 export const metadata = {
   title: "Pixeltrunk — AI-Powered Photo Archive for Photographers",
   description:
-    "Smart Stacks, natural language search, and seamless client delivery. The only photo archive built for professional photographers.",
+    "Find any photo in seconds, deliver galleries clients love. Currently invitation-only — request an invite.",
 };
 
 export default function MarketingLandingPage() {
@@ -45,17 +44,17 @@ export default function MarketingLandingPage() {
             className="text-stone-400 text-[16px] mt-8 max-w-xl leading-[1.8] reveal"
             style={{ animationDelay: "0.2s" }}
           >
-            Upload thousands of images. AI organizes them into smart stacks,
-            searchable sections, and shareable galleries — so you can focus on
-            the creative work that matters.
+            Drop in a whole shoot and watch it organize itself. Find any frame
+            by describing it. Hand clients a gallery they&apos;ll gush over —
+            while you get back to shooting.
           </p>
           <div
             className="mt-12 flex items-center gap-5 reveal"
             style={{ animationDelay: "0.3s" }}
           >
-            <a href={`${APP_URL}/signup`}>
+            <a href="#invite">
               <BrandButton size="lg" color="emerald">
-                Start Free Trial
+                Request an Invite
               </BrandButton>
             </a>
             <Link
@@ -69,7 +68,7 @@ export default function MarketingLandingPage() {
             className="mt-4 text-[12px] text-stone-300 reveal"
             style={{ animationDelay: "0.35s" }}
           >
-            14-day Pro trial · No credit card required
+            Currently invitation-only · We review every application
           </p>
         </div>
       </section>
@@ -93,25 +92,25 @@ export default function MarketingLandingPage() {
                 icon: Layers,
                 title: "Smart Stacks",
                 description:
-                  "AI groups faces, bursts, and similar shots. The best rises to the top — expand to compare or let AI decide.",
+                  "Bursts and near-twins collapse into one clean card with the best frame on top. Expand when you care, glide past when you don't.",
               },
               {
                 icon: Search,
-                title: "Natural Search",
+                title: "Search Like You Talk",
                 description:
-                  'Search by what you see, not filenames. "First dance", "speeches at sunset", or upload a selfie to find someone.',
+                  'Type "first dance" or "speeches at sunset" and every matching frame appears. Guests can even find themselves with a selfie.',
               },
               {
                 icon: LayoutGrid,
-                title: "Auto Sections",
+                title: "Galleries That Draft Themselves",
                 description:
-                  "AI detects scenes and creates overlapping sections. One photo can live in multiple contexts — ceremony, candids, portraits.",
+                  "Your event sorts itself into chapters — ceremony, portraits, details — and waits for your yes. You stay the editor.",
               },
               {
                 icon: Zap,
-                title: "SPS Integration",
+                title: "Delivery Built In",
                 description:
-                  "Zero-copy import from SimplePhotoShare. Your archive and delivery platform, seamlessly connected.",
+                  "Passwords, PINs, favorites, full-resolution downloads, email announcements with a live hero. One link does all of it.",
               },
             ].map((feature, i) => (
               <div
@@ -155,9 +154,9 @@ export default function MarketingLandingPage() {
               },
               {
                 step: "02",
-                title: "AI Organizes",
+                title: "It Organizes Itself",
                 description:
-                  "CLIP embeddings, face recognition, and aesthetic scoring run on every image. Smart Stacks and Sections appear automatically.",
+                  "Every image gets read, rated, and placed. Stacks form, chapters appear, people group together — before your coffee's done.",
               },
               {
                 step: "03",
@@ -277,19 +276,19 @@ export default function MarketingLandingPage() {
                 icon: Shield,
                 title: "Secure by Design",
                 description:
-                  "Your images stored on Cloudflare R2 with zero egress fees. Presigned URLs. Row-level security.",
+                  "Originals live behind expiring, signed links in enterprise-grade storage. Nobody sees a photo you didn't share.",
               },
               {
                 icon: Camera,
-                title: "Built for Photographers",
+                title: "Built by Photographers",
                 description:
-                  "By photographers, for photographers. We understand RAW files, culling workflows, and client delivery.",
+                  "We shoot too. RAW files, brutal culls, clients who want everything yesterday — the whole thing is shaped around that reality.",
               },
               {
                 icon: Zap,
-                title: "GPU-Powered AI",
+                title: "Fast Where It Counts",
                 description:
-                  "CLIP, ArcFace, and aesthetic scoring run on serverless GPUs. Results in seconds, not minutes.",
+                  "Tens of thousands of images, answers in a blink. The heavy lifting happens on serious hardware so your laptop never does.",
               },
             ].map((item, i) => (
               <div
@@ -310,8 +309,8 @@ export default function MarketingLandingPage() {
         </div>
       </section>
 
-      {/* ─── Final CTA ─── */}
-      <section className="border-t border-stone-200">
+      {/* ─── Waitlist ─── */}
+      <section id="invite" className="border-t border-stone-200">
         <div className="px-8 md:px-16 py-24 text-center">
           <blockquote className="max-w-2xl mx-auto mb-12 reveal">
             <p className="font-serif italic text-[clamp(24px,3.5vw,36px)] leading-[1.4] text-stone-700">
@@ -319,19 +318,17 @@ export default function MarketingLandingPage() {
               holds.&rdquo;
             </p>
           </blockquote>
-          <div className="reveal" style={{ animationDelay: "0.1s" }}>
-            <a href={`${APP_URL}/signup`}>
-              <BrandButton size="lg" color="emerald" celebrate>
-                Start Your Free Trial
-              </BrandButton>
-            </a>
-          </div>
+          <p className="label-caps mb-3 reveal">Invitation Only</p>
           <p
-            className="mt-4 text-[12px] text-stone-300 reveal"
-            style={{ animationDelay: "0.15s" }}
+            className="mx-auto mb-10 max-w-md text-[15px] leading-relaxed text-stone-400 reveal"
+            style={{ animationDelay: "0.05s" }}
           >
-            14-day Pro trial · No credit card required
+            We&apos;re opening the doors a few photographers at a time. Tell us
+            where to reach you — and show us what you shoot.
           </p>
+          <div className="reveal" style={{ animationDelay: "0.1s" }}>
+            <WaitlistForm />
+          </div>
         </div>
       </section>
     </>

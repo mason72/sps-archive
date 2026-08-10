@@ -23,7 +23,7 @@ export const SEARCH_ATTEMPT_WINDOW_SECONDS = 10 * 60;
 
 export async function checkAuthRateLimit(
   supabase: ReturnType<typeof createServiceClient>,
-  scope: "password" | "pin" | "search" | "forgot",
+  scope: "password" | "pin" | "search" | "forgot" | "waitlist",
   slug: string,
   ip: string
 ): Promise<boolean> {
