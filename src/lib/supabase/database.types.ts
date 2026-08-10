@@ -483,6 +483,7 @@ export type Database = {
           location: string | null;
           branding: Json;
           gallery_defaults: Json;
+          is_admin: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -497,6 +498,7 @@ export type Database = {
           location?: string | null;
           branding?: Json;
           gallery_defaults?: Json;
+          is_admin?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -511,8 +513,33 @@ export type Database = {
           location?: string | null;
           branding?: Json;
           gallery_defaults?: Json;
+          is_admin?: boolean;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      allowed_signups: {
+        Row: {
+          email: string;
+          invited_by: string | null;
+          invited_at: string;
+          joined_at: string | null;
+          note: string | null;
+        };
+        Insert: {
+          email: string;
+          invited_by?: string | null;
+          invited_at?: string;
+          joined_at?: string | null;
+          note?: string | null;
+        };
+        Update: {
+          email?: string;
+          invited_by?: string | null;
+          invited_at?: string;
+          joined_at?: string | null;
+          note?: string | null;
         };
         Relationships: [];
       };

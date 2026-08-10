@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/auth/signup
  *
- * Server-side signup with allowlist enforcement.
- * When ALLOWED_SIGNUP_EMAILS is set, only those emails can register.
- * When it's empty/unset, registration is open to everyone.
+ * Server-side signup gated by the allowed_signups table (managed from /ops).
+ * Public Supabase signups are disabled at the project level, so this route's
+ * admin.createUser call is the ONLY way an account gets created — and the
+ * allowlist check below is the lock on that door. It fails closed: no
+ * allowlist row, no account.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -21,27 +24,35 @@ export async function POST(request: NextRequest) {
 
     const trimmedEmail = email.trim().toLowerCase();
 
-    // ─── Allowlist check ───
-    const allowlist = process.env.ALLOWED_SIGNUP_EMAILS;
-    if (allowlist) {
-      const allowed = allowlist
-        .split(",")
-        .map((e: string) => e.trim().toLowerCase())
-        .filter(Boolean);
+    // ─── Allowlist check (fails closed) ───
+    const supabase = createServiceClient();
+    const { data: invite, error: allowlistError } = await supabase
+      .from("allowed_signups")
+      .select("email")
+      .eq("email", trimmedEmail)
+      .maybeSingle();
 
-      if (allowed.length > 0 && !allowed.includes(trimmedEmail)) {
-        return NextResponse.json(
-          {
-            error:
-              "Pixeltrunk is in private beta. Request an invite at hello@pixeltrunk.com",
-          },
-          { status: 403 }
-        );
-      }
+    if (allowlistError) {
+      await reportSystemError("auth.signup.allowlist", allowlistError, {
+        email: trimmedEmail,
+      });
+      return NextResponse.json(
+        { error: "Something went wrong. Please try again." },
+        { status: 500 }
+      );
+    }
+
+    if (!invite) {
+      return NextResponse.json(
+        {
+          error:
+            "Pixeltrunk is in private beta. Request an invite at hello@pixeltrunk.com",
+        },
+        { status: 403 }
+      );
     }
 
     // ─── Create user via Supabase admin API ───
-    const supabase = createServiceClient();
     const { data, error } = await supabase.auth.admin.createUser({
       email: trimmedEmail,
       password,
@@ -60,6 +71,17 @@ export async function POST(request: NextRequest) {
         );
       }
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // ─── Mark the invite as joined (best-effort; signup already succeeded) ───
+    const { error: joinedError } = await supabase
+      .from("allowed_signups")
+      .update({ joined_at: new Date().toISOString() })
+      .eq("email", trimmedEmail);
+    if (joinedError) {
+      await reportSystemError("auth.signup.mark-joined", joinedError, {
+        email: trimmedEmail,
+      });
     }
 
     // ─── Send notification email to admin ───
@@ -91,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ user: data.user });
   } catch (err) {
-    console.error("Signup error:", err);
+    await reportSystemError("auth.signup", err);
     return NextResponse.json(
       { error: "Something went wrong. Please try again." },
       { status: 500 }
