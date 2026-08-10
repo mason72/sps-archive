@@ -38,6 +38,9 @@ const REGEN_MAX_CONCURRENT = 3;
 
 interface ImageGridProps {
   images: ImageData[];
+  /** Overrides the empty state (e.g. "no search results" vs "no photos"). */
+  emptyTitle?: string;
+  emptySubtitle?: string;
   stacks: StackData[];
   standalone: ImageData[];
   onToggleSelect?: (imageId: string) => void;
@@ -114,6 +117,8 @@ const GAP_PX = { tight: 2, normal: 6, loose: 12 } as const;
 export function ImageGrid({
   stacks,
   standalone,
+  emptyTitle,
+  emptySubtitle,
   onToggleSelect,
   onRangeSelect,
   onImageDoubleClick,
@@ -168,10 +173,10 @@ export function ImageGrid({
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="font-editorial text-xl text-stone-400 italic">
-          No images yet
+          {emptyTitle ?? "No images yet"}
         </p>
         <p className="mt-2 text-[13px] text-stone-300">
-          Upload some photos to get started
+          {emptySubtitle ?? "Upload some photos to get started"}
         </p>
       </div>
     );

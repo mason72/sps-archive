@@ -24,6 +24,7 @@ import { CurationModal } from "@/components/gallery/CurationModal";
 import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { SortSectionsModal } from "@/components/events/SortSectionsModal";
+import { SmartSectionModal } from "@/components/events/SmartSectionModal";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
@@ -141,6 +142,8 @@ export default function EventPage({
   } | null>(null);
   // Review/rename the filtered person straight from the chip.
   const [renamingPerson, setRenamingPerson] = useState(false);
+  // Additive "Smart section" modal (sidebar tools footer).
+  const [showSmartSection, setShowSmartSection] = useState(false);
   // People-button badge: pending suggestion count (fetched once on load,
   // kept live by PeopleView while it's open).
   const [suggestionCount, setSuggestionCount] = useState(0);
@@ -186,7 +189,7 @@ export default function EventPage({
   // real thumbnails/dimensions and the scope is just the active section.
   const trimmedQuery = searchQuery.trim();
   const isSearching = trimmedQuery.length > 0;
-  const searchResults = useMemo<ImageData[] | null>(() => {
+  const nameSearchResults = useMemo<ImageData[] | null>(() => {
     if (!isSearching) return null;
     const q = trimmedQuery.toLowerCase();
     const base = activeSection
@@ -198,6 +201,63 @@ export default function EventPage({
         (img.parsedName ?? "").toLowerCase().includes(q)
     );
   }, [isSearching, trimmedQuery, activeSection, allImages]);
+
+  // ─── Visual search fallback (event-scoped) ───
+  // Names first — instant and local. When a query matches no filename, fall
+  // through to semantic search over this event's embeddings, so "people
+  // wearing glasses" works in the editor exactly like it does on /search.
+  const [visualHits, setVisualHits] = useState<{ query: string; ids: string[] } | null>(
+    null
+  );
+  const [visualSearching, setVisualSearching] = useState(false);
+  useEffect(() => {
+    const q = trimmedQuery;
+    if (!isSearching || q.length < 3 || (nameSearchResults?.length ?? 0) > 0) {
+      setVisualSearching(false);
+      return;
+    }
+    if (visualHits?.query === q) return;
+    setVisualSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          q,
+          eventId,
+          type: "semantic",
+          limit: "200",
+        });
+        const res = await fetch(`/api/search?${params}`);
+        if (!res.ok) throw new Error();
+        const data = (await res.json()) as { results?: { id: string }[] };
+        setVisualHits({ query: q, ids: (data.results ?? []).map((r) => r.id) });
+      } catch {
+        setVisualHits({ query: q, ids: [] });
+      } finally {
+        setVisualSearching(false);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [isSearching, trimmedQuery, nameSearchResults?.length, eventId, visualHits]);
+
+  const visualActive =
+    isSearching &&
+    (nameSearchResults?.length ?? 0) === 0 &&
+    visualHits?.query === trimmedQuery;
+
+  const searchResults = useMemo<ImageData[] | null>(() => {
+    if (!isSearching) return null;
+    if ((nameSearchResults?.length ?? 0) > 0) return nameSearchResults;
+    if (visualActive && visualHits) {
+      const rank = new Map(visualHits.ids.map((id, i) => [id, i]));
+      const base = activeSection
+        ? allImages.filter((img) => img.sectionIds?.includes(activeSection))
+        : allImages;
+      return base
+        .filter((img) => rank.has(img.id))
+        .sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    }
+    return [];
+  }, [isSearching, nameSearchResults, visualActive, visualHits, activeSection, allImages]);
 
   // ─── Derived displayed list (race-proof) ───
   // Pure function of (search, active section, section IDs, full set). Lives in
@@ -1216,11 +1276,26 @@ export default function EventPage({
             isWorkGallery ? (s) => setJobModalSectionId(s.id) : undefined
           }
           onRequestSort={() => setShowSort(true)}
+          onRequestSmartSection={() => setShowSmartSection(true)}
         />
       )}
 
       {/* ─── Sort into sections (page-owned: sidebar button + nudge share it,
              and it can preview live during an upload session) ─── */}
+      {showSmartSection && (
+        <SmartSectionModal
+          eventId={eventId}
+          imageById={imageThumbById}
+          onCreated={(returned, sectionId) => {
+            handleSortApplied(returned);
+            setShowSmartSection(false);
+            setActiveSection(sectionId);
+            fetchEvent();
+          }}
+          onClose={() => setShowSmartSection(false)}
+        />
+      )}
+
       {showSort && (
         <SortSectionsModal
           eventId={eventId}
@@ -1920,6 +1995,7 @@ export default function EventPage({
                   activePersonId={personFilter?.id ?? null}
                   imageById={imageThumbById}
                   onSuggestionsCount={setSuggestionCount}
+                  searchQuery={searchQuery}
                   onSelectPerson={(person: Person | null) => {
                     if (!person) {
                       setPersonFilter(null);
@@ -1964,6 +2040,20 @@ export default function EventPage({
                     showFocalBadge
                     coverImageId={jobCoverImageId}
                     positionBadges={positionBadges}
+                    emptyTitle={
+                      isSearching
+                        ? visualSearching
+                          ? "Looking…"
+                          : `No matches for “${trimmedQuery}”`
+                        : undefined
+                    }
+                    emptySubtitle={
+                      isSearching
+                        ? visualSearching
+                          ? "Checking what's in your photos"
+                          : "Try a name, a filename, or describe the photo"
+                        : undefined
+                    }
                   />
                   {/* Bottom-of-results escape hatch: widen a section search to
                       the whole event without losing the query. */}

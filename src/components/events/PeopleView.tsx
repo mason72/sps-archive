@@ -51,6 +51,7 @@ export function PeopleView({
   onSelectPerson,
   imageById,
   onSuggestionsCount,
+  searchQuery,
 }: {
   eventId: string;
   activePersonId: string | null;
@@ -59,6 +60,8 @@ export function PeopleView({
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   /** Reports the live suggestion count (drives the People-button badge). */
   onSuggestionsCount?: (count: number) => void;
+  /** The editor's search box filters the face wall too (by person name). */
+  searchQuery?: string;
 }) {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
@@ -171,11 +174,18 @@ export function PeopleView({
       (suggestions?.refinements.length ?? 0) >
     0;
 
+  // The editor's search filters the face wall by name (an unnamed cluster has
+  // no name to match, so a query hides them).
+  const q = (searchQuery ?? "").trim().toLowerCase();
+  const visible = q
+    ? people.filter((p) => (p.name ?? "").toLowerCase().includes(q))
+    : people;
+
   // Named people A–Z, then the unnamed (largest first) under their own header.
-  const named = people
+  const named = visible
     .filter((p) => p.name)
     .sort((a, b) => a.name!.localeCompare(b.name!, undefined, { sensitivity: "base" }));
-  const unnamed = people.filter((p) => !p.name).sort((a, b) => b.faceCount - a.faceCount);
+  const unnamed = visible.filter((p) => !p.name).sort((a, b) => b.faceCount - a.faceCount);
 
   return (
     <div>
@@ -343,6 +353,11 @@ export function PeopleView({
       )}
 
       {/* ─── People grid: named A–Z, then unnamed ─── */}
+      {q && visible.length === 0 && (
+        <p className="py-16 text-center text-[13px] text-stone-400">
+          No people match &ldquo;{searchQuery}&rdquo;
+        </p>
+      )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-7">
         {named.map((person) => (
           <PersonCard

@@ -26,6 +26,7 @@ import {
   Search,
   X,
   Sparkles,
+  FolderTree,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import { findIntakeSectionId } from "@/lib/sections/intake";
@@ -109,6 +110,8 @@ interface EventSidebarProps {
   /** Opens the "Sort into sections" modal — owned by the page, so the same
    *  instance serves this button and the post-upload nudge. */
   onRequestSort?: () => void;
+  /** Opens the additive "Smart section" modal (page-owned, like sort). */
+  onRequestSmartSection?: () => void;
 }
 
 export type Panel = "sections" | "design" | "details" | "activity";
@@ -165,6 +168,7 @@ export function EventSidebar({
   isWorkGallery = false,
   onSectionCreated,
   onRequestSort,
+  onRequestSmartSection,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -275,6 +279,7 @@ export function EventSidebar({
             isWorkGallery={isWorkGallery}
             onSectionCreated={onSectionCreated}
             onRequestSort={onRequestSort}
+            onRequestSmartSection={onRequestSmartSection}
           />
         )}
         {activePanel === "design" && (
@@ -351,6 +356,7 @@ function SectionsPanel({
   isWorkGallery = false,
   onSectionCreated,
   onRequestSort,
+  onRequestSmartSection,
 }: {
   eventId: string;
   sections: SectionItem[];
@@ -361,6 +367,7 @@ function SectionsPanel({
   isWorkGallery?: boolean;
   onSectionCreated?: (section: SectionItem) => void;
   onRequestSort?: () => void;
+  onRequestSmartSection?: () => void;
 }) {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -520,8 +527,11 @@ function SectionsPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* "All" tab + new section input + section list */}
-      <div className="flex-1 overflow-y-auto">
+      {/* "All" tab + section list + new-section input. NOT flex-1: a short
+          list keeps its natural height so the tools footer sits directly
+          beneath it; a long list shrinks (min-h-0) and scrolls, which lands
+          the footer at the bottom of the column. */}
+      <div className="min-h-0 overflow-y-auto">
         <button
           onClick={() => onSetActiveSection(null)}
           className={cn(
@@ -669,20 +679,7 @@ function SectionsPanel({
           ))
         )}
 
-        {/* Sort into sections — auto-create balanced, scannable sections from a
-            big upload. Shown when there's something to sort and it's not a
-            job/website gallery (those organize by job/scene, not by name). */}
-        {!isWorkGallery && sections.some((s) => s.imageCount > 0) && onRequestSort && (
-          <button
-            onClick={onRequestSort}
-            className="flex w-full items-center gap-2 border-t border-stone-50 px-4 py-2.5 text-left text-[12px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50/50"
-          >
-            <Sparkles size={14} className="shrink-0 text-emerald-500" />
-            Sort into sections…
-          </button>
-        )}
-
-        {/* Create new section — always visible, below sections list */}
+        {/* Create new section — directly below the list, type-and-go. */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-t border-stone-50">
           <Plus size={14} className="text-stone-400 shrink-0" />
           <input
@@ -708,6 +705,47 @@ function SectionsPanel({
         </div>
       </div>
 
+      {/* ─── Tools footer ───
+          Sits under the list normally; sticks to the bottom of the column once
+          the list outgrows the screen (mt-auto in the flex column). Additive
+          "Smart section" first — the destructive rebuild reads as the heavier
+          option it is. */}
+      {!isWorkGallery && (onRequestSmartSection || onRequestSort) && (
+        <div className="shrink-0 border-t border-stone-100 bg-white">
+          {onRequestSmartSection && (
+            <button
+              onClick={onRequestSmartSection}
+              className="flex w-full items-start gap-2 px-4 py-2.5 text-left transition-colors hover:bg-emerald-50/50"
+            >
+              <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+              <span>
+                <span className="block text-[12px] font-medium text-emerald-700">
+                  Smart section…
+                </span>
+                <span className="block text-[10px] leading-tight text-stone-400">
+                  Describe it — we&apos;ll find the photos
+                </span>
+              </span>
+            </button>
+          )}
+          {sections.some((s) => s.imageCount > 0) && onRequestSort && (
+            <button
+              onClick={onRequestSort}
+              className="flex w-full items-start gap-2 px-4 py-2.5 text-left transition-colors hover:bg-stone-50"
+            >
+              <FolderTree size={14} className="mt-0.5 shrink-0 text-stone-400" />
+              <span>
+                <span className="block text-[12px] font-medium text-stone-700">
+                  Rebuild all sections…
+                </span>
+                <span className="block text-[10px] leading-tight text-stone-400">
+                  Re-sorts the whole gallery · keeps your own sections
+                </span>
+              </span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
