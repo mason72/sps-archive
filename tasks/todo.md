@@ -63,6 +63,21 @@ metering and an ops dashboard. Decided with Mason 2026-08-10:
       usage_events row (16.186s, $0.000428) → storage rollup 73.53 GB
       (71.39 originals + 2.14 est. thumbs). 319 tests, build green.
 
+### Security backlog (pre-alpha audit 2026-08-10 — route layer verified CLEAN, 78 routes)
+Fixed in the Phase 1 commit: RLS drift codified (041 — shares/favorites anon
+policies from 002 were already dropped live in July, never backported),
+/playground gated to is_admin, auth/callback open redirect, forgot-password
+origin fallback removed + rate limited ("forgot" scope).
+- [ ] Individual-download PIN server-side (chip spawned) — presigned originals
+      ship in gallery JSON even when require_pin_individual; bulk PIN is fine.
+- [ ] section/person share types fail closed in all 7 guest resolvers (chip
+      spawned) — latent: creatable share types are full/selection only today.
+- [ ] LOWs: validate Stripe priceId against plan map (webhook falls back to
+      "pro"!); scope site/gallery DELETE website-sections query; ownership-check
+      emails/send templateId + eventId before writing to email_sends/usage_events;
+      uniform 404s on processing-status/share-readiness (existence oracle);
+      intersect selection-share favorites writes with image_ids.
+
 ### Phase 2 — ops.pixeltrunk.com dashboard
 - [ ] ops.pixeltrunk.com domain on the Vercel project + DNS; middleware host branch →
       `/ops`, 404/redirect for non-admins (is_admin check, fail closed); every /api/ops
