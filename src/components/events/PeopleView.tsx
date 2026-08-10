@@ -214,7 +214,7 @@ export function PeopleView({
                         }
                         className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 hover:border-emerald-500 transition-colors"
                       >
-                        It&apos;s {s.personName.split(" ")[0]} — fix it
+                        Confirm match
                       </button>
                       <button
                         onClick={() => resolve({ action: "dismiss", key: s.key }, false)}
@@ -345,10 +345,9 @@ function CompareModal({
         className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-white p-8"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Actions live in the header — long photo grids must never scroll
-            the decision off-screen. */}
-        <div className="flex items-start justify-between gap-6 mb-6 flex-wrap">
-          <div>
+        {/* Actions pinned top-right — never wrapping, never scrolled away. */}
+        <div className="flex items-start gap-6 mb-6">
+          <div className="flex-1 min-w-0">
             <h2 className="font-editorial text-2xl text-stone-900">
               Is this {card.personName}?
             </h2>
@@ -362,13 +361,13 @@ function CompareModal({
               onClick={onDismiss}
               className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
             >
-              Not the same — dismiss
+              Dismiss
             </button>
             <button
               onClick={onFix}
               className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors"
             >
-              It&apos;s {card.personName.split(" ")[0]} — fix the name
+              Confirm match
             </button>
             <button
               onClick={onClose}
