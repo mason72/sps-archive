@@ -108,6 +108,18 @@ Phase 2a — Guest visual search [SHIPPED 2026-08-10, be34ba7]:
       constants lose. Lesson: calibrate on the biggest corpus you have, per query
       style.
 
+Phase 2 field-feedback round [SHIPPED 2026-08-10, 1b45e41 + UX commits]:
+- [x] Suggestions v2 from Mason's live testing: SOLO-portrait-only mislabels
+      (group photos would ping-pong renames between members' clusters — his
+      catch, pre-shipped), name-family tolerance (truncated exports aren't
+      conflicts) + "use full name" refinement cards, grouped rows per
+      (person, label), scrollable multi-photo compare, inline person rename,
+      A-Z + Unnamed grouping, circle crops, header-pinned actions, split-pane
+      scroll, filename captions + toggle, People-button badge.
+- [x] PROOF THE LOOP WORKS: Mason confirmed the Jenna/Katie card in prod
+      himself before the E2E re-ran — the "regression" was the customer
+      having already used the feature.
+
 Phase 2 — Faces:
 - [x] Clustering v2 (2026-08-10): pure core (clustering-core.ts, 8 tests) + DB
       orchestration; incremental, named persons never auto-deleted. VALIDATED 99.7%
