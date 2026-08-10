@@ -993,8 +993,10 @@ export default function EventPage({
     gridStacks: StackData[];
     gridStandalone: ImageData[];
   }>(() => {
-    // Search is a flat result list, and the toggle turns grouping off entirely.
-    if (isSearching || !showStacks) {
+    // Stacks survive search: results stay grouped by person (Mason, 2026-08-10
+    // — "with STACKS ON I'd expect people to remain in their stacks"). Only
+    // the toggle turns grouping off.
+    if (!showStacks) {
       return { gridStacks: [], gridStandalone: sortedImages };
     }
     const stacks: StackData[] = [];
@@ -1014,7 +1016,7 @@ export default function EventPage({
       }
     }
     return { gridStacks: stacks, gridStandalone: loose };
-  }, [isSearching, showStacks, sortedImages]);
+  }, [showStacks, sortedImages]);
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
@@ -1996,6 +1998,9 @@ export default function EventPage({
                   imageById={imageThumbById}
                   onSuggestionsCount={setSuggestionCount}
                   searchQuery={searchQuery}
+                  matchingImageIds={
+                    isSearching ? (searchResults ?? []).map((i) => i.id) : null
+                  }
                   onSelectPerson={(person: Person | null) => {
                     if (!person) {
                       setPersonFilter(null);

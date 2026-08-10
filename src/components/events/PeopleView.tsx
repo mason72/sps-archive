@@ -52,6 +52,7 @@ export function PeopleView({
   imageById,
   onSuggestionsCount,
   searchQuery,
+  matchingImageIds,
 }: {
   eventId: string;
   activePersonId: string | null;
@@ -60,8 +61,14 @@ export function PeopleView({
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   /** Reports the live suggestion count (drives the People-button badge). */
   onSuggestionsCount?: (count: number) => void;
-  /** The editor's search box filters the face wall too (by person name). */
+  /** The editor's search box filters the face wall too. */
   searchQuery?: string;
+  /**
+   * Ids of the images the active search matched (name or visual). The wall
+   * shows the PEOPLE in those photos — a search is the same result set, just
+   * stacked by face. Null when no search is running.
+   */
+  matchingImageIds?: string[] | null;
 }) {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
@@ -174,18 +181,30 @@ export function PeopleView({
       (suggestions?.refinements.length ?? 0) >
     0;
 
-  // The editor's search filters the face wall by name (an unnamed cluster has
-  // no name to match, so a query hides them).
+  // Search → the people IN the matching photos (plus any name match, which
+  // covers a hand-named person whose filenames say something else). Each card
+  // reports how many of their photos matched.
   const q = (searchQuery ?? "").trim().toLowerCase();
+  const matchSet = matchingImageIds ? new Set(matchingImageIds) : null;
+  const scored = people.map((p) => ({
+    person: p,
+    matchCount: matchSet ? p.imageIds.filter((id) => matchSet.has(id)).length : 0,
+  }));
   const visible = q
-    ? people.filter((p) => (p.name ?? "").toLowerCase().includes(q))
-    : people;
+    ? scored.filter(
+        (s) => s.matchCount > 0 || (s.person.name ?? "").toLowerCase().includes(q)
+      )
+    : scored;
 
   // Named people A–Z, then the unnamed (largest first) under their own header.
   const named = visible
-    .filter((p) => p.name)
-    .sort((a, b) => a.name!.localeCompare(b.name!, undefined, { sensitivity: "base" }));
-  const unnamed = visible.filter((p) => !p.name).sort((a, b) => b.faceCount - a.faceCount);
+    .filter((s) => s.person.name)
+    .sort((a, b) =>
+      a.person.name!.localeCompare(b.person.name!, undefined, { sensitivity: "base" })
+    );
+  const unnamed = visible
+    .filter((s) => !s.person.name)
+    .sort((a, b) => b.person.faceCount - a.person.faceCount);
 
   return (
     <div>
@@ -359,10 +378,11 @@ export function PeopleView({
         </p>
       )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-7">
-        {named.map((person) => (
+        {named.map(({ person, matchCount }) => (
           <PersonCard
             key={person.id}
             person={person}
+            matchCount={q ? matchCount : undefined}
             active={person.id === activePersonId}
             onClick={() =>
               person.name
@@ -379,10 +399,11 @@ export function PeopleView({
             Unnamed · {unnamed.length}
           </p>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-7">
-            {unnamed.map((person) => (
+            {unnamed.map(({ person, matchCount }) => (
               <PersonCard
                 key={person.id}
                 person={person}
+                matchCount={q ? matchCount : undefined}
                 active={person.id === activePersonId}
                 onClick={() =>
                   person.name
@@ -632,11 +653,14 @@ function CompareModal({
 function PersonCard({
   person,
   active,
+  matchCount,
   onClick,
   onOpenModal,
 }: {
   person: Person;
   active: boolean;
+  /** Photos of theirs matching the active search (undefined = not searching). */
+  matchCount?: number;
   onClick: () => void;
   onOpenModal: () => void;
 }) {
@@ -659,11 +683,17 @@ function PersonCard({
       >
         {person.name ? (
           <span className="text-stone-700 group-hover:text-stone-900">
-            {person.name} <span className="text-stone-400">· {person.faceCount}</span>
+            {person.name}{" "}
+            <span className="text-stone-400">
+              · {matchCount !== undefined ? `${matchCount} of ${person.faceCount}` : person.faceCount}
+            </span>
           </span>
         ) : (
           <span className="text-stone-300 italic hover:text-stone-500">
-            Add name <span className="not-italic">· {person.faceCount}</span>
+            Add name{" "}
+            <span className="not-italic">
+              · {matchCount !== undefined ? `${matchCount} of ${person.faceCount}` : person.faceCount}
+            </span>
           </span>
         )}
       </button>
