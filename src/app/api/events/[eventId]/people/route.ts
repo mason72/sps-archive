@@ -24,7 +24,7 @@ export async function GET(
 
     const { data: event } = await supabase
       .from("events")
-      .select("id")
+      .select("id, settings")
       .eq("id", eventId)
       .eq("user_id", user!.id)
       .maybeSingle();
@@ -46,10 +46,11 @@ export async function GET(
       string,
       { imageId: string; bbox: { x: number; y: number; w: number; h: number } }
     >();
+    const imageMeta = new Map<string, { parsedName: string | null; originalFilename: string }>();
     for (let page = 0; ; page++) {
       const { data: rows, error } = await supabase
         .from("faces")
-        .select("id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, images!inner(event_id, r2_key, width, height)")
+        .select("id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, images!inner(event_id, r2_key, width, height, parsed_name, original_filename)")
         .eq("images.event_id", eventId)
         .not("person_id", "is", null)
         .order("id", { ascending: true })
@@ -62,6 +63,14 @@ export async function GET(
         faceById.set(row.id, {
           imageId: row.image_id,
           bbox: { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h },
+        });
+        const img = row.images as unknown as {
+          parsed_name: string | null;
+          original_filename: string;
+        };
+        imageMeta.set(row.image_id, {
+          parsedName: img.parsed_name,
+          originalFilename: img.original_filename,
         });
       }
       if (!rows || rows.length < 1000) break;
@@ -108,7 +117,47 @@ export async function GET(
         })
     );
 
-    return NextResponse.json({ people });
+    // Suggestions: face identity vs filename identity disagreements
+    // (mislabeled files, split persons). Suggest-only; dismissals live in
+    // event settings.
+    const { computeSuggestions } = await import("@/lib/faces/suggestions");
+    const { extractPersonName } = await import("@/lib/gallery/stacks");
+    const { isPersonLike } = await import("@/lib/sections/auto-plan");
+    const dismissed = new Set<string>(
+      ((event.settings ?? {}) as { people?: { dismissedSuggestions?: string[] } })
+        .people?.dismissedSuggestions ?? []
+    );
+    const { mislabels, merges } = computeSuggestions(
+      persons.map((p) => ({
+        id: p.id,
+        name: p.name,
+        imageIds: [...(memberImages.get(p.id) ?? [])],
+        faceCount: p.face_count,
+      })),
+      imageMeta,
+      extractPersonName,
+      isPersonLike,
+      dismissed
+    );
+    // Attach a presigned thumb for each mislabel's outlier image so the card
+    // can show the actual photo in question.
+    const mislabelCards = await Promise.all(
+      mislabels.map(async (s) => {
+        const { data: img } = await supabase
+          .from("images")
+          .select("r2_key")
+          .eq("id", s.imageId)
+          .single();
+        return {
+          ...s,
+          thumbnailUrl: img
+            ? await getPresignedDownloadUrl(getThumbnailKey(img.r2_key, "thumb-md"), 14400)
+            : null,
+        };
+      })
+    );
+
+    return NextResponse.json({ people, suggestions: { mislabels: mislabelCards, merges } });
   } catch (error) {
     await reportSystemError("people.list", error, { eventId });
     return NextResponse.json({ error: "Failed to load people" }, { status: 500 });

@@ -17,6 +17,18 @@ export interface Person {
   } | null;
 }
 
+interface Suggestions {
+  mislabels: {
+    key: string;
+    personId: string;
+    personName: string;
+    imageId: string;
+    filedAs: string;
+    thumbnailUrl: string | null;
+  }[];
+  merges: { key: string; fromId: string; intoId: string; name: string }[];
+}
+
 /**
  * PeopleView — the editor's face grid. Every clustered person as a zoomed
  * face crop; click filters the photo grid to that person, click the name to
@@ -32,6 +44,7 @@ export function PeopleView({
   onSelectPerson: (person: Person | null) => void;
 }) {
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
@@ -39,13 +52,42 @@ export function PeopleView({
     try {
       const res = await fetch(`/api/events/${eventId}/people`);
       if (!res.ok) throw new Error(`people ${res.status}`);
-      const data = (await res.json()) as { people: Person[] };
+      const data = (await res.json()) as { people: Person[]; suggestions?: Suggestions };
       setPeople(data.people);
+      setSuggestions(data.suggestions ?? null);
     } catch {
       setFailed(true);
       setPeople([]);
     }
   }, [eventId]);
+
+  /** Apply or dismiss a suggestion; reload on mutations that reshape people. */
+  const resolve = useCallback(
+    async (payload: Record<string, string>, reload: boolean) => {
+      // Optimistic: the card disappears immediately.
+      setSuggestions((prev) =>
+        prev
+          ? {
+              mislabels: prev.mislabels.filter((s) => s.key !== payload.key),
+              merges: prev.merges.filter((s) => s.key !== payload.key),
+            }
+          : prev
+      );
+      try {
+        const res = await fetch(`/api/events/${eventId}/people/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error();
+        if (reload) await load();
+      } catch {
+        toast.error("Couldn't apply that — try again");
+        await load();
+      }
+    },
+    [eventId, load]
+  );
 
   useEffect(() => {
     load();
@@ -87,8 +129,96 @@ export function PeopleView({
     );
   }
 
+  const hasSuggestions =
+    (suggestions?.mislabels.length ?? 0) + (suggestions?.merges.length ?? 0) > 0;
+
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-6">
+    <div>
+      {/* ─── Suggestions: face identity vs filename identity disagreements.
+           Suggest-only — every card is a photographer decision. ─── */}
+      {hasSuggestions && (
+        <div className="mb-10">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-4">
+            Suggestions
+          </p>
+          <div className="space-y-3">
+            {suggestions!.mislabels.map((s) => (
+              <div
+                key={s.key}
+                className="flex items-center gap-4 border border-stone-200 p-3"
+              >
+                {s.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={s.thumbnailUrl}
+                    alt=""
+                    className="h-14 w-14 object-cover object-top bg-stone-100 shrink-0"
+                  />
+                ) : (
+                  <div className="h-14 w-14 bg-stone-100 shrink-0" />
+                )}
+                <p className="flex-1 text-[13px] text-stone-600 leading-snug">
+                  This photo is filed as{" "}
+                  <span className="text-stone-900">&ldquo;{s.filedAs}&rdquo;</span> but
+                  looks like <span className="text-stone-900">{s.personName}</span>.
+                </p>
+                <button
+                  onClick={() =>
+                    resolve(
+                      {
+                        action: "fix-label",
+                        key: s.key,
+                        imageId: s.imageId,
+                        personId: s.personId,
+                      },
+                      true
+                    )
+                  }
+                  className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 hover:border-emerald-500 transition-colors shrink-0"
+                >
+                  It&apos;s {s.personName.split(" ")[0]} — fix it
+                </button>
+                <button
+                  onClick={() => resolve({ action: "dismiss", key: s.key }, false)}
+                  className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-600 transition-colors shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
+            {suggestions!.merges.map((s) => (
+              <div
+                key={s.key}
+                className="flex items-center gap-4 border border-stone-200 p-3"
+              >
+                <p className="flex-1 text-[13px] text-stone-600 leading-snug">
+                  <span className="text-stone-900">{s.name}</span> appears as two
+                  separate people — same person?
+                </p>
+                <button
+                  onClick={() =>
+                    resolve(
+                      { action: "merge", key: s.key, fromId: s.fromId, intoId: s.intoId },
+                      true
+                    )
+                  }
+                  className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 hover:border-emerald-500 transition-colors shrink-0"
+                >
+                  Merge
+                </button>
+                <button
+                  onClick={() => resolve({ action: "dismiss", key: s.key }, false)}
+                  className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-600 transition-colors shrink-0"
+                >
+                  Keep separate
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-6">
       {people.map((person) => (
         <PersonCard
           key={person.id}
@@ -104,6 +234,7 @@ export function PeopleView({
           }
         />
       ))}
+      </div>
     </div>
   );
 }
