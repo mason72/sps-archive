@@ -75,6 +75,15 @@ type Events = {
       eventId: string;
     };
   };
+  /**
+   * (Re)cluster an event's faces into persons. Fired when ai-index finishes
+   * an event; incremental and name-preserving, so safe to over-fire.
+   */
+  "faces/cluster.requested": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

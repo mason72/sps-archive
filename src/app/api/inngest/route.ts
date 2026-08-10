@@ -12,6 +12,7 @@ import {
   coverFocal,
   autoFocal,
   aiIndex,
+  faceCluster,
 } from "@/lib/inngest/functions";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
@@ -32,5 +33,6 @@ export const { GET, POST, PUT } = serve({
     coverFocal,
     autoFocal,
     aiIndex,
+    faceCluster,
   ],
 });

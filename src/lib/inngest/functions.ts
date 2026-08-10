@@ -9,16 +9,13 @@ import { buildShareZip } from "@/lib/zip/build-share-zip";
 import { deleteFromR2, objectExistsInR2 } from "@/lib/r2/client";
 
 /**
- * AI PROCESSING IS DISABLED.
+ * AI processing v2 (revived 2026-08-09; the v1 shutdown story lives in
+ * tasks/lessons.md and the git history of this comment).
  *
- * The Modal AI pipeline (CLIP embeddings, ArcFace faces, aesthetic scoring)
- * and auto-section generation are shelved. They were not only unused (AI
- * features are hidden in the UI) but actively harmful: a failing Modal step
- * marked fully-uploaded photos as "failed" — hiding them and whole sections
- * from client galleries — and the auto-section generator rewrote manually
- * organized section membership in the background.
- *
- * What remains is the only thing display actually needs: thumbnail generation.
+ * Display-critical work (thumbnails) is UNCHANGED and AI-free. AI indexing is
+ * a separate settlement-triggered lane (aiIndex → faceCluster below) with its
+ * own columns, its own kill switch (AI_INDEXING_ENABLED), and a standing
+ * invariant: it never writes processing_status or anything display reads.
  */
 
 /**
@@ -897,6 +894,44 @@ export const aiIndex = inngest.createFunction(
         data: { eventId: event.data.eventId },
       });
     }
+    // Event fully indexed: group its fresh face embeddings into persons.
+    if (!("skipped" in result) && result.indexed > 0 && result.remaining === 0) {
+      await step.sendEvent("cluster-faces", {
+        name: "faces/cluster.requested",
+        data: { eventId: event.data.eventId },
+      });
+    }
     return result;
+  }
+);
+
+/**
+ * Face clustering v2 — groups an event's face embeddings into persons
+ * (src/lib/faces/cluster-event.ts: incremental, never deletes a named
+ * person). Fired by ai-index on completion; debounced so re-index bursts
+ * collapse. Validated at 99.7% purity against filename ground truth
+ * (scripts/verify-face-clustering.ts, Appfolio Goleta 2026-08-10).
+ */
+export const faceCluster = inngest.createFunction(
+  {
+    id: "face-cluster",
+    retries: 1,
+    concurrency: { limit: 2 },
+    debounce: { key: "event.data.eventId", period: "10m", timeout: "1h" },
+  },
+  { event: "faces/cluster.requested" },
+  async ({ event, step }) => {
+    return step.run("cluster", async () => {
+      const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
+      if (!isAiIndexingEnabled()) return { skipped: "disabled" };
+      const { clusterEventFaces } = await import("@/lib/faces/cluster-event");
+      try {
+        return await clusterEventFaces(createServiceClient(), event.data.eventId);
+      } catch (err) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("face-cluster", err, { eventId: event.data.eventId });
+        throw err;
+      }
+    });
   }
 );
