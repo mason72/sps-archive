@@ -11,6 +11,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lastViewedLabel } from "@/lib/shares/last-viewed";
 
 type Tab = "shares" | "favorites" | "emails";
 
@@ -244,7 +245,9 @@ function SharesTab({
               <Eye size={11} />
               {share.viewCount} views
             </span>
-            <span>Last viewed: {relTime(share.lastViewedAt)}</span>
+            <span>
+              Last viewed: {lastViewedLabel(share.viewCount, share.lastViewedAt)}
+            </span>
           </div>
           <div className="flex items-center gap-3 mt-1.5 text-[11px] text-stone-300">
             {share.allowDownload && <span>Downloads ✓</span>}

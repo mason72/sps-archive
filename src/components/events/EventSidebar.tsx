@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { lastViewedLabel } from "@/lib/shares/last-viewed";
 import {
   ChevronRight,
   FolderOpen,
@@ -1523,18 +1524,6 @@ function ActivityPanel({ eventId }: { eventId: string }) {
     };
   }, [eventId]);
 
-  const relTime = (d: string | null) => {
-    if (!d) return "Never";
-    const diff = Date.now() - new Date(d).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
-  };
-
   if (isLoading) {
     return (
       <div className="py-12 text-center">
@@ -1558,7 +1547,7 @@ function ActivityPanel({ eventId }: { eventId: string }) {
                   /{s.slug}
                 </span>
                 <span className="text-stone-400 ml-2">
-                  {s.viewCount} views · {relTime(s.lastViewedAt)}
+                  {s.viewCount} views · {lastViewedLabel(s.viewCount, s.lastViewedAt)}
                 </span>
               </div>
             ))}
