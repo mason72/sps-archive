@@ -216,7 +216,7 @@ export function EventList() {
             No matching events
           </p>
           <p className="text-[13px] text-stone-400">
-            Try a different search term or{" "}
+            Try a different search term,{" "}
             <button
               onClick={() => {
                 setSearchQuery("");
@@ -226,6 +226,13 @@ export function EventList() {
             >
               clear filters
             </button>
+            , or{" "}
+            <Link
+              href={`/search?q=${encodeURIComponent(searchQuery.trim())}`}
+              className="text-stone-600 hover:text-stone-900 underline transition-colors"
+            >
+              search your photos for &ldquo;{searchQuery.trim()}&rdquo;
+            </Link>
           </p>
         </div>
       ) : (

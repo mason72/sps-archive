@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState, useRef } from "react";
+import { Suspense, useCallback, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
@@ -21,8 +22,19 @@ interface SearchResult {
 /**
  * Global search page — searches across ALL events in the archive.
  * Editorial design: minimal chrome, serif headings, generous space.
+ * Accepts ?q= to seed a search (cross-links from the dashboard).
+ * useSearchParams requires the Suspense boundary (Next 15).
  */
 export default function GlobalSearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <GlobalSearchInner />
+    </Suspense>
+  );
+}
+
+function GlobalSearchInner() {
+  const seedQuery = useSearchParams().get("q") ?? "";
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchType, setSearchType] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
@@ -80,6 +92,7 @@ export default function GlobalSearchPage() {
             <SearchBar
               onResults={handleResults}
               onClear={handleClear}
+              initialQuery={seedQuery}
               placeholder='Try "people laughing", "signage", or a filename…'
             />
           </div>

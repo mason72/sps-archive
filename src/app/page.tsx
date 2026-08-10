@@ -57,6 +57,12 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
+        <Link
+          href="/search"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          Search
+        </Link>
         <Link href="/events/new">
           <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
         </Link>

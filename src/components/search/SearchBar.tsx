@@ -22,6 +22,9 @@ interface SearchBarProps {
   onClear?: () => void;
   /** Placeholder override */
   placeholder?: string;
+  /** Seed the (uncontrolled) input and run that search on mount — used by
+   *  cross-links like /search?q=bride */
+  initialQuery?: string;
   /**
    * Controlled mode: when `onChange` is provided the input is driven by
    * `value` and the parent owns the search (the internal server fetch/debounce
@@ -51,12 +54,13 @@ export function SearchBar({
   onResults,
   onClear,
   placeholder,
+  initialQuery,
   value,
   onChange,
 }: SearchBarProps) {
   // Controlled when the parent passes onChange — it owns the query + search.
   const controlled = onChange !== undefined;
-  const [internalQuery, setInternalQuery] = useState("");
+  const [internalQuery, setInternalQuery] = useState(initialQuery ?? "");
   const query = controlled ? value ?? "" : internalQuery;
   const setQuery = controlled ? onChange! : setInternalQuery;
   const [isSearching, setIsSearching] = useState(false);
