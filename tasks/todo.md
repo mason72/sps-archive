@@ -108,6 +108,23 @@ Phase 2a — Guest visual search [SHIPPED 2026-08-10, be34ba7]:
       constants lose. Lesson: calibrate on the biggest corpus you have, per query
       style.
 
+Sections + search field round [SHIPPED 2026-08-10, bb7c449]:
+- [x] Sidebar: "+ New section" directly under the list (type-and-go intact);
+      new tools footer below it — inline when the list is short, pinned to the
+      column bottom when it overflows (min-h-0 scroll container, no flex-1).
+- [x] Smart section (additive): describe → event-scoped semantic search →
+      deselect strays → name → Copy (keeps memberships) or Move (strips
+      others). is_auto:false so "Rebuild all sections" never eats it.
+      scripts/verify-smart-section.ts proves copy/move/restore on live data.
+- [x] "Sort into sections" renamed "Rebuild all sections…" + honest subtitle
+      (destructive-sounding; manual sections do survive).
+- [x] Editor search falls through to EVENT-SCOPED semantic search when no
+      filename matches (Mason: "people wearing glasses" returned nothing);
+      face wall filters by person name (was ignoring the query entirely);
+      searching grid no longer says "No images yet — upload some photos".
+- [ ] OPEN QUESTION for Mason: Smart section searches the whole event, not the
+      active section. One-line change if he wants section scoping.
+
 Phase 2 field-feedback round [SHIPPED 2026-08-10, 1b45e41 + UX commits]:
 - [x] Suggestions v2 from Mason's live testing: SOLO-portrait-only mislabels
       (group photos would ping-pong renames between members' clusters — his
