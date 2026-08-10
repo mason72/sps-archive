@@ -9,10 +9,14 @@ type SupabaseClient = ReturnType<typeof createServiceClient>;
  * bounding box (0–1) plus a quality score (detection confidence × face size)
  * per face — so suggesting a focal point is pure arithmetic, no new inference.
  *
- * Rule: exactly ONE face above the quality bar → that's the subject. Zero
- * confident faces (landscapes, props, silhouettes) or several (group shots,
- * couples) → no suggestion; those crops center by default or get a manual
- * pick. Bystander faces below the bar don't disqualify a clear subject.
+ * Rules:
+ *  - exactly ONE face above the quality bar → eye-level anchor on the subject.
+ *  - SEVERAL confident faces (groups, couples) → anchor the group: horizontal
+ *    center of the union box (keeps everyone in the crop), vertical at the
+ *    mean eye level. (Added 2026-08-10 — groups previously got nothing and
+ *    tall crops beheaded them; a group anchor beats a blind top bias.)
+ *  - zero confident faces (landscapes, props, silhouettes) → no suggestion.
+ * Bystander faces below the bar never disqualify or drag a clear subject.
  */
 
 export interface FaceBox {
@@ -49,11 +53,25 @@ export function computeAutoFocal(
   faces: FaceBox[]
 ): { x: number; y: number } | null {
   const subjects = faces.filter((f) => f.quality >= AUTO_FOCAL_MIN_QUALITY);
-  if (subjects.length !== 1) return null;
+  if (subjects.length === 0) return null;
 
-  const face = subjects[0];
-  const x = (face.bbox_x + face.bbox_w / 2) * 100;
-  const y = (face.bbox_y + face.bbox_h * 0.35) * 100;
+  let x: number;
+  let y: number;
+  if (subjects.length === 1) {
+    const face = subjects[0];
+    x = (face.bbox_x + face.bbox_w / 2) * 100;
+    y = (face.bbox_y + face.bbox_h * 0.35) * 100;
+  } else {
+    // Group: center of the union box horizontally (everyone stays in frame),
+    // mean eye level vertically (faces at different depths average out).
+    const left = Math.min(...subjects.map((f) => f.bbox_x));
+    const right = Math.max(...subjects.map((f) => f.bbox_x + f.bbox_w));
+    x = ((left + right) / 2) * 100;
+    y =
+      (subjects.reduce((sum, f) => sum + f.bbox_y + f.bbox_h * 0.35, 0) /
+        subjects.length) *
+      100;
+  }
   return {
     x: round1(Math.min(100, Math.max(0, x))),
     y: round1(Math.min(100, Math.max(0, y))),

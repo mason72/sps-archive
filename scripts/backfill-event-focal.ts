@@ -7,8 +7,8 @@
  * eye-level anchors where a single confident subject exists.
  *
  * Reuses ensureAutoFocal, so the contract is identical to the editor sweep and
- * the cover job: FILL NULLS ONLY, never touch a manual pick, group shots get
- * no anchor by design.
+ * the cover job: FILL NULLS ONLY, never touch a manual pick. Since
+ * 2026-08-10 group shots get a union-box/mean-eye-level anchor too.
  *
  * Detection runs on Modal CPU (no GPU) against the 800px thumb, so this is
  * cents, not dollars — but it is a real production write, hence dry-run first.

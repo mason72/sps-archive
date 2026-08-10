@@ -325,7 +325,7 @@ describe("syncSitePublication", () => {
     expect(updates["img-1"].focal_y).toBeUndefined();
   });
 
-  it("skips auto-focal when several confident faces are present (needs a human)", async () => {
+  it("anchors groups at the union center (2026-08-10: groups get focals too)", async () => {
     const { client, updates } = fakeSupabase(
       [{ image_id: "img-1", sections: { site_scene_key: "slot/slice-1" } }],
       [img({})],
@@ -334,7 +334,8 @@ describe("syncSitePublication", () => {
 
     await syncSitePublication(client, ["img-1"]);
 
-    expect(updates["img-1"].focal_x).toBeUndefined();
+    // Two confident faces 0.4..0.6 and 0.7..0.9 → union center x = 65.
+    expect(updates["img-1"].focal_x).toBe(65);
   });
 
   it("is a no-op for an empty id list", async () => {
