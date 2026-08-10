@@ -3,14 +3,22 @@ import {
   createServiceClient,
 } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import type { User } from "@supabase/supabase-js";
+import { ACT_AS_COOKIE, decodeActAs } from "./impersonation";
 
 type TypedSupabaseClient = ReturnType<typeof createServiceClient>;
 
 interface AuthResult {
+  /** The EFFECTIVE user — the identity content queries scope to. */
   user: User | null;
   supabase: TypedSupabaseClient;
   error: NextResponse | null;
+  /** The session's actual account. Differs from `user` only under act-as.
+   *  Anything ADMIN-gated (requireAdmin, ops) must check THIS one. */
+  realUser: User | null;
+  /** True when an admin is acting as another account. */
+  actingAs: boolean;
 }
 
 /**
@@ -40,8 +48,35 @@ export async function getAuthUser(): Promise<AuthResult> {
       user: null,
       supabase: createServiceClient(),
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      realUser: null,
+      actingAs: false,
     };
   }
 
-  return { user, supabase: createServiceClient(), error: null };
+  const supabase = createServiceClient();
+
+  // ─── Act-as: an ADMIN session may assume another account's identity for
+  // content work (signed cookie; see impersonation.ts). The is_admin check
+  // runs on the REAL session every request, so the cookie grants nothing on
+  // its own. On any failure we fall through to the real identity — acting
+  // never widens access, it only re-points ownership scoping.
+  const jar = await cookies();
+  const target = decodeActAs(jar.get(ACT_AS_COOKIE)?.value);
+  if (target && target.uid !== user.id) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("is_admin")
+      .eq("user_id", user.id)
+      .single();
+    if (profile?.is_admin) {
+      const effective = {
+        ...user,
+        id: target.uid,
+        email: target.email,
+      } as User;
+      return { user: effective, supabase, error: null, realUser: user, actingAs: true };
+    }
+  }
+
+  return { user, supabase, error: null, realUser: user, actingAs: false };
 }

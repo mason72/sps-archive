@@ -10,8 +10,9 @@ import {
   Lora,
   DM_Sans,
 } from "next/font/google";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth/helpers";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ActAsBanner } from "@/components/auth/ActAsBanner";
 import { ToasterProvider } from "@/components/ui/ToasterProvider";
 import { CommandPalette } from "@/components/command/CommandPalette";
 import { UploadManagerProvider } from "@/components/upload/UploadManager";
@@ -98,10 +99,11 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Effective identity (honors admin act-as) so client UI reflects the
+  // account being worked in. Server routes re-resolve for themselves; the
+  // one act-as blind spot is client-side RLS reads (CommandPalette), which
+  // still see the REAL session's rows — the JWT cannot impersonate.
+  const { user, actingAs } = await getAuthUser();
 
   return (
     <html lang="en" className={`${inter.variable} ${playfair.variable} ${libreBaskerville.variable} ${cormorant.variable} ${dmSerif.variable} ${spaceGrotesk.variable} ${sourceSerif.variable} ${lora.variable} ${dmSans.variable}`}>
@@ -113,6 +115,7 @@ export default async function RootLayout({
           <UploadManagerProvider>
             {children}
             <UploadDock />
+            {actingAs && user?.email && <ActAsBanner email={user.email} />}
           </UploadManagerProvider>
         </AuthProvider>
         <ToasterProvider />

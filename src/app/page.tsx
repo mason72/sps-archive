@@ -5,7 +5,8 @@ import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { UnfinishedUploadsAlert } from "@/components/dashboard/UnfinishedUploadsAlert";
 import { SignOutButton } from "@/components/auth/SignOutButton";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth/helpers";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { Greeting } from "@/components/dashboard/Greeting";
@@ -13,14 +14,22 @@ import { Greeting } from "@/components/dashboard/Greeting";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Effective user scopes the CONTENT (honors admin act-as); the ops link is
+  // the real session's privilege and must not follow the act-as identity.
+  const { user, realUser, supabase } = await getAuthUser();
 
-  // Authenticated users get the dashboard
-  if (user) {
-    return <DashboardView user={{ id: user.id, email: user.email }} />;
+  if (user && realUser) {
+    const { data: realProfile } = await supabase
+      .from("user_profiles")
+      .select("is_admin")
+      .eq("user_id", realUser.id)
+      .single();
+    return (
+      <DashboardView
+        user={{ id: user.id, email: user.email }}
+        showOpsLink={!!realProfile?.is_admin}
+      />
+    );
   }
 
   // In production, unauth users on app.pixeltrunk.com redirect to marketing site
@@ -36,19 +45,24 @@ export default async function HomePage() {
 /* ─────────────────────────────────────────────
  * Dashboard — Authenticated user's event list
  * ───────────────────────────────────────────── */
-async function DashboardView({ user }: { user: { id: string; email?: string } }) {
-  // Fetch profile for personalized greeting
-  const supabase = await createServerSupabaseClient();
+async function DashboardView({
+  user,
+  showOpsLink,
+}: {
+  user: { id: string; email?: string };
+  showOpsLink: boolean;
+}) {
+  // Fetch profile for personalized greeting (the EFFECTIVE account's).
+  const supabase = createServiceClient();
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("display_name, business_name, is_admin")
+    .select("display_name, business_name")
     .eq("user_id", user.id)
     .single();
 
   const p = profile as {
     display_name?: string;
     business_name?: string;
-    is_admin?: boolean;
   } | null;
   const displayName =
     p?.display_name?.split(" ")[0] ||
@@ -76,9 +90,10 @@ async function DashboardView({ user }: { user: { id: string; email?: string } })
         >
           Account
         </Link>
-        {/* Rendered from a server-read is_admin; the /ops page re-gates
-            server-side regardless — this link is a convenience, not the lock. */}
-        {p?.is_admin && (
+        {/* Rendered from the REAL session's is_admin (survives act-as); the
+            /ops page re-gates server-side regardless — a convenience, not
+            the lock. */}
+        {showOpsLink && (
           <Link
             href="/ops"
             className="editorial-link text-emerald-700 hover:text-emerald-800 transition-colors duration-300"

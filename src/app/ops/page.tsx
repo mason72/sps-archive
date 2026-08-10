@@ -4,6 +4,7 @@ import { PLATFORM_OVERHEAD_MONTHLY } from "@/lib/usage/costs";
 import { getUsageOverview, type UserUsageSummary } from "@/lib/usage/summary";
 import type { UsageKind } from "@/lib/usage/record";
 import { InvitePanel, type InviteRow } from "./InvitePanel";
+import { ActAsButton } from "./ActAsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -292,9 +293,12 @@ function UserRow({ u }: { u: UserUsageSummary }) {
             </span>
           )}
         </div>
-        <div className="text-xs text-stone-400">
-          {u.email}
-          {u.lastActiveAt ? ` · active ${timeAgo(u.lastActiveAt)}` : " · no metered activity"}
+        <div className="flex items-baseline gap-2 text-xs text-stone-400">
+          <span>
+            {u.email}
+            {u.lastActiveAt ? ` · active ${timeAgo(u.lastActiveAt)}` : " · no metered activity"}
+          </span>
+          {!u.isAdmin && <ActAsButton userId={u.userId} email={u.email} />}
         </div>
       </td>
       <td className="py-3 pr-4 text-stone-700">{gb(u.storage.totalBytes)}</td>

@@ -16,17 +16,23 @@ export async function requireAdmin(): Promise<{
   user: { id: string; email?: string };
   supabase: SupabaseDB;
 } | null> {
-  const { user, supabase, error } = await getAuthUser();
-  if (error || !user) return null;
+  // The REAL session identity, never the act-as effective user: an admin
+  // acting as the team account keeps ops access, and the team account can
+  // never borrow it by any cookie.
+  const { realUser, supabase, error } = await getAuthUser();
+  if (error || !realUser) return null;
 
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("is_admin")
-    .eq("user_id", user.id)
+    .eq("user_id", realUser.id)
     .single();
   if (profileError || !profile?.is_admin) return null;
 
-  return { user: { id: user.id, email: user.email ?? undefined }, supabase };
+  return {
+    user: { id: realUser.id, email: realUser.email ?? undefined },
+    supabase,
+  };
 }
 
 /**
