@@ -139,6 +139,21 @@ export default function EventPage({
     name: string | null;
     imageIds: string[];
   } | null>(null);
+  // People-button badge: pending suggestion count (fetched once on load,
+  // kept live by PeopleView while it's open).
+  const [suggestionCount, setSuggestionCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/events/${eventId}/people/suggestions-count`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setSuggestionCount(data.count ?? 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
   const [sortBy, setSortByState] = useState<GallerySortMode>("upload");
   const [sortOpen, setSortOpen] = useState(false);
   // Optimistic per-section manual order overrides (sectionId -> ordered ids).
@@ -201,6 +216,12 @@ export default function EventPage({
     const keep = new Set(personFilter.imageIds);
     return base.filter((img) => keep.has(img.id));
   }, [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds, personFilter]);
+
+  // Thumbnail lookup for the People compare view (already-presigned grid URLs).
+  const imageThumbById = useMemo(
+    () => new Map(allImages.map((img) => [img.id, img.thumbnailUrl])),
+    [allImages]
+  );
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
@@ -1718,10 +1739,15 @@ export default function EventPage({
                 </button>
                 <button
                   onClick={() => setViewMode("people")}
-                  className={`p-1.5 transition-colors ${viewMode === "people" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  className={`relative p-1.5 transition-colors ${viewMode === "people" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
                   aria-label="People view"
                 >
                   <Users className="h-4 w-4" />
+                  {suggestionCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-medium leading-[14px] text-center">
+                      {suggestionCount > 9 ? "9+" : suggestionCount}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -1870,6 +1896,8 @@ export default function EventPage({
                 <PeopleView
                   eventId={eventId}
                   activePersonId={personFilter?.id ?? null}
+                  imageById={imageThumbById}
+                  onSuggestionsCount={setSuggestionCount}
                   onSelectPerson={(person: Person | null) => {
                     if (!person) {
                       setPersonFilter(null);
