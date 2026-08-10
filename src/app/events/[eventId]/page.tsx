@@ -31,7 +31,8 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users } from "lucide-react";
+import { PeopleView, type Person } from "@/components/events/PeopleView";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -130,7 +131,14 @@ export default function EventPage({
   const [failedUploads, setFailedUploads] = useState<File[]>([]);
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
-  const [viewMode, setViewMode] = useState<"grid" | "filmstrip">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "filmstrip" | "people">("grid");
+  // Filter the grid to one clustered person (set by clicking a face in the
+  // People view). Composes with sections/search/favorites in the images memo.
+  const [personFilter, setPersonFilter] = useState<{
+    id: string;
+    name: string | null;
+    imageIds: string[];
+  } | null>(null);
   const [sortBy, setSortByState] = useState<GallerySortMode>("upload");
   const [sortOpen, setSortOpen] = useState(false);
   // Optimistic per-section manual order overrides (sectionId -> ordered ids).
@@ -179,19 +187,20 @@ export default function EventPage({
   // src/lib/gallery/derive-display.ts so it's unit-tested in isolation — this
   // is the logic whose imperative version caused "No images yet" on populated
   // sections. A section with un-loaded IDs falls back to the full set.
-  const images = useMemo<ImageData[]>(
-    () =>
-      deriveDisplayImages({
-        isSearching,
-        searchResults,
-        activeSection,
-        allImages,
-        allStacks,
-        favoritesOnly,
-        favoriteIds,
-      }),
-    [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds]
-  );
+  const images = useMemo<ImageData[]>(() => {
+    const base = deriveDisplayImages({
+      isSearching,
+      searchResults,
+      activeSection,
+      allImages,
+      allStacks,
+      favoritesOnly,
+      favoriteIds,
+    });
+    if (!personFilter) return base;
+    const keep = new Set(personFilter.imageIds);
+    return base.filter((img) => keep.has(img.id));
+  }, [isSearching, searchResults, activeSection, allImages, allStacks, favoritesOnly, favoriteIds, personFilter]);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
@@ -1707,8 +1716,41 @@ export default function EventPage({
                 >
                   <Rows3 className="h-4 w-4" />
                 </button>
+                <button
+                  onClick={() => setViewMode("people")}
+                  className={`p-1.5 transition-colors ${viewMode === "people" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  aria-label="People view"
+                >
+                  <Users className="h-4 w-4" />
+                </button>
               </div>
             </div>
+
+            {/* ─── Person filter chip ─── */}
+            {personFilter && viewMode !== "people" && (
+              <div className="-mt-7 mb-10 flex items-center gap-2 text-[12px]">
+                <span className="text-stone-400">Showing</span>
+                <button
+                  onClick={() => {
+                    setViewMode("people");
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-stone-300 text-stone-700 hover:border-stone-500 transition-colors"
+                >
+                  <Users className="h-3 w-3" />
+                  {personFilter.name ?? "Unnamed person"}
+                  <span className="text-stone-400 tabular-nums">
+                    {personFilter.imageIds.length}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setPersonFilter(null)}
+                  aria-label="Clear person filter"
+                  className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
 
             {/* ─── Where this scene lives on the site ─── */}
             {activeScene && (
@@ -1824,7 +1866,24 @@ export default function EventPage({
                     )}
                   </p>
                 )}
-              {viewMode === "grid" ? (
+              {viewMode === "people" ? (
+                <PeopleView
+                  eventId={eventId}
+                  activePersonId={personFilter?.id ?? null}
+                  onSelectPerson={(person: Person | null) => {
+                    if (!person) {
+                      setPersonFilter(null);
+                      return;
+                    }
+                    setPersonFilter({
+                      id: person.id,
+                      name: person.name,
+                      imageIds: person.imageIds,
+                    });
+                    setViewMode("grid");
+                  }}
+                />
+              ) : viewMode === "grid" ? (
                 <>
                   {(dndEnabled || manualMode) && (
                     <p className="mb-3 text-[12px] text-stone-400">

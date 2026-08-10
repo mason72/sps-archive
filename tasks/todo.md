@@ -85,11 +85,44 @@ Phase 1 — Semantic search [SHIPPED 2026-08-10]:
       organic settlement-triggered indexing for future uploads.
 - Note: transient DB statement timeouts hit /api/events while the backfill+autovacuum
       churned — recovered on its own; watch for it if ever running a mass re-index.
+Phase 1 fast-follows:
+- [x] Discoverability (Mason caught it live: "where the fuck is it?"): dashboard nav
+      Search link, events-filter no-match cross-link, /search?q= seeding (d055e2c).
+      Lesson: the launch check exercised the page, not the PATH to the page.
+- [ ] Event-scoped semantic search in the editor: the API + RPC already take eventId;
+      wire the editor's in-event search box to offer visual matches (filter the grid
+      to the result set) alongside the current filename filtering.
+
+Phase 2a — Guest visual search [SHIPPED 2026-08-10, be34ba7]:
+- [x] Share-scoped endpoint /api/gallery/[slug]/search: ids+scores ONLY (client
+      resolves against the payload's visible set — layered leak-proofing), password
+      cookie + selection-share intersection + per-event guestSearch toggle (default
+      on, enforced server-side) + rate limit (search scope 120/10min).
+- [x] Guest UI: name filter instant → zero hits falls through to visual matches
+      (ranked, "VISUAL MATCHES" label, loading state); lightbox follows. Verified
+      live as a real guest on the wedding share ("cutting the cake").
+- [x] ADAPTIVE THRESHOLDS replace the 0.06 constant (lib/ai-index/search-filter.ts,
+      shared admin+guest): 60%-of-top relative cut + 0.04 floor. The 6-image
+      calibration didn't generalize — "the first dance" topped 0.058 on the wedding
+      (invisible at 0.06) while archive-wide nonsense tops 0.052. Ranges overlap;
+      constants lose. Lesson: calibrate on the biggest corpus you have, per query
+      style.
+
 Phase 2 — Faces:
-- [ ] Clustering v2 (rewrite, not revive): incremental assignment to existing persons;
-      named persons never auto-deleted; full recluster only on demand; handles
-      detected-but-not-embedded rows from ensure-focal.
-- [ ] Editor Face view: people grid → click person → all their photos; rename person.
+- [x] Clustering v2 (2026-08-10): pure core (clustering-core.ts, 8 tests) + DB
+      orchestration; incremental, named persons never auto-deleted. VALIDATED 99.7%
+      purity / 0 unassigned vs filename ground truth (Appfolio Goleta, 46 clusters vs
+      47 names; the 2 errors: near-doppelgängers + an email-junk filename). Inngest
+      face-cluster chained off ai-index completion; whole archive swept (32k faces,
+      wedding → 351 persons); re-run proved idempotent (+0). Thresholds 0.55 sim.
+- [x] Editor People view (2026-08-10): Users toggle in the view-mode toolbar →
+      face-crop grid (bbox percent math in PeopleView.tsx, no canvas), count badges,
+      inline rename (PATCH /api/people/[personId]); click face → grid filtered to
+      that person (composes with sections/search/favorites in the images memo) with
+      a "Showing <person> ✕" chip. GET /api/events/[eventId]/people returns persons +
+      imageIds + one presigned rep-face thumb each; ownership-scoped. QA'd live in a
+      real session incl. the filter view (which neatly VISUALIZES the one known
+      cluster error — Jenna/Katie look-alikes).
 - [ ] Guest selfie search: share-scoped endpoint, rate-limited, per-event toggle +
       consent line (privacy default = Mason's call, question pending).
 - [ ] "Find my photos" QR card for live events (selfie → embedding → existing RPC).
