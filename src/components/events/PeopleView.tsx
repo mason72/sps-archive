@@ -95,7 +95,13 @@ export function PeopleView({
   // Review/name a person (face or caption click) — the one "who is this?"
   // surface; unnamed clusters open straight into the name field.
   const [reviewing, setReviewing] = useState<Person | null>(null);
-  const [splitting, setSplitting] = useState<SplitCard | null>(null);
+  // Split review: from a suggestion card (key) or manually from the person
+  // modal (key null — nothing to dismiss, the algorithm proposed nothing).
+  const [splitting, setSplitting] = useState<{
+    key: string | null;
+    personId: string;
+    personName: string | null;
+  } | null>(null);
   const [mergeReview, setMergeReview] = useState<Suggestions["merges"][number] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -546,7 +552,7 @@ export function PeopleView({
             load();
           }}
           onDismiss={() => {
-            resolve({ action: "dismiss", key: splitting.key }, false);
+            if (splitting.key) resolve({ action: "dismiss", key: splitting.key }, false);
             setSplitting(null);
           }}
           onClose={() => setSplitting(null)}
@@ -566,6 +572,10 @@ export function PeopleView({
             );
             setReviewing(null);
             load(); // names can resolve/raise suggestions (merges, refinements)
+          }}
+          onSplit={() => {
+            setSplitting({ key: null, personId: reviewing.id, personName: reviewing.name });
+            setReviewing(null);
           }}
           onClose={() => setReviewing(null)}
         />
@@ -851,6 +861,7 @@ export function PersonModal({
   imageById,
   startEditing,
   onSaved,
+  onSplit,
   onClose,
 }: {
   personId: string;
@@ -858,7 +869,9 @@ export function PersonModal({
   imageIds: string[];
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   startEditing?: boolean;
-  onSaved: (name: string) => void;
+  onSaved: (name: string | null) => void;
+  /** Present only where a split can be reviewed (the People view). */
+  onSplit?: () => void;
   onClose: () => void;
 }) {
   useBodyScrollLock();
@@ -873,7 +886,9 @@ export function PersonModal({
 
   const save = async () => {
     const name = draft.trim();
-    if (!name || name === personName) {
+    // Blank on a named person clears the name (→ the Unnamed group);
+    // blank on an unnamed person is a no-op.
+    if (name === (personName ?? "") || (!name && !personName)) {
       setEditing(false);
       return;
     }
@@ -882,10 +897,12 @@ export function PersonModal({
       const res = await fetch(`/api/people/${personId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: name || null }),
       });
       if (!res.ok) throw new Error();
-      onSaved(name);
+      // The server normalizes (e.g. a typed "Unnamed" clears) — trust it.
+      const data = (await res.json()) as { name: string | null };
+      onSaved(data.name);
       setEditing(false);
     } catch {
       toast.error("Couldn't save the name");
@@ -915,12 +932,12 @@ export function PersonModal({
                     if (e.key === "Enter") save();
                     if (e.key === "Escape") setEditing(false);
                   }}
-                  placeholder="Type their name…"
+                  placeholder={personName ? "Blank moves them to Unnamed…" : "Type their name…"}
                   className="font-editorial text-2xl text-stone-900 bg-transparent border-b border-stone-300 focus:border-stone-900 focus:outline-none w-full max-w-sm placeholder:text-stone-300"
                 />
                 <button
                   onClick={save}
-                  disabled={saving || !draft.trim()}
+                  disabled={saving || (!draft.trim() && !personName)}
                   className="px-4 py-1.5 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors disabled:opacity-40 shrink-0"
                 >
                   Save
@@ -938,6 +955,15 @@ export function PersonModal({
                 >
                   rename
                 </button>
+                {onSplit && imageIds.length >= 2 && (
+                  <button
+                    onClick={onSplit}
+                    className="align-middle ml-2 text-[12px] font-sans text-stone-400 underline hover:text-stone-600 transition-colors"
+                    title="Two people mixed together? Review and separate them"
+                  >
+                    split…
+                  </button>
+                )}
               </h2>
             )}
             <p className="text-[13px] text-stone-500 mt-1">
@@ -1044,7 +1070,7 @@ function SplitPersonModal({
   onClose,
 }: {
   eventId: string;
-  card: { key: string; personId: string; personName: string | null };
+  card: { key: string | null; personId: string; personName: string | null };
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   onDone: () => void;
   onDismiss: () => void;
@@ -1065,7 +1091,11 @@ function SplitPersonModal({
         const res = await fetch(`/api/events/${eventId}/people/resolve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "propose-split", personId: card.personId }),
+          body: JSON.stringify({
+            action: "propose-split",
+            personId: card.personId,
+            manual: card.key === null,
+          }),
         });
         if (!res.ok) throw new Error();
         const data = (await res.json()) as {
@@ -1108,7 +1138,7 @@ function SplitPersonModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "split",
-          key: card.key,
+          key: card.key ?? undefined,
           personId: card.personId,
           groups: [
             { name: names[0] || null, faceIds: groupA.map((f) => f.faceId) },
@@ -1213,7 +1243,7 @@ function SplitPersonModal({
               onClick={onDismiss}
               className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
             >
-              Keep as one
+              {card.key ? "Keep as one" : "Cancel"}
             </button>
             <button
               onClick={apply}
@@ -1293,7 +1323,8 @@ function MergeCompareModal({
         body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error();
-      toast.success(`Renamed to ${name}`);
+      const data = (await res.json()) as { name: string | null };
+      toast.success(data.name ? `Renamed to ${data.name}` : "Moved to Unnamed");
       onRenamed();
     } catch {
       toast.error("Couldn't save the name");
