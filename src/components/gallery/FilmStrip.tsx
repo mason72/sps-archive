@@ -137,7 +137,7 @@ export function FilmStrip({
       {/* ─── Scroll container ─── */}
       <div
         ref={scrollRef}
-        className="film-strip-scroll flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-4"
+        className="hide-scrollbar flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-4"
         style={{ height: "calc(100vh - 200px)" }}
       >
         {flatImages.map((image) => (

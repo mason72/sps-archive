@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
-import { ArrowUpDown, Heart, Tag, Check, ChevronDown } from "lucide-react";
+import { ArrowUpDown, Heart, Tag, Check } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderByPrimarySection } from "@/lib/gallery/order-manual";
@@ -89,14 +89,20 @@ export function SectionedGallery({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
 
-  // Tab overflow: measure each tab's width against the available space (row
-  // minus the controls) and collapse the tail into a "More ▾" dropdown so tabs
-  // never run into the sort/filter controls.
-  const tabBarRef = useRef<HTMLDivElement>(null);
-  const tabWidthsRef = useRef<number[]>([]);
-  const [visibleCount, setVisibleCount] = useState<number>(Infinity);
+  // Tab overflow: the row scrolls horizontally. It previously measured each
+  // tab and collapsed the tail into a "More ▾" dropdown, which HID whole
+  // sections on narrow screens — the gallery would show only its first
+  // section while the rest sat behind an unlabeled "More", reading as though
+  // most of the shoot was missing. The measurement also double-counted every
+  // divider (the "|" lives INSIDE the tab span, yet a DIVIDER_W was added on
+  // top), which on a ~375px phone was the difference between two tabs fitting
+  // and one being buried. Scrolling can't hide a section, needs no
+  // measurement, and scales from 2 tabs to the archive's 45-section events.
+  // (2026-08-10)
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
 
   const imageMap = useMemo(
     () => new Map(images.map((img) => [img.id, img])),
@@ -202,45 +208,57 @@ export function SectionedGallery({
     "date-taken": "Date taken",
   };
 
-  // Recompute how many tabs fit whenever the row resizes or the tab set changes.
+  // Edge fades are the only hint that the row scrolls — the scrollbar is
+  // hidden — so keep them honest about which direction still has tabs.
   useLayoutEffect(() => {
-    const el = tabBarRef.current;
+    const el = tabScrollRef.current;
     if (!el) return;
 
     const measure = () => {
-      const widths = tabWidthsRef.current;
-      if (widths.length === 0) {
-        setVisibleCount(tabs.length);
-        return;
-      }
-      const available = el.clientWidth;
-      const MORE_W = 72; // reserve room for the "More ▾" button
-      const DIVIDER_W = 25; // the "|" + margins between tabs
-      let used = 0;
-      let fit = 0;
-      for (let i = 0; i < widths.length; i++) {
-        const next = used + widths[i] + (i > 0 ? DIVIDER_W : 0);
-        // Reserve MORE_W unless this is the last tab (no More needed then).
-        const reserve = i === widths.length - 1 ? 0 : MORE_W;
-        if (next + reserve > available) break;
-        used = next;
-        fit++;
-      }
-      setVisibleCount(Math.max(1, fit)); // always show at least one
+      // 1px tolerance: fractional scroll widths otherwise leave a fade stuck on.
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      setEdges({
+        left: el.scrollLeft > 1,
+        right: maxScroll > 1 && el.scrollLeft < maxScroll - 1,
+      });
     };
 
     measure();
+    el.addEventListener("scroll", measure, { passive: true });
+
+    // Observe the CONTENT box as well as the container. Overflow is a function
+    // of content width, and content can grow without the container resizing —
+    // when the webfont swaps in, the tabs get wider while the scroll box keeps
+    // its exact size, so a container-only observer never fires and the fade
+    // stays dark on an overflowing row. (Caught in review, 2026-08-10.)
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (tabContentRef.current) ro.observe(tabContentRef.current);
+
+    // Belt and braces: fonts.ready resolves after the swap even if, on some
+    // engine, the reflow doesn't surface as an observed resize.
+    let cancelled = false;
+    document.fonts?.ready.then(() => {
+      if (!cancelled) measure();
+    });
+
+    return () => {
+      cancelled = true;
+      el.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
   }, [tabs.length]);
 
-  const visibleTabs = tabs.slice(0, visibleCount);
-  const overflowTabs = tabs.slice(visibleCount);
-  // If the active tab is hidden in overflow, surface it as the last visible tab
-  // so the user always sees which section they're in.
-  const activeInOverflow = overflowTabs.some((t) => t.id === activeTab);
+  // Keep the active tab on screen — a guest landing on a section that sits off
+  // the right edge would otherwise see no indication of which one they're in.
+  useEffect(() => {
+    const el = tabScrollRef.current;
+    el?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({
+      behavior: "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
+  }, [activeTab]);
 
   return (
     <div>
@@ -249,22 +267,18 @@ export function SectionedGallery({
         className="mb-8 flex items-center justify-between gap-6 border-y py-2.5 text-[12px]"
         style={{ borderColor: `${colors.secondary}1f` }}
       >
-        {/* Tabs — overflow collapses into "More ▾" so they never hit controls.
-            overflow-hidden clips the tab row ONLY; the More popover is a sibling
-            outside this clip, or it'd be hidden along with the overflowing tabs. */}
-        <div ref={tabBarRef} className="flex min-w-0 flex-1 items-center">
-          <div className="flex min-w-0 items-center overflow-hidden">
-          {visibleTabs.map((tab, i) => {
+        {/* Tabs — a single scrolling row. Every section stays reachable at any
+            width; the fades mark which side still has more. */}
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <div
+            ref={tabScrollRef}
+            className="hide-scrollbar flex min-w-0 items-center overflow-x-auto scroll-smooth"
+          >
+          <div ref={tabContentRef} className="flex items-center">
+          {tabs.map((tab, i) => {
             const isActive = activeTab === tab.id;
             return (
-              <span
-                key={tab.id}
-                ref={(el) => {
-                  // Record each tab's full width once for the overflow math.
-                  if (el) tabWidthsRef.current[i] = el.getBoundingClientRect().width;
-                }}
-                className="flex items-center"
-              >
+              <span key={tab.id} className="flex shrink-0 items-center">
                 {i > 0 && (
                   <span
                     aria-hidden
@@ -276,6 +290,8 @@ export function SectionedGallery({
                 )}
                 <button
                   onClick={() => setActiveTab(tab.id)}
+                  data-active={isActive}
+                  aria-current={isActive ? "true" : undefined}
                   className="group relative whitespace-nowrap pb-1 text-[13px] tracking-wide transition-opacity duration-200 cursor-pointer"
                   style={{
                     color: isActive ? colors.primary : colors.secondary,
@@ -296,56 +312,28 @@ export function SectionedGallery({
             );
           })}
           </div>
+          </div>
 
-          {/* More ▾ overflow dropdown — sibling of the clipped tab row so the
-              popover renders fully instead of being cut off by overflow-hidden. */}
-          {overflowTabs.length > 0 && (
-            <div className="relative flex shrink-0 items-center">
-              <span
-                aria-hidden
-                className="mx-3 select-none text-[12px]"
-                style={{ color: `${colors.secondary}40` }}
-              >
-                |
-              </span>
-              <button
-                onClick={() => setMoreOpen((o) => !o)}
-                onBlur={() => setTimeout(() => setMoreOpen(false), 150)}
-                className="flex items-center gap-1 whitespace-nowrap pb-1 text-[13px] tracking-wide transition-opacity hover:opacity-100 cursor-pointer"
-                style={{
-                  color: activeInOverflow ? colors.primary : colors.secondary,
-                  fontWeight: activeInOverflow ? 600 : 400,
-                  opacity: activeInOverflow ? 1 : 0.7,
-                }}
-              >
-                More
-                <ChevronDown size={13} />
-              </button>
-              {moreOpen && (
-                <div
-                  className="absolute left-0 top-8 z-20 max-h-[320px] min-w-[180px] overflow-y-auto rounded-md border bg-white py-1 shadow-lg"
-                  style={{ borderColor: `${colors.secondary}1f` }}
-                >
-                  {overflowTabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      onMouseDown={() => {
-                        setActiveTab(tab.id);
-                        setMoreOpen(false);
-                      }}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-[12px] hover:bg-stone-50"
-                      style={{ color: activeTab === tab.id ? colors.accent : colors.primary }}
-                    >
-                      <span className="truncate">{tab.label}</span>
-                      <span className="text-[11px] tabular-nums" style={{ opacity: 0.5 }}>
-                        {tab.count}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Edge fades — pointer-events-none so they never eat a tab tap.
+              Tinted with the gallery's own background so themed galleries
+              don't get a white smear. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-8 transition-opacity duration-200"
+            style={{
+              opacity: edges.left ? 1 : 0,
+              background: `linear-gradient(to right, ${colors.background}, transparent)`,
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-8 transition-opacity duration-200"
+            style={{
+              opacity: edges.right ? 1 : 0,
+              background: `linear-gradient(to left, ${colors.background}, transparent)`,
+            }}
+          />
+
         </div>
 
         {/* Controls — sort / favorites / filename (right-aligned, same row) */}

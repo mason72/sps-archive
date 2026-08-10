@@ -293,13 +293,15 @@
     animation: panel-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* Film strip — hidden scrollbar */
-  .film-strip-scroll {
+  /* Scroll without a visible scrollbar — film strip, gallery section tabs.
+     Always pair with a visible affordance (edge fade, peeking content) so the
+     scrollability is discoverable; a hidden scrollbar hides the hint too. */
+  .hide-scrollbar {
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
   }
 
-  .film-strip-scroll::-webkit-scrollbar {
+  .hide-scrollbar::-webkit-scrollbar {
     display: none; /* Chrome/Safari/Opera */
   }
 
