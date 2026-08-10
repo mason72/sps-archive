@@ -4,6 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight, Users, X } from "lucide-react";
 
+/** Fixed-overlay modals must not let the page scroll behind them. */
+function useBodyScrollLock() {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+}
+
 export interface PersonFace {
   thumbnailUrl: string;
   bbox: { x: number; y: number; w: number; h: number };
@@ -85,6 +96,7 @@ export function PeopleView({
   // surface; unnamed clusters open straight into the name field.
   const [reviewing, setReviewing] = useState<Person | null>(null);
   const [splitting, setSplitting] = useState<SplitCard | null>(null);
+  const [mergeReview, setMergeReview] = useState<Suggestions["merges"][number] | null>(null);
   const [failed, setFailed] = useState(false);
 
   const reportCount = useCallback(
@@ -390,11 +402,15 @@ export function PeopleView({
               return (
                 <div key={s.key} className="border border-stone-200 p-4">
                   <div className="flex items-center gap-5 flex-wrap">
-                    <div className="flex items-center gap-5">
+                    <button
+                      onClick={() => setMergeReview(s)}
+                      className="flex items-center gap-5 group"
+                      title="Review both sets of photos"
+                    >
                       {[from, into].map((p, i) =>
                         p ? (
                           <figure key={p.id} className="w-28 text-center">
-                            <div className="relative w-28 h-28 rounded-full overflow-hidden bg-stone-100">
+                            <div className="relative w-28 h-28 rounded-full overflow-hidden bg-stone-100 group-hover:ring-2 group-hover:ring-stone-300 group-hover:ring-offset-2 transition-all">
                               {p.face && <FaceCrop face={p.face} />}
                             </div>
                             <figcaption className="mt-2 text-[11px] text-stone-500">
@@ -406,11 +422,19 @@ export function PeopleView({
                           <div key={i} className="w-28 h-28 rounded-full bg-stone-100" />
                         )
                       )}
+                    </button>
+                    <div className="flex-1 min-w-[180px]">
+                      <p className="text-[13px] text-stone-600 leading-snug">
+                        <span className="text-stone-900">{s.name}</span> appears as two
+                        separate people — same person?
+                      </p>
+                      <button
+                        onClick={() => setMergeReview(s)}
+                        className="mt-1 text-[12px] text-stone-400 underline hover:text-stone-600 transition-colors"
+                      >
+                        Review both sets
+                      </button>
                     </div>
-                    <p className="flex-1 min-w-[180px] text-[13px] text-stone-600 leading-snug">
-                      <span className="text-stone-900">{s.name}</span> appears as two
-                      separate people — same person?
-                    </p>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() =>
@@ -479,6 +503,32 @@ export function PeopleView({
             ))}
           </div>
         </>
+      )}
+
+      {/* ─── Review a proposed merge side by side ─── */}
+      {mergeReview && (
+        <MergeCompareModal
+          merge={mergeReview}
+          personA={personOf(mergeReview.fromId) ?? null}
+          personB={personOf(mergeReview.intoId) ?? null}
+          imageById={imageById}
+          onMerge={() =>
+            resolve(
+              {
+                action: "merge",
+                key: mergeReview.key,
+                fromId: mergeReview.fromId,
+                intoId: mergeReview.intoId,
+              },
+              true
+            ).then(() => setMergeReview(null))
+          }
+          onDismiss={() => {
+            resolve({ action: "dismiss", key: mergeReview.key }, false);
+            setMergeReview(null);
+          }}
+          onClose={() => setMergeReview(null)}
+        />
       )}
 
       {/* ─── Split an over-merged person ─── */}
@@ -559,6 +609,7 @@ function CompareModal({
 }) {
   const questionIds = new Set(card.imageIds);
   const otherIds = (person?.imageIds ?? []).filter((id) => !questionIds.has(id));
+  useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
   // Inline rename of the person — sometimes neither existing name is right
   // and the fix is typing the correct one, independent of any merge.
@@ -803,6 +854,7 @@ export function PersonModal({
   onSaved: (name: string) => void;
   onClose: () => void;
 }) {
+  useBodyScrollLock();
   const [editing, setEditing] = useState(startEditing ?? !personName);
   const [draft, setDraft] = useState(personName ?? "");
   const [saving, setSaving] = useState(false);
@@ -980,6 +1032,7 @@ function SplitPersonModal({
   onDismiss: () => void;
   onClose: () => void;
 }) {
+  useBodyScrollLock();
   const [faces, setFaces] = useState<{ faceId: string; imageId: string }[] | null>(null);
   const [inB, setInB] = useState<Set<string>>(new Set());
   const [names, setNames] = useState<[string, string]>(["", ""]);
@@ -1157,6 +1210,112 @@ function SplitPersonModal({
             {column(1, groupB)}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * MergeCompareModal — both clusters' photos side by side before a merge
+ * (name equality alone proves nothing; the faces do). Actions in the header.
+ */
+function MergeCompareModal({
+  merge,
+  personA,
+  personB,
+  imageById,
+  onMerge,
+  onDismiss,
+  onClose,
+}: {
+  merge: { key: string; fromId: string; intoId: string; name: string };
+  personA: Person | null;
+  personB: Person | null;
+  imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  onMerge: () => void;
+  onDismiss: () => void;
+  onClose: () => void;
+}) {
+  useBodyScrollLock();
+  const column = (person: Person | null, label: string) => (
+    <div className="min-h-0 flex flex-col">
+      <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium shrink-0">
+        {label} · {person?.imageIds.length ?? 0} photo
+        {(person?.imageIds.length ?? 0) === 1 ? "" : "s"}
+      </p>
+      <div className="min-h-0 overflow-y-auto pr-1">
+        <div className="grid grid-cols-3 gap-1.5">
+          {(person?.imageIds ?? []).map((id) => {
+            const entry = imageById?.get(id);
+            return (
+              <figure key={id}>
+                {entry ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={entry.thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    className="aspect-square w-full object-cover object-top bg-stone-100"
+                  />
+                ) : (
+                  <div className="aspect-square bg-stone-100" />
+                )}
+                {entry?.filename && (
+                  <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
+                    {entry.filename}
+                  </figcaption>
+                )}
+              </figure>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-4xl max-h-[85vh] bg-white p-8 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-6 mb-6 shrink-0">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-editorial text-2xl text-stone-900">
+              Same person? {merge.name}
+            </h2>
+            <p className="text-[13px] text-stone-500 mt-1">
+              Two clusters share this name — compare their photos before merging.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={onDismiss}
+              className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
+            >
+              Keep separate
+            </button>
+            <button
+              onClick={onMerge}
+              className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors"
+            >
+              Merge
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 grid grid-cols-2 gap-8">
+          {column(personA, "First cluster")}
+          {column(personB, "Second cluster")}
+        </div>
       </div>
     </div>
   );

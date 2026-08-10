@@ -201,6 +201,14 @@ export async function clusterEventFaces(
   if (apErr) throw apErr;
 
   const imageIdOfFace = new Map(faces.map((f) => [f.id, f.imageId]));
+  // Faces per image (among embedded faces): representative selection prefers
+  // SOLO portraits — a group-photo face as the cover crop can show the WRONG
+  // person when a stray face contaminated the cluster (seen live: a friend's
+  // face fronting Bianca's card).
+  const facesPerImage = new Map<string, number>();
+  for (const f of faces) {
+    facesPerImage.set(f.imageId, (facesPerImage.get(f.imageId) ?? 0) + 1);
+  }
   let personsPruned = 0;
   let personsNamed = 0;
   for (const p of allPersons ?? []) {
@@ -213,7 +221,11 @@ export async function clusterEventFaces(
       }
       continue;
     }
-    const representative = list[0].id; // quality-desc from the query order
+    // Quality-desc, but solo-portrait faces outrank group-photo faces.
+    const solo = list.filter(
+      (m) => (facesPerImage.get(imageIdOfFace.get(m.id) ?? "") ?? 0) === 1
+    );
+    const representative = (solo[0] ?? list[0]).id;
     // Fill-nulls-only filename consensus naming (never overwrites a name).
     const autoName = p.name
       ? null

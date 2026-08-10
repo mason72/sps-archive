@@ -74,6 +74,14 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
   const [sceneError, setSceneError] = useState<string | null>(null);
 
   const uploadActive = !!uploading?.active;
+  // Fixed overlay: freeze the page behind the modal.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   // Load the plan inputs + detection. Mode/stacks/target defaults are set on
   // the FIRST load only — refreshes mid-upload must never yank the user's

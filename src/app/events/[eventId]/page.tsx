@@ -139,6 +139,8 @@ export default function EventPage({
     id: string;
     name: string | null;
     imageIds: string[];
+    /** Clearing the chip returns wherever the filter was set from. */
+    fromPeopleView?: boolean;
   } | null>(null);
   // Review/rename the filtered person straight from the chip.
   const [renamingPerson, setRenamingPerson] = useState(false);
@@ -1854,7 +1856,10 @@ export default function EventPage({
                   </span>
                 </button>
                 <button
-                  onClick={() => setPersonFilter(null)}
+                  onClick={() => {
+                    if (personFilter.fromPeopleView) setViewMode("people");
+                    setPersonFilter(null);
+                  }}
                   aria-label="Clear person filter"
                   className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
                 >
@@ -2010,6 +2015,7 @@ export default function EventPage({
                       id: person.id,
                       name: person.name,
                       imageIds: person.imageIds,
+                      fromPeopleView: true,
                     });
                     setViewMode("grid");
                   }}

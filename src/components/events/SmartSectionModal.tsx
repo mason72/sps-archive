@@ -51,6 +51,14 @@ export function SmartSectionModal({
   const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Fixed overlay: freeze the page behind the modal.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
