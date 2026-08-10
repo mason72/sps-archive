@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * GET /api/stats
@@ -36,12 +37,18 @@ export async function GET() {
         .select("id", { count: "exact", head: true })
         .in("event_id", eventIds),
 
-      // All shares (for view count + favorite lookups)
+      // All shares (for view count + favorite lookups). Ownership comes from
+      // the event — `shares` has no user_id column of its own.
       supabase
         .from("shares")
         .select("id, view_count")
-        .eq("user_id", user!.id),
+        .in("event_id", eventIds),
     ]);
+
+    // A filter on a column that doesn't exist is a 400, not an exception —
+    // swallowing it here is what let this return 0 views for months.
+    if (sharesResult.error) throw sharesResult.error;
+    if (imagesResult.error) throw imagesResult.error;
 
     const totalImages = imagesResult.count ?? 0;
     const shares = sharesResult.data || [];
@@ -69,6 +76,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Stats error:", error);
+    await reportSystemError("stats.overview", error, {});
     return NextResponse.json(
       { error: "Failed to load stats" },
       { status: 500 }
