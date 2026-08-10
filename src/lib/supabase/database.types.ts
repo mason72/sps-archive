@@ -245,7 +245,7 @@ export type Database = {
           settings: Json
           slug: string
           updated_at: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           city?: string | null
@@ -260,7 +260,7 @@ export type Database = {
           settings?: Json
           slug: string
           updated_at?: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           city?: string | null
@@ -275,7 +275,7 @@ export type Database = {
           settings?: Json
           slug?: string
           updated_at?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: [
           {
@@ -436,6 +436,7 @@ export type Database = {
           starred: boolean
           stream_uid: string | null
           taken_at: string | null
+          thumb_bytes: number | null
           thumbnail_generated: boolean | null
           updated_at: string
           width: number | null
@@ -486,6 +487,7 @@ export type Database = {
           starred?: boolean
           stream_uid?: string | null
           taken_at?: string | null
+          thumb_bytes?: number | null
           thumbnail_generated?: boolean | null
           updated_at?: string
           width?: number | null
@@ -536,6 +538,7 @@ export type Database = {
           starred?: boolean
           stream_uid?: string | null
           taken_at?: string | null
+          thumb_bytes?: number | null
           thumbnail_generated?: boolean | null
           updated_at?: string
           width?: number | null
@@ -891,27 +894,82 @@ export type Database = {
           context: string
           created_at: string
           detail: Json | null
+          event_id: string | null
           id: string
           message: string
           notified: boolean
+          user_id: string | null
         }
         Insert: {
           context: string
           created_at?: string
           detail?: Json | null
+          event_id?: string | null
           id?: string
           message: string
           notified?: boolean
+          user_id?: string | null
         }
         Update: {
           context?: string
           created_at?: string
           detail?: Json | null
+          event_id?: string | null
           id?: string
           message?: string
           notified?: boolean
+          user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "system_errors_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      usage_events: {
+        Row: {
+          created_at: string
+          event_id: string | null
+          id: string
+          kind: string
+          metadata: Json | null
+          quantity: number
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          kind: string
+          metadata?: Json | null
+          quantity: number
+          unit: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          kind?: string
+          metadata?: Json | null
+          quantity?: number
+          unit?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_profiles: {
         Row: {
@@ -1071,6 +1129,15 @@ export type Database = {
           action: string
           day: string
           total: number
+        }[]
+      }
+      get_user_storage: {
+        Args: { p_user_id: string }
+        Returns: {
+          original_bytes: number
+          thumb_bytes: number
+          unmeasured_original_bytes: number
+          zip_bytes: number
         }[]
       }
       increment_share_views: {
