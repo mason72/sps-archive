@@ -194,6 +194,41 @@ export function CoverLayoutTab({
                   />
                 </label>
               )}
+
+              {/* Fit mode: photos crop to fill; logos/icons must never crop
+                  (Justin, 2026-08-10). Contain ignores the focal pin. */}
+              {resolvedCoverUrl && (
+                <div className="mt-4 space-y-4">
+                  <Seg<"cover" | "contain">
+                    label="Image fit"
+                    value={cover.image?.fit ?? "cover"}
+                    onChange={(fit) =>
+                      onChange({
+                        image: { padding: 10, ...cover.image, fit },
+                      })
+                    }
+                    options={[
+                      { value: "cover", label: "Fill (crop)" },
+                      { value: "contain", label: "Fit whole image" },
+                    ]}
+                  />
+                  {cover.image?.fit === "contain" && (
+                    <SliderRow
+                      label="Space around image"
+                      valueLabel={`${cover.image?.padding ?? 10}%`}
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={cover.image?.padding ?? 10}
+                      onChange={(padding) =>
+                        onChange({
+                          image: { fit: "contain", padding },
+                        })
+                      }
+                    />
+                  )}
+                </div>
+              )}
             </div>
           )}
 

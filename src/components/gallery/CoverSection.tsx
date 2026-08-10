@@ -87,6 +87,24 @@ export function CoverSection({
         focalPoint={s.coverFocalPoint}
       />
     );
+  } else if (s.coverImageUrl && s.coverImageFit === "contain") {
+    // Scale-to-fit (logos, icons): the whole image, never cropped, shrunk by
+    // the padding slider — equal breathing room on both axes via scale()
+    // (uniform relative to the constraining side, per Mason 2026-08-10).
+    // No ken-burns, no focal: a crop animation on an uncropped logo is noise.
+    const pad = Math.min(40, Math.max(0, s.coverImagePadding ?? 10));
+    layer = (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img
+        src={s.coverImageUrl}
+        alt=""
+        className="w-full h-full object-contain"
+        style={{
+          color: primaryColor,
+          transform: `scale(${1 - (pad * 2) / 100})`,
+        }}
+      />
+    );
   } else if (s.coverImageUrl) {
     const fp = s.coverFocalPoint;
     layer = (

@@ -199,6 +199,10 @@ export async function GET(
           y: coverImageRow.focal_y / 100,
         };
       }
+      // Photo-cover fit — serialized identically to the guest route so the
+      // preview can't drift.
+      gallerySettings.coverImageFit = cover.image?.fit ?? "cover";
+      gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
     // 6. Fetch sections with their image assignments

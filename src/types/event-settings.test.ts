@@ -191,3 +191,39 @@ describe("normalizeDownloadPins", () => {
     expect(r.allowDownload).toBe(true);
   });
 });
+
+describe("photo cover fit (scale-to-fit for logos)", () => {
+  it("defaults to cover with 10% padding", () => {
+    const c = normalizeCoverSettings({});
+    expect(c.image).toEqual({ fit: "cover", padding: 10 });
+  });
+
+  it("parses contain and clamps padding to 0-40", () => {
+    expect(
+      normalizeCoverSettings({ image: { fit: "contain", padding: 22 } }).image
+    ).toEqual({ fit: "contain", padding: 22 });
+    expect(
+      normalizeCoverSettings({ image: { fit: "contain", padding: 99 } }).image
+        ?.padding
+    ).toBe(40);
+    expect(
+      normalizeCoverSettings({ image: { fit: "contain", padding: -5 } }).image
+        ?.padding
+    ).toBe(0);
+  });
+
+  it("rejects junk fit values back to cover", () => {
+    expect(
+      normalizeCoverSettings({ image: { fit: "stretch", padding: 10 } }).image
+        ?.fit
+    ).toBe("cover");
+  });
+
+  it("survives sanitizeCoverForEvent", () => {
+    const c = normalizeCoverSettings({ image: { fit: "contain", padding: 18 } });
+    expect(sanitizeCoverForEvent("evt-1", c).image).toEqual({
+      fit: "contain",
+      padding: 18,
+    });
+  });
+});

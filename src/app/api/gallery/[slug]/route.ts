@@ -393,6 +393,9 @@ export async function GET(
           y: coverImageRow.focal_y / 100,
         };
       }
+      // Photo-cover fit (scale-to-fit for logos) + breathing room.
+      gallerySettings.coverImageFit = cover.image?.fit ?? "cover";
+      gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
     // 7. Fetch sections with their image assignments

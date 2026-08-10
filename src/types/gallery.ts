@@ -44,6 +44,10 @@ export interface GallerySettings {
   coverType?: "image" | "mosaic" | "solid" | "crossfade";
   /** Crop anchor (0–1) for image/crossfade heroes. */
   coverFocalPoint?: { x: number; y: number };
+  /** Photo covers: "contain" = scale-to-fit (logos), default "cover" crop. */
+  coverImageFit?: "cover" | "contain";
+  /** Contain-fit breathing room, % shrink per side (0–40). */
+  coverImagePadding?: number;
   /** Mosaic config; tiles are picked client-side from sections+images. */
   coverMosaic?: {
     sectionId?: string;

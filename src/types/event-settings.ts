@@ -133,6 +133,14 @@ export interface CoverSettings {
   /** Legacy rows have no type — normalize to "image". */
   type: CoverType;
   imageId?: string;
+  /**
+   * Photo-type rendering. "cover" (default) fills the band with a focal
+   * crop; "contain" scales the whole image to fit — for logos/icons that
+   * must never crop (Justin, 2026-08-10). `padding` is the contain-mode
+   * breathing room: % shrink per side (0–40), uniform on both axes
+   * relative to the constraining side.
+   */
+  image?: { fit: "cover" | "contain"; padding: number };
   /** Crop anchor for image/crossfade covers (hero + OG crops). */
   focalPoint?: FocalPoint;
   mosaic?: MosaicCoverSettings;
@@ -194,6 +202,11 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   downloadPin: "",
 };
 
+export const DEFAULT_IMAGE_COVER_SETTINGS = {
+  fit: "cover" as const,
+  padding: 10,
+};
+
 export const DEFAULT_MOSAIC_SETTINGS: MosaicCoverSettings = {
   rows: 3,
   seed: 1,
@@ -250,6 +263,16 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
     enabled: c.enabled === true,
     type,
     imageId: typeof c.imageId === "string" ? c.imageId : undefined,
+    image: (() => {
+      const raw = (c.image ?? {}) as Record<string, unknown>;
+      return {
+        fit: raw.fit === "contain" ? ("contain" as const) : ("cover" as const),
+        padding:
+          typeof raw.padding === "number" && Number.isFinite(raw.padding)
+            ? Math.min(40, Math.max(0, raw.padding))
+            : DEFAULT_IMAGE_COVER_SETTINGS.padding,
+      };
+    })(),
     focalPoint: rawFocal
       ? { x: clamp01(rawFocal.x, 0.5), y: clamp01(rawFocal.y, 0.5) }
       : undefined,
