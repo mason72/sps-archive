@@ -1238,7 +1238,7 @@ endpoints, `XMLHttpRequest` for the binary PUT):
 ## Server-enforce the per-image download PIN (2026-08-10)
 
 Pre-alpha audit finding: `require_pin_individual` was enforced only in the
-browser. Details and the general rule live in `tasks/lessons.md` #54; the
+browser. Details and the general rule live in `tasks/lessons.md` #55; the
 architecture is in `docs/TECHNICAL.md` (Sharing & public galleries) and project
 memory (`guest-originals-withholding-rule`).
 
@@ -1267,7 +1267,7 @@ No live gallery changed behaviour: zero active shares set any PIN flag or have
 downloads off. Measuring that first turned "does this degrade customer
 galleries?" from a worry into a fact.
 
-### Fixed after adversarial review (see lessons #54)
+### Fixed after adversarial review (see lessons #55)
 - [x] **Video originals bypassed the gate entirely** — `getDisplayKey` checks
       `isVideoKey` before the withhold flag, and `.mp4` passes through
       unchanged. 13 real videos were still shipping verbatim.
