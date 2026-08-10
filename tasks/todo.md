@@ -178,9 +178,15 @@ Phase 2 — Faces:
       downscale. E2E: guest photo as probe → matchedPerson=true, 21/21 recall
       (scripts/verify-selfie-search.ts). Wedding event left enabled as the demo.
 - [ ] "Find my photos" QR card for live events (print artifact linking the share).
-- [ ] Focal unification: autoFocal should consume ai-index faces rows instead of
-      re-detecting (halves Modal spend); group-shot focals via union-of-faces box
-      (today groups get none). Mason asked 2026-08-10.
+- [x] Focal unification [SHIPPED 2026-08-10, a6ad815]: half already existed —
+      ensureAutoFocal skips Modal wherever faces rows exist, and ai-index writes
+      them for everything (CPU detector kept ONLY for the minutes-old upload
+      window; prompt crops are worth pennies). The build half: computeAutoFocal
+      now anchors GROUPS (union-box center x, mean eye level y; sub-bar
+      bystanders never drag it) — flows to grid crops, cover tiles, website
+      slots, editor pin. Archive sweep (scripts/backfill-group-focals.ts,
+      scanCap 0 = zero Modal) wrote 709 anchors. Old groups-get-nothing tests
+      updated to the new contract.
 - [x] People-view "Suggestions" strip [SHIPPED 2026-08-10, e27466e]: pure engine
       (lib/faces/suggestions.ts, 7 tests) + resolve endpoint (fix-label / merge /
       dismiss-persisted-in-settings) + cards in PeopleView. Fix writes parsed_name
