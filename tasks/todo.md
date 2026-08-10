@@ -169,6 +169,15 @@ origin fallback removed + rate limited ("forgot" scope).
 - E2E: scratch event, 55-then-60 file batches — banner said 60 not 115,
       ring live "17 of 60", settled to 115; guest nav default/toggled verified.
 
+### Alpha feedback round 2 (Justin) — SHIPPED 2026-08-10 (5c7461f)
+- [x] Photo covers: cover.image {fit, padding} in normalizeCoverSettings
+      (default cover — zero change to existing galleries); "Fit whole image"
+      Seg + continuous 0-40% space slider on the editor Photo panel; hero
+      renders object-contain + scale() (both axes, constraining side);
+      contain ignores focal/ken-burns. Guest + preview serialize identically.
+- [ ] Follow-up: OG cards (satori route) still CROP contain-fit covers —
+      needs a letterboxed OG branch when cover.image.fit === "contain".
+
 ### Also shipped 2026-08-10 (unplanned, Mason requests)
 - [x] Personal admin account mason@twodudesphoto.com (is_admin), shared
       info@ demoted; admin-only Ops nav link.
