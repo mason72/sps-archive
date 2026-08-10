@@ -41,6 +41,31 @@ The 35 backfilled frames therefore sit at roughly a third the file size of their
 neighbours in Full Set. Pixel dimensions are correct (4800×3200 / 3200×4800) and
 EXIF survived, so they display fine — but they are **not archive-grade**.
 
+## Update — some of the "missing" 35 were never missing, they were curated out
+
+Mason deleted frames **31, 33, 34, 35** right after the backfill: they are
+**setup photos**. Event went 418 → 413 rows, Full Set 353 → 348 (a fifth,
+pre-existing image went too). Nothing to fix — all 35 were verified complete
+with 140/140 R2 objects immediately after the run. **Do not re-add those four,
+and do not request originals for them.**
+
+**The correction that matters for next time:** SPS and the archive are not two
+copies of one set. The SPS gallery is the *live event feed* — uploaded during
+the shoot, setup and test frames included. The archive is the *curated* version.
+So a frame present on SPS and absent from the archive is not evidence of loss;
+it is just as likely a deliberate exclusion. This backfill treated a curation
+gap as a data gap, and re-imported at least four frames the photographer had
+already decided against.
+
+Practical consequences:
+- The originals swap covers the **31 remaining** frames, not 35.
+- Some of those 31 may also be setup/test frames. Worth a pass through them
+  before anyone spends effort sourcing originals.
+- The SPS↔archive reconciliation idea in the review notes should report drift
+  as *"present on SPS, absent here"* for a human to judge — never auto-import.
+  One-directional "is everything from SPS in the archive?" is the wrong
+  question, because the answer is legitimately "no".
+
 ## 🎯 Open item — swap in the photographer's originals
 
 Ask Two Dudes Photo to re-export these 35 frames from the original catalog, then
