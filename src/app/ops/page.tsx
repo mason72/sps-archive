@@ -1,3 +1,4 @@
+import { assertAdminPage } from "@/lib/auth/admin";
 import { createServiceClient } from "@/lib/supabase/server";
 import { PLATFORM_OVERHEAD_MONTHLY } from "@/lib/usage/costs";
 import { getUsageOverview, type UserUsageSummary } from "@/lib/usage/summary";
@@ -45,6 +46,10 @@ function describeActivity(kind: UsageKind, quantity: number, unit: string): stri
 /* ── page ───────────────────────────────────────────────────── */
 
 export default async function OpsPage() {
+  // Gate INSIDE the page, before any fetch — the layout's gate does not stop
+  // this component's output reaching the stream (see assertAdminPage).
+  await assertAdminPage();
+
   const supabase = createServiceClient();
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));

@@ -43,17 +43,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  // ─── Ops domain: ops.pixeltrunk.com → /ops/... ───
-  // Auth + is_admin are enforced server-side in src/app/ops/layout.tsx and
-  // requireAdmin() in every /api/ops route (both fail closed), so the rewrite
-  // itself carries no trust. /api/* passes through untouched — the ops UI
-  // calls /api/ops/* by path on whichever host it's served from.
-  if (hostname === "ops.pixeltrunk.com" && !pathname.startsWith("/api/")) {
-    const url = request.nextUrl.clone();
-    url.pathname = pathname === "/" ? "/ops" : `/ops${pathname}`;
-    return NextResponse.rewrite(url);
-  }
-
   // ─── /m routes accessible directly in dev (localhost:3002/m/...) ───
   if (pathname.startsWith("/m")) {
     // Allow direct access to marketing routes (for dev + internal linking)
@@ -96,6 +85,23 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // ─── Ops domain: ops.pixeltrunk.com → /ops/... ───
+  // Placed AFTER the session check on purpose: an early-return rewrite would
+  // skip auth, and with streaming SSR the ops page's data renders in parallel
+  // with its layout — a layout-level redirect does NOT keep that data out of
+  // the raw response stream (leak caught by curl 2026-08-10). Unauthenticated
+  // ops traffic bounces to the app login here; is_admin is then enforced in
+  // the /ops page itself (assertAdminPage) and per /api/ops route.
+  if (hostname === "ops.pixeltrunk.com" && !pathname.startsWith("/api/")) {
+    if (!user) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.pixeltrunk.com";
+      return NextResponse.redirect(`${appUrl}/login?redirect=/ops`);
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/ops" : `/ops${pathname}`;
+    return NextResponse.rewrite(url);
+  }
 
   // Define public routes
   const isPublic =
