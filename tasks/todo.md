@@ -1,6 +1,85 @@
 # Pixeltrunk - Build Plan
 
-## ACTIVE: AI revival — search, faces, sections [2026-08-09]
+## ACTIVE: Alpha access + ops.pixeltrunk.com cost dashboard [2026-08-10]
+
+Open the platform to whitelisted team alpha testers (unpaid) with per-user cost
+metering and an ops dashboard. Decided with Mason 2026-08-10:
+- **Ops lives in-app**: ops.pixeltrunk.com → host branch in existing middleware → `/ops`,
+  gated by new `is_admin`. No second Vercel project.
+- **Measured metering**, not estimates: `usage_events` append-only table, real Modal
+  wall-time, thumbnail bytes recorded going forward. Unit costs get ONE exported home
+  (`src/lib/usage/costs.ts`) — the SPSv2 duplicate-constants drift is the anti-pattern.
+- **Ops-managed invites**: `allowed_signups` table + branded Resend invite email from an
+  ops panel. Env var `ALLOWED_SIGNUP_EMAILS` retired into the table.
+- **Anomaly alerts**: daily per-user cost > 2× max(their 7-day avg, configurable
+  baseline seeded from TDP's own usage) → throttled admin email. Baseline floor exists
+  so onboarding testers (naturally above their own near-zero average) don't spam alerts.
+- **Shadow invoices are internal-only for now**: weekly email to Mason — per-user
+  activity, cost, and which pricing tier their usage maps to (margin check). Tester-facing
+  versions deferred until the platform is robust.
+- **Thorough error logging**: `system_errors` gains user_id/event_id; every new surface
+  reports through `reportSystemError`.
+
+### Phase 0 — Lock the door (before any invite goes out)
+- [ ] Verify prod signup gate: is `ALLOWED_SIGNUP_EMAILS` set in Vercel? (If unset,
+      signup is currently OPEN.)
+- [ ] Close the bypass: disable public email signups in Supabase auth settings
+      (our route uses `admin.createUser`, unaffected). Verify direct
+      `supabase.auth.signUp()` with anon key now fails.
+- [ ] Migration: `is_admin boolean` on `user_profiles` (default false, true for Mason).
+- [ ] Migration: `allowed_signups` (email PK, invited_by, invited_at, joined_at, note).
+      Signup route checks the table (service client, case-insensitive); seed with
+      current env-var value; mark joined_at on successful signup.
+
+### Phase 1 — Metering at the source
+- [ ] Migration: `usage_events` (id, user_id, event_id, kind, quantity, unit,
+      metadata jsonb, created_at) + indexes on (user_id, created_at) and (kind, created_at).
+      Service-role writes only; RLS deny-all to clients.
+- [ ] `src/lib/usage/` — `recordUsage()` (never throws into the caller's path) +
+      `costs.ts` unit-cost table (Modal $/s per GPU type, R2 $/GB-mo, Resend $/send,
+      egress $/GB). ONE home, imported everywhere.
+- [ ] Instrument Modal lanes with measured wall-time: ai_index batches
+      (src/lib/ai-index/index-event.ts — timing already measured, currently discarded),
+      embed_text (search + gallery + scene-plan), embed_selfie, video processing.
+- [ ] Instrument: zip builds (size_bytes exists), cover raster, email sends — including
+      the 5 paths that bypass email_sends (signup, reset, alerts, digest, reconciler).
+- [ ] Record thumbnail variant bytes at generation (metadata on images or usage event) —
+      stops the R2 number undercounting by the ~3-variant overhead.
+- [ ] Migration: `system_errors` + user_id/event_id (nullable); `reportSystemError`
+      accepts + passes them; update call sites with user context.
+- [ ] Storage rollup helper: per-user sum(images.file_size) + thumb bytes + zip artifacts
+      — one exported function, used by dashboard AND weekly summary (same-code-path rule).
+
+### Phase 2 — ops.pixeltrunk.com dashboard
+- [ ] ops.pixeltrunk.com domain on the Vercel project + DNS; middleware host branch →
+      `/ops`, 404/redirect for non-admins (is_admin check, fail closed); every /api/ops
+      route re-verifies is_admin server-side (getAuthUser is the SERVICE client — IDOR rule).
+- [ ] Panels: overview (users, total storage, month-to-date cost, projected month, fixed
+      overhead line for Vercel/Supabase/Modal minimums), per-user cost table (the
+      leaderboard), AI activity feed, errors triage (by user), signups/invites.
+- [ ] Invite panel: add email → allowed_signups insert + branded Resend invite with
+      signup link; show invited vs joined status.
+- [ ] Design: Pixeltrunk system (stone/white, emerald accent, Playfair headlines) —
+      NOT the SPS teal. Steal SPSv2's layout patterns (eyebrow labels, big stat
+      numerals, dependency-free sparklines), not its palette.
+
+### Phase 3 — Alerts + weekly pricing summary
+- [ ] Daily Inngest cron: per-user daily cost; alert via reportSystemError rail when
+      > 2× max(7-day avg, baseline). Baseline stored in an ops-editable config row,
+      seeded from measured TDP usage after ~a week of data.
+- [ ] Weekly Inngest cron → email to Mason: per-user activity/storage/cost, mapped
+      pricing tier (stripe/config.ts plans finally earn their keep), implied margin.
+- [ ] Verify both crons on their first real run (verify-automations rule).
+
+### Verification gates
+- [ ] Bypass test: direct anon signUp fails; non-whitelisted email 403s; whitelisted joins.
+- [ ] Non-admin hitting ops.pixeltrunk.com sees nothing (logged in AND logged out).
+- [ ] usage_events writes confirmed from a real upload→index cycle in prod.
+- [ ] next build green before every push; no pushes during live events.
+
+**Blocked on Mason:** tester email list.
+
+## SHIPPED: AI revival — search, faces, sections [2026-08-09]
 Reviving the shelved AI features on a rebuilt foundation. Full review found the old
 `modal/ai_pipeline.py` is a prototype (double-GPU endpoint, fake batch, no auth, no baked
 weights, broken scene-tag softmax, heuristic "aesthetics") — rebuild it clean on the

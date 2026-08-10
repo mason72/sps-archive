@@ -12,10 +12,12 @@ export async function GET() {
     if (authError) return authError;
 
     // 1. Get event IDs for this user
-    const { data: userEvents } = await supabase
+    const { data: userEvents, error: eventsError } = await supabase
       .from("events")
       .select("id")
       .eq("user_id", user!.id);
+
+    if (eventsError) throw eventsError;
 
     const eventIds = (userEvents || []).map((e) => e.id);
     const totalEvents = eventIds.length;
@@ -37,18 +39,18 @@ export async function GET() {
         .select("id", { count: "exact", head: true })
         .in("event_id", eventIds),
 
-      // All shares (for view count + favorite lookups). Ownership comes from
-      // the event — `shares` has no user_id column of its own.
+      // All shares (for view count + favorite lookups). Shares carry no
+      // user_id — ownership is transitive through the event, so it has to be
+      // an inner join. Filtering on a column that doesn't exist reads as an
+      // empty result set, which is how this silently served 0 views for months.
       supabase
         .from("shares")
-        .select("id, view_count")
-        .in("event_id", eventIds),
+        .select("id, view_count, events!inner(user_id)")
+        .eq("events.user_id", user!.id),
     ]);
 
-    // A filter on a column that doesn't exist is a 400, not an exception —
-    // swallowing it here is what let this return 0 views for months.
-    if (sharesResult.error) throw sharesResult.error;
     if (imagesResult.error) throw imagesResult.error;
+    if (sharesResult.error) throw sharesResult.error;
 
     const totalImages = imagesResult.count ?? 0;
     const shares = sharesResult.data || [];
@@ -61,10 +63,11 @@ export async function GET() {
     let totalFavorites = 0;
     if (shares.length > 0) {
       const shareIds = shares.map((s) => s.id);
-      const { count } = await supabase
+      const { count, error: favoritesError } = await supabase
         .from("favorites")
         .select("id", { count: "exact", head: true })
         .in("share_id", shareIds);
+      if (favoritesError) throw favoritesError;
       totalFavorites = count ?? 0;
     }
 
@@ -75,8 +78,7 @@ export async function GET() {
       totalFavorites,
     });
   } catch (error) {
-    console.error("Stats error:", error);
-    await reportSystemError("stats.overview", error, {});
+    await reportSystemError("api/stats", error);
     return NextResponse.json(
       { error: "Failed to load stats" },
       { status: 500 }
