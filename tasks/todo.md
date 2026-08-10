@@ -141,6 +141,34 @@ origin fallback removed + rate limited ("forgot" scope).
       actually happen after the next deploy registers them (check Inngest
       dashboard or system_errors tomorrow).
 
+### Waitlist + marketing pass — SHIPPED 2026-08-10 (cb03971)
+- [x] Marketing copy: outcome-led, mechanism-silent posture (Mason's call) —
+      trial claims removed, CLIP/ArcFace/R2 spec leaks scrubbed, CTAs →
+      "Request an Invite" → #invite waitlist form (email + optional work
+      link; honeypot "company" field; per-IP rate limit scope "waitlist").
+- [x] waitlist table (043) + public POST /api/waitlist (never reveals
+      whether an email is known; admin notification email) + /ops review
+      panel (approve = allowed_signups + branded invite; dismiss keeps row).
+- [x] QA: submit/honeypot/rate-limit/dedupe all proven on dev; prod form
+      submit verified after deploy (launch rule 6b).
+- First UNVERIFIED inch: Mason's first real approve click on /ops (the
+  route reuses proven pieces; verify on first live application).
+
+### Alpha feedback round 1 (Justin) — SHIPPED 2026-08-10 (5f06f1f)
+- [x] All three reports CONFIRMED by code diagnosis and fixed: 523 count
+      (retire-timer starvation + event-scoped hook + hardcoded "Unsorted"),
+      sidebar 350-in-50s (DB count includes presign reservations; now a live
+      ring + completed/total from the engine, same heartbeat as the dropzone),
+      stale nudge banner (now completion-aware, real section name).
+- [x] Ring UX per Mason: current/total + filling ring, total grows only with
+      new files, failed files leave total, amber "N failed" badge opens dock.
+- [x] "All" tab: opt-in sharing.showAllPhotos (default OFF), trails sections;
+      preview now MIRRORS the guest gallery (the unconditional preview All tab
+      was the only place Justin could see one — guests never did).
+- [x] Act-as banner moved to full-width top bar (Mason missed the pill).
+- E2E: scratch event, 55-then-60 file batches — banner said 60 not 115,
+      ring live "17 of 60", settled to 115; guest nav default/toggled verified.
+
 ### Also shipped 2026-08-10 (unplanned, Mason requests)
 - [x] Personal admin account mason@twodudesphoto.com (is_admin), shared
       info@ demoted; admin-only Ops nav link.
