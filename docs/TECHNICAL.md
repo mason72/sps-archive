@@ -266,6 +266,38 @@ Sharing & public galleries:
     routes clients before they hit it), client-abort detection.
   - PIN shares: verify-pin returns an HMAC download token (4h, share-scoped); bulk
     URLs carry `?dt=<token>` so the PIN never lands in access logs.
+- `POST /api/gallery/[slug]/image-download` — one original, for the **per-image** PIN
+  (`require_pin_individual`). Body `{imageId, dt?, pin?}`; it runs the same
+  `authorizeShareDownload` as the ZIP with `kind:"individual"`, resolves the image
+  through the same share-membership predicate, and returns a 10-minute presigned URL.
+
+**Originals in the guest payload — two separate questions.** `GET /api/gallery/[slug]`
+computes both, and they are deliberately NOT one flag:
+- `downloadWithheld = !allow_download || require_pin_individual` → omit `downloadUrl`.
+- `displayWithheld = require_pin_individual` → `originalUrl` and `settings.coverImageUrl`
+  drop to the 800px rendition via `getWithheldDisplayKey()`.
+
+Only the PIN forces the display step-down. A plain no-download share keeps its full-res
+lightbox: dropping every proofing gallery to 800px is a visible quality regression, and
+the presign is the real gate either way. But when a PIN *is* set, `originalUrl` must be
+gated too — for a JPEG the display key **is** the original key, so a full-res lightbox
+serves the identical bytes through a field that isn't named "download".
+
+`getWithheldDisplayKey()` returns **null for video**, and the caller omits the asset:
+an `.mp4` original passes through `getVideoDisplayKey` untouched and a `.mov`'s
+rendition is a lossless `-c copy` remux, so neither is a safe stand-in. A PIN-gated
+video therefore shows its poster frame in the lightbox (which is what the guest
+`<img>` rendered anyway — there is no `<video>` element on that page) and the file
+itself comes through the PIN endpoint.
+
+The per-image PIN used to be enforced only in the browser while every original sat
+presigned in the JSON, so a guest past the password gate could read them out of the
+Network tab (pre-alpha audit 2026-08-10, lesson #56).
+
+**Both PIN gates fail CLOSED.** `authorizeShareDownload` refuses with 403 when a
+`require_pin_*` flag is set but `download_pin` is null — a reachable state, since the
+sidebar's auto-generated PIN can be cleared afterwards. The previous
+`pinRequired && download_pin` read silently handed the asset to everyone.
 
 **Gallery Smart Stacks (live, filename-based — distinct from the dormant AI stacks):**
 `grid.smartStacks` in event settings (Design → Grid) groups same-person photos in the

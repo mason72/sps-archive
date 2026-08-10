@@ -396,3 +396,22 @@ export function getDisplayKey(r2Key: string): string {
   if (isVideoKey(r2Key)) return getVideoDisplayKey(r2Key);
   return isWebViewable(r2Key) ? r2Key : getThumbnailKey(r2Key, "thumb-lg");
 }
+
+/**
+ * The key to display an asset to a viewer who may NOT have the original —
+ * a guest whose share gates downloads behind a per-image PIN.
+ *
+ * `getDisplayKey` cannot be reused here: for a web-viewable original it
+ * returns the ORIGINAL key, so a "display only" URL built from it hands over
+ * the exact bytes the gate exists to withhold. Stills therefore drop to the
+ * 800px rendition.
+ *
+ * Returns **null for video**, which has no withheld-safe rendition at all:
+ * an `.mp4` original passes through `getVideoDisplayKey` untouched, and a
+ * `.mov`'s rendition is a lossless `-c copy` remux — bit-identical essence in
+ * a different container. The caller must omit the asset rather than leak it.
+ */
+export function getWithheldDisplayKey(r2Key: string): string | null {
+  if (isVideoKey(r2Key)) return null;
+  return getThumbnailKey(r2Key, "thumb-lg");
+}

@@ -29,6 +29,9 @@ export const SYNC_MAX_BYTES = 750 * 1024 * 1024;
 /** How long a built ZIP (and its presigned links) stays valid. */
 export const ZIP_JOB_TTL_HOURS = 24;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const safeFolder = (n: string) =>
   n.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "-").trim() || "Section";
 
@@ -71,8 +74,12 @@ export type DownloadAuthResult =
 
 /**
  * Resolve a share by slug and run every download gate: active, unexpired,
- * downloads allowed, password cookie, bulk PIN (download token preferred,
- * raw PIN honored as fallback, rate-limited).
+ * downloads allowed, password cookie, PIN (download token preferred, raw PIN
+ * honored as fallback, rate-limited).
+ *
+ * `kind` picks which PIN gate applies — the bulk-ZIP one or the per-image one.
+ * Both PINs are the share's single `download_pin`; the flags only decide which
+ * actions demand it, so one verified token satisfies either.
  */
 export async function authorizeShareDownload(
   supabase: DB,
@@ -82,6 +89,7 @@ export async function authorizeShareDownload(
     downloadToken: string | null;
     pin: string | null;
     ip: string;
+    kind?: "bulk" | "individual";
   }
 ): Promise<DownloadAuthResult> {
   const { data: share, error } = await supabase
@@ -109,7 +117,26 @@ export async function authorizeShareDownload(
     return { ok: false, status: 401, message: "Authentication required" };
   }
 
-  if (share.require_pin_bulk && share.download_pin) {
+  const pinRequired =
+    opts.kind === "individual"
+      ? share.require_pin_individual
+      : share.require_pin_bulk;
+
+  // A share can carry the flag with no PIN set — the sidebar auto-generates
+  // one, but the field can be cleared afterwards. Fail CLOSED: "a PIN is
+  // required" plus "no PIN exists" means nobody may download, not everybody.
+  // (The old `pinRequired && download_pin` read handed the asset to anyone.)
+  // Such a share is already unusable — verify-pin 404s on a null pin — so
+  // this turns a silent bypass into an honest, visible refusal.
+  if (pinRequired && !share.download_pin) {
+    return {
+      ok: false,
+      status: 403,
+      message: "Downloads are locked — ask your photographer for the PIN",
+    };
+  }
+
+  if (pinRequired && share.download_pin) {
     const tokenOk = opts.downloadToken
       ? verifyDownloadToken(opts.downloadToken, share.id)
       : false;
@@ -153,6 +180,53 @@ export type SelectionResult =
   | { ok: false; status: number; message: string };
 
 /**
+ * The single definition of "which images this share is allowed to hand out":
+ * the share's own event, thumbnail generated (the display gate), and whatever
+ * `resolveShareImageScope` says the share exposes. Both the bulk ZIP and the
+ * per-image download route build on this, so a foreign id can never resolve
+ * through one path after being rejected by the other.
+ *
+ * A `none` scope must filter to NOTHING, never fall through to an unfiltered
+ * query — that would hand an unknown share type the entire event, which is the
+ * exact fail-open share-scope.ts exists to prevent.
+ */
+function shareImages(supabase: DB, share: ShareRow) {
+  const q = supabase
+    .from("images")
+    .select("id, r2_key, original_filename, file_size")
+    .eq("event_id", share.event_id)
+    .eq("thumbnail_generated", true);
+  const scope = resolveShareImageScope(share);
+  if (scope.kind === "event") return q;
+  return q.in("id", scope.kind === "images" ? scope.imageIds : []);
+}
+
+/**
+ * Resolve ONE image a share may hand out. Returns null when the id isn't part
+ * of this share — a foreign or undisplayable id is indistinguishable from a
+ * missing one, by design.
+ */
+export async function selectShareImage(
+  supabase: DB,
+  share: ShareRow,
+  imageId: string
+): Promise<DownloadImage | null> {
+  // Postgres rejects a malformed uuid with 22P02 — an ERROR, not an empty
+  // result. Without this the caller's catch turns every junk id into a 500
+  // plus a system_errors row, which is an unauthenticated way to flood the
+  // alarm table and bury real failures. A bad id is simply not found.
+  if (!UUID_RE.test(imageId)) return null;
+
+  const { data, error } = await shareImages(supabase, share)
+    .eq("id", imageId)
+    .maybeSingle();
+  // A Supabase error is a return value, not a throw — a 400 here would
+  // otherwise read as "image not in this share" and 404 forever.
+  if (error) throw error;
+  return data ?? null;
+}
+
+/**
  * Resolve the exact image set for a scope. Every filter only NARROWS the
  * share's own event images, so foreign section/image ids simply don't match.
  */
@@ -165,22 +239,13 @@ export async function selectDownloadImages(
   // What the SHARE exposes (distinct from `scope`, which is what the guest
   // asked for). Re-resolved rather than inherited from the auth call: this
   // function is exported and the background ZIP builder calls it on its own.
-  const shareScope = resolveShareImageScope(share);
-  if (shareScope.kind === "none") {
+  if (resolveShareImageScope(share).kind === "none") {
     return { ok: false, status: 404, message: "No images available" };
   }
-  const selectionIds = shareScope.kind === "images" ? shareScope.imageIds : null;
   const allImages: DownloadImage[] = [];
   const IMG_PAGE = 1000;
   for (let off = 0; ; off += IMG_PAGE) {
-    let q = supabase
-      .from("images")
-      .select("id, r2_key, original_filename, file_size")
-      .eq("event_id", share.event_id)
-      // Display gate: anything with a thumbnail is a real, downloadable photo.
-      .eq("thumbnail_generated", true);
-    if (selectionIds) q = q.in("id", selectionIds);
-    const { data: page } = await q
+    const { data: page } = await shareImages(supabase, share)
       .order("created_at", { ascending: true })
       .range(off, off + IMG_PAGE - 1);
     if (!page || page.length === 0) break;

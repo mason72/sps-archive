@@ -1232,3 +1232,73 @@ endpoints, `XMLHttpRequest` for the binary PUT):
 ### Still open
 - [ ] Two identical drops into the same section render as two indistinguishable
       dock rows. Harmless, but there's no way to tell them apart.
+
+---
+
+## Server-enforce the per-image download PIN (2026-08-10)
+
+Pre-alpha audit finding: `require_pin_individual` was enforced only in the
+browser. Details and the general rule live in `tasks/lessons.md` #56; the
+architecture is in `docs/TECHNICAL.md` (Sharing & public galleries) and project
+memory (`guest-originals-withholding-rule`).
+
+- [x] `originalsWithheld = !allow_download || require_pin_individual` gates
+      `downloadUrl`, `originalUrl` **and** `settings.coverImageUrl` in
+      `GET /api/gallery/[slug]`
+- [x] `POST /api/gallery/[slug]/image-download` — same `authorizeShareDownload`
+      as the bulk ZIP, `kind: "individual"`, 10-minute presigned URL
+- [x] Share-membership predicate extracted (`shareImages`/`selectShareImage`) so
+      the bulk and per-image paths resolve identically
+- [x] Guest client fetches the URL at click time; download buttons render off
+      the share's permission, not off a URL in the payload
+- [x] 24 server checks + full browser flow, both PIN states; `next build`, tsc
+      and lint clean
+
+### Review
+The instinct worth keeping: the reported bug was `downloadUrl`, but
+`getDisplayKey()` returns the original key unchanged for web-viewable formats,
+so `originalUrl` was serving the identical bytes. Fixing only what was reported
+would have shipped a security fix that left the same hole open one field over.
+Measured proof: 670,573 B vs 41,728 B for the same photo. The generalized
+assertion — `JSON.stringify(payload).includes("/originals/")` — is what catches
+the field you forgot; a per-field check by definition cannot.
+
+No live gallery changed behaviour: zero active shares set any PIN flag or have
+downloads off. Measuring that first turned "does this degrade customer
+galleries?" from a worry into a fact.
+
+### Fixed after adversarial review (see lessons #56)
+- [x] **Video originals bypassed the gate entirely** — `getDisplayKey` checks
+      `isVideoKey` before the withhold flag, and `.mp4` passes through
+      unchanged. 13 real videos were still shipping verbatim.
+      `getWithheldDisplayKey()` now returns null for video and the caller omits
+      the asset.
+- [x] **The gate failed OPEN on a blank PIN** — flag set + `download_pin` null
+      skipped the check, and the new endpoint handed over the original. Now a
+      403, for both the individual and bulk flags.
+- [x] **Malformed `imageId` → 500 + a `system_errors` row per request**, with no
+      auth needed on a non-PIN share. uuid-shape check returns "not found".
+- [x] **An expired token permanently killed the download button** (modal gated
+      on `!downloadToken`, never cleared). 401/403 now clears it and re-prompts.
+- [x] **Owner preview rendered a dead download button** on every tile after the
+      condition widened. Preview now says downloads are disabled there, and its
+      lightbox no longer disagrees with its grid.
+- [x] **Narrowed the display step-down to `require_pin_individual` only** — a
+      plain no-download share keeps its full-res lightbox.
+
+### Still open (product decisions, not defects)
+- [ ] `require_pin_individual` and `require_pin_bulk` are independent toggles,
+      so gating individual downloads while leaving bulk open lets a guest take
+      everything as one ZIP without a PIN — the individual gate then buys
+      nothing. Either couple them in the UI or warn on that combination.
+      **This is the largest remaining gap in the feature.**
+- [ ] `allow_download=false` still ships full-res `originalUrl`, so a guest can
+      right-click-save from the lightbox. Deliberate for now (see above), but it
+      means "downloads off" is a soft deterrent, not a control. Worth deciding
+      explicitly rather than by omission.
+- [ ] No rate limit on `image-download` once a valid token is held — it is an
+      unbounded presign minter for someone who has passed the PIN.
+- [ ] `opengraph-image.tsx` presigns the **full original** to rasterize a
+      1200×630 card on a public, password-exempt route. Not a leak (Satori
+      fetches server-side and the response is a PNG), but it downloads a
+      20MB+ original to make a thumbnail — `thumb-lg` would do.
