@@ -410,6 +410,25 @@ export default function EventPage({
     }
   }, [uploadProgress.active, uploadProgress.total, uploadTargetId, sections]);
 
+  // The nudge's numbers, scoped to the INTAKE target's own batches (never the
+  // event-wide sum — Justin watched a finished 42-file Highlights batch
+  // inflate this to 523) and frozen at their last live values so the banner
+  // can speak in the past tense after the upload instead of decaying to
+  // "These photos are headed…".
+  const intakeProgress =
+    (uploadTargetId ? uploadProgress.bySection.get(uploadTargetId) : null) ??
+    uploadProgress.bySection.get("__event__") ??
+    null;
+  const lastNudgeSummary = useRef<{ count: number; name: string } | null>(null);
+  useEffect(() => {
+    if (intakeProgress && intakeProgress.total > 0) {
+      lastNudgeSummary.current = {
+        count: intakeProgress.total,
+        name: intakeProgress.sectionName ?? "Unsorted",
+      };
+    }
+  }, [intakeProgress]);
+
   // Active website section's registry entry: drives the focal-point action
   // (slots) and the "extras are ignored" hints (slots + position-mapped).
   const activeSectionData = sections.find((s) => s.id === activeSection) ?? null;
@@ -1253,6 +1272,10 @@ export default function EventPage({
           eventCreatedAt={event.created_at}
           totalImageCount={allImages.length}
           sections={sections}
+          uploadProgressBySection={uploadProgress.bySection}
+          onShowUploadIssues={() =>
+            window.dispatchEvent(new Event("pt:open-upload-dock"))
+          }
           onSectionsChange={handleSectionsChange}
           activeSection={activeSection}
           onSetActiveSection={handleSetActiveSection}
@@ -1474,13 +1497,26 @@ export default function EventPage({
               <div className="mb-8 flex items-center gap-3 border border-emerald-200 bg-emerald-50/50 px-4 py-3">
                 <Sparkles className="h-4 w-4 shrink-0 text-emerald-500" />
                 <p className="flex-1 text-[13px] text-emerald-900">
-                  <span className="font-medium tabular-nums">
-                    {uploadProgress.total >= NUDGE_MIN_FILES
-                      ? uploadProgress.total.toLocaleString()
-                      : "These"}
-                  </span>{" "}
-                  photos are headed for Unsorted. Want them sorted into
-                  sections? You can preview the plan while they upload.
+                  {uploadProgress.active ? (
+                    <>
+                      <span className="font-medium tabular-nums">
+                        {(intakeProgress?.total ?? 0).toLocaleString()}
+                      </span>{" "}
+                      photos are headed for{" "}
+                      {intakeProgress?.sectionName ?? "Unsorted"}. Want them
+                      sorted into sections? You can preview the plan while they
+                      upload.
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium tabular-nums">
+                        {(lastNudgeSummary.current?.count ?? 0).toLocaleString()}
+                      </span>{" "}
+                      photos landed in{" "}
+                      {lastNudgeSummary.current?.name ?? "Unsorted"}. Want them
+                      sorted into sections?
+                    </>
+                  )}
                 </p>
                 <button
                   onClick={() => setShowSort(true)}

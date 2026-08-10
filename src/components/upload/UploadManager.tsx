@@ -193,6 +193,20 @@ export function useUploadManager(): UploadManagerValue {
   return ctx;
 }
 
+/** Per-target-section slice of an event's upload progress. Computed from the
+ *  same state on the same render as the event totals, so every consumer
+ *  (dropzone bar, sidebar rows, dock) ticks on the same heartbeat. */
+export interface SectionUploadProgress {
+  sectionId: string | null;
+  sectionName: string | null;
+  /** Denominator: files bound for this section, excluding duplicates AND
+   *  hard failures — a failed file leaves the total so the ring can close. */
+  total: number;
+  completed: number;
+  failed: number;
+  inFlight: number;
+}
+
 /** Aggregate progress for one event — what the page's unified bar reads. */
 export function useEventUploadProgress(eventId: string) {
   const { batches } = useUploadManager();
@@ -203,12 +217,41 @@ export function useEventUploadProgress(eventId: string) {
     const inFlight = files.filter(
       (f) => f.status === "pending" || f.status === "uploading"
     ).length;
+
+    const bySection = new Map<string, SectionUploadProgress>();
+    for (const b of mine) {
+      const key = b.sectionId ?? "__event__";
+      const entry =
+        bySection.get(key) ??
+        ({
+          sectionId: b.sectionId,
+          sectionName: b.sectionName,
+          total: 0,
+          completed: 0,
+          failed: 0,
+          inFlight: 0,
+        } satisfies SectionUploadProgress);
+      for (const f of b.files) {
+        if (f.status === "duplicate") continue;
+        if (f.status === "error") {
+          entry.failed += 1;
+          continue; // failures leave the denominator
+        }
+        entry.total += 1;
+        if (f.status === "complete") entry.completed += 1;
+        if (f.status === "pending" || f.status === "uploading")
+          entry.inFlight += 1;
+      }
+      bySection.set(key, entry);
+    }
+
     return {
       active: inFlight > 0,
       total: counted.length,
       uploaded: files.filter((f) => f.status === "complete").length,
       failed: files.filter((f) => f.status === "error").length,
       inFlight,
+      bySection,
     };
   }, [batches, eventId]);
 }
@@ -763,32 +806,43 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
 
   // Retire a batch once nothing is left needing attention (errors and held
   // duplicates keep it alive so they stay actionable).
+  //
+  // Keyed on the retirable ID SET, not `batches`: the array gets a new
+  // identity on every XHR progress tick (12 workers × per-percent updates),
+  // and depending on it reset this timer many times a second — a drained
+  // batch could not leave while ANY other upload was still moving, which is
+  // how a finished 42-file batch stayed in the event totals for the whole of
+  // the next 481-file upload (Justin's 523, 2026-08-10).
+  const retirableKey = batches
+    .filter(
+      (b) => b.files.length > 0 && b.files.every((f) => f.status === "complete")
+    )
+    .map((b) => b.id)
+    .sort()
+    .join(",");
   useEffect(() => {
-    const retirable = batches.filter(
-      (b) =>
-        b.files.length > 0 &&
-        b.files.every((f) => f.status === "complete")
-    );
-    if (retirable.length === 0) return;
+    if (!retirableKey) return;
+    const retireIds = new Set(retirableKey.split(","));
     const t = setTimeout(() => {
       setBatches((prev) =>
         prev.filter((b) => {
-          const retire = retirable.some((r) => r.id === b.id);
-          if (retire) {
-            b.files.forEach((f) => {
-              if (f.previewUrl) {
-                URL.revokeObjectURL(f.previewUrl);
-                objectUrls.current.delete(f.previewUrl);
-              }
-            });
-            queues.current.delete(b.id);
-          }
-          return !retire;
+          if (!retireIds.has(b.id)) return true;
+          // Still fully complete? (A re-drop into the same batch id can't
+          // happen — ids are unique per drop — but stay defensive.)
+          if (!b.files.every((f) => f.status === "complete")) return true;
+          b.files.forEach((f) => {
+            if (f.previewUrl) {
+              URL.revokeObjectURL(f.previewUrl);
+              objectUrls.current.delete(f.previewUrl);
+            }
+          });
+          queues.current.delete(b.id);
+          return false;
         })
       );
     }, 600);
     return () => clearTimeout(t);
-  }, [batches]);
+  }, [retirableKey]);
 
   // ─── Unfinished manifest, per event ───
   // Mirrors what a session hasn't finished so a crash leaves a record. The

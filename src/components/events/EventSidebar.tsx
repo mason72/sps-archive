@@ -102,6 +102,14 @@ interface EventSidebarProps {
   onOpenChange?: (isOpen: boolean) => void;
   /** Notify parent when active panel changes (for live preview) */
   onActivePanelChange?: (panel: Panel | null) => void;
+  /** Live per-section upload progress from the engine (same heartbeat as the
+   *  dropzone bar); keyed by sectionId. */
+  uploadProgressBySection?: Map<
+    string,
+    { total: number; completed: number; failed: number; inFlight: number }
+  >;
+  /** Opens the upload dock so failed files can be reviewed/retried. */
+  onShowUploadIssues?: () => void;
   /** Callback when images are dropped onto a section row */
   onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
   /** TDP Work gallery: sections are jobs ("New job…", live/draft dots). */
@@ -165,6 +173,8 @@ export function EventSidebar({
   onEventUpdate,
   onOpenChange,
   onActivePanelChange,
+  uploadProgressBySection,
+  onShowUploadIssues,
   onDropImagesToSection,
   isWorkGallery = false,
   onSectionCreated,
@@ -273,6 +283,8 @@ export function EventSidebar({
           <SectionsPanel
             eventId={eventId}
             sections={sections}
+            uploadProgressBySection={uploadProgressBySection}
+            onShowUploadIssues={onShowUploadIssues}
             onSectionsChange={onSectionsChange}
             activeSection={activeSection}
             onSetActiveSection={onSetActiveSection}
@@ -350,6 +362,8 @@ function PanelTab({
 function SectionsPanel({
   eventId,
   sections,
+  uploadProgressBySection,
+  onShowUploadIssues,
   onSectionsChange,
   activeSection,
   onSetActiveSection,
@@ -361,6 +375,11 @@ function SectionsPanel({
 }: {
   eventId: string;
   sections: SectionItem[];
+  uploadProgressBySection?: Map<
+    string,
+    { total: number; completed: number; failed: number; inFlight: number }
+  >;
+  onShowUploadIssues?: () => void;
   onSectionsChange: (s: SectionItem[]) => void;
   activeSection: string | null;
   onSetActiveSection: (id: string | null) => void;
@@ -653,6 +672,8 @@ function SectionsPanel({
                 name={section.name}
                 isAuto={section.isAuto}
                 imageCount={section.imageCount}
+                uploadProgress={uploadProgressBySection?.get(section.id)}
+                onShowUploadIssues={onShowUploadIssues}
                 onRename={handleRename}
                 onDelete={handleDelete}
                 isDragging={dragIndex === index}
@@ -1325,6 +1346,30 @@ function DetailsPanel({
             >
               <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
                 sharing.guestSearch !== false ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
+          {/* "All" tab in the guest nav — OPT-IN, off by default (Justin,
+              2026-08-10: usually redundant next to real sections). Trails the
+              section tabs when on. The editor's All Images view is separate
+              and always available. */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">
+              &ldquo;All&rdquo; tab in gallery
+              <span className="block text-[10px] text-stone-400">
+                One tab with every photo, after the sections
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => updateSharing({ showAllPhotos: sharing.showAllPhotos !== true })}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.showAllPhotos === true ? "bg-emerald-500" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.showAllPhotos === true ? "translate-x-4" : ""
               }`} />
             </button>
           </div>

@@ -86,6 +86,8 @@ export interface GallerySettings {
   guestSearch?: boolean;
   /** Guest selfie search enabled for this gallery (opt-in, default false). */
   selfieSearch?: boolean;
+  /** "All" tab across sections in the guest nav (opt-in, default false). */
+  showAllPhotos?: boolean;
 }
 
 export interface GallerySection {

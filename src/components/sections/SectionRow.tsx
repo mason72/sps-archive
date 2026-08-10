@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { GripVertical, Pencil, Trash2, Check, X, Upload, Lock, LockOpen } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Check, X, Upload, Lock, LockOpen, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 interface SectionRowProps {
@@ -9,6 +9,19 @@ interface SectionRowProps {
   name: string;
   isAuto: boolean;
   imageCount: number;
+  /**
+   * Live upload progress for THIS section, read from the upload engine's own
+   * state (same heartbeat as the dropzone bar — never the DB count, which
+   * includes presign reservations and steps in chunks of 50).
+   */
+  uploadProgress?: {
+    total: number;
+    completed: number;
+    failed: number;
+    inFlight: number;
+  };
+  /** Opens the upload dock's file list (failed files live there, with retry). */
+  onShowUploadIssues?: () => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   isDragging?: boolean;
@@ -41,6 +54,8 @@ export function SectionRow({
   name,
   isAuto,
   imageCount,
+  uploadProgress,
+  onShowUploadIssues,
   onRename,
   onDelete,
   isDragging,
@@ -215,14 +230,47 @@ export function SectionRow({
         )}
       </div>
 
-      {/* Image count badge */}
-      <span
-        className={`text-[11px] tabular-nums shrink-0 ${
-          locked ? "text-stone-300" : "text-stone-400"
-        }`}
-      >
-        {imageCount} {imageCount === 1 ? "image" : "images"}
-      </span>
+      {/* Image count badge — replaced by live engine numbers while this
+          section is an upload target (Justin's 350-in-chunks-of-50 report:
+          the DB count includes presign reservations; the engine's numbers
+          are the same ones the dropzone bar shows, on the same heartbeat). */}
+      {uploadProgress && uploadProgress.inFlight > 0 ? (
+        <span
+          className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums"
+          title={`${uploadProgress.completed} of ${uploadProgress.total} uploaded`}
+        >
+          <span className="text-stone-300">{uploadProgress.completed}</span>
+          <span className="text-stone-300">/</span>
+          <span className="text-stone-500">{uploadProgress.total}</span>
+          <UploadRing
+            fraction={
+              uploadProgress.total > 0
+                ? uploadProgress.completed / uploadProgress.total
+                : 0
+            }
+          />
+        </span>
+      ) : uploadProgress && uploadProgress.failed > 0 ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onShowUploadIssues?.();
+          }}
+          className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-amber-600 transition-colors hover:text-amber-700"
+          title={`${uploadProgress.failed} file${uploadProgress.failed === 1 ? "" : "s"} failed to upload — click to review`}
+        >
+          <AlertTriangle size={11} />
+          {uploadProgress.failed} failed
+        </button>
+      ) : (
+        <span
+          className={`text-[11px] tabular-nums shrink-0 ${
+            locked ? "text-stone-300" : "text-stone-400"
+          }`}
+        >
+          {imageCount} {imageCount === 1 ? "image" : "images"}
+        </span>
+      )}
 
       {/* Lock toggle — always visible; dim when open, amber when locked */}
       {onToggleLock && (
@@ -303,5 +351,28 @@ export function SectionRow({
         )}
       </div>
     </div>
+  );
+}
+
+/** 14px emerald progress ring — a filled pie reads as a blob at this size. */
+function UploadRing({ fraction }: { fraction: number }) {
+  const r = 5;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(1, fraction));
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 -rotate-90">
+      <circle cx="7" cy="7" r={r} fill="none" strokeWidth="2.5" className="stroke-stone-200" />
+      <circle
+        cx="7"
+        cy="7"
+        r={r}
+        fill="none"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - clamped)}
+        className="stroke-emerald-600 transition-[stroke-dashoffset] duration-300"
+      />
+    </svg>
   );
 }

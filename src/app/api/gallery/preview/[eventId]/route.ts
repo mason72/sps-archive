@@ -181,6 +181,12 @@ export async function GET(
               (r as { original_filename: string }).original_filename,
           }))
         ).stackable,
+      // Opt-in "All" tab — serialized the same as the guest route so the
+      // preview can't drift from the client-facing gallery.
+      showAllPhotos:
+        (((event.settings as Record<string, unknown>)?.sharing ?? {}) as {
+          showAllPhotos?: boolean;
+        }).showAllPhotos === true,
     };
 
     // Generate presigned URL for cover image if cover is enabled

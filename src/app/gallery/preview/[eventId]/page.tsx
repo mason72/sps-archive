@@ -437,7 +437,10 @@ export default function PreviewGalleryPage({
             defaultSort={s?.gridSort}
             smartStacks={s?.smartStacks}
             colors={colors}
-            showAllTab
+            // Mirror the guest gallery exactly — an unconditional All tab here
+            // is how the preview lied about what clients see (Justin,
+            // 2026-08-10).
+            showAllTab={s?.showAllPhotos === true}
             onVisibleImagesChange={setSectionVisibleImages}
           />
         ) : (

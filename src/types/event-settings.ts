@@ -32,6 +32,13 @@ export interface SharingSettings {
    * (decided 2026-08-09). The selfie is embedded in memory and never stored.
    */
   selfieSearch?: boolean;
+  /**
+   * Guest gallery shows an "All" tab across sections. OPT-IN (default off,
+   * Justin's feedback 2026-08-10 — usually redundant next to real sections).
+   * The owner preview mirrors this exactly; the editor's own All Images view
+   * is unaffected.
+   */
+  showAllPhotos?: boolean;
   password: string;
   expiresAt: string;
   customMessage: string;
@@ -178,6 +185,7 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   favoriteMilestones: true,
   guestSearch: true,
   selfieSearch: false,
+  showAllPhotos: false,
   password: "",
   expiresAt: "",
   customMessage: "",

@@ -80,8 +80,10 @@ export function SectionedGallery({
    */
   onVisibleImagesChange?: (images: GalleryImage[]) => void;
 }) {
+  // Land on the first real section; "All" (when enabled) is a supplementary
+  // view at the END of the nav, never the default.
   const [activeTab, setActiveTab] = useState<string>(
-    showAllTab ? "all" : sections[0]?.id ?? "all"
+    sections[0]?.id ?? "all"
   );
   // Seed from the photographer's chosen sort (event settings); visitors can
   // still re-sort via the dropdown. "manual" = the stored section arrangement.
@@ -170,7 +172,6 @@ export function SectionedGallery({
     : images.length;
 
   const tabs: Array<{ id: string; label: string; count: number }> = [
-    ...(showAllTab ? [{ id: "all", label: "All", count: allCount }] : []),
     ...sections
       .map((s) => ({
         id: s.id,
@@ -178,6 +179,9 @@ export function SectionedGallery({
         count: sectionCounts.get(s.id) || 0,
       }))
       .filter((t) => t.count > 0),
+    // "All" trails the real sections (Mason, 2026-08-10) — a catch-all,
+    // not the headline.
+    ...(showAllTab ? [{ id: "all", label: "All", count: allCount }] : []),
   ];
 
   // If the favorites filter just hid the active tab, land on the first tab

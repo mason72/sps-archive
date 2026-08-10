@@ -363,6 +363,10 @@ export async function GET(
       selfieSearch:
         ((eventSettings.sharing ?? {}) as { selfieSearch?: boolean })
           .selfieSearch === true,
+      // Opt-in (default off): an "All" tab across sections in the guest nav.
+      showAllPhotos:
+        ((eventSettings.sharing ?? {}) as { showAllPhotos?: boolean })
+          .showAllPhotos === true,
     };
 
     // Generate presigned URL for cover image if cover is enabled. The hero is

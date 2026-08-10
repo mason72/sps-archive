@@ -12,7 +12,7 @@
  * screen is noise.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronUp, X } from "lucide-react";
@@ -22,6 +22,14 @@ export function UploadDock() {
   const { batches, speedMbps, cancelBatch } = useUploadManager();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
+
+  // Sidebar "N failed" badges open the dock to the file list — the failed
+  // rows (and their retry) already live here.
+  useEffect(() => {
+    const open = () => setExpanded(true);
+    window.addEventListener("pt:open-upload-dock", open);
+    return () => window.removeEventListener("pt:open-upload-dock", open);
+  }, []);
 
   const active = useMemo(
     () =>

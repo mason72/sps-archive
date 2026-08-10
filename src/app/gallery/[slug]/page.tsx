@@ -1199,6 +1199,7 @@ export default function GalleryPage({
             gridColumns={s?.gridColumns}
             gridGap={s?.gridGap}
             defaultSort={s?.gridSort}
+            showAllTab={s?.showAllPhotos === true}
             smartStacks={stacksActive}
             colors={colors}
             onActiveSectionChange={setActiveSectionInfo}
