@@ -36,8 +36,44 @@ export interface SharingSettings {
   expiresAt: string;
   customMessage: string;
   requirePinBulk: boolean;
+  /**
+   * Escalation ON TOP of requirePinBulk, never a peer — see
+   * normalizeDownloadPins. Both gates share the one `downloadPin`.
+   */
   requirePinIndividual: boolean;
   downloadPin: string;
+}
+
+/**
+ * The per-image PIN only means something when the bulk PIN is also on.
+ *
+ * Gating single downloads while "Download All" stays open buys nothing: the
+ * guest just takes the whole ZIP instead. The two used to be independent
+ * toggles, so that combination was one tap away and looked like a working
+ * control. Individual is now an escalation of bulk, and this is the single
+ * home for that rule — the share sidebar and POST /api/shares both call it,
+ * so the UI can't offer a state the API would refuse (or worse, accept).
+ */
+export function normalizeDownloadPins<
+  T extends {
+    requirePinBulk?: boolean;
+    requirePinIndividual?: boolean;
+    downloadPin?: string;
+  }
+>(s: T): T & { requirePinBulk: boolean; requirePinIndividual: boolean } {
+  const requirePinBulk = s.requirePinBulk ?? false;
+  return {
+    ...s,
+    requirePinBulk,
+    // Bulk off ⇒ individual off. Never the reverse: turning on the per-image
+    // PIN must not silently start gating "Download All" too.
+    requirePinIndividual: requirePinBulk && (s.requirePinIndividual ?? false),
+    // A gate with no secret behind it refuses everyone (authorizeShareDownload
+    // fails closed), so drop the flags rather than ship a dead gallery.
+    ...(requirePinBulk && !s.downloadPin
+      ? { requirePinBulk: false, requirePinIndividual: false }
+      : {}),
+  };
 }
 
 export type CoverType = "image" | "mosaic" | "solid" | "crossfade";
