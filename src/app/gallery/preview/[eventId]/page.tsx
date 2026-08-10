@@ -103,7 +103,15 @@ export default function PreviewGalleryPage({
       link.download = image.originalFilename;
       link.click();
       toast.success("Downloaded", { description: image.originalFilename });
+      return;
     }
+    // The preview payload deliberately carries no download URLs, so this is
+    // always the branch taken. Say so — the tile still shows the button
+    // (that's what a guest sees, which is the point of a preview), and a
+    // button that silently does nothing reads as a broken gallery.
+    toast.info("Downloads are disabled in preview", {
+      description: "Guests will get the original file here.",
+    });
   };
 
   // Lightbox navigates the on-screen list (search/section/sort view, stacks
@@ -573,7 +581,10 @@ export default function PreviewGalleryPage({
           <div
             className={`absolute ${stackNav ? "bottom-24" : "bottom-4"} left-1/2 -translate-x-1/2 flex items-center gap-4 z-10`}
           >
-            {gallery.allowDownload && selectedImage.downloadUrl && (
+            {/* Driven by the share's permission, not by a URL in the payload
+                — the preview has none, and the grid tiles already show this
+                button, so guarding on downloadUrl made the two disagree. */}
+            {gallery.allowDownload && (
               <button
                 className="p-2.5 bg-white/10 text-white/70 hover:text-white backdrop-blur-sm transition-colors"
                 onClick={(e) => {

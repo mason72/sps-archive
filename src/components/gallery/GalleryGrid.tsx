@@ -369,7 +369,9 @@ function GalleryCard({
             />
           </button>
         )}
-        {allowDownload && image.downloadUrl && (
+        {/* onDownloadClick resolves the URL itself (PIN-gated shares withhold
+            downloadUrl), so its presence is enough to offer the button. */}
+        {allowDownload && (image.downloadUrl || onDownloadClick) && (
           <button
             onClick={handleDownload}
             className="p-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors"

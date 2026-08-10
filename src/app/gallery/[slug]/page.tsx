@@ -571,6 +571,70 @@ export default function GalleryPage({
     startBulkDownload({ section: activeSectionInfo.id });
   };
 
+  /**
+   * Save one original to disk. When the share gates individual downloads
+   * behind a PIN the payload carries no downloadUrl at all — the server mints
+   * one only for a request bearing a verified token — so the URL is fetched
+   * here at click time rather than read out of the gallery JSON.
+   */
+  const deliverImageDownload = async (
+    image: GalleryImage,
+    token?: string | null
+  ) => {
+    let url = image.downloadUrl;
+    if (!url) {
+      try {
+        const res = await fetch(`/api/gallery/${slug}/image-download`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageId: image.id,
+            ...(token ? { dt: token } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.downloadUrl) {
+          // The token is only good for 4h. Once it lapses the server answers
+          // 401/403 and, without this, the guest got a toast and a download
+          // button that never worked again — the modal is gated on
+          // `!downloadToken`, and the stale token is still sitting there.
+          // Drop it and re-prompt so the PIN is a recoverable step, not a
+          // one-shot that silently expires under an open tab.
+          if (res.status === 401 || res.status === 403) {
+            setDownloadToken(null);
+            setPinAction({ type: "individual", image });
+            setShowPinModal(true);
+            return;
+          }
+          toast.error(data.error || "Download failed — please try again.");
+          return;
+        }
+        url = data.downloadUrl as string;
+      } catch {
+        toast.error("Download failed — please try again.");
+        return;
+      }
+    }
+
+    // Track download (fire-and-forget via sendBeacon)
+    try {
+      navigator.sendBeacon(
+        `/api/gallery/${slug}/track`,
+        new Blob(
+          [JSON.stringify({ action: "image_download", imageId: image.id, shareId: gallery?.shareId })],
+          { type: "application/json" }
+        )
+      );
+    } catch {
+      /* sendBeacon not supported — non-critical */
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = image.originalFilename;
+    link.click();
+    toast.success("Downloaded", { description: image.originalFilename });
+  };
+
   /** Attempt individual download -- shows PIN prompt if required */
   const handleIndividualDownload = (image: GalleryImage) => {
     if (!gallery) return;
@@ -579,25 +643,7 @@ export default function GalleryPage({
       setShowPinModal(true);
       return;
     }
-    if (image.downloadUrl) {
-      // Track download (fire-and-forget via sendBeacon)
-      try {
-        navigator.sendBeacon(
-          `/api/gallery/${slug}/track`,
-          new Blob(
-            [JSON.stringify({ action: "image_download", imageId: image.id, shareId: gallery.shareId })],
-            { type: "application/json" }
-          )
-        );
-      } catch {
-        /* sendBeacon not supported — non-critical */
-      }
-      const link = document.createElement("a");
-      link.href = image.downloadUrl;
-      link.download = image.originalFilename;
-      link.click();
-      toast.success("Downloaded", { description: image.originalFilename });
-    }
+    void deliverImageDownload(image, downloadToken);
   };
 
   /** Verify PIN against the server, then execute the pending action */
@@ -610,7 +656,18 @@ export default function GalleryPage({
       });
 
       if (!res.ok) {
-        toast.error("Incorrect PIN");
+        // Not every rejection is a wrong PIN, and saying so sends the guest
+        // into a retry loop they can't win: 429 means they're rate-limited,
+        // and 404 means the share demands a PIN that was never set, so no
+        // input can ever succeed. Report what actually happened.
+        const body = await res.json().catch(() => ({}));
+        toast.error(
+          res.status === 429
+            ? body.error || "Too many attempts — try again in a few minutes"
+            : res.status === 404
+            ? "This gallery's download PIN isn't set up — please contact your photographer"
+            : "Incorrect PIN"
+        );
         return;
       }
 
@@ -626,11 +683,8 @@ export default function GalleryPage({
       // rides along explicitly — state hasn't re-rendered yet)
       if (pinAction?.type === "bulk") {
         void startBulkDownload(pinAction.query, token ?? null);
-      } else if (pinAction?.type === "individual" && pinAction.image.downloadUrl) {
-        const link = document.createElement("a");
-        link.href = pinAction.image.downloadUrl;
-        link.download = pinAction.image.originalFilename;
-        link.click();
+      } else if (pinAction?.type === "individual") {
+        void deliverImageDownload(pinAction.image, token ?? null);
       }
       setPinAction(null);
     } catch {
@@ -1084,7 +1138,7 @@ export default function GalleryPage({
               onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
               onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
               onImageClick={(id) => setSelectedImageId(id)}
-              onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+              onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
               onOpenStack={setOpenStack}
               onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1118,7 +1172,7 @@ export default function GalleryPage({
             onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
-            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1137,7 +1191,7 @@ export default function GalleryPage({
             onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
-            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1159,7 +1213,7 @@ export default function GalleryPage({
             onFavorite={gallery.allowFavorites ? handleFavorite : undefined}
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
-            onDownloadClick={gallery.requirePinIndividual ? handleIndividualDownload : undefined}
+            onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1323,7 +1377,9 @@ export default function GalleryPage({
                 <Heart className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} strokeWidth={1.5} />
               </button>
             )}
-            {gallery.allowDownload && selectedImage.downloadUrl && (
+            {/* A PIN-gated share ships no downloadUrl — the button is driven
+                by the share's permission, not by a URL in the payload. */}
+            {gallery.allowDownload && (
               <button
                 className="p-2.5 backdrop-blur-sm transition-opacity hover:opacity-100"
                 style={{
