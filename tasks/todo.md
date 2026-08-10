@@ -57,15 +57,34 @@ Phase 0 — Foundation:
       reconciler sweep is the backstop (catches SPS imports). Dead src/lib/ai/* deleted;
       search route rewired (MODAL_AI_EMBED_TEXT_URL, batch texts contract,
       target_user_id, reportSystemError). 269/269 tests, next build green.
-- [~] Backfill: scripts/backfill-ai-index.ts (--status/--event/--all; pages past the
-      1000-row PostgREST cap). TRUE total: 19,629 unindexed across 18 events, ~35
-      images/min single-container ≈ 9h wall, ~$5-6 T4. Sandbox event (1,019) indexing
-      now; full-archive run after sandbox verification.
-Phase 1 — Semantic search:
-- [ ] Fix env wiring (route reads `MODAL_API_URL` but .env defines `MODAL_EMBED_TEXT_URL`
-      — standardize), semantic mode → embed_text → RPC, ownership-scoped.
-- [ ] Unhide SearchBar semantic mode + Q3 discovery prompts; expectation-setting copy.
-- [ ] QA: real queries on real events ("signage", "people laughing", compound queries).
+- [x] Backfill COMPLETE 2026-08-09: 19,629/19,629 images, 32,498 embedded faces,
+      ~5h wall (~1/s), zero upload-owned writes (verified). First run died at 88% on
+      ONE Modal timeout — script now retries a batch once (15s breather). One
+      straggler was a 2026-03 partial thumbnail write (thumb-lg missing, invisible
+      because grids use thumb-md; presigned-GET probe with Range header — HEAD 403s
+      on a GET presign); healed via generateThumbnails + indexed. Committed eb69ea8;
+      push held to batch with Phase 1.
+Phase 1 — Semantic search [SHIPPED 2026-08-10]:
+- [x] Route on v2 contract (done in Phase 0); threshold calibrated LIVE at 0.06
+      (absurd-query noise ceiling 0.052, real matches 0.09-0.16); duplicate-row
+      dedupe by (event, filename) in both search paths; semantic skipped for <3-char
+      queries (keystrokes aren't descriptions).
+- [x] UI: auto mode (filename wins, else semantic — no toggles), 6 discovery chips
+      (square/uppercase, matching the dashboard filter chips — NOT rounded pills),
+      cold-start hint after 2.5s ("warming up visual search"), dropped the "% match"
+      overlay (SigLIP cosines read as broken percentages).
+- [x] Fixed an infinite setState loop on /search (999 max-depth errors): SearchBar's
+      effect called onClear on EVERY empty-query run while the page passed fresh
+      closures — stable useCallback identities + clear only on non-empty→empty
+      transition. Pre-existing, exposed by QA console check.
+- [x] Live QA in a real session (co-drive): chip search → 50/50 genuine photobooth
+      frames; typed "a bride and groom kissing" → wall of kisses incl. bride+groom
+      dip; cold-start hint verified verbatim; console clean after fix.
+- [x] Vercel prod env vars set (MODAL_AI_INDEX_URL, MODAL_AI_EMBED_TEXT_URL,
+      AI_INDEXING_ENABLED=true) — applied with this deploy, which also turns on
+      organic settlement-triggered indexing for future uploads.
+- Note: transient DB statement timeouts hit /api/events while the backfill+autovacuum
+      churned — recovered on its own; watch for it if ever running a mass re-index.
 Phase 2 — Faces:
 - [ ] Clustering v2 (rewrite, not revive): incremental assignment to existing persons;
       named persons never auto-deleted; full recluster only on demand; handles

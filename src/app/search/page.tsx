@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useCallback, useState, useRef } from "react";
 import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
@@ -27,6 +27,18 @@ export default function GlobalSearchPage() {
   const [searchType, setSearchType] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
   const columnCount = useColumnCount();
+
+  // Stable identities: these are effect dependencies inside SearchBar, so
+  // fresh closures per render would re-trigger its search effect in a loop.
+  const handleResults = useCallback((r: unknown[], type: string) => {
+    setResults(r as SearchResult[]);
+    setSearchType(type);
+    setHasSearched(true);
+  }, []);
+  const handleClear = useCallback(() => {
+    setResults([]);
+    setHasSearched(false);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -66,16 +78,9 @@ export default function GlobalSearchPage() {
 
           <div className="reveal" style={{ animationDelay: "0.25s" }}>
             <SearchBar
-              onResults={(r, type) => {
-                setResults(r as SearchResult[]);
-                setSearchType(type);
-                setHasSearched(true);
-              }}
-              onClear={() => {
-                setResults([]);
-                setHasSearched(false);
-              }}
-              placeholder='Search your entire archive... "Johnson wedding first dance"'
+              onResults={handleResults}
+              onClear={handleClear}
+              placeholder='Try "people laughing", "signage", or a filename…'
             />
           </div>
         </div>
@@ -94,7 +99,8 @@ export default function GlobalSearchPage() {
             <div>
               <div className="editorial-divider mb-8">
                 <span className="label-caps shrink-0">
-                  {results.length} results via {searchType}
+                  {results.length}{" "}
+                  {searchType === "semantic" ? "visual matches" : "filename matches"}
                 </span>
               </div>
 
@@ -156,9 +162,6 @@ function SearchResultCard({ result }: { result: SearchResult }) {
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-3 pt-8 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <p className="text-[11px] text-white/90 truncate">
           {result.parsedName || result.filename}
-        </p>
-        <p className="text-[10px] text-white/50 mt-0.5">
-          {Math.round(result.score * 100)}% match
         </p>
       </div>
     </Link>

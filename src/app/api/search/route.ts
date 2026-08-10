@@ -77,8 +77,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchType === "semantic" || searchType === "auto") {
-      // Semantic search requires the Modal embed_text endpoint — skip if unset
-      if (!process.env.MODAL_AI_EMBED_TEXT_URL) {
+      // Semantic search requires the Modal embed_text endpoint — skip if
+      // unset. Also skip 1-2 character queries: they're keystrokes, not
+      // descriptions, and each one would otherwise cost an embed call.
+      if (!process.env.MODAL_AI_EMBED_TEXT_URL || query.trim().length < 3) {
         return NextResponse.json({
           type: "filename",
           results: [],
@@ -126,8 +128,17 @@ async function searchByFilename(
   const { data, error } = await dbQuery;
   if (error) throw error;
 
+  // Same duplicate-row collapse as the semantic path.
+  const seen = new Set<string>();
+  const deduped = (data || []).filter((img: Record<string, unknown>) => {
+    const key = `${img.event_id}:${img.original_filename}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   return Promise.all(
-    (data || []).map(async (img: Record<string, unknown>) => {
+    deduped.map(async (img: Record<string, unknown>) => {
       const r2Key = img.r2_key as string;
       const thumbKey = getThumbnailKey(r2Key);
       const [thumbnailUrl, originalUrl] = await Promise.all([
@@ -177,20 +188,33 @@ async function searchBySemantic(
   // cannot forget ownership). The post-filter below is belt-and-suspenders.
   // Threshold note: SigLIP cosines are small in magnitude — a real match is
   // often ~0.05-0.15 — so the floor mostly exists to drop pure noise.
+  // 0.06 calibrated live 2026-08-09: an absurd query ("purple elephant in
+  // space") tops out ~0.052; real matches land 0.09-0.16. Fetch extra so the
+  // duplicate-row dedupe below can't leave the page short.
   const singleEvent = scopeEventIds.length === 1 ? scopeEventIds[0] : null;
   const { data, error } = await supabase.rpc("search_images_by_embedding", {
     query_embedding: JSON.stringify(embeddings[0]),
     target_user_id: userId,
     target_event_id: singleEvent,
-    match_threshold: 0.02,
-    match_count: limit,
+    match_threshold: 0.06,
+    match_count: Math.min(limit * 2, MAX_SEARCH_LIMIT * 2),
   });
 
   if (error) throw error;
 
+  // Double-uploaded shoots hold duplicate rows for the same file; returning
+  // both (identical thumbnails, identical scores) reads as a glitch. Keep the
+  // best-scored row per (event, filename).
   const ownedSet = new Set(scopeEventIds);
+  const seen = new Set<string>();
   const scoped = (data || [])
-    .filter((r: { event_id: string }) => ownedSet.has(r.event_id))
+    .filter((r: { event_id: string; original_filename: string }) => {
+      if (!ownedSet.has(r.event_id)) return false;
+      const key = `${r.event_id}:${r.original_filename}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .slice(0, limit);
 
   return Promise.all(

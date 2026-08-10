@@ -32,15 +32,19 @@ interface SearchBarProps {
   onChange?: (query: string) => void;
 }
 
-/* AI_HIDDEN: Search suggestions disabled — AI backend not configured
+/**
+ * Discovery chips: shown when the box is empty so photographers learn the
+ * search speaks plain English, not just filenames. Each query is phrased the
+ * way SigLIP likes it — a short natural description of a photo.
+ */
 const SEARCH_SUGGESTIONS = [
-  { label: "Portraits", query: "portraits of people" },
-  { label: "Outdoors", query: "outdoor nature landscape" },
-  { label: "Golden Hour", query: "golden hour warm light" },
-  { label: "Details", query: "detail close up" },
-  { label: "Ceremony", query: "ceremony celebration" },
+  { label: "Laughing", query: "people laughing together" },
+  { label: "Photo booth", query: "friends posing at a photo booth with props" },
+  { label: "Golden hour", query: "golden hour warm light portrait" },
+  { label: "Group photos", query: "a large group posing together" },
+  { label: "Details", query: "close-up detail shot" },
+  { label: "Speeches", query: "a person speaking at a podium" },
 ];
-*/
 
 export function SearchBar({
   eventId,
@@ -56,10 +60,17 @@ export function SearchBar({
   const query = controlled ? value ?? "" : internalQuery;
   const setQuery = controlled ? onChange! : setInternalQuery;
   const [isSearching, setIsSearching] = useState(false);
-  // AI_HIDDEN: Force filename search — AI search backend not configured
-  const [searchType] = useState<"auto" | "semantic" | "filename">("filename");
+  // True once a search has been in flight for a while — the first semantic
+  // query after idle cold-starts the text encoder (~15-20s); say so instead
+  // of looking hung.
+  const [isSlow, setIsSlow] = useState(false);
+  // Auto: filename hits win, anything else falls through to semantic. The
+  // controlled (editor filter) mode never fetches, so this only drives the
+  // global search page.
+  const searchType = "auto";
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const slowRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const performSearch = useCallback(
     async (searchQuery: string) => {
@@ -69,6 +80,7 @@ export function SearchBar({
       }
 
       setIsSearching(true);
+      slowRef.current = setTimeout(() => setIsSlow(true), 2500);
       try {
         const params = new URLSearchParams({
           q: searchQuery,
@@ -85,11 +97,18 @@ export function SearchBar({
       } catch (error) {
         console.error("Search error:", error);
       } finally {
+        clearTimeout(slowRef.current);
+        setIsSlow(false);
         setIsSearching(false);
       }
     },
     [eventId, searchType, onResults, onClear]
   );
+
+  // Tracks the previous query so onClear fires only on the non-empty → empty
+  // transition. Calling it on every empty-query effect run looped: onClear →
+  // parent setState → new prop identities → effect re-runs → onClear → …
+  const hadQueryRef = useRef(false);
 
   useEffect(() => {
     // Controlled mode: the parent does the searching off `value`; this input
@@ -98,11 +117,12 @@ export function SearchBar({
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (query.trim()) {
-      // Filename search is fast (DB only) — near-instant
-      // Semantic search hits AI endpoint — debounce more
-      const delay = searchType === "semantic" ? 400 : 100;
-      debounceRef.current = setTimeout(() => performSearch(query), delay);
-    } else {
+      hadQueryRef.current = true;
+      // Auto mode can fall through to the AI endpoint — debounce generously
+      // so keystrokes don't queue semantic searches.
+      debounceRef.current = setTimeout(() => performSearch(query), 400);
+    } else if (hadQueryRef.current) {
+      hadQueryRef.current = false;
       onClear?.();
     }
 
@@ -145,7 +165,27 @@ export function SearchBar({
         )}
       </div>
 
-      {/* AI_HIDDEN: Search suggestions and type toggles disabled — AI backend not configured */}
+      {/* First-search-of-the-day cold start: honest, calm, temporary. */}
+      {isSlow && (
+        <p className="caption-italic text-stone-400 animate-pulse">
+          Warming up visual search — the first search takes a little longer…
+        </p>
+      )}
+
+      {/* Discovery chips (global search only): teach that plain English works. */}
+      {!controlled && !query && (
+        <div className="flex flex-wrap gap-2">
+          {SEARCH_SUGGESTIONS.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => setQuery(s.query)}
+              className="px-3 py-1 text-[11px] uppercase tracking-[0.12em] font-medium border border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-300"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

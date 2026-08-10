@@ -85,7 +85,17 @@ async function main() {
       continue;
     }
     for (;;) {
-      const r = await indexEventBatch(supabase, eventId);
+      // One transient Modal stall (cold start, network blip) must not kill an
+      // hours-long run — retry the batch once after a breather. Learned the
+      // hard way: the first full run died at 88% on a single timeout.
+      let r;
+      try {
+        r = await indexEventBatch(supabase, eventId);
+      } catch (err) {
+        console.log(`  retrying batch after error: ${(err as Error).message}`);
+        await new Promise((res) => setTimeout(res, 15_000));
+        r = await indexEventBatch(supabase, eventId);
+      }
       done += r.indexed;
       for (const [id, msg] of Object.entries(r.errors)) console.log(`  ✗ ${id}: ${msg}`);
       const rate = done / Math.max(1, (Date.now() - t0) / 1000);
