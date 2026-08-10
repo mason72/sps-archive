@@ -113,9 +113,9 @@ export default async function RootLayout({
               remount as you move around, and an upload queue owned by a page
               dies with it. The dock is inside the provider so it can read it. */}
           <UploadManagerProvider>
+            {actingAs && user?.email && <ActAsBanner email={user.email} />}
             {children}
             <UploadDock />
-            {actingAs && user?.email && <ActAsBanner email={user.email} />}
           </UploadManagerProvider>
         </AuthProvider>
         <ToasterProvider />

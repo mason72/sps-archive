@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Always-visible indicator that an admin is acting as another account —
- * without it, "why is my archive suddenly someone else's" is a support
- * ticket waiting to happen. Fixed bottom-left so it never fights the
- * upload dock (bottom-right).
+ * Always-visible indicator that an admin is acting as another account.
+ * A full-width bar ABOVE the app (normal flow + sticky, so it pushes content
+ * down and cannot be missed or overlapped) — the first version was a floating
+ * bottom-left pill and Mason scrolled right past it.
  */
 export function ActAsBanner({ email }: { email: string }) {
   async function switchBack() {
@@ -13,13 +13,14 @@ export function ActAsBanner({ email }: { email: string }) {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-3 rounded-full border border-emerald-200 bg-emerald-50/95 py-2 pl-4 pr-2 text-sm shadow-lg backdrop-blur">
-      <span className="text-emerald-900">
-        Viewing as <span className="font-medium">{email}</span>
+    <div className="sticky top-0 z-[60] flex items-center justify-center gap-4 border-b border-emerald-800/40 bg-emerald-700 px-4 py-2 text-sm text-white">
+      <span>
+        Viewing as <span className="font-semibold">{email}</span> — everything
+        you do here happens as this account
       </span>
       <button
         onClick={switchBack}
-        className="rounded-full bg-emerald-700 px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-85"
+        className="rounded-full bg-white/15 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-white/25"
       >
         Switch back
       </button>
