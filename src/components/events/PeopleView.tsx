@@ -545,7 +545,10 @@ export function PeopleView({
             setSplitting(null);
             load();
           }}
-          onDismiss={() => resolve({ action: "dismiss", key: splitting.key }, false)}
+          onDismiss={() => {
+            resolve({ action: "dismiss", key: splitting.key }, false);
+            setSplitting(null);
+          }}
           onClose={() => setSplitting(null)}
         />
       )}
@@ -1263,7 +1266,7 @@ function MergeCompareModal({
   personA: Person | null;
   personB: Person | null;
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
-  onMerge: () => void;
+  onMerge: () => void | Promise<void>;
   onDismiss: () => void;
   /** A side was renamed — the merge question may have dissolved; reload. */
   onRenamed: () => void;
@@ -1271,6 +1274,7 @@ function MergeCompareModal({
 }) {
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
+  const [merging, setMerging] = useState(false);
   // Per-side rename: when it's genuinely TWO people sharing a misfiled name
   // (seen live: a woman's photos exported under Daniel Nelson's filename),
   // the fix is renaming one side — the name collision, and this card, then
@@ -1393,10 +1397,18 @@ function MergeCompareModal({
               Keep separate
             </button>
             <button
-              onClick={onMerge}
-              className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors"
+              onClick={async () => {
+                setMerging(true);
+                try {
+                  await onMerge();
+                } finally {
+                  setMerging(false);
+                }
+              }}
+              disabled={merging}
+              className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors disabled:opacity-40"
             >
-              Merge
+              {merging ? "Merging…" : "Merge"}
             </button>
             <button
               onClick={onClose}
