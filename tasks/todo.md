@@ -108,6 +108,22 @@ Phase 2a — Guest visual search [SHIPPED 2026-08-10, be34ba7]:
       constants lose. Lesson: calibrate on the biggest corpus you have, per query
       style.
 
+Person splitting [SHIPPED 2026-08-10, d099654 — designed WITH Mason first]:
+- [x] Design decisions: filename-seeded proposals (faces 2-means fallback for
+      junk names), FACE-level moves (a shared frame belongs to both people),
+      durable-by-construction (clustering never merges existing persons — no
+      anti-link needed), suggest-only discovery card on two-strong-name-camp
+      clusters (which is exactly the consensus-blocked unnamed population;
+      split cards suppress that person's mislabel/refinement cards).
+- [x] lib/faces/split.ts (7 tests) + resolve actions propose-split/split +
+      strip card + two-column SplitPersonModal (click flips, names pre-fill,
+      group A keeps the person id).
+- [x] LIVE CALIBRATION CATCH: faces-fallback proposed 34-vs-1 on a real
+      photobooth cluster — an outlier shot, not two people. Guard: fallback
+      minority must be ≥ max(2, 10%) or the answer is "looks like one person"
+      (verified live: that cluster now correctly refuses).
+- Search-during-stacks + face-wall-shows-matches (631a692) landed same day.
+
 Sections + search field round [SHIPPED 2026-08-10, bb7c449]:
 - [x] Sidebar: "+ New section" directly under the list (type-and-go intact);
       new tools footer below it — inline when the list is short, pinned to the
