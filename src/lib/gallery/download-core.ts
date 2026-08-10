@@ -29,6 +29,9 @@ export const SYNC_MAX_BYTES = 750 * 1024 * 1024;
 /** How long a built ZIP (and its presigned links) stays valid. */
 export const ZIP_JOB_TTL_HOURS = 24;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const safeFolder = (n: string) =>
   n.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "-").trim() || "Section";
 
@@ -119,6 +122,20 @@ export async function authorizeShareDownload(
       ? share.require_pin_individual
       : share.require_pin_bulk;
 
+  // A share can carry the flag with no PIN set — the sidebar auto-generates
+  // one, but the field can be cleared afterwards. Fail CLOSED: "a PIN is
+  // required" plus "no PIN exists" means nobody may download, not everybody.
+  // (The old `pinRequired && download_pin` read handed the asset to anyone.)
+  // Such a share is already unusable — verify-pin 404s on a null pin — so
+  // this turns a silent bypass into an honest, visible refusal.
+  if (pinRequired && !share.download_pin) {
+    return {
+      ok: false,
+      status: 403,
+      message: "Downloads are locked — ask your photographer for the PIN",
+    };
+  }
+
   if (pinRequired && share.download_pin) {
     const tokenOk = opts.downloadToken
       ? verifyDownloadToken(opts.downloadToken, share.id)
@@ -194,6 +211,12 @@ export async function selectShareImage(
   share: ShareRow,
   imageId: string
 ): Promise<DownloadImage | null> {
+  // Postgres rejects a malformed uuid with 22P02 — an ERROR, not an empty
+  // result. Without this the caller's catch turns every junk id into a 500
+  // plus a system_errors row, which is an unauthenticated way to flood the
+  // alarm table and bury real failures. A bad id is simply not found.
+  if (!UUID_RE.test(imageId)) return null;
+
   const { data, error } = await shareImages(supabase, share)
     .eq("id", imageId)
     .maybeSingle();

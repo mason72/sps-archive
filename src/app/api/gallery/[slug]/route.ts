@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey, getCachedDownloadUrl } from "@/lib/r2/client";
+import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDisplayKey, getWithheldDisplayKey, getCachedDownloadUrl } from "@/lib/r2/client";
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
@@ -242,31 +242,41 @@ export async function GET(
     // srcset, original for lightbox). Thumbnails use the presign memo so
     // repeat visits within a session keep cache-friendly, stable URLs.
     //
-    // ONE rule decides whether original bytes go in this payload: a guest gets
-    // them only when they're already entitled to them with no further check.
-    // A per-image PIN was previously enforced in the browser alone, so every
-    // original was presigned into the JSON and readable from the Network tab
-    // without the prompt (pre-alpha audit, 2026-08-10). Note this gates
-    // originalUrl too, not just downloadUrl: for a JPEG the display key IS the
-    // original key, so leaving the lightbox at full res would serve the same
-    // bytes through the other field and the PIN would still mean nothing.
-    // When withheld, the lightbox shows the 800px rendition and the original
-    // comes from POST /api/gallery/[slug]/image-download after the PIN.
-    const originalsWithheld =
+    // Two separate questions, deliberately NOT one flag:
+    //
+    //  - May the guest SAVE an original? `allow_download` has always answered
+    //    that, and a per-image PIN now answers it too — the PIN used to be
+    //    enforced in the browser alone, so every original sat presigned in
+    //    this JSON, readable from the Network tab without the prompt
+    //    (pre-alpha audit, 2026-08-10).
+    //  - May the guest VIEW at full resolution? Only the PIN forces a step
+    //    down here. It has to: for a JPEG the display key IS the original key,
+    //    so a full-res lightbox would serve the very bytes the PIN withholds,
+    //    through a field that isn't named "download". A plain no-download
+    //    share keeps its full-res lightbox exactly as before — dropping every
+    //    proofing gallery to 800px is a visible quality regression, and the
+    //    presign is the real gate regardless.
+    const downloadWithheld =
       !share.allow_download || (share.require_pin_individual ?? false);
+    const displayWithheld = share.require_pin_individual ?? false;
 
     const images = await Promise.all(
       (rawImages || []).map(async (img) => {
+        // null = no withheld-safe rendition exists (video), so the asset is
+        // omitted rather than leaked. See getWithheldDisplayKey.
+        const displayKey = displayWithheld
+          ? getWithheldDisplayKey(img.r2_key)
+          : getDisplayKey(img.r2_key);
+
         const urls = await Promise.all([
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
           getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
           // Lightbox/full view: web-viewable original, or the 800px JPEG for
           // non-renderable formats (TIFF) and for withheld originals.
-          getCachedDownloadUrl(
-            getDisplayKey(img.r2_key, !originalsWithheld),
-            14400
-          ),
-          originalsWithheld
+          displayKey
+            ? getCachedDownloadUrl(displayKey, 14400)
+            : Promise.resolve(null),
+          downloadWithheld
             ? Promise.resolve(null)
             : getCachedDownloadUrl(
                 img.r2_key,
@@ -279,7 +289,7 @@ export async function GET(
           id: img.id,
           thumbnailUrl: urls[0],
           thumbnailLgUrl: urls[1],
-          originalUrl: urls[2],
+          ...(urls[2] ? { originalUrl: urls[2] } : {}),
           originalFilename: img.original_filename,
           parsedName: img.parsed_name,
           width: img.width,
@@ -356,13 +366,18 @@ export async function GET(
     };
 
     // Generate presigned URL for cover image if cover is enabled. The hero is
-    // an event photo like any other, so it obeys the same withholding rule —
-    // otherwise a PIN-gated share still handed out one full original. (The
-    // public /cover route, which fronts emails and OG cards, has always served
-    // the 800px rendition.)
-    if (cover.enabled && cover.imageId && coverImageRow) {
+    // an event photo like any other, so a PIN-gated share must not hand out
+    // its full original either. (The public /cover route, which fronts emails
+    // and OG cards, has always served the 800px rendition.)
+    const coverKey =
+      cover.enabled && cover.imageId && coverImageRow
+        ? displayWithheld
+          ? getWithheldDisplayKey(coverImageRow.r2_key)
+          : getDisplayKey(coverImageRow.r2_key)
+        : null;
+    if (coverImageRow && coverKey) {
       gallerySettings.coverImageUrl = await getPresignedDownloadUrl(
-        getDisplayKey(coverImageRow.r2_key, !originalsWithheld),
+        coverKey,
         14400
       );
       // No manual crop anchor on the cover → fall back to the image's own

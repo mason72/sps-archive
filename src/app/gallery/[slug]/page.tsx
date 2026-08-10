@@ -594,6 +594,18 @@ export default function GalleryPage({
         });
         const data = await res.json();
         if (!res.ok || !data.downloadUrl) {
+          // The token is only good for 4h. Once it lapses the server answers
+          // 401/403 and, without this, the guest got a toast and a download
+          // button that never worked again — the modal is gated on
+          // `!downloadToken`, and the stale token is still sitting there.
+          // Drop it and re-prompt so the PIN is a recoverable step, not a
+          // one-shot that silently expires under an open tab.
+          if (res.status === 401 || res.status === 403) {
+            setDownloadToken(null);
+            setPinAction({ type: "individual", image });
+            setShowPinModal(true);
+            return;
+          }
           toast.error(data.error || "Download failed — please try again.");
           return;
         }
@@ -644,7 +656,18 @@ export default function GalleryPage({
       });
 
       if (!res.ok) {
-        toast.error("Incorrect PIN");
+        // Not every rejection is a wrong PIN, and saying so sends the guest
+        // into a retry loop they can't win: 429 means they're rate-limited,
+        // and 404 means the share demands a PIN that was never set, so no
+        // input can ever succeed. Report what actually happened.
+        const body = await res.json().catch(() => ({}));
+        toast.error(
+          res.status === 429
+            ? body.error || "Too many attempts — try again in a few minutes"
+            : res.status === 404
+            ? "This gallery's download PIN isn't set up — please contact your photographer"
+            : "Incorrect PIN"
+        );
         return;
       }
 

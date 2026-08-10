@@ -1267,15 +1267,37 @@ No live gallery changed behaviour: zero active shares set any PIN flag or have
 downloads off. Measuring that first turned "does this degrade customer
 galleries?" from a worry into a fact.
 
+### Fixed after adversarial review (see lessons #54)
+- [x] **Video originals bypassed the gate entirely** — `getDisplayKey` checks
+      `isVideoKey` before the withhold flag, and `.mp4` passes through
+      unchanged. 13 real videos were still shipping verbatim.
+      `getWithheldDisplayKey()` now returns null for video and the caller omits
+      the asset.
+- [x] **The gate failed OPEN on a blank PIN** — flag set + `download_pin` null
+      skipped the check, and the new endpoint handed over the original. Now a
+      403, for both the individual and bulk flags.
+- [x] **Malformed `imageId` → 500 + a `system_errors` row per request**, with no
+      auth needed on a non-PIN share. uuid-shape check returns "not found".
+- [x] **An expired token permanently killed the download button** (modal gated
+      on `!downloadToken`, never cleared). 401/403 now clears it and re-prompts.
+- [x] **Owner preview rendered a dead download button** on every tile after the
+      condition widened. Preview now says downloads are disabled there, and its
+      lightbox no longer disagrees with its grid.
+- [x] **Narrowed the display step-down to `require_pin_individual` only** — a
+      plain no-download share keeps its full-res lightbox.
+
 ### Still open (product decisions, not defects)
 - [ ] `require_pin_individual` and `require_pin_bulk` are independent toggles,
       so gating individual downloads while leaving bulk open lets a guest take
       everything as one ZIP without a PIN — the individual gate then buys
       nothing. Either couple them in the UI or warn on that combination.
-- [ ] A share can carry `require_pin_individual` with a null `download_pin`
-      (the sidebar auto-generates one, but the field can be cleared afterwards).
-      That share shows a PIN modal no PIN can satisfy — `verify-pin` 404s on a
-      null pin. Pre-existing for the bulk flag too.
+      **This is the largest remaining gap in the feature.**
+- [ ] `allow_download=false` still ships full-res `originalUrl`, so a guest can
+      right-click-save from the lightbox. Deliberate for now (see above), but it
+      means "downloads off" is a soft deterrent, not a control. Worth deciding
+      explicitly rather than by omission.
+- [ ] No rate limit on `image-download` once a valid token is held — it is an
+      unbounded presign minter for someone who has passed the PIN.
 - [ ] `opengraph-image.tsx` presigns the **full original** to rasterize a
       1200×630 card on a public, password-exempt route. Not a leak (Satori
       fetches server-side and the response is a PNG), but it downloads a
