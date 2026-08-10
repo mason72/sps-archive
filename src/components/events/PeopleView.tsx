@@ -63,6 +63,9 @@ export function PeopleView({
   const [people, setPeople] = useState<Person[] | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [compare, setCompare] = useState<MislabelCard | null>(null);
+  // Review/name a person (face or caption click) — the one "who is this?"
+  // surface; unnamed clusters open straight into the name field.
+  const [reviewing, setReviewing] = useState<Person | null>(null);
   const [failed, setFailed] = useState(false);
 
   const reportCount = useCallback(
@@ -346,12 +349,12 @@ export function PeopleView({
             key={person.id}
             person={person}
             active={person.id === activePersonId}
-            onClick={() => onSelectPerson(person.id === activePersonId ? null : person)}
-            onRenamed={(name) =>
-              setPeople((prev) =>
-                prev ? prev.map((p) => (p.id === person.id ? { ...p, name } : p)) : prev
-              )
+            onClick={() =>
+              person.name
+                ? onSelectPerson(person.id === activePersonId ? null : person)
+                : setReviewing(person)
             }
+            onOpenModal={() => setReviewing(person)}
           />
         ))}
       </div>
@@ -366,16 +369,34 @@ export function PeopleView({
                 key={person.id}
                 person={person}
                 active={person.id === activePersonId}
-                onClick={() => onSelectPerson(person.id === activePersonId ? null : person)}
-                onRenamed={(name) =>
-                  setPeople((prev) =>
-                    prev ? prev.map((p) => (p.id === person.id ? { ...p, name } : p)) : prev
-                  )
+                onClick={() =>
+                  person.name
+                    ? onSelectPerson(person.id === activePersonId ? null : person)
+                    : setReviewing(person)
                 }
+                onOpenModal={() => setReviewing(person)}
               />
             ))}
           </div>
         </>
+      )}
+
+      {/* ─── Review & name a person ─── */}
+      {reviewing && (
+        <PersonModal
+          personId={reviewing.id}
+          personName={reviewing.name}
+          imageIds={reviewing.imageIds}
+          imageById={imageById}
+          onSaved={(name) => {
+            setPeople((prev) =>
+              prev ? prev.map((p) => (p.id === reviewing.id ? { ...p, name } : p)) : prev
+            );
+            setReviewing(null);
+            load(); // names can resolve/raise suggestions (merges, refinements)
+          }}
+          onClose={() => setReviewing(null)}
+        />
       )}
 
       {/* ─── Compare view: the photo in question vs everything of theirs ─── */}
@@ -597,39 +618,13 @@ function PersonCard({
   person,
   active,
   onClick,
-  onRenamed,
+  onOpenModal,
 }: {
   person: Person;
   active: boolean;
   onClick: () => void;
-  onRenamed: (name: string | null) => void;
+  onOpenModal: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(person.name ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  const save = async () => {
-    setEditing(false);
-    const name = draft.trim() || null;
-    if (name === person.name) return;
-    onRenamed(name); // optimistic
-    try {
-      const res = await fetch(`/api/people/${person.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
-      onRenamed(person.name);
-      toast.error("Couldn't save the name");
-    }
-  };
-
   return (
     <div className="group text-center">
       <button
@@ -642,41 +637,166 @@ function PersonCard({
       >
         {person.face ? <FaceCrop face={person.face} /> : null}
       </button>
-      {editing ? (
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") save();
-            if (e.key === "Escape") {
-              setDraft(person.name ?? "");
-              setEditing(false);
-            }
-          }}
-          className="mt-2 w-full text-center text-[12px] text-stone-900 bg-transparent border-b border-stone-300 focus:border-stone-900 focus:outline-none"
-        />
-      ) : (
-        <button
-          onClick={() => {
-            setDraft(person.name ?? "");
-            setEditing(true);
-          }}
-          title="Rename"
-          className="mt-2 block w-full truncate text-[12px] transition-colors"
-        >
-          {person.name ? (
-            <span className="text-stone-700 group-hover:text-stone-900">
-              {person.name} <span className="text-stone-400">· {person.faceCount}</span>
-            </span>
-          ) : (
-            <span className="text-stone-300 italic hover:text-stone-500">
-              Add name <span className="not-italic">· {person.faceCount}</span>
-            </span>
-          )}
-        </button>
-      )}
+      <button
+        onClick={onOpenModal}
+        title={person.name ? "Review & rename" : "Review & name"}
+        className="mt-2 block w-full truncate text-[12px] transition-colors"
+      >
+        {person.name ? (
+          <span className="text-stone-700 group-hover:text-stone-900">
+            {person.name} <span className="text-stone-400">· {person.faceCount}</span>
+          </span>
+        ) : (
+          <span className="text-stone-300 italic hover:text-stone-500">
+            Add name <span className="not-italic">· {person.faceCount}</span>
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * PersonModal — review a person's photos (with filenames) and set their name.
+ * The one surface for "who is this?": unnamed clusters open straight into the
+ * name field; named people open in review mode with rename a click away.
+ * Shared by the People view (face/caption clicks) and the grid's person chip.
+ */
+export function PersonModal({
+  personId,
+  personName,
+  imageIds,
+  imageById,
+  startEditing,
+  onSaved,
+  onClose,
+}: {
+  personId: string;
+  personName: string | null;
+  imageIds: string[];
+  imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  startEditing?: boolean;
+  onSaved: (name: string) => void;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(startEditing ?? !personName);
+  const [draft, setDraft] = useState(personName ?? "");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const save = async () => {
+    const name = draft.trim();
+    if (!name || name === personName) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/people/${personId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error();
+      onSaved(name);
+      setEditing(false);
+    } catch {
+      toast.error("Couldn't save the name");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-3xl max-h-[85vh] bg-white p-8 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-6 mb-6 shrink-0">
+          <div className="flex-1 min-w-0">
+            {editing ? (
+              <div className="flex items-center gap-3">
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") save();
+                    if (e.key === "Escape") setEditing(false);
+                  }}
+                  placeholder="Type their name…"
+                  className="font-editorial text-2xl text-stone-900 bg-transparent border-b border-stone-300 focus:border-stone-900 focus:outline-none w-full max-w-sm placeholder:text-stone-300"
+                />
+                <button
+                  onClick={save}
+                  disabled={saving || !draft.trim()}
+                  className="px-4 py-1.5 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors disabled:opacity-40 shrink-0"
+                >
+                  Save
+                </button>
+              </div>
+            ) : (
+              <h2 className="font-editorial text-2xl text-stone-900">
+                {personName ?? "Unnamed person"}{" "}
+                <button
+                  onClick={() => {
+                    setDraft(personName ?? "");
+                    setEditing(true);
+                  }}
+                  className="align-middle ml-1 text-[12px] font-sans text-stone-400 underline hover:text-stone-600 transition-colors"
+                >
+                  rename
+                </button>
+              </h2>
+            )}
+            <p className="text-[13px] text-stone-500 mt-1">
+              {imageIds.length} photo{imageIds.length === 1 ? "" : "s"} — filenames
+              often reveal who this is.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 text-stone-300 hover:text-stone-600 transition-colors shrink-0"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-1.5 gap-y-2">
+            {imageIds.map((id) => {
+              const entry = imageById?.get(id);
+              return (
+                <figure key={id}>
+                  {entry ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={entry.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="aspect-square w-full object-cover object-top bg-stone-100"
+                    />
+                  ) : (
+                    <div className="aspect-square bg-stone-100" />
+                  )}
+                  {entry?.filename && (
+                    <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
+                      {entry.filename}
+                    </figcaption>
+                  )}
+                </figure>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

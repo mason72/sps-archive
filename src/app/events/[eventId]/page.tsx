@@ -32,7 +32,7 @@ import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users } from "lucide-react";
-import { PeopleView, type Person } from "@/components/events/PeopleView";
+import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -139,6 +139,8 @@ export default function EventPage({
     name: string | null;
     imageIds: string[];
   } | null>(null);
+  // Review/rename the filtered person straight from the chip.
+  const [renamingPerson, setRenamingPerson] = useState(false);
   // People-button badge: pending suggestion count (fetched once on load,
   // kept live by PeopleView while it's open).
   const [suggestionCount, setSuggestionCount] = useState(0);
@@ -1764,9 +1766,8 @@ export default function EventPage({
               <div className="-mt-7 mb-10 flex items-center gap-2 text-[12px]">
                 <span className="text-stone-400">Showing</span>
                 <button
-                  onClick={() => {
-                    setViewMode("people");
-                  }}
+                  onClick={() => setRenamingPerson(true)}
+                  title="Review & rename"
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-stone-300 text-stone-700 hover:border-stone-500 transition-colors"
                 >
                   <Users className="h-3 w-3" />
@@ -1783,6 +1784,20 @@ export default function EventPage({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
+            )}
+
+            {renamingPerson && personFilter && (
+              <PersonModal
+                personId={personFilter.id}
+                personName={personFilter.name}
+                imageIds={personFilter.imageIds}
+                imageById={imageThumbById}
+                onSaved={(name) => {
+                  setPersonFilter((prev) => (prev ? { ...prev, name } : prev));
+                  setRenamingPerson(false);
+                }}
+                onClose={() => setRenamingPerson(false)}
+              />
             )}
 
             {/* ─── Where this scene lives on the site ─── */}
