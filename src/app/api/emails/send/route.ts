@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import { recordUsage } from "@/lib/usage/record";
 import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { resolveShareCoverUrl } from "@/lib/cover/resolve-share-cover";
 
 
 /**
@@ -51,12 +52,26 @@ export async function POST(request: NextRequest) {
 
     // Basic abuse brake: a photographer sends a handful of gallery emails a
     // day; a compromised account blasting spam sends hundreds. 30/hour.
+    // NB: the timestamp column is `sent_at` — email_sends has no `created_at`.
+    // Filtering on the wrong name doesn't throw and doesn't fail typecheck
+    // (generated types check the table and the Row shape, never the columns a
+    // filter names): PostgREST 400s, supabase-js returns it as `error`, and
+    // destructuring only `count` turned that into `null >= 30` — the brake
+    // never engaged from the day it was written.
     const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
-    const { count: recentSends } = await supabase
+    const { count: recentSends, error: recentErr } = await supabase
       .from("email_sends")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user!.id)
-      .gte("created_at", hourAgo);
+      .gte("sent_at", hourAgo);
+    if (recentErr) {
+      // Fail closed: an unreadable send history is not permission to blast.
+      await reportSystemError("emails/send:rate-check", recentErr);
+      return NextResponse.json(
+        { error: "Couldn't verify your recent sends — try again shortly" },
+        { status: 503 }
+      );
+    }
     if ((recentSends ?? 0) >= 30) {
       return NextResponse.json(
         { error: "Sending limit reached — try again in an hour" },
@@ -71,6 +86,11 @@ export async function POST(request: NextRequest) {
     let verifiedGalleryUrl: string | null = null;
     let verifiedSlug: string | null = null;
     let shareIsProtected = false;
+    let verifiedShare: {
+      event_id: string;
+      share_type: string | null;
+      image_ids: unknown;
+    } | null = null;
     if (typeof galleryUrl === "string" && galleryUrl) {
       const slugMatch = (() => {
         try {
@@ -83,13 +103,20 @@ export async function POST(request: NextRequest) {
       if (candidateSlug) {
         const { data: shareRow } = await supabase
           .from("shares")
-          .select("slug, password_hash, events!inner(user_id)")
+          .select(
+            "slug, password_hash, event_id, share_type, image_ids, events!inner(user_id)"
+          )
           .eq("slug", candidateSlug)
           .eq("events.user_id", user!.id)
           .maybeSingle();
         if (shareRow) {
           verifiedSlug = shareRow.slug;
           shareIsProtected = !!shareRow.password_hash;
+          verifiedShare = {
+            event_id: shareRow.event_id,
+            share_type: shareRow.share_type,
+            image_ids: shareRow.image_ids,
+          };
           const appUrl =
             process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
           verifiedGalleryUrl = `${appUrl.replace(/\/$/, "")}/gallery/${shareRow.slug}`;
@@ -115,7 +142,16 @@ export async function POST(request: NextRequest) {
 
     // Event cover → email hero. We link the durable /cover redirect (keyed to
     // the share slug in galleryUrl), never a presigned URL — emails are opened
-    // days later, presigns die in hours. Only attach it when a cover is set.
+    // days later, presigns die in hours.
+    //
+    // Whether a hero exists is NOT decided here. We ask the cover route's own
+    // resolver and attach the <img> only if it resolves something; the URL we
+    // embed is still the durable redirect, which re-resolves on every open.
+    // Deciding locally is what broke this: the old test was `cover.imageId`,
+    // which said yes for a selection share whose cover sits outside the
+    // selection (route 404s → broken image in every recipient's inbox) and no
+    // for a mosaic cover with no imageId at all (route serves the composed
+    // raster happily → a plain email that didn't need to be).
     let coverImageUrl: string | null = null;
     let eventName: string | null = null;
     let emailPassword: string | null = null;
@@ -127,11 +163,13 @@ export async function POST(request: NextRequest) {
         .eq("user_id", user!.id)
         .single();
       eventName = event?.name ?? null;
-      const cover = ((event?.settings as Record<string, unknown>)?.cover ?? {}) as {
-        imageId?: string;
-      };
-      if (cover.imageId && verifiedGalleryUrl && verifiedSlug) {
-        coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover`;
+      if (verifiedGalleryUrl && verifiedSlug && verifiedShare) {
+        const resolved = await resolveShareCoverUrl(verifiedShare, 600).catch(
+          () => null
+        );
+        if (resolved) {
+          coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover`;
+        }
       }
 
       // The password is read HERE, from the owner's own event, and only when
