@@ -14,6 +14,7 @@ import {
   type MergeSuggestion,
   type MislabelSuggestion,
   type RefinementSuggestion,
+  type SplitSuggestion,
 } from "./suggestions";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
@@ -42,6 +43,7 @@ export interface PeopleData {
     mislabels: MislabelSuggestion[];
     merges: MergeSuggestion[];
     refinements: RefinementSuggestion[];
+    splits: SplitSuggestion[];
   };
 }
 

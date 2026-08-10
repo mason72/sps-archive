@@ -157,3 +157,61 @@ describe("merges", () => {
     expect(merges[0]).toMatchObject({ fromId: "p2", intoId: "p1" });
   });
 });
+
+describe("splits", () => {
+  it("two strong filename camps yield a split card and suppress mislabels", () => {
+    const cluster: SuggestionPerson = {
+      id: "p-merged",
+      name: "Abhudaya Shrivastava",
+      imageIds: ["a1", "a2", "a3", "a4", "b1", "b2", "b3"],
+      faceCount: 7,
+    };
+    const m = meta({
+      a1: "Abhudaya Shrivastava_1.jpg",
+      a2: "Abhudaya Shrivastava_2.jpg",
+      a3: "Abhudaya Shrivastava_3.jpg",
+      a4: "Abhudaya Shrivastava_4.jpg",
+      b1: "Anth Srinivas_1.jpg",
+      b2: "Anth Srinivas_2.jpg",
+      b3: "Anth Srinivas_3.jpg",
+    });
+    const { splits, mislabels } = run([cluster], m, faceCounts(cluster.imageIds));
+    expect(splits).toHaveLength(1);
+    expect(splits[0].groups.map((g) => g.count)).toEqual([4, 3]);
+    expect(mislabels).toHaveLength(0);
+  });
+
+  it("an unnamed cluster gets a split card too (the consensus-blocked case)", () => {
+    const cluster: SuggestionPerson = {
+      id: "p-anon",
+      name: null,
+      imageIds: ["a1", "a2", "a3", "b1", "b2", "b3"],
+      faceCount: 6,
+    };
+    const m = meta({
+      a1: "Alice Smith_1.jpg",
+      a2: "Alice Smith_2.jpg",
+      a3: "Alice Smith_3.jpg",
+      b1: "Bella Jones_1.jpg",
+      b2: "Bella Jones_2.jpg",
+      b3: "Bella Jones_3.jpg",
+    });
+    const { splits } = run([cluster], m, faceCounts(cluster.imageIds));
+    expect(splits).toHaveLength(1);
+    expect(splits[0].personName).toBeNull();
+  });
+
+  it("a lone mislabel is not a split (below camp support)", () => {
+    const m = meta({
+      i1: "Jenna Loeser_1.jpg",
+      i2: "Jenna Loeser_2.jpg",
+      i3: "Jenna Loeser_3.jpg",
+      i4: "Jenna Loeser_4.jpg",
+      i5: "Jenna Loeser_5.jpg",
+      i6: "Katie Zeff_177.jpg",
+    });
+    const { splits, mislabels } = run([jenna], m, faceCounts(jenna.imageIds));
+    expect(splits).toHaveLength(0);
+    expect(mislabels).toHaveLength(1);
+  });
+});

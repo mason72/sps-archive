@@ -48,6 +48,15 @@ export interface MergeSuggestion {
   name: string;
 }
 
+export interface SplitSuggestion {
+  key: string;
+  type: "split";
+  personId: string;
+  personName: string | null;
+  /** The two filename camps, larger first. */
+  groups: { name: string; count: number; sampleImageId: string }[];
+}
+
 export interface RefinementSuggestion {
   key: string;
   type: "refine-name";
@@ -63,14 +72,9 @@ const MISLABEL_MINORITY_CEILING = 0.2;
 /** A fuller name needs at least this many supporting files to be suggested. */
 const REFINEMENT_MIN_SUPPORT = 2;
 
-/** One name extends the other at a word boundary → same name family. */
-export function sameNameFamily(a: string, b: string): boolean {
-  const la = a.trim().toLowerCase();
-  const lb = b.trim().toLowerCase();
-  if (la === lb) return true;
-  const [shorter, longer] = la.length <= lb.length ? [la, lb] : [lb, la];
-  return longer.startsWith(`${shorter} `);
-}
+import { filenameSplitGroups, sameNameFamily } from "./split";
+
+export { sameNameFamily };
 
 export function computeSuggestions(
   persons: SuggestionPerson[],
@@ -83,12 +87,42 @@ export function computeSuggestions(
   mislabels: MislabelSuggestion[];
   merges: MergeSuggestion[];
   refinements: RefinementSuggestion[];
+  splits: SplitSuggestion[];
 } {
   const mislabels: MislabelSuggestion[] = [];
   const refinements: RefinementSuggestion[] = [];
+  const splits: SplitSuggestion[] = [];
+
+  const filenameOf = new Map<string, string>();
+  for (const [id, meta] of imageMeta) filenameOf.set(id, meta.originalFilename);
+
+  // Split detection runs FIRST and for every person, named or not: a cluster
+  // whose files form two strong non-family name camps is probably two people
+  // (it's also exactly why consensus naming left it blank). When a split
+  // fires, the person's mislabel/refinement cards are suppressed — the split
+  // is the better explanation of the same disagreement.
+  const splitFlagged = new Set<string>();
+  for (const person of persons) {
+    const camps = filenameSplitGroups(person.imageIds, filenameOf, extractName, personLike);
+    if (!camps) continue;
+    splitFlagged.add(person.id);
+    const key = `split:${person.id}`;
+    if (dismissed.has(key)) continue;
+    splits.push({
+      key,
+      type: "split",
+      personId: person.id,
+      personName: person.name,
+      groups: camps.map((c) => ({
+        name: c.name,
+        count: c.imageIds.length,
+        sampleImageId: c.imageIds[0],
+      })),
+    });
+  }
 
   for (const person of persons) {
-    if (!person.name) continue;
+    if (!person.name || splitFlagged.has(person.id)) continue;
     const personName = person.name.trim();
     const conflicts = new Map<string, { display: string; imageIds: string[] }>();
     const extensions = new Map<string, { display: string; count: number }>();
@@ -188,5 +222,5 @@ export function computeSuggestions(
     }
   }
 
-  return { mislabels, merges, refinements };
+  return { mislabels, merges, refinements, splits };
 }

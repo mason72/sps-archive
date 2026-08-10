@@ -28,9 +28,17 @@ interface MislabelCard {
   face: PersonFace | null;
 }
 
+interface SplitCard {
+  key: string;
+  personId: string;
+  personName: string | null;
+  groups: { name: string; count: number; sampleImageId: string; face: PersonFace | null }[];
+}
+
 interface Suggestions {
   mislabels: MislabelCard[];
   merges: { key: string; fromId: string; intoId: string; name: string }[];
+  splits: SplitCard[];
   refinements: {
     key: string;
     personId: string;
@@ -76,6 +84,7 @@ export function PeopleView({
   // Review/name a person (face or caption click) — the one "who is this?"
   // surface; unnamed clusters open straight into the name field.
   const [reviewing, setReviewing] = useState<Person | null>(null);
+  const [splitting, setSplitting] = useState<SplitCard | null>(null);
   const [failed, setFailed] = useState(false);
 
   const reportCount = useCallback(
@@ -83,7 +92,8 @@ export function PeopleView({
       onSuggestionsCount?.(
         (s?.mislabels.length ?? 0) +
           (s?.merges.length ?? 0) +
-          (s?.refinements.length ?? 0)
+          (s?.refinements.length ?? 0) +
+          (s?.splits.length ?? 0)
       );
     },
     [onSuggestionsCount]
@@ -119,6 +129,7 @@ export function PeopleView({
               mislabels: prev.mislabels.filter((s) => s.key !== payload.key),
               merges: prev.merges.filter((s) => s.key !== payload.key),
               refinements: prev.refinements.filter((s) => s.key !== payload.key),
+              splits: prev.splits.filter((s) => s.key !== payload.key),
             }
           : prev;
         reportCount(next);
@@ -178,7 +189,8 @@ export function PeopleView({
   const hasSuggestions =
     (suggestions?.mislabels.length ?? 0) +
       (suggestions?.merges.length ?? 0) +
-      (suggestions?.refinements.length ?? 0) >
+      (suggestions?.refinements.length ?? 0) +
+      (suggestions?.splits.length ?? 0) >
     0;
 
   // Search → the people IN the matching photos (plus any name match, which
@@ -215,6 +227,58 @@ export function PeopleView({
             Suggestions
           </p>
           <div className="space-y-4">
+            {suggestions!.splits.map((s) => (
+              <div key={s.key} className="border border-stone-200 p-4">
+                <div className="flex items-center gap-5 flex-wrap">
+                  <button
+                    onClick={() => setSplitting(s)}
+                    className="flex items-center gap-5 group"
+                    title="Review the split"
+                  >
+                    {s.groups.map((g, i) => (
+                      <figure key={i} className="w-28 text-center">
+                        <div className="relative w-28 h-28 rounded-full overflow-hidden bg-stone-100 group-hover:ring-2 group-hover:ring-stone-300 group-hover:ring-offset-2 transition-all">
+                          {g.face && <FaceCrop face={g.face} />}
+                        </div>
+                        <figcaption className="mt-2 text-[11px] text-stone-700">
+                          {g.name}
+                          <span className="text-stone-400"> · {g.count}</span>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </button>
+                  <div className="flex-1 min-w-[180px]">
+                    <p className="text-[13px] text-stone-600 leading-snug">
+                      This might be two people — the files split{" "}
+                      <span className="text-stone-900">{s.groups[0].count}</span> /{" "}
+                      <span className="text-stone-900">{s.groups[1].count}</span> between{" "}
+                      <span className="text-stone-900">{s.groups[0].name}</span> and{" "}
+                      <span className="text-stone-900">{s.groups[1].name}</span>.
+                    </p>
+                    <button
+                      onClick={() => setSplitting(s)}
+                      className="mt-1 text-[12px] text-stone-400 underline hover:text-stone-600 transition-colors"
+                    >
+                      Review the split
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setSplitting(s)}
+                      className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 hover:border-emerald-500 transition-colors"
+                    >
+                      Split into two
+                    </button>
+                    <button
+                      onClick={() => resolve({ action: "dismiss", key: s.key }, false)}
+                      className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-600 transition-colors"
+                    >
+                      Keep as one
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
             {suggestions!.mislabels.map((s) => {
               const person = personOf(s.personId);
               return (
@@ -415,6 +479,21 @@ export function PeopleView({
             ))}
           </div>
         </>
+      )}
+
+      {/* ─── Split an over-merged person ─── */}
+      {splitting && (
+        <SplitPersonModal
+          eventId={eventId}
+          card={splitting}
+          imageById={imageById}
+          onDone={() => {
+            setSplitting(null);
+            load();
+          }}
+          onDismiss={() => resolve({ action: "dismiss", key: splitting.key }, false)}
+          onClose={() => setSplitting(null)}
+        />
       )}
 
       {/* ─── Review & name a person ─── */}
@@ -877,5 +956,208 @@ function FaceCrop({ face }: { face: PersonFace }) {
         top: `${topPct}%`,
       }}
     />
+  );
+}
+
+/**
+ * SplitPersonModal — review and confirm a two-way split. Seeded by the
+ * server proposal (filenames first, faces as fallback); click any photo to
+ * flip it to the other group; each group gets a name field pre-filled from
+ * its filename consensus. Group A keeps the original person id.
+ */
+function SplitPersonModal({
+  eventId,
+  card,
+  imageById,
+  onDone,
+  onDismiss,
+  onClose,
+}: {
+  eventId: string;
+  card: { key: string; personId: string; personName: string | null };
+  imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  onDone: () => void;
+  onDismiss: () => void;
+  onClose: () => void;
+}) {
+  const [faces, setFaces] = useState<{ faceId: string; imageId: string }[] | null>(null);
+  const [inB, setInB] = useState<Set<string>>(new Set());
+  const [names, setNames] = useState<[string, string]>(["", ""]);
+  const [message, setMessage] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/people/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "propose-split", personId: card.personId }),
+        });
+        if (!res.ok) throw new Error();
+        const data = (await res.json()) as {
+          proposal: {
+            groups: { seedName: string | null; faces: { faceId: string; imageId: string }[] }[];
+          } | null;
+          message?: string;
+        };
+        if (!alive) return;
+        if (!data.proposal) {
+          setMessage(data.message ?? "No split to propose.");
+          setFaces([]);
+          return;
+        }
+        const [a, b] = data.proposal.groups;
+        setFaces([...a.faces, ...b.faces]);
+        setInB(new Set(b.faces.map((f) => f.faceId)));
+        setNames([a.seedName ?? card.personName ?? "", b.seedName ?? ""]);
+      } catch {
+        if (alive) {
+          setMessage("Couldn't build a split proposal.");
+          setFaces([]);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [eventId, card.personId, card.personName]);
+
+  const groupA = (faces ?? []).filter((f) => !inB.has(f.faceId));
+  const groupB = (faces ?? []).filter((f) => inB.has(f.faceId));
+
+  const apply = async () => {
+    if (!groupA.length || !groupB.length) return;
+    setApplying(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/people/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "split",
+          key: card.key,
+          personId: card.personId,
+          groups: [
+            { name: names[0] || null, faceIds: groupA.map((f) => f.faceId) },
+            { name: names[1] || null, faceIds: groupB.map((f) => f.faceId) },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Split into two people");
+      onDone();
+    } catch {
+      toast.error("Couldn't apply the split — try again");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const column = (
+    label: 0 | 1,
+    group: { faceId: string; imageId: string }[]
+  ) => (
+    <div className="min-h-0 flex flex-col">
+      <input
+        value={names[label]}
+        onChange={(e) =>
+          setNames((prev) => (label === 0 ? [e.target.value, prev[1]] : [prev[0], e.target.value]))
+        }
+        placeholder={label === 0 ? "First person's name…" : "Second person's name…"}
+        className="mb-3 w-full border-b border-stone-200 bg-transparent py-1.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none shrink-0"
+      />
+      <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium shrink-0">
+        {group.length} photo{group.length === 1 ? "" : "s"}
+      </p>
+      <div className="min-h-0 overflow-y-auto pr-1">
+        <div className="grid grid-cols-3 gap-1.5">
+          {group.map((f) => {
+            const entry = imageById?.get(f.imageId);
+            return (
+              <button
+                key={f.faceId}
+                onClick={() =>
+                  setInB((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(f.faceId)) next.delete(f.faceId);
+                    else next.add(f.faceId);
+                    return next;
+                  })
+                }
+                title={entry?.filename ?? "Move to the other group"}
+                className="relative aspect-square overflow-hidden bg-stone-100 hover:ring-2 hover:ring-stone-300 transition-all"
+              >
+                {entry && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={entry.thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover object-top"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-4xl max-h-[85vh] bg-white p-8 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-6 mb-6 shrink-0">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-editorial text-2xl text-stone-900">Split into two people</h2>
+            <p className="text-[13px] text-stone-500 mt-1">
+              Click any photo to move it to the other person. The left group keeps
+              this person&apos;s history.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={onDismiss}
+              className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
+            >
+              Keep as one
+            </button>
+            <button
+              onClick={apply}
+              disabled={applying || !groupA.length || !groupB.length}
+              className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors disabled:opacity-40"
+            >
+              {applying ? "Splitting…" : "Confirm split"}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {faces === null ? (
+          <p className="py-12 text-center text-[13px] italic text-stone-400 animate-pulse">
+            Working out the split…
+          </p>
+        ) : message ? (
+          <p className="py-12 text-center text-[13px] text-stone-500">{message}</p>
+        ) : (
+          <div className="flex-1 min-h-0 grid grid-cols-2 gap-8">
+            {column(0, groupA)}
+            {column(1, groupB)}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -36,14 +36,157 @@ export async function POST(
     }
 
     const body = (await request.json()) as {
-      action: "fix-label" | "merge" | "dismiss" | "refine-name";
+      action: "fix-label" | "merge" | "dismiss" | "refine-name" | "propose-split" | "split";
       imageIds?: string[];
       personId?: string;
       fromId?: string;
       intoId?: string;
       key?: string;
       fullName?: string;
+      groups?: { name?: string | null; faceIds: string[] }[];
     };
+
+    /** Person's faces (embedding + image), paged; shared by both split actions. */
+    async function loadPersonFaces(personId: string) {
+      const out: {
+        id: string;
+        imageId: string;
+        embedding: number[];
+        quality: number;
+        filename: string;
+      }[] = [];
+      for (let page = 0; ; page++) {
+        const { data: rows, error } = await supabase
+          .from("faces")
+          .select("id, image_id, embedding, quality, images!inner(original_filename)")
+          .eq("person_id", personId)
+          .not("embedding", "is", null)
+          .order("id", { ascending: true })
+          .range(page * 1000, page * 1000 + 999);
+        if (error) throw error;
+        for (const row of rows ?? []) {
+          out.push({
+            id: row.id,
+            imageId: row.image_id,
+            embedding: JSON.parse(row.embedding as unknown as string),
+            quality: row.quality,
+            filename: (row.images as unknown as { original_filename: string })
+              .original_filename,
+          });
+        }
+        if (!rows || rows.length < 1000) break;
+      }
+      return out;
+    }
+
+    if (body.action === "propose-split") {
+      if (!body.personId) {
+        return NextResponse.json({ error: "personId required" }, { status: 400 });
+      }
+      const { data: person } = await supabase
+        .from("persons")
+        .select("id, name")
+        .eq("id", body.personId)
+        .eq("event_id", eventId)
+        .maybeSingle();
+      if (!person) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+      const { proposeSplit } = await import("@/lib/faces/split");
+      const { extractPersonName } = await import("@/lib/gallery/stacks");
+      const { isPersonLike } = await import("@/lib/sections/auto-plan");
+
+      const faces = await loadPersonFaces(body.personId);
+      const filenameOf = new Map(faces.map((f) => [f.imageId, f.filename]));
+      const proposal = proposeSplit(faces, filenameOf, extractPersonName, isPersonLike);
+      if (!proposal) {
+        return NextResponse.json({
+          proposal: null,
+          message: "These faces don't separate cleanly — this looks like one person.",
+        });
+      }
+      const imageOfFace = new Map(faces.map((f) => [f.id, f.imageId]));
+      return NextResponse.json({
+        proposal: {
+          basis: proposal.basis,
+          groups: proposal.groups.map((g) => ({
+            seedName: g.seedName,
+            faces: g.faceIds.map((id) => ({ faceId: id, imageId: imageOfFace.get(id)! })),
+          })),
+        },
+      });
+    }
+
+    if (body.action === "split") {
+      const { personId, groups } = body;
+      if (!personId || !groups || groups.length !== 2) {
+        return NextResponse.json(
+          { error: "personId and exactly two groups required" },
+          { status: 400 }
+        );
+      }
+      if (!groups[0].faceIds.length || !groups[1].faceIds.length) {
+        return NextResponse.json({ error: "Both groups need faces" }, { status: 400 });
+      }
+      const { data: person } = await supabase
+        .from("persons")
+        .select("id, name")
+        .eq("id", personId)
+        .eq("event_id", eventId)
+        .maybeSingle();
+      if (!person) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+      // Every face must belong to this person; the two groups must not overlap.
+      const faces = await loadPersonFaces(personId);
+      const owned = new Set(faces.map((f) => f.id));
+      const a = groups[0].faceIds.filter((id) => owned.has(id));
+      const bSet = new Set(groups[1].faceIds.filter((id) => owned.has(id)));
+      const b = [...bSet].filter((id) => !a.includes(id));
+      if (!a.length || !b.length) {
+        return NextResponse.json({ error: "Groups don't match this person" }, { status: 400 });
+      }
+
+      const nameA = groups[0].name?.trim().slice(0, 120) || null;
+      const nameB = groups[1].name?.trim().slice(0, 120) || null;
+
+      // Group A keeps the original person id (names/links survive).
+      const { data: created, error: newErr } = await supabase
+        .from("persons")
+        .insert({ event_id: eventId, name: nameB })
+        .select("id")
+        .single();
+      if (newErr || !created) throw newErr || new Error("person insert failed");
+      const { error: moveErr } = await supabase
+        .from("faces")
+        .update({ person_id: created.id })
+        .in("id", b);
+      if (moveErr) throw moveErr;
+
+      // Refresh both: name (A may have been corrected), counts, representative.
+      const qualityOf = new Map(faces.map((f) => [f.id, f.quality]));
+      const repOf = (ids: string[]) =>
+        [...ids].sort((x, y) => (qualityOf.get(y) ?? 0) - (qualityOf.get(x) ?? 0))[0];
+      const { error: updA } = await supabase
+        .from("persons")
+        .update({
+          ...(nameA ? { name: nameA } : {}),
+          face_count: a.length,
+          representative_face_id: repOf(a),
+        })
+        .eq("id", personId);
+      if (updA) throw updA;
+      const { error: updB } = await supabase
+        .from("persons")
+        .update({ face_count: b.length, representative_face_id: repOf(b) })
+        .eq("id", created.id);
+      if (updB) throw updB;
+
+      return NextResponse.json({
+        ok: true,
+        keptPersonId: personId,
+        newPersonId: created.id,
+        counts: [a.length, b.length],
+      });
+    }
 
     if (body.action === "fix-label") {
       const { imageIds, personId } = body;

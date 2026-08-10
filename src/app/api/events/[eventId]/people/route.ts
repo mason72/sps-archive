@@ -76,12 +76,27 @@ export async function GET(
       }))
     );
 
+    const splits = await Promise.all(
+      data.suggestions.splits.map(async (s) => ({
+        ...s,
+        groups: await Promise.all(
+          s.groups.map(async (g) => ({
+            ...g,
+            face: await presignFace(
+              data.personImageFace.get(`${s.personId}:${g.sampleImageId}`)
+            ),
+          }))
+        ),
+      }))
+    );
+
     return NextResponse.json({
       people,
       suggestions: {
         mislabels,
         merges: data.suggestions.merges,
         refinements: data.suggestions.refinements,
+        splits,
       },
     });
   } catch (error) {
