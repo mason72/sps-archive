@@ -68,8 +68,17 @@ Fixed in the Phase 1 commit: RLS drift codified (041 — shares/favorites anon
 policies from 002 were already dropped live in July, never backported),
 /playground gated to is_admin, auth/callback open redirect, forgot-password
 origin fallback removed + rate limited ("forgot" scope).
-- [ ] Individual-download PIN server-side (chip spawned) — presigned originals
-      ship in gallery JSON even when require_pin_individual; bulk PIN is fine.
+- [x] Individual-download PIN server-side — SHIPPED 2026-08-10 (dfd9607, 40f233d).
+      Presigned originals shipped in the gallery JSON even when
+      require_pin_individual, so the prompt was decoration. Two predicates now
+      gate the payload (`downloadWithheld` / `displayWithheld`) and originals
+      come only from `POST /api/gallery/[slug]/image-download`. Adversarial
+      review caught three more before merge: video shipping verbatim
+      (`getDisplayKey` checks `isVideoKey` before the withhold flag, and .mp4
+      passes through), the gate failing OPEN on a blank PIN, and a malformed
+      imageId acting as an unauthenticated 500/system_errors factory. The
+      per-image PIN is now nested under the bulk PIN so it can't be enabled
+      alone, where the ZIP would defeat it. Prod-verified; lessons #56.
 - [x] section/person share types fail closed — `src/lib/gallery/share-scope.ts`
       is now the single resolver (`resolveShareImageScope` + `shareScopeIdFilter`,
       which yields an EMPTY set for a denied scope so a caller who forgets the
