@@ -14,16 +14,24 @@ import type { createServiceClient } from "@/lib/supabase/server";
 export const AUTH_ATTEMPT_MAX = 5;
 export const AUTH_ATTEMPT_WINDOW_SECONDS = 15 * 60;
 
+/**
+ * Guest search counts every REQUEST (not failures — there's no reset), so its
+ * budget is generous: enough for an enthusiastic guest, a wall for a scraper.
+ */
+export const SEARCH_ATTEMPT_MAX = 120;
+export const SEARCH_ATTEMPT_WINDOW_SECONDS = 10 * 60;
+
 export async function checkAuthRateLimit(
   supabase: ReturnType<typeof createServiceClient>,
-  scope: "password" | "pin",
+  scope: "password" | "pin" | "search",
   slug: string,
   ip: string
 ): Promise<boolean> {
+  const isSearch = scope === "search";
   const { data, error } = await supabase.rpc("record_auth_attempt", {
     p_key: `${scope}:${slug}:${ip}`,
-    p_max: AUTH_ATTEMPT_MAX,
-    p_window_seconds: AUTH_ATTEMPT_WINDOW_SECONDS,
+    p_max: isSearch ? SEARCH_ATTEMPT_MAX : AUTH_ATTEMPT_MAX,
+    p_window_seconds: isSearch ? SEARCH_ATTEMPT_WINDOW_SECONDS : AUTH_ATTEMPT_WINDOW_SECONDS,
   });
   if (error) {
     console.error("Rate limit check failed (failing open):", error.message);

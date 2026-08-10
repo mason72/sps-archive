@@ -1274,6 +1274,22 @@ function DetailsPanel({
             </button>
           </div>
 
+          {/* Guest visual search (semantic, share-scoped; default on) */}
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-stone-600">Guest visual search</span>
+            <button
+              type="button"
+              onClick={() => updateSharing({ guestSearch: sharing.guestSearch === false })}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                sharing.guestSearch !== false ? "bg-emerald-500" : "bg-stone-200"
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                sharing.guestSearch !== false ? "translate-x-4" : ""
+              }`} />
+            </button>
+          </div>
+
           {/* PIN for bulk download */}
           <div className="flex items-center justify-between">
             <span className="text-[12px] text-stone-600">PIN for Download All</span>

@@ -82,6 +82,8 @@ export interface GallerySettings {
   smartStacks?: boolean;
   /** "You've loved N moments" toasts (event sharing setting; default on). */
   favoriteMilestones?: boolean;
+  /** Guest semantic search enabled for this gallery (default true). */
+  guestSearch?: boolean;
 }
 
 export interface GallerySection {

@@ -188,15 +188,19 @@ async function searchBySemantic(
   // cannot forget ownership). The post-filter below is belt-and-suspenders.
   // Threshold note: SigLIP cosines are small in magnitude — a real match is
   // often ~0.05-0.15 — so the floor mostly exists to drop pure noise.
-  // 0.06 calibrated live 2026-08-09: an absurd query ("purple elephant in
-  // space") tops out ~0.052; real matches land 0.09-0.16. Fetch extra so the
-  // duplicate-row dedupe below can't leave the page short.
+  // Recall at the DB (low threshold), precision in filterSemanticMatches
+  // (relative cut + floor — see src/lib/ai-index/search-filter.ts for the
+  // calibration story). Fetch extra so the duplicate-row dedupe below can't
+  // leave the page short.
+  const { filterSemanticMatches, SEMANTIC_RPC_THRESHOLD } = await import(
+    "@/lib/ai-index/search-filter"
+  );
   const singleEvent = scopeEventIds.length === 1 ? scopeEventIds[0] : null;
   const { data, error } = await supabase.rpc("search_images_by_embedding", {
     query_embedding: JSON.stringify(embeddings[0]),
     target_user_id: userId,
     target_event_id: singleEvent,
-    match_threshold: 0.06,
+    match_threshold: SEMANTIC_RPC_THRESHOLD,
     match_count: Math.min(limit * 2, MAX_SEARCH_LIMIT * 2),
   });
 
@@ -207,7 +211,7 @@ async function searchBySemantic(
   // best-scored row per (event, filename).
   const ownedSet = new Set(scopeEventIds);
   const seen = new Set<string>();
-  const scoped = (data || [])
+  const scoped = filterSemanticMatches(data || [])
     .filter((r: { event_id: string; original_filename: string }) => {
       if (!ownedSet.has(r.event_id)) return false;
       const key = `${r.event_id}:${r.original_filename}`;

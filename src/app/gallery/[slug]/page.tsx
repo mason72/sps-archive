@@ -136,8 +136,14 @@ export default function GalleryPage({
     return only.personName?.trim() || null;
   }, [gallery]);
 
-  const filteredImages = useMemo(() => {
-    if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
+  // ─── Guest search: names first, then visual ───
+  // Name/filename matching stays instant and local. When it comes up empty
+  // (guests describe photos, they don't know filenames), fall through to the
+  // share-scoped semantic endpoint — which returns ONLY ids, resolved against
+  // the payload's already-visible images, so nothing outside the share can
+  // ever render.
+  const nameMatches = useMemo(() => {
+    if (!gallery || !searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase();
     return gallery.images.filter(
       (img) =>
@@ -145,6 +151,58 @@ export default function GalleryPage({
         img.originalFilename.toLowerCase().includes(q)
     );
   }, [gallery, searchQuery]);
+
+  const [semanticResult, setSemanticResult] = useState<{
+    query: string;
+    ids: string[];
+  } | null>(null);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (
+      !gallery ||
+      q.length < 3 ||
+      nameMatches.length > 0 ||
+      gallery.settings?.guestSearch === false
+    ) {
+      setSemanticLoading(false);
+      return;
+    }
+    if (semanticResult?.query === q) return; // already have this answer
+    setSemanticLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/gallery/${slug}/search?q=${encodeURIComponent(q)}`
+        );
+        if (!res.ok) throw new Error(`search ${res.status}`);
+        const data = (await res.json()) as { results?: { id: string }[] };
+        setSemanticResult({ query: q, ids: (data.results ?? []).map((r) => r.id) });
+      } catch {
+        setSemanticResult({ query: q, ids: [] });
+      } finally {
+        setSemanticLoading(false);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [gallery, slug, searchQuery, nameMatches.length, semanticResult]);
+
+  const semanticActive =
+    nameMatches.length === 0 && semanticResult?.query === searchQuery.trim();
+
+  const filteredImages = useMemo(() => {
+    if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
+    if (nameMatches.length > 0) return nameMatches;
+    if (semanticActive && semanticResult) {
+      // Preserve similarity ranking from the search endpoint.
+      const rank = new Map(semanticResult.ids.map((id, i) => [id, i]));
+      return gallery.images
+        .filter((img) => rank.has(img.id))
+        .sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    }
+    return [];
+  }, [gallery, searchQuery, nameMatches, semanticActive, semanticResult]);
 
   // What SectionedGallery is actually showing (active tab + favorites filter +
   // sort). Null until it reports (or when the gallery has no sections).
@@ -919,7 +977,11 @@ export default function GalleryPage({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search photos…"
+                placeholder={
+                  gallery.settings?.guestSearch === false
+                    ? "Search photos…"
+                    : 'Search photos — try "dancing" or a name…'
+                }
                 className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
                 style={{
                   color: colors.primary,
@@ -945,7 +1007,16 @@ export default function GalleryPage({
         {/* When searching, show flat results; otherwise show sections */}
         {searchQuery.trim() ? (
           filteredImages.length > 0 ? (
-            <GalleryGrid
+            <>
+              {semanticActive && (
+                <p
+                  className="text-center mb-6 text-[11px] uppercase tracking-[0.14em]"
+                  style={{ color: colors.secondary }}
+                >
+                  Visual matches
+                </p>
+              )}
+              <GalleryGrid
               images={filteredImages}
               allowDownload={gallery.allowDownload}
               allowFavorites={gallery.allowFavorites}
@@ -961,7 +1032,15 @@ export default function GalleryPage({
               gridColumns={s?.gridColumns}
               gridGap={s?.gridGap}
               smartStacks={stacksActive}
-            />
+              />
+            </>
+          ) : semanticLoading ? (
+            <p
+              className="text-center py-16 text-[14px] italic animate-pulse"
+              style={{ color: colors.secondary }}
+            >
+              Looking for &ldquo;{searchQuery}&rdquo;…
+            </p>
           ) : (
             <p
               className="text-center py-16 text-[14px] italic"

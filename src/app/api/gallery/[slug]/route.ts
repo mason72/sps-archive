@@ -321,6 +321,9 @@ export async function GET(
       favoriteMilestones:
         ((eventSettings.sharing ?? {}) as { favoriteMilestones?: boolean })
           .favoriteMilestones !== false,
+      guestSearch:
+        ((eventSettings.sharing ?? {}) as { guestSearch?: boolean })
+          .guestSearch !== false,
     };
 
     // Generate presigned URL for cover image if cover is enabled

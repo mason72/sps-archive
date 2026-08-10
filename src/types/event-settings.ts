@@ -24,6 +24,8 @@ export interface SharingSettings {
   allowFavorites: boolean;
   /** "You've loved N moments" toasts — off for corporate-flavored galleries. */
   favoriteMilestones?: boolean;
+  /** Guests can search the gallery by description (semantic). Default on. */
+  guestSearch?: boolean;
   password: string;
   expiresAt: string;
   customMessage: string;
@@ -132,6 +134,7 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   allowDownload: true,
   allowFavorites: true,
   favoriteMilestones: true,
+  guestSearch: true,
   password: "",
   expiresAt: "",
   customMessage: "",
