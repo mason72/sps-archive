@@ -15,7 +15,9 @@ for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
 }
 
-const EVENT_ID = "b1156bf2-2d17-41b5-b962-08b70f591f4a";
+// Default: Appfolio Goleta (the original Jenna/Katie case — note Mason
+// fixed it in prod 2026-08-10, so the destructive roundtrip is conditional).
+const EVENT_ID = process.argv[2] ?? "b1156bf2-2d17-41b5-b962-08b70f591f4a";
 
 async function main() {
   const { createClient } = await import("@supabase/supabase-js");
@@ -34,24 +36,26 @@ async function main() {
       .eq("event_id", EVENT_ID);
     const memberImages = new Map<string, Set<string>>();
     const imageMeta = new Map<string, { parsedName: string | null; originalFilename: string }>();
+    const faceCountByImage = new Map<string, number>();
     for (let page = 0; ; page++) {
       const { data: rows } = await supabase
         .from("faces")
         .select("image_id, person_id, images!inner(event_id, parsed_name, original_filename)")
         .eq("images.event_id", EVENT_ID)
-        .not("person_id", "is", null)
         .order("id")
         .range(page * 1000, page * 1000 + 999);
       for (const r of rows ?? []) {
-        const set = memberImages.get(r.person_id!) ?? new Set();
-        set.add(r.image_id);
-        memberImages.set(r.person_id!, set);
+        faceCountByImage.set(r.image_id, (faceCountByImage.get(r.image_id) ?? 0) + 1);
         const img = r.images as unknown as { parsed_name: string | null; original_filename: string };
         imageMeta.set(r.image_id, { parsedName: img.parsed_name, originalFilename: img.original_filename });
+        if (!r.person_id) continue;
+        const set = memberImages.get(r.person_id) ?? new Set();
+        set.add(r.image_id);
+        memberImages.set(r.person_id, set);
       }
       if (!rows || rows.length < 1000) break;
     }
-    const suggestions = computeSuggestions(
+    return computeSuggestions(
       (persons ?? []).map((p) => ({
         id: p.id,
         name: p.name,
@@ -59,33 +63,48 @@ async function main() {
         faceCount: p.face_count,
       })),
       imageMeta,
+      faceCountByImage,
       extractPersonName,
       isPersonLike,
       new Set()
     );
-    return { suggestions, imageMeta };
   }
 
-  // 1. The real mislabel must surface.
+  // 1. The real mislabel must surface (grouped shape).
   const before = await snapshot();
   console.log(
-    `before: ${before.suggestions.mislabels.length} mislabel(s), ${before.suggestions.merges.length} merge(s)`
+    `before: ${before.mislabels.length} mislabel(s), ${before.merges.length} merge(s), ${before.refinements.length} refinement(s)`
   );
-  const target = before.suggestions.mislabels.find((s) => /katie/i.test(s.filedAs));
-  if (!target) throw new Error("expected the Katie/Jenna mislabel to surface");
-  console.log(`  found: "${target.filedAs}" → ${target.personName} (image ${target.imageId.slice(0, 8)})`);
+  for (const s of before.mislabels) {
+    console.log(`  mislabel: ${s.imageIds.length}× "${s.filedAs}" → ${s.personName}`);
+  }
+  for (const s of before.refinements) {
+    console.log(`  refine: ${s.currentName} → "${s.fullName}" (${s.supportingCount} files)`);
+  }
+  const target = before.mislabels[0];
+  if (!target) {
+    console.log("no mislabels to roundtrip (already resolved?) — snapshot only, OK");
+    return;
+  }
+  console.log(
+    `  found: ${target.imageIds.length} photo(s) "${target.filedAs}" → ${target.personName}`
+  );
 
-  // 2. Apply fix-label semantics.
+  // 2. Apply fix-label semantics to the whole group.
+  const imageId = target.imageIds[0];
   const { data: prev } = await supabase
     .from("images")
     .select("parsed_name, original_filename")
-    .eq("id", target.imageId)
+    .eq("id", imageId)
     .single();
-  await supabase.from("images").update({ parsed_name: target.personName }).eq("id", target.imageId);
+  await supabase
+    .from("images")
+    .update({ parsed_name: target.personName })
+    .in("id", target.imageIds);
 
   // 3. Card gone + stacks now group the image with the person.
   const after = await snapshot();
-  const stillThere = after.suggestions.mislabels.some((s) => s.key === target.key);
+  const stillThere = after.mislabels.some((s) => s.key === target.key);
   const stackName = stackPersonName({
     parsedName: target.personName,
     originalFilename: prev!.original_filename,
@@ -96,12 +115,16 @@ async function main() {
   );
 
   // 4. Restore.
-  await supabase.from("images").update({ parsed_name: prev!.parsed_name }).eq("id", target.imageId);
+  await supabase
+    .from("images")
+    .update({ parsed_name: prev!.parsed_name })
+    .in("id", target.imageIds);
   const restored = await snapshot();
-  const back = restored.suggestions.mislabels.some((s) => s.key === target.key);
+  const back = restored.mislabels.some((s) => s.key === target.key);
   console.log(`restored: card ${back ? "back (good)" : "missing (RESTORE FAILED)"}`);
 
-  if (!stillThere && back && stackName.toLowerCase().includes("jenna")) {
+  const expectedStack = target.personName.split(" ")[0].toLowerCase();
+  if (!stillThere && back && stackName.toLowerCase().includes(expectedStack)) {
     console.log("\nALL CHECKS PASSED");
   } else {
     throw new Error("verification failed");

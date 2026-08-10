@@ -36,18 +36,19 @@ export async function POST(
     }
 
     const body = (await request.json()) as {
-      action: "fix-label" | "merge" | "dismiss";
-      imageId?: string;
+      action: "fix-label" | "merge" | "dismiss" | "refine-name";
+      imageIds?: string[];
       personId?: string;
       fromId?: string;
       intoId?: string;
       key?: string;
+      fullName?: string;
     };
 
     if (body.action === "fix-label") {
-      const { imageId, personId } = body;
-      if (!imageId || !personId) {
-        return NextResponse.json({ error: "imageId and personId required" }, { status: 400 });
+      const { imageIds, personId } = body;
+      if (!imageIds?.length || !personId) {
+        return NextResponse.json({ error: "imageIds and personId required" }, { status: 400 });
       }
       const { data: person } = await supabase
         .from("persons")
@@ -61,10 +62,32 @@ export async function POST(
       const { error } = await supabase
         .from("images")
         .update({ parsed_name: person.name })
-        .eq("id", imageId)
+        .in("id", imageIds)
         .eq("event_id", eventId);
       if (error) throw error;
-      return NextResponse.json({ ok: true, parsedName: person.name });
+      return NextResponse.json({ ok: true, parsedName: person.name, fixed: imageIds.length });
+    }
+
+    if (body.action === "refine-name") {
+      // Adopt the fuller name from the files (names get truncated, not
+      // invented). Person rename only — no image writes.
+      const { personId, fullName } = body;
+      const name = fullName?.trim().slice(0, 120);
+      if (!personId || !name) {
+        return NextResponse.json({ error: "personId and fullName required" }, { status: 400 });
+      }
+      const { data: person } = await supabase
+        .from("persons")
+        .select("id")
+        .eq("id", personId)
+        .eq("event_id", eventId)
+        .maybeSingle();
+      if (!person) {
+        return NextResponse.json({ error: "Person not found" }, { status: 404 });
+      }
+      const { error } = await supabase.from("persons").update({ name }).eq("id", personId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true, name });
     }
 
     if (body.action === "merge") {

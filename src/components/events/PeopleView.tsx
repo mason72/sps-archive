@@ -23,7 +23,7 @@ interface MislabelCard {
   key: string;
   personId: string;
   personName: string;
-  imageId: string;
+  imageIds: string[];
   filedAs: string;
   face: PersonFace | null;
 }
@@ -31,6 +31,13 @@ interface MislabelCard {
 interface Suggestions {
   mislabels: MislabelCard[];
   merges: { key: string; fromId: string; intoId: string; name: string }[];
+  refinements: {
+    key: string;
+    personId: string;
+    currentName: string;
+    fullName: string;
+    supportingCount: number;
+  }[];
 }
 
 /**
@@ -60,7 +67,11 @@ export function PeopleView({
 
   const reportCount = useCallback(
     (s: Suggestions | null) => {
-      onSuggestionsCount?.((s?.mislabels.length ?? 0) + (s?.merges.length ?? 0));
+      onSuggestionsCount?.(
+        (s?.mislabels.length ?? 0) +
+          (s?.merges.length ?? 0) +
+          (s?.refinements.length ?? 0)
+      );
     },
     [onSuggestionsCount]
   );
@@ -86,7 +97,7 @@ export function PeopleView({
 
   /** Apply or dismiss a suggestion; reload on mutations that reshape people. */
   const resolve = useCallback(
-    async (payload: Record<string, string>, reload: boolean) => {
+    async (payload: Record<string, unknown> & { key: string }, reload: boolean) => {
       setCompare(null);
       // Optimistic: the card disappears immediately.
       setSuggestions((prev) => {
@@ -94,6 +105,7 @@ export function PeopleView({
           ? {
               mislabels: prev.mislabels.filter((s) => s.key !== payload.key),
               merges: prev.merges.filter((s) => s.key !== payload.key),
+              refinements: prev.refinements.filter((s) => s.key !== payload.key),
             }
           : prev;
         reportCount(next);
@@ -151,7 +163,16 @@ export function PeopleView({
 
   const personOf = (id: string) => people.find((p) => p.id === id);
   const hasSuggestions =
-    (suggestions?.mislabels.length ?? 0) + (suggestions?.merges.length ?? 0) > 0;
+    (suggestions?.mislabels.length ?? 0) +
+      (suggestions?.merges.length ?? 0) +
+      (suggestions?.refinements.length ?? 0) >
+    0;
+
+  // Named people A–Z, then the unnamed (largest first) under their own header.
+  const named = people
+    .filter((p) => p.name)
+    .sort((a, b) => a.name!.localeCompare(b.name!, undefined, { sensitivity: "base" }));
+  const unnamed = people.filter((p) => !p.name).sort((a, b) => b.faceCount - a.faceCount);
 
   return (
     <div>
@@ -193,9 +214,13 @@ export function PeopleView({
                     </button>
                     <div className="flex-1 min-w-[180px]">
                       <p className="text-[13px] text-stone-600 leading-snug">
-                        Same person? This photo is filed as{" "}
+                        Same person?{" "}
+                        {s.imageIds.length === 1
+                          ? "This photo is"
+                          : `${s.imageIds.length} photos are`}{" "}
+                        filed as{" "}
                         <span className="text-stone-900">&ldquo;{s.filedAs}&rdquo;</span> but
-                        clusters with <span className="text-stone-900">{s.personName}</span>.
+                        cluster with <span className="text-stone-900">{s.personName}</span>.
                       </p>
                       <button
                         onClick={() => setCompare(s)}
@@ -208,7 +233,7 @@ export function PeopleView({
                       <button
                         onClick={() =>
                           resolve(
-                            { action: "fix-label", key: s.key, imageId: s.imageId, personId: s.personId },
+                            { action: "fix-label", key: s.key, imageIds: s.imageIds, personId: s.personId },
                             true
                           )
                         }
@@ -227,6 +252,42 @@ export function PeopleView({
                 </div>
               );
             })}
+            {suggestions!.refinements.map((s) => (
+              <div key={s.key} className="border border-stone-200 p-4">
+                <div className="flex items-center gap-5 flex-wrap">
+                  <p className="flex-1 min-w-[180px] text-[13px] text-stone-600 leading-snug">
+                    {s.supportingCount} of <span className="text-stone-900">{s.currentName}</span>&apos;s
+                    files use the fuller name{" "}
+                    <span className="text-stone-900">&ldquo;{s.fullName}&rdquo;</span> — names
+                    get truncated, not invented.
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() =>
+                        resolve(
+                          {
+                            action: "refine-name",
+                            key: s.key,
+                            personId: s.personId,
+                            fullName: s.fullName,
+                          },
+                          true
+                        )
+                      }
+                      className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 hover:border-emerald-500 transition-colors"
+                    >
+                      Use full name
+                    </button>
+                    <button
+                      onClick={() => resolve({ action: "dismiss", key: s.key }, false)}
+                      className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-600 transition-colors"
+                    >
+                      Keep current
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
             {suggestions!.merges.map((s) => {
               const from = personOf(s.fromId);
               const into = personOf(s.intoId);
@@ -278,9 +339,9 @@ export function PeopleView({
         </div>
       )}
 
-      {/* ─── People grid ─── */}
+      {/* ─── People grid: named A–Z, then unnamed ─── */}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-7">
-        {people.map((person) => (
+        {named.map((person) => (
           <PersonCard
             key={person.id}
             person={person}
@@ -294,6 +355,28 @@ export function PeopleView({
           />
         ))}
       </div>
+      {unnamed.length > 0 && (
+        <>
+          <p className="mt-10 mb-4 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+            Unnamed · {unnamed.length}
+          </p>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-7">
+            {unnamed.map((person) => (
+              <PersonCard
+                key={person.id}
+                person={person}
+                active={person.id === activePersonId}
+                onClick={() => onSelectPerson(person.id === activePersonId ? null : person)}
+                onRenamed={(name) =>
+                  setPeople((prev) =>
+                    prev ? prev.map((p) => (p.id === person.id ? { ...p, name } : p)) : prev
+                  )
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* ─── Compare view: the photo in question vs everything of theirs ─── */}
       {compare && (
@@ -306,13 +389,14 @@ export function PeopleView({
               {
                 action: "fix-label",
                 key: compare.key,
-                imageId: compare.imageId,
+                imageIds: compare.imageIds,
                 personId: compare.personId,
               },
               true
             )
           }
           onDismiss={() => resolve({ action: "dismiss", key: compare.key }, false)}
+          onRenamed={() => load()}
           onClose={() => setCompare(null)}
         />
       )}
@@ -326,6 +410,7 @@ function CompareModal({
   imageById,
   onFix,
   onDismiss,
+  onRenamed,
   onClose,
 }: {
   card: MislabelCard;
@@ -333,11 +418,32 @@ function CompareModal({
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   onFix: () => void;
   onDismiss: () => void;
+  onRenamed: () => void;
   onClose: () => void;
 }) {
-  const otherIds = (person?.imageIds ?? []).filter((id) => id !== card.imageId);
+  const questionIds = new Set(card.imageIds);
+  const otherIds = (person?.imageIds ?? []).filter((id) => !questionIds.has(id));
   const [showFilenames, setShowFilenames] = useState(true);
-  const questionFilename = imageById?.get(card.imageId)?.filename;
+  // Inline rename of the person — sometimes neither existing name is right
+  // and the fix is typing the correct one, independent of any merge.
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(card.personName);
+  const saveRename = async () => {
+    setRenaming(false);
+    const name = nameDraft.trim();
+    if (!name || name === card.personName) return;
+    try {
+      const res = await fetch(`/api/people/${card.personId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error();
+      onRenamed();
+    } catch {
+      toast.error("Couldn't save the name");
+    }
+  };
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
@@ -350,9 +456,32 @@ function CompareModal({
         {/* Actions pinned top-right — never wrapping, never scrolled away. */}
         <div className="flex items-start gap-6 mb-6">
           <div className="flex-1 min-w-0">
-            <h2 className="font-editorial text-2xl text-stone-900">
-              Is this {card.personName}?
-            </h2>
+            {renaming ? (
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={saveRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveRename();
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+                className="font-editorial text-2xl text-stone-900 bg-transparent border-b border-stone-300 focus:border-stone-900 focus:outline-none w-full max-w-sm"
+              />
+            ) : (
+              <h2 className="font-editorial text-2xl text-stone-900">
+                Is this {card.personName}?{" "}
+                <button
+                  onClick={() => {
+                    setNameDraft(card.personName);
+                    setRenaming(true);
+                  }}
+                  className="align-middle ml-1 text-[12px] font-sans text-stone-400 underline hover:text-stone-600 transition-colors"
+                >
+                  rename
+                </button>
+              </h2>
+            )}
             <p className="text-[13px] text-stone-500 mt-1">
               Filed as &ldquo;{card.filedAs}&rdquo; — compare against every photo of{" "}
               {card.personName}.
@@ -385,24 +514,35 @@ function CompareModal({
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="min-h-0 flex flex-col">
             <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3 shrink-0">
-              The photo in question
+              {card.imageIds.length === 1
+                ? "The photo in question"
+                : `${card.imageIds.length} photos in question`}
             </p>
-            {/* Full frame, not a crop — context matters for the call. */}
-            {card.face ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={card.face.thumbnailUrl}
-                alt=""
-                className="w-full min-h-0 object-contain object-top bg-stone-100"
-              />
-            ) : (
-              <div className="aspect-[3/4] bg-stone-100" />
-            )}
-            {showFilenames && questionFilename && (
-              <p className="mt-2 text-[11px] text-stone-400 truncate shrink-0">
-                {questionFilename}
-              </p>
-            )}
+            {/* Full frames, not crops — context matters for the call. Scrolls
+                on its own when the group is large. */}
+            <div className="min-h-0 overflow-y-auto pr-1 space-y-3">
+              {card.imageIds.map((id) => {
+                const entry = imageById?.get(id);
+                return (
+                  <figure key={id}>
+                    {entry ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={entry.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                    ) : card.face && id === card.imageIds[0] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={card.face.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                    ) : (
+                      <div className="aspect-[3/4] bg-stone-100" />
+                    )}
+                    {showFilenames && entry?.filename && (
+                      <figcaption className="mt-1 text-[11px] text-stone-400 truncate">
+                        {entry.filename}
+                      </figcaption>
+                    )}
+                  </figure>
+                );
+              })}
+            </div>
           </div>
           <div className="min-h-0 flex flex-col">
             <div className="flex items-center justify-between mb-3 shrink-0">

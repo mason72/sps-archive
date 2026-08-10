@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { computeSuggestions, type SuggestionPerson } from "./suggestions";
+import { computeSuggestions, sameNameFamily, type SuggestionPerson } from "./suggestions";
 
 const extract = (filename: string) => {
+  // Toy extractor: "First Last[ Extra]_001.jpg" → name part before "_".
   const namePart = filename.replace(/\.[^.]+$/, "").split("_")[0];
-  return /^[A-Za-z]+ [A-Za-z]+$/.test(namePart) ? namePart : "";
+  return /^[A-Za-z]+( [A-Za-z]+)+$/.test(namePart) ? namePart : "";
 };
-const personLike = (name: string) => /^[A-Za-z]+ [A-Za-z]+$/.test(name);
+const personLike = (name: string) => /^[A-Za-z]+( [A-Za-z]+)+$/.test(name);
 
 const jenna: SuggestionPerson = {
   id: "p-jenna",
@@ -15,58 +16,120 @@ const jenna: SuggestionPerson = {
   faceCount: 6,
 };
 
-const meta = (entries: Record<string, string | { p: string }>) =>
-  new Map(
-    Object.entries(entries).map(([id, v]) => [
+function meta(entries: Record<string, string>) {
+  return new Map(
+    Object.entries(entries).map(([id, f]) => [
       id,
-      typeof v === "string"
-        ? { parsedName: null, originalFilename: v }
-        : { parsedName: v.p, originalFilename: "whatever.jpg" },
+      { parsedName: null, originalFilename: f },
     ])
   );
+}
+/** All images solo unless listed in `group`. */
+function faceCounts(ids: string[], group: string[] = []) {
+  return new Map(ids.map((id) => [id, group.includes(id) ? 3 : 1]));
+}
 
-describe("computeSuggestions — mislabels", () => {
-  it("flags the minority outlier (the Jenna/Katie case)", () => {
+const run = (
+  persons: SuggestionPerson[],
+  m: ReturnType<typeof meta>,
+  fc: ReturnType<typeof faceCounts>,
+  dismissed = new Set<string>()
+) => computeSuggestions(persons, m, fc, extract, personLike, dismissed);
+
+describe("sameNameFamily", () => {
+  it("prefix at a word boundary is the same family", () => {
+    expect(sameNameFamily("Sami Hadouaj", "Sami Hadouaj Mundra")).toBe(true);
+    expect(sameNameFamily("Sami Hadouaj Mundra", "sami hadouaj")).toBe(true);
+  });
+  it("different names and non-boundary prefixes are not", () => {
+    expect(sameNameFamily("Sami Hadouaj", "Sami Hadouajson")).toBe(false);
+    expect(sameNameFamily("Katie Zeff", "Jenna Loeser")).toBe(false);
+  });
+});
+
+describe("mislabels", () => {
+  it("groups all photos misfiled the same way into ONE suggestion", () => {
     const m = meta({
       i1: "Jenna Loeser_1.jpg",
       i2: "Jenna Loeser_2.jpg",
       i3: "Jenna Loeser_3.jpg",
       i4: "Jenna Loeser_4.jpg",
-      i5: "Jenna Loeser_5.jpg",
-      i6: "Katie Zeff_177.jpg",
+      i5: "Katie Zeff_177.jpg",
+      i6: "Katie Zeff_178.jpg",
     });
-    const { mislabels } = computeSuggestions([jenna], m, extract, personLike, new Set());
+    const bigJenna = { ...jenna, imageIds: [...jenna.imageIds, "i7", "i8", "i9", "i10"] };
+    const m2 = new Map([
+      ...m,
+      ...meta({ i7: "Jenna Loeser_7.jpg", i8: "Jenna Loeser_8.jpg", i9: "Jenna Loeser_9.jpg", i10: "Jenna Loeser_10.jpg" }),
+    ]);
+    const { mislabels } = run([bigJenna], m2, faceCounts(bigJenna.imageIds));
     expect(mislabels).toHaveLength(1);
-    expect(mislabels[0]).toMatchObject({ imageId: "i6", filedAs: "Katie Zeff" });
+    expect(mislabels[0].imageIds.sort()).toEqual(["i5", "i6"]);
+    expect(mislabels[0].filedAs).toBe("Katie Zeff");
   });
 
-  it("a fixed parsedName clears the suggestion", () => {
+  it("GROUP PHOTOS are never rename candidates (the Jenny/Sally ping-pong)", () => {
     const m = meta({
       i1: "Jenna Loeser_1.jpg",
       i2: "Jenna Loeser_2.jpg",
       i3: "Jenna Loeser_3.jpg",
       i4: "Jenna Loeser_4.jpg",
       i5: "Jenna Loeser_5.jpg",
-      i6: { p: "Jenna Loeser" }, // accepted fix
+      i6: "Sally Smith_group.jpg", // group shot filed under Sally
     });
-    const { mislabels } = computeSuggestions([jenna], m, extract, personLike, new Set());
+    const { mislabels } = run([jenna], m, faceCounts(jenna.imageIds, ["i6"]));
     expect(mislabels).toHaveLength(0);
   });
 
-  it("suppresses mislabels when disagreement is the majority (cluster name is the suspect)", () => {
+  it("name-family variants are agreement, not conflict (the Sami case)", () => {
+    const sami: SuggestionPerson = {
+      id: "p-sami",
+      name: "Sami Hadouaj",
+      imageIds: ["s1", "s2", "s3", "s4"],
+      faceCount: 4,
+    };
+    const m = meta({
+      s1: "Sami Hadouaj_1.jpg",
+      s2: "Sami Hadouaj_2.jpg",
+      s3: "Sami Hadouaj Mundra_3.jpg",
+      s4: "Sami Hadouaj Mundra_4.jpg",
+    });
+    const { mislabels, refinements } = run([sami], m, faceCounts(sami.imageIds));
+    expect(mislabels).toHaveLength(0);
+    expect(refinements).toHaveLength(1);
+    expect(refinements[0]).toMatchObject({
+      currentName: "Sami Hadouaj",
+      fullName: "Sami Hadouaj Mundra",
+      supportingCount: 2,
+    });
+  });
+
+  it("a single fuller-name file is not enough for a refinement", () => {
+    const sami: SuggestionPerson = {
+      id: "p-sami",
+      name: "Sami Hadouaj",
+      imageIds: ["s1", "s2"],
+      faceCount: 2,
+    };
+    const m = meta({ s1: "Sami Hadouaj_1.jpg", s2: "Sami Hadouaj Mundra_2.jpg" });
+    const { refinements } = run([sami], m, faceCounts(sami.imageIds));
+    expect(refinements).toHaveLength(0);
+  });
+
+  it("majority disagreement suppresses (the cluster name is the suspect)", () => {
     const m = meta({
       i1: "Katie Zeff_1.jpg",
       i2: "Katie Zeff_2.jpg",
       i3: "Katie Zeff_3.jpg",
-      i4: "Jenna Loeser_4.jpg",
+      i4: "Katie Zeff_4.jpg",
       i5: "Katie Zeff_5.jpg",
-      i6: "Katie Zeff_6.jpg",
+      i6: "Jenna Loeser_6.jpg",
     });
-    const { mislabels } = computeSuggestions([jenna], m, extract, personLike, new Set());
+    const { mislabels } = run([jenna], m, faceCounts(jenna.imageIds));
     expect(mislabels).toHaveLength(0);
   });
 
-  it("honors dismissals", () => {
+  it("dismissal keys cover the whole group", () => {
     const m = meta({
       i1: "Jenna Loeser_1.jpg",
       i2: "Jenna Loeser_2.jpg",
@@ -75,37 +138,22 @@ describe("computeSuggestions — mislabels", () => {
       i5: "Jenna Loeser_5.jpg",
       i6: "Katie Zeff_177.jpg",
     });
-    const { mislabels } = computeSuggestions(
+    const { mislabels } = run(
       [jenna],
       m,
-      extract,
-      personLike,
-      new Set(["mislabel:i6:p-jenna"])
+      faceCounts(jenna.imageIds),
+      new Set(["mislabel:p-jenna:katie zeff"])
     );
-    expect(mislabels).toHaveLength(0);
-  });
-
-  it("unnamed persons produce nothing", () => {
-    const anon = { ...jenna, name: null };
-    const m = meta({ i1: "Katie Zeff_1.jpg" });
-    const { mislabels } = computeSuggestions([anon], m, extract, personLike, new Set());
     expect(mislabels).toHaveLength(0);
   });
 });
 
-describe("computeSuggestions — merges", () => {
+describe("merges", () => {
   it("suggests merging same-named fragments, smaller into larger", () => {
-    const big = { id: "p1", name: "Katie Zeff", imageIds: ["a"], faceCount: 20 };
-    const small = { id: "p2", name: "katie zeff", imageIds: ["b"], faceCount: 2 };
-    const { merges } = computeSuggestions([big, small], new Map(), extract, personLike, new Set());
+    const big = { id: "p1", name: "Katie Zeff", imageIds: [], faceCount: 20 };
+    const small = { id: "p2", name: "katie zeff", imageIds: [], faceCount: 2 };
+    const { merges } = run([big, small], new Map(), new Map());
     expect(merges).toHaveLength(1);
     expect(merges[0]).toMatchObject({ fromId: "p2", intoId: "p1" });
-  });
-
-  it("distinct names never merge", () => {
-    const a = { id: "p1", name: "Katie Zeff", imageIds: [], faceCount: 5 };
-    const b = { id: "p2", name: "Jenna Loeser", imageIds: [], faceCount: 5 };
-    const { merges } = computeSuggestions([a, b], new Map(), extract, personLike, new Set());
-    expect(merges).toHaveLength(0);
   });
 });

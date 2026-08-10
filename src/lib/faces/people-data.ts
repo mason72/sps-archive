@@ -13,6 +13,7 @@ import {
   computeSuggestions,
   type MergeSuggestion,
   type MislabelSuggestion,
+  type RefinementSuggestion,
 } from "./suggestions";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
@@ -37,7 +38,11 @@ export interface PeopleData {
   faceById: Map<string, FaceRef>;
   /** `${personId}:${imageId}` → the face that clustered there (for crops). */
   personImageFace: Map<string, FaceRef>;
-  suggestions: { mislabels: MislabelSuggestion[]; merges: MergeSuggestion[] };
+  suggestions: {
+    mislabels: MislabelSuggestion[];
+    merges: MergeSuggestion[];
+    refinements: RefinementSuggestion[];
+  };
 }
 
 export async function loadPeopleData(
@@ -56,6 +61,9 @@ export async function loadPeopleData(
   const faceById = new Map<string, FaceRef>();
   const personImageFace = new Map<string, FaceRef>();
   const imageMeta = new Map<string, { parsedName: string | null; originalFilename: string }>();
+  // TOTAL faces per image (assigned or not) — solo-portrait detection for
+  // mislabel suggestions; a group photo is never a rename candidate.
+  const faceCountByImage = new Map<string, number>();
 
   for (let page = 0; ; page++) {
     const { data: rows, error } = await supabase
@@ -64,7 +72,6 @@ export async function loadPeopleData(
         "id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, quality, images!inner(event_id, r2_key, width, height, parsed_name, original_filename)"
       )
       .eq("images.event_id", eventId)
-      .not("person_id", "is", null)
       .order("id", { ascending: true })
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
@@ -76,6 +83,7 @@ export async function loadPeopleData(
         parsed_name: string | null;
         original_filename: string;
       };
+      faceCountByImage.set(row.image_id, (faceCountByImage.get(row.image_id) ?? 0) + 1);
       const ref: FaceRef = {
         imageId: row.image_id,
         bbox: { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h },
@@ -83,16 +91,17 @@ export async function loadPeopleData(
         imageHeight: img.height,
         r2Key: img.r2_key,
       };
-      const set = memberImages.get(row.person_id!) ?? new Set();
-      set.add(row.image_id);
-      memberImages.set(row.person_id!, set);
       faceById.set(row.id, ref);
-      const key = `${row.person_id}:${row.image_id}`;
-      if (!personImageFace.has(key)) personImageFace.set(key, ref);
       imageMeta.set(row.image_id, {
         parsedName: img.parsed_name,
         originalFilename: img.original_filename,
       });
+      if (!row.person_id) continue;
+      const set = memberImages.get(row.person_id) ?? new Set();
+      set.add(row.image_id);
+      memberImages.set(row.person_id, set);
+      const key = `${row.person_id}:${row.image_id}`;
+      if (!personImageFace.has(key)) personImageFace.set(key, ref);
     }
     if (!rows || rows.length < 1000) break;
   }
@@ -105,6 +114,7 @@ export async function loadPeopleData(
       faceCount: p.face_count,
     })),
     imageMeta,
+    faceCountByImage,
     extractPersonName,
     isPersonLike,
     dismissed

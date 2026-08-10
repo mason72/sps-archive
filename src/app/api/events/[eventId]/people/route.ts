@@ -68,14 +68,21 @@ export async function GET(
     const mislabels = await Promise.all(
       data.suggestions.mislabels.map(async (s) => ({
         ...s,
-        // The outlier's face as clustered into the person — crop-ready.
-        face: await presignFace(data.personImageFace.get(`${s.personId}:${s.imageId}`)),
+        // The first outlier's face as clustered into the person — crop-ready
+        // (the compare view shows every outlier full-frame via the grid map).
+        face: await presignFace(
+          data.personImageFace.get(`${s.personId}:${s.imageIds[0]}`)
+        ),
       }))
     );
 
     return NextResponse.json({
       people,
-      suggestions: { mislabels, merges: data.suggestions.merges },
+      suggestions: {
+        mislabels,
+        merges: data.suggestions.merges,
+        refinements: data.suggestions.refinements,
+      },
     });
   } catch (error) {
     await reportSystemError("people.list", error, { eventId });
