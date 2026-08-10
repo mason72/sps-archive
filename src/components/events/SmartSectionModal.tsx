@@ -49,6 +49,7 @@ export function SmartSectionModal({
   const [mode, setMode] = useState<"copy" | "move">("copy");
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showFilenames, setShowFilenames] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fixed overlay: freeze the page behind the modal.
@@ -220,42 +221,59 @@ export function SmartSectionModal({
                 </p>
               ) : (
                 <>
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-400">
-                    {kept.length} photo{kept.length === 1 ? "" : "s"} · click to
-                    remove any that don&apos;t belong
-                  </p>
-                  <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto sm:grid-cols-6">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-stone-400">
+                      {kept.length} photo{kept.length === 1 ? "" : "s"} · click to
+                      remove any that don&apos;t belong
+                    </p>
+                    <button
+                      onClick={() => setShowFilenames((v) => !v)}
+                      className={cn(
+                        "text-[11px] transition-colors",
+                        showFilenames
+                          ? "text-stone-600"
+                          : "text-stone-300 hover:text-stone-500"
+                      )}
+                    >
+                      Filenames
+                    </button>
+                  </div>
+                  <div className="grid max-h-64 grid-cols-5 gap-x-1.5 gap-y-2 overflow-y-auto sm:grid-cols-6">
                     {matches.map((m) => {
                       const entry = imageById.get(m.id);
                       const url = entry?.thumbnailUrl ?? m.thumbnailUrl;
+                      const filename = entry?.filename ?? m.filename;
                       const off = excluded.has(m.id);
                       return (
-                        <button
-                          key={m.id}
-                          onClick={() =>
-                            setExcluded((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(m.id)) next.delete(m.id);
-                              else next.add(m.id);
-                              return next;
-                            })
-                          }
-                          title={entry?.filename ?? m.filename}
-                          className={cn(
-                            "relative aspect-square overflow-hidden bg-stone-100 transition-opacity",
-                            off && "opacity-25"
+                        <figure key={m.id} className={cn(off && "opacity-25")}>
+                          <button
+                            onClick={() =>
+                              setExcluded((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(m.id)) next.delete(m.id);
+                                else next.add(m.id);
+                                return next;
+                              })
+                            }
+                            title={filename}
+                            className="relative block w-full aspect-square overflow-hidden bg-stone-100 transition-opacity"
+                          >
+                            {url && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={url}
+                                alt=""
+                                loading="lazy"
+                                className="h-full w-full object-cover object-top"
+                              />
+                            )}
+                          </button>
+                          {showFilenames && filename && (
+                            <figcaption className="mt-0.5 text-[8px] leading-tight text-stone-400 truncate">
+                              {filename}
+                            </figcaption>
                           )}
-                        >
-                          {url && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={url}
-                              alt=""
-                              loading="lazy"
-                              className="h-full w-full object-cover object-top"
-                            />
-                          )}
-                        </button>
+                        </figure>
                       );
                     })}
                   </div>
