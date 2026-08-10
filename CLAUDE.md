@@ -24,7 +24,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 - AI processing via Modal serverless GPU
 - pgvector for CLIP semantic search
 - Smart Stacks group similar images, surface best shot
-- AI indexing v2 (`src/lib/ai-index/`, Modal app `sps-archive-ai`): SigLIP-2 embeddings + face embeddings + quality scores, settlement-triggered via Inngest `ai-index` (15m debounce + zero-pending check), kill switch `AI_INDEXING_ENABLED`. Writes ONLY AI columns + `faces` rows — NEVER `processing_status` or anything display reads. Modal CLI: `~/.venvs/modal-cli/bin/modal`
+- AI suite (FULL DOC: `docs/AI.md` — read it before touching anything AI): SigLIP-2 semantic search (archive/editor/guest/selfie), face clustering + People view + identity-suggestion engine, scene sections + smart sections, group focal points. Settlement-triggered Inngest lanes, kill switch `AI_INDEXING_ENABLED`. Two invariants: AI writes ONLY its own columns (never `processing_status` or anything display reads), and AI suggests — humans apply. Modal CLI: `~/.venvs/modal-cli/bin/modal`
 - Cover types (image/mosaic/solid/crossfade) — `src/lib/cover/*`; `normalizeCoverSettings()` is the single parse point; email/OG raster composes ONLY in the Inngest `cover-raster` job (pool.ts stays sharp-free for routes)
 - SPS integration via shared R2 bucket (zero-copy imports)
 
