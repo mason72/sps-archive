@@ -9,7 +9,9 @@ import {
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Scene mode embeds the taxonomy via Modal (cold start can take ~20s) and
+// scores every image before materializing.
+export const maxDuration = 120;
 
 const MODES: PlanMode[] = ["letter", "per-person", "even", "full-set"];
 /** Refuse to create an absurd number of sections (e.g. per-person on 2000 people). */
@@ -49,45 +51,74 @@ export async function POST(
     }
 
     const body = (await request.json()) as {
-      mode?: PlanMode;
+      mode?: PlanMode | "scenes";
       target?: number;
       stacks?: boolean;
+      taxonomy?: string;
     };
     const mode = body.mode ?? "letter";
-    if (!MODES.includes(mode)) {
+    if (mode !== "scenes" && !MODES.includes(mode)) {
       return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
     }
     const target = Math.max(1, Math.min(Math.floor(body.target ?? 300), 5000));
     const stacks = !!body.stacks;
 
-    // Load every image for the event (id + names only — the planner is pure).
-    const images: PlanImage[] = [];
-    let offset = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data, error } = await supabase
-        .from("images")
-        .select("id, parsed_name, original_filename")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: true })
-        .range(offset, offset + 999);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      for (const r of data) {
-        images.push({ id: r.id, parsedName: r.parsed_name, originalFilename: r.original_filename });
-      }
-      if (data.length < 1000) break;
-      offset += 1000;
-    }
-
-    if (images.length === 0) {
-      return NextResponse.json(
-        { error: "No images to sort yet — upload some first." },
-        { status: 400 }
+    let plan: { name: string; imageIds: string[] }[];
+    if (mode === "scenes") {
+      // AI scene plan — computed server-side from stored embeddings, exactly
+      // as the preview endpoint showed it. Materializes through the same
+      // auto-section contract below (is_auto wipe, additive, intake consume).
+      const { buildScenePlan } = await import("@/lib/sections/scene-plan");
+      const { defaultTaxonomyKey, taxonomyByKey } = await import(
+        "@/lib/sections/scene-taxonomies"
       );
-    }
+      const { data: ev } = await supabase
+        .from("events")
+        .select("event_type")
+        .eq("id", eventId)
+        .single();
+      const key =
+        body.taxonomy && taxonomyByKey(body.taxonomy)
+          ? body.taxonomy
+          : defaultTaxonomyKey(ev?.event_type ?? null);
+      const scenes = await buildScenePlan(supabase, eventId, user!.id, key);
+      if (scenes.indexedCount === 0) {
+        return NextResponse.json(
+          { error: "These photos aren't AI-indexed yet — try again in a little while." },
+          { status: 409 }
+        );
+      }
+      plan = scenes.plan;
+    } else {
+      // Load every image for the event (id + names only — the planner is pure).
+      const images: PlanImage[] = [];
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase
+          .from("images")
+          .select("id, parsed_name, original_filename")
+          .eq("event_id", eventId)
+          .order("created_at", { ascending: true })
+          .range(offset, offset + 999);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        for (const r of data) {
+          images.push({ id: r.id, parsedName: r.parsed_name, originalFilename: r.original_filename });
+        }
+        if (data.length < 1000) break;
+        offset += 1000;
+      }
 
-    const plan = planAutoSections(images, { mode, target, stacks });
+      if (images.length === 0) {
+        return NextResponse.json(
+          { error: "No images to sort yet — upload some first." },
+          { status: 400 }
+        );
+      }
+
+      plan = planAutoSections(images, { mode, target, stacks });
+    }
     if (plan.length === 0) {
       return NextResponse.json({ error: "Nothing to sort." }, { status: 400 });
     }

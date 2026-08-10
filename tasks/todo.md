@@ -151,10 +151,25 @@ Phase 3 — Face stacks:
 - [ ] Render-time many-to-many stacks from `faces` (photo appears in every person's
       stack) as a sibling of filename `buildStacks`; best-shot ranking from aesthetic +
       eyes-open. Old persisted `stacks` path stays dead.
-Phase 4 — Section suggester:
-- [ ] On-demand zero-shot over stored embeddings, per-event-type taxonomy
-      (wedding/headshot/conference), multi-membership, through the existing
-      SortSectionsModal preview→apply flow. Suggest-only.
+Phase 4 — Section suggester [SHIPPED 2026-08-10]:
+- [x] "By scene" mode in SortSectionsModal: taxonomy picker (wedding/corporate/
+      party/general, defaulted from event_type), server-computed preview
+      (GET scene-plan), apply via the existing auto-sections contract (is_auto
+      wipe, additive, intake consume — full coverage guaranteed by an
+      "Everything Else" catch-all). Suggest-only, per the standing invariant.
+- [x] Engine: scene-taxonomies.ts (caption-phrased prompts, edit-forever-free —
+      nothing persisted at ingest) + scene-plan.ts (pure assignScenes, 6 tests) +
+      migration 036 score_images_by_embedding (EXACT scan, no ANN — and paged:
+      PostgREST's 1000-row cap applies to RPCs too; the first run silently
+      dropped 20 of 1,020 wedding images. Lesson 39 again.).
+- [x] CALIBRATION FINDING: raw argmax let a generic label swallow 96% of the
+      wedding ("Portraits" matches anything with people). Fix = per-label
+      event-mean debiasing — a label only claims images it matches UNUSUALLY
+      well. Wedding now: 7 scenes + 68 Everything Else, 1,020/1,020 covered,
+      multi-membership working (regression test guards the swallow case).
+- [x] Honest-negative verified: a headshots-in-disguise "conference" event puts
+      606/617 in Everything Else rather than inventing scenes — preview makes
+      the mismatch obvious and detection already points at name modes.
 Phase 5 — Cull assist:
 - [ ] "Needs review" filter (blinks/soft focus), Highlights auto-suggest (quality +
       everyone-appears coverage), smart cover candidates.

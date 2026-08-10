@@ -797,6 +797,17 @@ export type Database = {
           similarity: number;
         }[];
       };
+      score_images_by_embedding: {
+        Args: {
+          query_embedding: string;
+          target_user_id: string;
+          target_event_id: string;
+        };
+        Returns: {
+          id: string;
+          similarity: number;
+        }[];
+      };
       search_faces_by_embedding: {
         Args: {
           query_embedding: string;

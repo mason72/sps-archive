@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Loader2, FolderTree, Users, LayoutGrid, Layers, GalleryVerticalEnd } from "lucide-react";
+import { X, Loader2, FolderTree, Users, LayoutGrid, Layers, GalleryVerticalEnd, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -34,12 +34,24 @@ interface SortSectionsModalProps {
   uploading?: { active: boolean; uploaded: number; total: number };
 }
 
-const MODE_META: { mode: PlanMode; label: string; icon: typeof FolderTree; hint: string }[] = [
+/** The modal's modes: the pure name-based planners + the AI scene planner. */
+type UiMode = PlanMode | "scenes";
+
+const MODE_META: { mode: UiMode; label: string; icon: typeof FolderTree; hint: string }[] = [
   { mode: "letter", label: "Letter ranges", icon: FolderTree, hint: "A–C, D–F… balanced & scannable" },
   { mode: "per-person", label: "One per person", icon: Users, hint: "a section per name — small jobs" },
+  { mode: "scenes", label: "By scene", icon: Sparkles, hint: "AI: ceremony, dancing, details…" },
   { mode: "full-set", label: "Basic", icon: GalleryVerticalEnd, hint: "everything in one Full Set" },
   { mode: "even", label: "Even sets", icon: LayoutGrid, hint: "just split into equal groups" },
 ];
+
+interface ScenePlanPreview {
+  taxonomies: { key: string; label: string }[];
+  defaultKey: string;
+  plan: { name: string; count: number }[];
+  indexedCount: number;
+  totalImages: number;
+}
 
 /**
  * SortSectionsModal — the "Sort into sections" preview. Loads the event's
@@ -50,10 +62,16 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
   const [loading, setLoading] = useState(true);
   const [images, setImages] = useState<PlanImage[]>([]);
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
-  const [mode, setMode] = useState<PlanMode>("letter");
+  const [mode, setMode] = useState<UiMode>("letter");
   const [target, setTarget] = useState(300);
   const [stacks, setStacks] = useState(false);
   const [applying, setApplying] = useState(false);
+  // Scene mode: server-computed preview (embeddings live in the DB, the
+  // taxonomy is embedded per request — nothing runs client-side).
+  const [sceneTaxonomy, setSceneTaxonomy] = useState<string | null>(null);
+  const [scenePreview, setScenePreview] = useState<ScenePlanPreview | null>(null);
+  const [sceneLoading, setSceneLoading] = useState(false);
+  const [sceneError, setSceneError] = useState<string | null>(null);
 
   const uploadActive = !!uploading?.active;
 
@@ -130,6 +148,34 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
     return () => window.removeEventListener("keydown", h);
   }, [onClose, applying]);
 
+  // Scene preview: fetched when the mode is entered or the taxonomy changes.
+  useEffect(() => {
+    if (mode !== "scenes") return;
+    let alive = true;
+    setSceneLoading(true);
+    setSceneError(null);
+    const q = sceneTaxonomy ? `?taxonomy=${encodeURIComponent(sceneTaxonomy)}` : "";
+    fetch(`/api/events/${eventId}/scene-plan${q}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error);
+        return (await res.json()) as ScenePlanPreview;
+      })
+      .then((data) => {
+        if (!alive) return;
+        setScenePreview(data);
+        if (!sceneTaxonomy) setSceneTaxonomy(data.defaultKey);
+      })
+      .catch((e: Error) => {
+        if (alive) setSceneError(e.message || "Couldn't build the scene preview");
+      })
+      .finally(() => {
+        if (alive) setSceneLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mode, sceneTaxonomy, eventId]);
+
   // Slider counts people when stacks is on, photos otherwise.
   const stacksApplies = mode === "letter";
   const countPeople = stacksApplies && stacks;
@@ -149,13 +195,23 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, countPeople]);
 
-  // Live plan — the same function the server applies.
+  // Live plan — the same function the server applies (scene mode previews
+  // server-side instead; the pure planners don't know about embeddings).
   const planned = useMemo(() => {
-    if (!images.length) return [];
+    if (mode === "scenes" || !images.length) return [];
     return planAutoSections(images, { mode, target, stacks: countPeople });
   }, [images, mode, target, countPeople]);
 
-  const tooMany = planned.length > 60;
+  const previewSections: { name: string; count: number; people?: number }[] =
+    mode === "scenes"
+      ? scenePreview?.plan ?? []
+      : planned.map((s) => ({
+          name: s.name,
+          count: s.imageIds.length,
+          people: countPeople ? s.people : undefined,
+        }));
+
+  const tooMany = mode !== "scenes" && planned.length > 60;
 
   const apply = useCallback(async () => {
     if (tooMany) return;
@@ -164,7 +220,11 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
       const res = await fetch(`/api/events/${eventId}/auto-sections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, target, stacks: countPeople }),
+        body: JSON.stringify(
+          mode === "scenes"
+            ? { mode, taxonomy: sceneTaxonomy }
+            : { mode, target, stacks: countPeople }
+        ),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -179,7 +239,7 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
     } finally {
       setApplying(false);
     }
-  }, [eventId, mode, target, countPeople, tooMany, onApplied, onClose]);
+  }, [eventId, mode, target, countPeople, sceneTaxonomy, tooMany, onApplied, onClose]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -301,6 +361,36 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                 </button>
               )}
 
+              {/* Scene mode: taxonomy picker + index status */}
+              {mode === "scenes" && (
+                <div className="mt-4">
+                  <label className="mb-1.5 block text-[12px] font-medium text-stone-700">
+                    Event style
+                  </label>
+                  <select
+                    value={sceneTaxonomy ?? scenePreview?.defaultKey ?? "general"}
+                    onChange={(e) => setSceneTaxonomy(e.target.value)}
+                    className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-[13px] text-stone-800 focus:border-stone-400 focus:outline-none"
+                  >
+                    {(scenePreview?.taxonomies ?? [{ key: "general", label: "General" }]).map(
+                      (t) => (
+                        <option key={t.key} value={t.key}>
+                          {t.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  {scenePreview && scenePreview.indexedCount < scenePreview.totalImages && (
+                    <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                      {scenePreview.indexedCount.toLocaleString()} of{" "}
+                      {scenePreview.totalImages.toLocaleString()} photos are AI-indexed so
+                      far — the rest are still processing and would be left in
+                      Everything Else.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Slider — only for modes that balance to a target */}
               {(mode === "letter" || mode === "even") && (
                 <div className="mt-5">
@@ -324,27 +414,44 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
               {/* Live preview of the resulting sections */}
               <div className="mt-5">
                 <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-400">
-                  {planned.length} section{planned.length === 1 ? "" : "s"}
+                  {mode === "scenes" && sceneLoading
+                    ? "Reading your photos…"
+                    : `${previewSections.length} section${previewSections.length === 1 ? "" : "s"}`}
                 </p>
-                {tooMany ? (
+                {mode === "scenes" && sceneError ? (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-[12px] text-amber-700">
+                    {sceneError}
+                  </p>
+                ) : mode === "scenes" && sceneLoading ? (
+                  <div className="flex items-center gap-2 rounded-md bg-stone-50 px-3 py-4 text-[12px] text-stone-400">
+                    <Loader2 size={14} className="animate-spin" /> Matching photos to
+                    scenes — a few seconds…
+                  </div>
+                ) : tooMany ? (
                   <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-[12px] text-amber-700">
                     That&apos;s {planned.length} sections — too many. Raise the limit, or
                     switch off &quot;one per person&quot;.
                   </p>
                 ) : (
                   <div className="max-h-52 space-y-1 overflow-y-auto">
-                    {planned.map((s, i) => (
+                    {previewSections.map((s, i) => (
                       <div
                         key={`${s.name}-${i}`}
                         className="flex items-center justify-between rounded-md bg-stone-50 px-3 py-2 text-[12px]"
                       >
                         <span className="font-medium text-stone-800">{s.name}</span>
                         <span className="text-stone-400">
-                          {s.imageIds.length.toLocaleString()} photos
-                          {countPeople && ` · ${s.people} ppl`}
+                          {s.count.toLocaleString()} photos
+                          {s.people !== undefined && ` · ${s.people} ppl`}
                         </span>
                       </div>
                     ))}
+                    {mode === "scenes" && previewSections.length > 0 && (
+                      <p className="px-1 pt-1 text-[10px] leading-snug text-stone-400">
+                        Photos can appear in more than one scene. Review and rename
+                        anything — these are suggestions, applied only when you sort.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -366,7 +473,13 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                 </button>
                 <button
                   onClick={apply}
-                  disabled={applying || tooMany || planned.length === 0 || uploadActive}
+                  disabled={
+                    applying ||
+                    tooMany ||
+                    previewSections.length === 0 ||
+                    uploadActive ||
+                    (mode === "scenes" && (sceneLoading || !!sceneError))
+                  }
                   className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[13px] font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {applying && <Loader2 size={14} className="animate-spin" />}
@@ -374,7 +487,7 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                     ? "Sorting…"
                     : uploadActive
                     ? "Waiting for upload…"
-                    : `Sort into ${planned.length} section${planned.length === 1 ? "" : "s"}`}
+                    : `Sort into ${previewSections.length} section${previewSections.length === 1 ? "" : "s"}`}
                 </button>
               </div>
             </div>
