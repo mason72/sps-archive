@@ -292,7 +292,7 @@ itself comes through the PIN endpoint.
 
 The per-image PIN used to be enforced only in the browser while every original sat
 presigned in the JSON, so a guest past the password gate could read them out of the
-Network tab (pre-alpha audit 2026-08-10, lesson #55).
+Network tab (pre-alpha audit 2026-08-10, lesson #56).
 
 **Both PIN gates fail CLOSED.** `authorizeShareDownload` refuses with 403 when a
 `require_pin_*` flag is set but `download_pin` is null — a reachable state, since the
