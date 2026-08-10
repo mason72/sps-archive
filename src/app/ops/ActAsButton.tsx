@@ -19,9 +19,9 @@ export function ActAsButton({ userId, email }: { userId: string; email: string }
     <button
       onClick={actAs}
       title={`Work in the app as ${email}`}
-      className="text-xs text-stone-500 underline-offset-2 hover:text-emerald-700 hover:underline"
+      className="rounded border border-emerald-600/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 transition-colors hover:bg-emerald-50"
     >
-      work&nbsp;as
+      work as
     </button>
   );
 }
