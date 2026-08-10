@@ -151,7 +151,7 @@ export async function GET(
     // /api/events/[eventId]/favorites endpoint instead).
     const { data: share } = await supabase
       .from("shares")
-      .select("id")
+      .select("id, share_type, image_ids")
       .eq("id", shareId)
       .eq("slug", slug)
       .eq("is_active", true)
@@ -167,11 +167,18 @@ export async function GET(
 
     if (error) throw error;
 
+    // Ids only, but still scoped: favorite rows have a second writer (the
+    // photographer's "Pick"), so this list can name images the share's own
+    // curation excludes — and the client turns each id into a fav-thumb URL.
+    const allowed = shareScopeIdFilter(resolveShareImageScope(share));
+
     return NextResponse.json({
-      favorites: (data || []).map((f) => ({
-        imageId: f.image_id,
-        createdAt: f.created_at,
-      })),
+      favorites: (data || [])
+        .filter((f) => !allowed || allowed.has(f.image_id))
+        .map((f) => ({
+          imageId: f.image_id,
+          createdAt: f.created_at,
+        })),
     });
   } catch (error) {
     console.error("List favorites error:", error);

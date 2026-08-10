@@ -1,4 +1,5 @@
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
@@ -81,12 +82,15 @@ export async function enrichEvents(
   const fullLocked = new Set<string>();
   const { data: shares } = await supabase
     .from("shares")
-    .select("event_id, slug, share_type, created_at")
+    .select("event_id, slug, share_type, image_ids, created_at")
     .in("event_id", eventIds)
     .eq("is_active", true)
     .order("created_at", { ascending: false }); // newest first
   for (const s of shares ?? []) {
     if (fullLocked.has(s.event_id)) continue;
+    // The any-type fallback must not offer a share the guest routes refuse to
+    // serve — that would be a dashboard link straight to a 404.
+    if (resolveShareImageScope(s).kind === "none") continue;
     if (s.share_type === "full") {
       shareSlugByEvent.set(s.event_id, s.slug);
       fullLocked.add(s.event_id);

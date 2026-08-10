@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
  * GET /api/gallery/[slug]/fav-thumb/[imageId]
  *
  * Durable thumbnail URL for the favorites-digest email's preview strip (same
  * pattern as /cover: emails outlive presigns, so each open 302s to a fresh
- * one). Serves ONLY images that are actually favorited on this share — the
- * favorite row is the authorization — and dies with the share.
+ * one). Serves ONLY images that are actually favorited on this share — and
+ * that the share's own scope exposes — and dies with the share.
+ *
+ * The scope check is what makes this route safe to reason about alone. A
+ * favorite row is DERIVED state with more than one writer (the guest endpoint
+ * and the photographer's "Pick" in /api/images/batch), so "a row exists"
+ * cannot be the whole authorization: a pick made outside a selection share's
+ * curation would otherwise hand its thumbnail to anyone holding the slug.
+ * Guard the reader, because the reader is what serves the pixels.
  */
 export async function GET(
   _request: NextRequest,
@@ -20,7 +28,7 @@ export async function GET(
 
     const { data: share } = await supabase
       .from("shares")
-      .select("id, expires_at")
+      .select("id, expires_at, share_type, image_ids")
       .eq("slug", slug)
       .eq("is_active", true)
       .single();
@@ -30,6 +38,11 @@ export async function GET(
     }
     if (share.expires_at && new Date(share.expires_at) < new Date()) {
       return NextResponse.json({ error: "Expired" }, { status: 410 });
+    }
+
+    const allowed = shareScopeIdFilter(resolveShareImageScope(share));
+    if (allowed && !allowed.has(imageId)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const { data: favorite } = await supabase

@@ -61,11 +61,17 @@ function resolveQuery(table: string, ops: QueryOp[]) {
   return { data: isSingle ? null : [], error: null };
 }
 
+/**
+ * Each from() gets its own builder that closes over ITS ops array and returns
+ * ITSELF from every chained call. Nothing is shared at module scope, so two
+ * builders alive at once (a future Promise.all of two queries) stay separate
+ * instead of silently cross-wiring their recorded ops.
+ */
 function makeBuilder(table: string) {
   const ops: QueryOp[] = [];
   db.ops[table] = ops;
-  const chain: Record<string, unknown> = {};
-  return new Proxy(chain, {
+  const self: Record<string, unknown> = {};
+  const proxy: unknown = new Proxy(self, {
     get(_target, prop) {
       const name = String(prop);
       // The route awaits some builders directly (paginated selects) and calls
@@ -85,17 +91,15 @@ function makeBuilder(table: string) {
         return proxy;
       };
     },
-  }) as never as Record<string, never> & { [k: string]: never };
+  });
+  return proxy;
 }
-
-let proxy: unknown;
 
 vi.mock("@/lib/supabase/server", () => ({
   createServiceClient: () => ({
     from: (table: string) => {
       db.tables.push(table);
-      proxy = makeBuilder(table);
-      return proxy;
+      return makeBuilder(table);
     },
     rpc: async () => ({ data: null, error: null }),
   }),

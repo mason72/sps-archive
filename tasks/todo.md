@@ -79,6 +79,13 @@ origin fallback removed + rate limited ("forgot" scope).
       section-share route test; mutation-checked (reverting the default to
       `event` turns 8 red). Live DB confirms 22 active shares, all full/selection
       — zero behavior change, verified by diffing prod vs local `/cover` responses.
+      Second round after an independent diff review: `/fav-thumb` was serving any
+      image with a favorites row (the row WAS the authorization) — and that row
+      has a second writer, the photographer's Pick in `/api/images/batch`, which
+      had no scope check. Reader guarded (the load-bearing half), both writers
+      too, plus the favorites list and `enrich.ts`'s dashboard-link picker.
+      23 scope tests; 347 green. Zero live favorite rows sit on selection shares,
+      so nothing a customer can see changes.
 - [ ] LOWs: validate Stripe priceId against plan map (webhook falls back to
       "pro"!); scope site/gallery DELETE website-sections query; ownership-check
       emails/send templateId + eventId before writing to email_sends/usage_events;
