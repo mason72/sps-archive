@@ -94,18 +94,27 @@ origin fallback removed + rate limited ("forgot" scope).
       `image_ids` — mattered because `/fav-thumb/[imageId]` treats a favorite row
       as authorization to serve that thumbnail (UUID-guess-gated, but real).
 
-### Phase 2 — ops.pixeltrunk.com dashboard
-- [ ] ops.pixeltrunk.com domain on the Vercel project + DNS; middleware host branch →
-      `/ops`, 404/redirect for non-admins (is_admin check, fail closed); every /api/ops
-      route re-verifies is_admin server-side (getAuthUser is the SERVICE client — IDOR rule).
-- [ ] Panels: overview (users, total storage, month-to-date cost, projected month, fixed
-      overhead line for Vercel/Supabase/Modal minimums), per-user cost table (the
-      leaderboard), AI activity feed, errors triage (by user), signups/invites.
-- [ ] Invite panel: add email → allowed_signups insert + branded Resend invite with
-      signup link; show invited vs joined status.
-- [ ] Design: Pixeltrunk system (stone/white, emerald accent, Playfair headlines) —
-      NOT the SPS teal. Steal SPSv2's layout patterns (eyebrow labels, big stat
-      numerals, dependency-free sparklines), not its palette.
+### Phase 2 — ops.pixeltrunk.com dashboard — SHIPPED 2026-08-10 (9349dad)
+- [x] /ops live on app.pixeltrunk.com/ops. Middleware host branch rewrites
+      ops.pixeltrunk.com → /ops; layout gate (login redirect / non-admin 404) +
+      requireAdmin() (src/lib/auth/admin.ts, the ONE is_admin home) on every
+      /api/ops route. Prod-verified: unauth 307, non-admin page AND api 404
+      (QA'd with a throwaway admin account, demoted live, then deleted).
+- [x] Panels: stat row, 30d sparkline, cost-by-account, invites, overhead
+      (PLATFORM_OVERHEAD_MONTHLY in costs.ts — ESTIMATES, Mason to correct),
+      activity feed, errors triage. getUsageOverview() in usage/summary.ts is
+      the one compute home — Phase 3 weekly email MUST reuse it.
+- [x] Invite panel: whitelist + branded Resend invite (tested against
+      delivered@resend.dev, then revoked; revoke blocked for joined rows).
+- [ ] DNS: ops.pixeltrunk.com attached to the Vercel project; needs Cloudflare
+      A record `ops → 76.76.21.21` (DNS-only/grey cloud). Cloudflare dashboard
+      needs Mason's login (no DNS-scoped API token on this machine; only the
+      Stream token). Until then app.pixeltrunk.com/ops is canonical.
+- [x] Design: Pixeltrunk system (stone/white, emerald accent, Playfair
+      headlines, eyebrow labels, CSS-only sparkline). No SPS teal.
+- Polish backlog: reconciler nightly reports render in the errors panel
+      (they ARE system_errors rows) — consider a separate "reports" section;
+      browser-pane a11y tree flaked during QA (tooling, not app).
 
 ### Phase 3 — Alerts + weekly pricing summary
 - [ ] Daily Inngest cron: per-user daily cost; alert via reportSystemError rail when
