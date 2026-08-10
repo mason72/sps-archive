@@ -8,6 +8,9 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 
+import { extractPersonName } from "@/lib/gallery/stacks";
+import { isPersonLike } from "@/lib/sections/auto-plan";
+
 import {
   centroidOf,
   planClustering,
@@ -23,23 +26,29 @@ export interface ClusterResult {
   assignedToExisting: number;
   personsCreated: number;
   personsPruned: number;
+  /** Persons auto-named from filename consensus this run (fill-nulls-only). */
+  personsNamed: number;
   unassigned: number;
 }
 
 /** Page through all embedded faces for an event (PostgREST caps at 1000). */
-async function fetchEventFaces(supabase: SupabaseDB, eventId: string): Promise<FaceVec[]> {
-  const out: FaceVec[] = [];
+async function fetchEventFaces(
+  supabase: SupabaseDB,
+  eventId: string
+): Promise<{ faces: FaceVec[]; filenameOf: Map<string, string> }> {
+  const faces: FaceVec[] = [];
+  const filenameOf = new Map<string, string>();
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
       .from("faces")
-      .select("id, image_id, embedding, quality, person_id, images!inner(event_id)")
+      .select("id, image_id, embedding, quality, person_id, images!inner(event_id, original_filename)")
       .eq("images.event_id", eventId)
       .not("embedding", "is", null)
       .order("id", { ascending: true })
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
     for (const row of data ?? []) {
-      out.push({
+      faces.push({
         id: row.id,
         imageId: row.image_id,
         // pgvector comes back as its text form, which is valid JSON.
@@ -47,10 +56,48 @@ async function fetchEventFaces(supabase: SupabaseDB, eventId: string): Promise<F
         quality: row.quality,
         personId: row.person_id,
       });
+      const img = row.images as unknown as { original_filename: string };
+      filenameOf.set(row.image_id, img.original_filename);
     }
     if (!data || data.length < 1000) break;
   }
-  return out;
+  return { faces, filenameOf };
+}
+
+/**
+ * Filename-derived name for a person, when the cluster's own files agree.
+ * Headshot exports are usually named after the subject — that consensus IS
+ * the name (Mason, 2026-08-10: "they are named after the individuals").
+ * Requirements: ≥80% of members share one extracted name, ≥2 supporting
+ * files, and it must look like a person-name (photobooth/camera-code
+ * filenames fail and stay blank). Fill-nulls-only — never overwrites.
+ */
+export function consensusName(
+  memberImageIds: string[],
+  filenameOf: Map<string, string>,
+  extractName: (filename: string) => string,
+  personLike: (name: string) => boolean
+): string | null {
+  const counts = new Map<string, { count: number; display: string }>();
+  let considered = 0;
+  for (const imageId of new Set(memberImageIds)) {
+    const filename = filenameOf.get(imageId);
+    if (!filename) continue;
+    const name = extractName(filename).trim();
+    considered += 1;
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const cur = counts.get(key) ?? { count: 0, display: name };
+    cur.count += 1;
+    counts.set(key, cur);
+  }
+  if (!considered) return null;
+  let best: { count: number; display: string } | null = null;
+  for (const v of counts.values()) {
+    if (!best || v.count > best.count) best = v;
+  }
+  if (!best || best.count < 2 || best.count / considered < 0.8) return null;
+  return personLike(best.display) ? best.display : null;
 }
 
 export async function clusterEventFaces(
@@ -58,9 +105,9 @@ export async function clusterEventFaces(
   eventId: string,
   options?: ClusterOptions
 ): Promise<ClusterResult> {
-  const faces = await fetchEventFaces(supabase, eventId);
+  const { faces, filenameOf } = await fetchEventFaces(supabase, eventId);
   if (!faces.length) {
-    return { totalFaces: 0, assignedToExisting: 0, personsCreated: 0, personsPruned: 0, unassigned: 0 };
+    return { totalFaces: 0, assignedToExisting: 0, personsCreated: 0, personsPruned: 0, personsNamed: 0, unassigned: 0 };
   }
 
   const { data: personRows, error: pErr } = await supabase
@@ -153,7 +200,9 @@ export async function clusterEventFaces(
     .eq("event_id", eventId);
   if (apErr) throw apErr;
 
+  const imageIdOfFace = new Map(faces.map((f) => [f.id, f.imageId]));
   let personsPruned = 0;
+  let personsNamed = 0;
   for (const p of allPersons ?? []) {
     const list = members.get(p.id) ?? [];
     if (!list.length) {
@@ -165,10 +214,28 @@ export async function clusterEventFaces(
       continue;
     }
     const representative = list[0].id; // quality-desc from the query order
-    if (p.face_count !== list.length || p.representative_face_id !== representative) {
+    // Fill-nulls-only filename consensus naming (never overwrites a name).
+    const autoName = p.name
+      ? null
+      : consensusName(
+          list.map((m) => imageIdOfFace.get(m.id)!).filter(Boolean),
+          filenameOf,
+          extractPersonName,
+          isPersonLike
+        );
+    if (autoName) personsNamed += 1;
+    if (
+      p.face_count !== list.length ||
+      p.representative_face_id !== representative ||
+      autoName
+    ) {
       const { error } = await supabase
         .from("persons")
-        .update({ face_count: list.length, representative_face_id: representative })
+        .update({
+          face_count: list.length,
+          representative_face_id: representative,
+          ...(autoName ? { name: autoName } : {}),
+        })
         .eq("id", p.id);
       if (error) throw error;
     }
@@ -179,6 +246,7 @@ export async function clusterEventFaces(
     assignedToExisting: plan.assignments.size,
     personsCreated,
     personsPruned,
+    personsNamed,
     unassigned: plan.unassigned.length,
   };
 }
