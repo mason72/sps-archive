@@ -1232,3 +1232,51 @@ endpoints, `XMLHttpRequest` for the binary PUT):
 ### Still open
 - [ ] Two identical drops into the same section render as two indistinguishable
       dock rows. Harmless, but there's no way to tell them apart.
+
+---
+
+## Server-enforce the per-image download PIN (2026-08-10)
+
+Pre-alpha audit finding: `require_pin_individual` was enforced only in the
+browser. Details and the general rule live in `tasks/lessons.md` #54; the
+architecture is in `docs/TECHNICAL.md` (Sharing & public galleries) and project
+memory (`guest-originals-withholding-rule`).
+
+- [x] `originalsWithheld = !allow_download || require_pin_individual` gates
+      `downloadUrl`, `originalUrl` **and** `settings.coverImageUrl` in
+      `GET /api/gallery/[slug]`
+- [x] `POST /api/gallery/[slug]/image-download` — same `authorizeShareDownload`
+      as the bulk ZIP, `kind: "individual"`, 10-minute presigned URL
+- [x] Share-membership predicate extracted (`shareImages`/`selectShareImage`) so
+      the bulk and per-image paths resolve identically
+- [x] Guest client fetches the URL at click time; download buttons render off
+      the share's permission, not off a URL in the payload
+- [x] 24 server checks + full browser flow, both PIN states; `next build`, tsc
+      and lint clean
+
+### Review
+The instinct worth keeping: the reported bug was `downloadUrl`, but
+`getDisplayKey()` returns the original key unchanged for web-viewable formats,
+so `originalUrl` was serving the identical bytes. Fixing only what was reported
+would have shipped a security fix that left the same hole open one field over.
+Measured proof: 670,573 B vs 41,728 B for the same photo. The generalized
+assertion — `JSON.stringify(payload).includes("/originals/")` — is what catches
+the field you forgot; a per-field check by definition cannot.
+
+No live gallery changed behaviour: zero active shares set any PIN flag or have
+downloads off. Measuring that first turned "does this degrade customer
+galleries?" from a worry into a fact.
+
+### Still open (product decisions, not defects)
+- [ ] `require_pin_individual` and `require_pin_bulk` are independent toggles,
+      so gating individual downloads while leaving bulk open lets a guest take
+      everything as one ZIP without a PIN — the individual gate then buys
+      nothing. Either couple them in the UI or warn on that combination.
+- [ ] A share can carry `require_pin_individual` with a null `download_pin`
+      (the sidebar auto-generates one, but the field can be cleared afterwards).
+      That share shows a PIN modal no PIN can satisfy — `verify-pin` 404s on a
+      null pin. Pre-existing for the bulk flag too.
+- [ ] `opengraph-image.tsx` presigns the **full original** to rasterize a
+      1200×630 card on a public, password-exempt route. Not a leak (Satori
+      fetches server-side and the response is a PNG), but it downloads a
+      20MB+ original to make a thumbnail — `thumb-lg` would do.
