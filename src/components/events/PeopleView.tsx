@@ -527,6 +527,10 @@ export function PeopleView({
             resolve({ action: "dismiss", key: mergeReview.key }, false);
             setMergeReview(null);
           }}
+          onRenamed={() => {
+            setMergeReview(null);
+            load();
+          }}
           onClose={() => setMergeReview(null)}
         />
       )}
@@ -1252,6 +1256,7 @@ function MergeCompareModal({
   imageById,
   onMerge,
   onDismiss,
+  onRenamed,
   onClose,
 }: {
   merge: { key: string; fromId: string; intoId: string; name: string };
@@ -1260,16 +1265,69 @@ function MergeCompareModal({
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   onMerge: () => void;
   onDismiss: () => void;
+  /** A side was renamed — the merge question may have dissolved; reload. */
+  onRenamed: () => void;
   onClose: () => void;
 }) {
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
-  const column = (person: Person | null, label: string) => (
+  // Per-side rename: when it's genuinely TWO people sharing a misfiled name
+  // (seen live: a woman's photos exported under Daniel Nelson's filename),
+  // the fix is renaming one side — the name collision, and this card, then
+  // dissolve on their own. "Keep separate" would leave two Daniel Nelsons.
+  const [editingSide, setEditingSide] = useState<0 | 1 | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const saveRename = async (person: Person | null) => {
+    const side = editingSide;
+    setEditingSide(null);
+    const name = nameDraft.trim();
+    if (!person || side === null || !name || name === person.name) return;
+    try {
+      const res = await fetch(`/api/people/${person.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`Renamed to ${name}`);
+      onRenamed();
+    } catch {
+      toast.error("Couldn't save the name");
+    }
+  };
+  const column = (person: Person | null, label: string, side: 0 | 1) => (
     <div className="min-h-0 flex flex-col">
-      <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium shrink-0">
-        {label} · {person?.imageIds.length ?? 0} photo
-        {(person?.imageIds.length ?? 0) === 1 ? "" : "s"}
-      </p>
+      <div className="mb-2 flex items-baseline justify-between gap-3 shrink-0">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
+          {label} · {person?.imageIds.length ?? 0} photo
+          {(person?.imageIds.length ?? 0) === 1 ? "" : "s"}
+        </p>
+        {editingSide === side ? (
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => saveRename(person)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveRename(person);
+              if (e.key === "Escape") setEditingSide(null);
+            }}
+            placeholder="Their real name…"
+            className="w-44 border-b border-stone-300 bg-transparent text-[12px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setNameDraft(person?.name ?? "");
+              setEditingSide(side);
+            }}
+            className="text-[11px] text-stone-400 underline hover:text-stone-600 transition-colors"
+            title="Different person? Give this side its real name"
+          >
+            rename this person
+          </button>
+        )}
+      </div>
       <div className="min-h-0 overflow-y-auto pr-1">
         <div className="grid grid-cols-3 gap-1.5">
           {(person?.imageIds ?? []).map((id) => {
@@ -1315,7 +1373,8 @@ function MergeCompareModal({
               Same person? {merge.name}
             </h2>
             <p className="text-[13px] text-stone-500 mt-1">
-              Two clusters share this name — compare their photos before merging.
+              Two clusters share this name. Merge if they&apos;re the same person —
+              or rename a side if the files mislabeled someone else.
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -1348,8 +1407,8 @@ function MergeCompareModal({
           </div>
         </div>
         <div className="flex-1 min-h-0 grid grid-cols-2 gap-8">
-          {column(personA, "First cluster")}
-          {column(personB, "Second cluster")}
+          {column(personA, "First cluster", 0)}
+          {column(personB, "Second cluster", 1)}
         </div>
       </div>
     </div>
