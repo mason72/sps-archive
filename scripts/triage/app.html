@@ -50,10 +50,20 @@
   }
   .hint b { font-weight:600; }
 
+  /* Lives OUTSIDE #stage so a re-render can't destroy it mid-animation. */
+  #fx { position:fixed; inset:0; pointer-events:none; z-index:60; }
   .verdict {
-    position:absolute; top:19%; width:190px; text-align:center;
-    opacity:0; transform:scale(.68); pointer-events:none; z-index:2;
+    position:absolute; top:33%; width:190px; text-align:center;
+    opacity:0; transform:scale(.68); pointer-events:none;
   }
+  /* the keyboard path gets a stamp, since there's no drag to reveal anything */
+  @keyframes stamp {
+    0%   { opacity:0; transform:scale(.55) rotate(-9deg); }
+    20%  { opacity:1; transform:scale(1.14) rotate(3deg); }
+    60%  { opacity:1; transform:scale(1)    rotate(0deg); }
+    100% { opacity:0; transform:scale(1.04) rotate(0deg); }
+  }
+  .verdict.stamping { animation:stamp .5s ease-out forwards; }
   .verdict img {
     width:158px; height:158px; object-fit:contain; display:block; margin:0 auto;
     filter:drop-shadow(0 6px 16px rgba(28,25,23,.45));
@@ -65,8 +75,8 @@
     letter-spacing:.12em; text-transform:uppercase;
     box-shadow:0 2px 10px rgba(28,25,23,.28);
   }
-  .verdict.keep  { left:12px;  color:var(--emerald); }
-  .verdict.trash { right:12px; color:var(--rose); }
+  .verdict.keep  { left:  calc(50% - 272px); color:var(--emerald); }
+  .verdict.trash { right: calc(50% - 272px); color:var(--rose); }
 
   footer img { width:19px; height:19px; object-fit:contain; vertical-align:-5px; margin-right:3px; }
 
@@ -126,6 +136,11 @@
 </header>
 
 <main id="stage"></main>
+
+<div id="fx" aria-hidden="true">
+  <div class="verdict keep" id="v-keep"><img src="/assets/vault-a-cut.png" alt=""><span>Keep</span></div>
+  <div class="verdict trash" id="v-trash"><img src="/assets/dumpster-a-cut.png" alt=""><span>Trash</span></div>
+</div>
 
 <footer>
   <span><kbd>←</kbd> <img src="/assets/vault-a-cut.png" alt="">keep</span>
@@ -370,8 +385,6 @@ function render() {
 
   stage.innerHTML = `
     <div class="card" id="card">
-      <div class="verdict keep" id="v-keep"><img src="/assets/vault-a-cut.png" alt=""><span>Keep</span></div>
-      <div class="verdict trash" id="v-trash"><img src="/assets/dumpster-a-cut.png" alt=""><span>Trash</span></div>
       <img src="${imgLarge(rec[4])}" alt="" draggable="false" loading="eager">
       <div class="meta">
         <h2 class="serif">${esc(rec[1])}</h2>
@@ -492,12 +505,14 @@ function wireDrag(card, id) {
 
 function commit(id, verdict) {
   const card = document.getElementById("card");
-  // Flash the illustration on the keyboard path too, not just on drag.
+  // Stamp the illustration. It lives in #fx, so the re-render below can't kill it.
   const badge = document.getElementById(verdict === "keep" ? "v-keep" : "v-trash");
   if (badge) {
-    badge.style.transition = "opacity .12s, transform .12s";
-    badge.style.opacity = "1";
-    badge.style.transform = "scale(1)";
+    badge.classList.remove("stamping");
+    badge.style.transition = ""; badge.style.opacity = ""; badge.style.transform = "";
+    void badge.offsetWidth; // force reflow so the animation restarts on rapid input
+    badge.classList.add("stamping");
+    badge.addEventListener("animationend", () => badge.classList.remove("stamping"), { once: true });
   }
   if (card) {
     card.style.transition = "transform .22s, opacity .22s";
