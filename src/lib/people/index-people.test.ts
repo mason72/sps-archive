@@ -4,6 +4,7 @@ import {
   looksLikePersonName,
   normalizeNameKey,
   personKeyForImage,
+  preferredSpelling,
 } from "./index-people";
 
 describe("looksLikePersonName", () => {
@@ -87,5 +88,24 @@ describe("personKeyForImage", () => {
     // first, or "?person=IMG" would filter an event to every IMG_ file.
     expect(personKeyForImage(null, "IMG_4532.jpg")).toBe("img");
     expect(looksLikePersonName("IMG_4532")).toBe(false);
+  });
+});
+
+describe("preferredSpelling", () => {
+  it("prefers the person-like spelling over the run-together blob", () => {
+    // Brittany Reed's two Appfolio shoots: "Brittany Reed_26-08-05_..." and
+    // "brittanyreed_26-07-14_...". Same person, same key, one readable label.
+    expect(preferredSpelling("brittanyreed", "Brittany Reed")).toBe("Brittany Reed");
+    expect(preferredSpelling("Brittany Reed", "brittanyreed")).toBe("Brittany Reed");
+  });
+
+  it("falls back to the longer spelling when both are person-like", () => {
+    expect(preferredSpelling("Anne Brown", "Anne Elise Brown")).toBe("Anne Elise Brown");
+  });
+
+  it("is order-independent", () => {
+    expect(preferredSpelling("aaroncote", "Aaron Cote")).toBe(
+      preferredSpelling("Aaron Cote", "aaroncote")
+    );
   });
 });

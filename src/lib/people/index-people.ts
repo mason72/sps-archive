@@ -102,6 +102,20 @@ export function normalizeNameKey(name: string): string {
 }
 
 /**
+ * Of two spellings of the SAME identity, the one to show a human.
+ * Person-like ("Brittany Reed") always beats a run-together filename blob
+ * ("brittanyreed"); between two of the same kind, the longer one carries more
+ * information. Order-independent, so the label doesn't depend on which shoot
+ * the scan reached first.
+ */
+export function preferredSpelling(a: string, b: string): string {
+  const aPerson = looksLikePersonName(a);
+  const bPerson = looksLikePersonName(b);
+  if (aPerson !== bPerson) return aPerson ? a : b;
+  return b.length > a.length ? b : a;
+}
+
+/**
  * The identity of the person in one photo, as a comparable key — the whole
  * chain (parse → normalize) in one place.
  *
@@ -215,7 +229,9 @@ export async function buildPersonDetail(
     const parsed = personNameFromParts(row.parsed_name, row.original_filename).trim();
     const ev = eventById.get(row.event_id);
     if (!ev) continue;
-    if (parsed.length > display.length) display = parsed;
+    // Same spelling rule as the index — the two must agree on her label as
+    // well as her count.
+    display = preferredSpelling(display, parsed);
 
     const group =
       byEvent.get(row.event_id) ??
@@ -304,17 +320,42 @@ export async function buildPeopleIndex(
     { name: string; events: Map<string, PersonEventAppearance & { bestScore: number }> }
   >();
 
+  // Pass 1: which identities has the corpus SPELLED like a person somewhere?
+  //
+  // `looksLikePersonName` needs two words, and a filename like
+  // "brittanyreed_26-07-14_Appfolio_2237.jpg" has no camel boundary to split
+  // on — so her July shoot parsed to one lowercase blob and was thrown away,
+  // while the same person's "Brittany Reed_26-08-05_..." files survived. She
+  // showed as one event instead of two. Both spellings normalize to the SAME
+  // key, so the corpus can vouch for the blob: admit it only when some other
+  // photo, anywhere in the archive, writes that identity person-like. No new
+  // threshold, and a venue can't sneak in unless it also appears as a
+  // plausible human name elsewhere.
+  const parsedByRow = new Map<string, { name: string; key: string }>();
+  const vouched = new Set<string>();
   for (const row of rows) {
     const name = personNameFromParts(row.parsed_name, row.original_filename)?.trim();
-    if (!name || !looksLikePersonName(name)) continue;
+    if (!name) continue;
     const key = normalizeNameKey(name);
     if (!key) continue;
+    parsedByRow.set(row.id, { name, key });
+    if (looksLikePersonName(name)) vouched.add(key);
+  }
+
+  for (const row of rows) {
+    const parsedRow = parsedByRow.get(row.id);
+    if (!parsedRow) continue;
+    const { name, key } = parsedRow;
+    if (!vouched.has(key)) continue;
     const ev = eventById.get(row.event_id);
     if (!ev) continue;
 
     const person = people.get(key) ?? { name, events: new Map() };
-    // Keep the most complete-looking spelling (longest) as the display name.
-    if (name.length > person.name.length) person.name = name;
+    // Display name: a person-like spelling ALWAYS beats a blob, and among
+    // equals the longest wins. Never show "brittanyreed" when the archive
+    // also contains "Brittany Reed" — leaving this to string length alone
+    // makes the label depend on which shoot happened to be longer.
+    person.name = preferredSpelling(person.name, name);
 
     const appearance =
       person.events.get(row.event_id) ??
