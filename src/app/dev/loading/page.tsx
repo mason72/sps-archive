@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ElephantWalk, type ElephantCadence } from "@/components/brand/ElephantWalk";
+import { PassingPhotos } from "@/components/brand/passing-photos";
 
 /**
  * /dev/loading — the walking-elephant playground.
@@ -85,7 +86,7 @@ export default function LoadingPlayground() {
 
         <section>
           <p className="label-caps mb-5">
-            Carrying photographs — the SPS import wait
+            Carrying photographs — explicit prop (the SPS import)
           </p>
           <div className="border border-stone-100 p-10">
             <ElephantWalk
@@ -96,6 +97,28 @@ export default function LoadingPlayground() {
               detail="61 across so far"
             />
           </div>
+        </section>
+
+        <section>
+          <p className="label-caps mb-5">
+            Same thing from CONTEXT — how every other surface gets it
+          </p>
+          <p className="mb-5 max-w-md text-[13px] text-stone-400">
+            No prop here. The surface declares its photos once with{" "}
+            <code className="text-stone-600">&lt;PassingPhotos&gt;</code> and any
+            loader inside picks them up — so an event page walks through that
+            event, a gallery through that gallery.
+          </p>
+          <PassingPhotos photos={PASSING_SAMPLE}>
+            <div className="border border-stone-100 p-10">
+              <ElephantWalk
+                cadence={cadence}
+                cycle={cycle}
+                message={'Looking for "dancing"…'}
+                detail="Reading the photos themselves."
+              />
+            </div>
+          </PassingPhotos>
         </section>
 
         <section>

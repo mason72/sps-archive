@@ -10,6 +10,7 @@ import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
+import { PassingPhotos } from "@/components/brand/passing-photos";
 import { toast } from "sonner";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
@@ -921,6 +922,10 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   } as React.CSSProperties;
 
   return (
+    /* Loaders in here — the selfie match especially, which is a GPU round-trip a
+       guest waits on — walk the elephant through THIS gallery's photos. Same
+       thumbnails the grid already rendered, so no extra fetching. */
+    <PassingPhotos photos={gallery.images.map((i) => i.thumbnailUrl)}>
     <div className={`min-h-screen ${bodyClass}`} style={{ ...brandStyles, backgroundColor: colors.background }}>
       {/* ─── Logo + Title above cover ─── */}
       {titleAboveCover && (
@@ -1632,6 +1637,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         />
       )}
     </div>
+    </PassingPhotos>
   );
 }
 

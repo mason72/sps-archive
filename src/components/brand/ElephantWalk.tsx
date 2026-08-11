@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { usePassingPhotos } from "./passing-photos";
 
 /**
  * The walking elephant — a cut-out puppet rig of the real logo.
@@ -409,6 +410,13 @@ function PhotoBand({
 }) {
   if (!photos.length) return null;
 
+  // One frame for the whole band, and one placement — both copies share them.
+  const n = seed * 17;
+  const photo = photos[seed % photos.length];
+  const left = 16 + (n % 11);
+  const lift = (n % 5) * 1.6;
+  const tilt = ((n % 9) - 4) * 1.1;
+
   return (
     <div
       className="pointer-events-none absolute inset-y-0 left-0 flex"
@@ -423,38 +431,39 @@ function PhotoBand({
           makes a sighting rare and the road mostly empty. Three per copy read as
           a parade (Mason: "too many... should be a bit more sporadic sort of
           like the trees"), and a parade is a UI element where this wants to be
-          scenery. */}
-      {[0, 1].map((copy) => {
-        const n = seed * 17 + copy * 5;
-        const photo = photos[(seed + copy) % photos.length];
-        // Deterministic placement — a little vertical wander and a tilt, so it
-        // reads as a print being carried past rather than a slot in a grid.
-        const left = 16 + copy * 11 + (n % 9);
-        const lift = (n % 5) * 1.6;
-        const tilt = ((n % 9) - 4) * 1.1;
-        return (
-          <div key={copy} className="relative h-full w-1/2 shrink-0">
-            <div
-              className="absolute bg-white p-[3px] shadow-[0_2px_10px_rgba(28,25,23,0.18)]"
-              style={{
-                left: `${left}%`,
-                bottom: `calc(${bottom} + ${lift}%)`,
-                width: `${width}%`,
-                transform: `rotate(${tilt}deg)`,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={photo}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="block aspect-[3/2] w-full object-cover"
-              />
-            </div>
+          scenery.
+
+          The two copies are IDENTICAL — same photo, same offsets. That is what
+          makes a `translateX(-50%)` loop seamless: after half the band travels,
+          copy 1 lands exactly where copy 0 was. Giving them different photos put
+          a visible identity swap at the loop point, mid-screen (Mason: "the
+          large/front image flip and change about halfway across — it starts as
+          the full elephant and then changes about the midpoint to a single teal
+          shape"). Variety comes from the two BANDS carrying different frames and
+          from the caller rotating the set over time, never from the copies
+          disagreeing. */}
+      {[0, 1].map((copy) => (
+        <div key={copy} className="relative h-full w-1/2 shrink-0">
+          <div
+            className="absolute bg-white p-[3px] shadow-[0_2px_10px_rgba(28,25,23,0.18)]"
+            style={{
+              left: `${left}%`,
+              bottom: `calc(${bottom} + ${lift}%)`,
+              width: `${width}%`,
+              transform: `rotate(${tilt}deg)`,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="block aspect-[3/2] w-full object-cover"
+            />
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -477,8 +486,11 @@ export function ElephantWalk({
   trees?: boolean;
   /**
    * Photo URLs to drift past at depth — use small thumbnails, not originals.
-   * Intended for long waits where the work IS photographs moving (the SPS
-   * import), so the wait shows its own subject.
+   *
+   * Usually you should NOT pass this: wrap the surface in `<PassingPhotos>`
+   * instead and every loader inside it picks up its own context. This prop is
+   * for the case where the photos aren't the surface's own — the SPS import
+   * shows frames that are still on SPS and not yet in the archive.
    */
   passing?: string[];
   message?: string;
@@ -487,6 +499,12 @@ export function ElephantWalk({
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const ease = cadence === "stopmotion" ? "step-end" : "ease-in-out";
+
+  // Ambient photos from whatever surface this is loading inside — see
+  // passing-photos.tsx. An explicit `passing` prop wins, for the one case where
+  // the photos aren't the surface's own (the SPS import).
+  const ambient = usePassingPhotos();
+  const carried = passing ?? ambient;
 
   // Lateral sequence: LH → LF → RH → RF, each a quarter cycle apart. Negative
   // delays start every leg already mid-stride instead of all planted at once.
@@ -571,9 +589,9 @@ export function ElephantWalk({
 
         {/* Photos at distance — behind him, small, unhurried, and faint enough
             to sit in the same aerial perspective as the far acacias. */}
-        {trees && passing && passing.length > 0 && (
+        {trees && carried.length > 0 && (
           <PhotoBand
-            photos={passing}
+            photos={carried}
             anim={`drift${uid}`}
             duration={38}
             timing={cadence === "stopmotion" ? "steps(48, end)" : "linear"}
@@ -639,9 +657,9 @@ export function ElephantWalk({
             sails across his shoulder and briefly covers him. Slower than the
             foreground acacias (15s vs 11s) so the two near bands don't lock
             into step and read as one object. */}
-        {trees && passing && passing.length > 0 && (
+        {trees && carried.length > 0 && (
           <PhotoBand
-            photos={passing}
+            photos={carried}
             anim={`rush${uid}`}
             duration={15}
             timing={cadence === "stopmotion" ? "steps(30, end)" : "linear"}

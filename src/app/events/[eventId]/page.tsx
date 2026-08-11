@@ -27,6 +27,7 @@ import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
 import { ProcessingBanner } from "@/components/events/ProcessingBanner";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
+import { PassingPhotos } from "@/components/brand/passing-photos";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
@@ -1366,6 +1367,11 @@ export default function EventPage({
   }, [gridSettings, eventId, stackDetection.stackable]);
 
   return (
+    /* Every loader inside this page — the visual-search wait, anything added
+       later — walks the elephant through THIS event's photos. Declared once here,
+       next to the data, rather than threaded down to each spinner. The URLs are
+       thumbnails the grid has already rendered, so they come from cache. */
+    <PassingPhotos photos={allImages.map((i) => i.thumbnailUrl)}>
     <div className="flex min-h-screen">
       {/* ─── Left Sidebar ─── */}
       {/* Show a placeholder of the real sidebar's footprint while the event
@@ -2557,5 +2563,6 @@ export default function EventPage({
       )}
       </div>{/* end main content flex child */}
     </div>
+    </PassingPhotos>
   );
 }

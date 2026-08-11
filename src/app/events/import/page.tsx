@@ -269,11 +269,13 @@ export default function ImportFromSpsPage() {
     });
   }, [images, deselected, photoWindow]);
 
-  // Advance the window on a slow clock — matched to the near band's 15s pass, so
-  // a photo changes between sightings rather than mid-flight.
+  // Advance the window on a SLOW clock. The bands loop every 15s (near) and 38s
+  // (far), and a swap while a card is mid-screen is visible — the same class of
+  // glitch as the two copies disagreeing. 45s means most changes land while the
+  // road is empty, and a card is only on screen for a fraction of each pass.
   useEffect(() => {
     if (stage !== "running") return;
-    const t = setInterval(() => setPhotoWindow((w) => w + 1), 16_000);
+    const t = setInterval(() => setPhotoWindow((w) => w + 1), 45_000);
     return () => clearInterval(t);
   }, [stage]);
 
