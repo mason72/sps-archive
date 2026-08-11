@@ -471,6 +471,20 @@ export default function AccountPage() {
                 </div>
                 <ArrowLeft size={14} className="text-stone-300 group-hover:text-stone-500 rotate-180 transition-colors" />
               </Link>
+              <Link
+                href="/settings/connections"
+                className="mt-3 flex items-center justify-between group border border-stone-200 hover:border-stone-400 p-5 transition-all duration-300"
+              >
+                <div>
+                  <h3 className="text-[15px] font-medium text-stone-900 mb-1">
+                    Connections
+                  </h3>
+                  <p className="text-[13px] text-stone-400">
+                    Connect SimplePhotoShare and pull finished events in as camera files.
+                  </p>
+                </div>
+                <ArrowLeft size={14} className="text-stone-300 group-hover:text-stone-500 rotate-180 transition-colors" />
+              </Link>
             </div>
           </>
         )}

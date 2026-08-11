@@ -118,7 +118,14 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||
     pathname.startsWith("/api/stripe/webhook") ||
-    pathname.startsWith("/api/sps") ||
+    // NOT all of /api/sps. That blanket rule dates from the push-import lane
+    // (deleted 2026-08-11) and would leave any future /api/sps/* route that
+    // forgets its own auth check publicly reachable. Only the enhancements
+    // callback is genuinely session-less — SPS calls it server-side with a JWT
+    // or the X-SPS-Key shared secret and has no cookie to present. Everything
+    // else under /api/sps is photographer-facing (the connection screen, the
+    // pull lane) and belongs behind the session.
+    pathname.startsWith("/api/sps/enhancements") ||
     // Site-facing scene API enforces its own X-SPS-Key shared-secret auth
     // (like /api/sps) — the login redirect must not intercept it.
     pathname.startsWith("/api/site") ||
