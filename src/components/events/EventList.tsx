@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EventCardSkeleton } from "@/components/ui/Skeleton";
+import { GalleryStatusBadge } from "@/components/events/GalleryStatusBadge";
+import type { EventStatus } from "@/lib/events/status";
 
 interface Event {
   id: string;
@@ -31,6 +33,8 @@ interface Event {
   /** Face-derived crop anchor (0–100) for the card thumbnail, if any. */
   coverFocal?: { x: number; y: number } | null;
   activeShareSlug?: string | null;
+  /** Delivery stage + pipeline readiness (see lib/events/status.ts). */
+  status?: EventStatus | null;
   pinned_at: string | null;
 }
 
@@ -524,6 +528,8 @@ function EventCard({
             {imageCount} {imageCount === 1 ? "image" : "images"}
           </span>
         </div>
+
+        <GalleryStatusBadge status={event.status ?? null} />
 
         {event.event_type && (
           <span className="inline-block mt-3 label-caps text-[10px] text-accent">

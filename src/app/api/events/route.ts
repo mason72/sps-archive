@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { enrichEvents } from "@/lib/events/enrich";
+import { resolveEventStatuses } from "@/lib/events/status";
 import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
 
@@ -31,7 +32,11 @@ export async function GET(request: NextRequest) {
   // queries (the old per-event fan-out was an N+1 — ~3 queries per event — that
   // made the dashboard crawl for photographers with many events).
   const events = data || [];
-  const enrichment = await enrichEvents(supabase, events);
+  const [enrichment, statuses] = await Promise.all([
+    enrichEvents(supabase, events),
+    // Delivery stage + pipeline readiness, same batched discipline.
+    resolveEventStatuses(supabase, events.map((e) => e.id)),
+  ]);
   const enriched = events.map((event) => ({
     ...event,
     ...(enrichment.get(event.id) ?? {
@@ -39,6 +44,7 @@ export async function GET(request: NextRequest) {
       coverFocal: null,
       activeShareSlug: null,
     }),
+    status: statuses.get(event.id) ?? null,
   }));
 
   return NextResponse.json({
