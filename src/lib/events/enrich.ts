@@ -11,6 +11,26 @@ export interface EnrichableEvent {
   [key: string]: unknown;
 }
 
+/**
+ * The cover image id a card should use, or undefined when the event's cover
+ * isn't a photo.
+ *
+ * `settings.cover.imageId` is NOT cleared when the photographer switches the
+ * cover to mosaic/color/fade, so reading it unconditionally showed a stale,
+ * unrelated photo on the archive card long after the real cover changed
+ * (Justin, 2026-08-10). Non-photo covers fall back to the event's first
+ * image — a real frame from the event, and free (already batched).
+ */
+export function coverImageIdFor(e: { settings?: unknown }): string | undefined {
+  const settings = (e.settings ?? {}) as Record<string, unknown>;
+  const cover = settings.cover as { type?: string; imageId?: string } | undefined;
+  if (!cover?.imageId) return undefined;
+  // Legacy rows have no type and are photo covers by definition.
+  return cover.type === undefined || cover.type === "image"
+    ? cover.imageId
+    : undefined;
+}
+
 export interface EventEnrichment {
   /** Presigned cover thumbnail URL (settings cover → earliest image fallback). */
   coverThumbnailUrl: string | null;
@@ -40,12 +60,16 @@ export async function enrichEvents(
   const coverKeyByEvent = new Map<string, string>();
 
   // 1. Explicit cover images (settings.cover.imageId), one query.
+  //
+  // ONLY for photo-type covers. `imageId` is not cleared when the
+  // photographer switches to mosaic/color/fade, so honoring it regardless of
+  // type made the archive card show a stale, unrelated photo long after the
+  // real cover changed (Justin, 2026-08-10). Raster covers fall through to
+  // the event's first image below — a real frame from the event, and free.
+  // (Showing the composed raster itself would need an R2 HEAD per event and
+  // can enqueue a compose job; too heavy for a list route.)
   const coverImageIds = events
-    .map((e) => {
-      const settings = (e.settings ?? {}) as Record<string, unknown>;
-      const cover = settings.cover as { imageId?: string } | undefined;
-      return cover?.imageId;
-    })
+    .map(coverImageIdFor)
     .filter((id): id is string => !!id);
 
   const coverKeyById = new Map<string, string>();
@@ -57,9 +81,8 @@ export async function enrichEvents(
     for (const img of coverImgs ?? []) coverKeyById.set(img.id, img.r2_key);
   }
   for (const e of events) {
-    const settings = (e.settings ?? {}) as Record<string, unknown>;
-    const cover = settings.cover as { imageId?: string } | undefined;
-    const key = cover?.imageId ? coverKeyById.get(cover.imageId) : undefined;
+    const imageId = coverImageIdFor(e);
+    const key = imageId ? coverKeyById.get(imageId) : undefined;
     if (key) coverKeyByEvent.set(e.id, key);
   }
 
