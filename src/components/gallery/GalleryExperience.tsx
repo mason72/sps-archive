@@ -1238,12 +1238,25 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               />
             </>
           ) : semanticLoading ? (
-            <p
-              className="text-center py-16 text-[14px] italic animate-pulse"
-              style={{ color: colors.secondary }}
-            >
-              Looking for &ldquo;{searchQuery}&rdquo;…
-            </p>
+            <div className="py-16 text-center">
+              <p
+                className="text-[14px] italic animate-pulse"
+                style={{ color: colors.secondary }}
+              >
+                Looking for &ldquo;{searchQuery}&rdquo;…
+              </p>
+              {/* The GPU embeds the phrase before anything can be ranked, and a
+                  cold start is a few seconds. Silence reads as broken; naming
+                  the wait reads as work. Deliberately says what it's doing
+                  ("reading the photos"), not how (no model names on a client
+                  surface). */}
+              <p
+                className="mt-2 text-[11px]"
+                style={{ color: colors.secondary, opacity: 0.6 }}
+              >
+                Reading the photos themselves — this can take a few seconds.
+              </p>
+            </div>
           ) : (
             <p
               className="text-center py-16 text-[14px] italic"
