@@ -120,3 +120,71 @@ nouns, no roadmap. Trial claims are gone; CTAs point at the waitlist form
   on the file INPUT + dispatch `change` (synthetic drag/drop events don't
   trigger the dropzone). Noise images (~200KB) slow the pipeline enough to
   observe in-flight states.
+
+## Gallery status on the archive (added 2026-08-10)
+
+`src/lib/events/status.ts` — `resolveEventStatuses()` resolves a page of events
+in a fixed number of queries. TWO axes, never merged:
+
+- **Delivery ladder**: draft → published → sent → opened → downloaded, plus an
+  `expired` badge (past `expires_at` while still `is_active` — silently dead).
+  Evidence rule: a VIEW proves delivery, an email only proves an attempt.
+  Measured 2026-08-10: 15 live shares, all opened, only 9 ever emailed from
+  Pixeltrunk — six links travelled by text/Slack.
+- **Readiness**: uploads landing + AI indexing. Orthogonal, because a gallery
+  is routinely sent while processing is still queued.
+
+Surfaces: `GalleryStatusBadge` on the archive card (pill + ring; the ring only
+appears while there IS something to wait for), and `ProcessingBanner` at the
+top of the event page — live count, ETA measured from this event's own
+throughput, and an explicit "available now vs. switches on later" line.
+`GET /api/events/[eventId]/processing` backs the banner and is deliberately
+count-only so it can be polled.
+
+## Upload ghosts (added 2026-08-10)
+
+A `pending` row is presign-created before its bytes exist. Two consequences,
+both bitten on HDC 2026:
+
+1. `countPendingUploads()` now only counts rows younger than 30 minutes.
+   Before that gate, 9 stale rows out of 5,787 made `ai-index` return
+   `skipped: "uploads-in-flight"` on every run — permanently — which also
+   meant `faces/cluster.requested` never fired. Semantic search, the Faces
+   tab, selfie search and smart sections were all dark for that event.
+2. **Dismiss resolves.** `DELETE /api/events/[eventId]/unfinished-uploads`
+   HEADs each stale row in R2, deletes the genuinely empty ones, and leaves
+   anything whose binary landed for the nightly reconciler to heal. It used to
+   write a `localStorage` flag only — the rows survived, in one browser's
+   opinion (lesson 67). Never blanket-delete pending rows: ~1% have their
+   bytes and only missed the finalize call.
+
+## Duplicate uploads — open (measured 2026-08-10)
+
+There is NO duplicate detection at ingest. Every presign mints a fresh UUID
+key, so re-dragging a folder creates a complete second copy: rows, R2 objects,
+thumbnails, and a second pass of GPU indexing. Live counts:
+
+| Event | Rows | Distinct files | Extra copies |
+|---|---|---|---|
+| Hotel Data Conference 2026 | 5,787 | 3,842 | **1,945** (34%) |
+| Jessica & Koji's Big Day | 1,020 | 552 | 468 |
+| TDP Website | 1,264 | 1,176 | 88 |
+| COLLEGEBOARD // NASAI | 2,542 | 2,458 | 84 |
+
+On HDC, 1,847 of those are byte-identical (same name AND size); 98 filenames
+carry genuinely different bytes and are real re-edits. Fix at the source:
+compare name + size (ideally a content hash) at presign, skip what's already
+there, and report "N skipped as duplicates". Cleanup is a separate, destructive
+job — keep the newest of each identical set, leave the re-edits alone.
+
+## Loading animation (added 2026-08-10)
+
+`src/components/brand/ElephantWalk.tsx` + `scripts/cut-elephant.mjs`. The logo
+is sliced into seven cut-out puppet parts straight from its alpha mask (four
+legs, trunk, tail, body) — original artwork, nothing redrawn — and animated on
+a lateral-sequence elephant gait with a stop-motion cadence. Acacias pass at
+two depths on non-dividing periods (11s / 30s) so sightings never sync.
+Playground: `/dev/loading`. Currently used by `/people`'s `loading.tsx`.
+NOT used in the guest gallery — those are white-labelled with the
+photographer's branding, so putting our mark in a client's search wait is
+Mason's call, not a default.

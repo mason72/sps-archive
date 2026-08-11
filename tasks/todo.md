@@ -1406,3 +1406,59 @@ galleries?" from a worry into a fact.
       1200×630 card on a public, password-exempt route. Not a leak (Satori
       fetches server-side and the response is a PNG), but it downloads a
       20MB+ original to make a thumbnail — `thumb-lg` would do.
+
+## 2026-08-10 (late) — people spotlight, gallery unification, status, loading elephant
+
+Shipped and verified on production (commits `ed8493b` … `79f965c`):
+
+- [x] **Person spotlight** — clicking any face on `/people` opens every photo of
+      that person across the archive, grouped by shoot, ← / → between people.
+      Event appearances render as chips that deep-link to `/events/{id}?person=`.
+      One membership predicate (`personKeyForImage`) for the tile count, the
+      spotlight payload and the deep link; `scripts/verify-person-spotlight.ts`
+      asserts all three agree on live data.
+- [x] **Brittany Reed bug** — `looksLikePersonName` needs two words, so her
+      lowercase run-together filenames (`brittanyreed_…`) were discarded and she
+      showed as one event instead of two. Fixed by letting the corpus vouch: a
+      blob is admitted when the same normalized identity appears person-like
+      somewhere else. Wall of fame went from 1 member to 2.
+- [x] **Ghost rows excluded from people counts** — Jeff Roark read 77 when only
+      68 exist.
+- [x] **Selfie search ON by default** — via `selfieSearchEnabled()`; absence
+      means on. 14 galleries flipped, 2 explicit opt-outs preserved.
+- [x] **AI-index starvation fix** — stale `pending` rows no longer count as
+      uploads-in-flight (30-min gate). Nine ghost rows had blocked indexing for
+      HDC's 5,778 photos indefinitely.
+- [x] **Gallery unification** — preview and guest gallery are ONE component;
+      preview gained semantic + selfie search. 2,230 lines deleted.
+- [x] **Gallery status on the archive** — delivery ladder + separate readiness
+      ring, `ProcessingBanner` with a measured ETA on the event page.
+- [x] **Dismiss resolves** — `DELETE /api/events/[eventId]/unfinished-uploads`
+      HEADs R2 and deletes genuinely-empty rows.
+- [x] **Loading elephant** — cut-out puppet rig with a real lateral-sequence
+      gait, mosaic acacias at two depths, `/dev/loading` playground, live on
+      `/people`.
+
+### Next up
+
+- [ ] **Re-upload 9 lost HDC photos** — `HDC_4653/4654/4655` and
+      `4991`–`4996`, all Jeff Roark. Verified zero bytes in R2; unrecoverable.
+      MASON'S HANDS (needs the originals).
+- [ ] **Duplicate detection at ingest** — HDC is 34% duplicates (1,945 extra
+      rows, 1,847 byte-identical). Compare name + size (or a content hash) at
+      presign, skip, and report "N skipped". See docs/OPS.md for the table.
+- [ ] **Dedupe existing archives** — destructive; keep newest of each identical
+      set, leave the 98 genuine re-edits alone. Needs explicit go-ahead.
+- [ ] **Event page loads in 15–20s on HDC** — 5,787 images + stacks + sections
+      in one payload. Needs pagination or a windowed grid; the single worst
+      performance problem in the app right now.
+- [ ] **Orphan images** — 9 archive-wide belong to no section (4 in What If?
+      Summit, incl. Justin's cover-test file). Invisible in the grid but
+      searchable and downloadable by guests. Decide: filter the payload to
+      section members, or surface them in the editor.
+- [ ] **Loading elephant placement** — archive `/search`, ZIP prep, post-upload.
+      Guest gallery is a BRANDING decision (white-labelled) — Mason's call.
+- [ ] **Scene events** — the band machinery supports more than acacias; a
+      second smaller elephant trailing behind is the best candidate.
+- [ ] **HDC face clustering** — run once indexing completes (~05:30 UTC
+      2026-08-11); `scripts/cluster-all-events.ts` is idempotent.
