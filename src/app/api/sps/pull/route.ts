@@ -24,18 +24,20 @@ import { reportSystemError } from "@/lib/monitoring/report";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { user, supabase, error: authError, actingAs } = await getAuthUser();
+    const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
-    // An import creates an event and moves tens of gigabytes into the owner's
-    // storage. Not something to do from a support session.
-    if (actingAs) {
-      return NextResponse.json(
-        { error: "Imports can only be started by the account owner." },
-        { status: 403 }
-      );
-    }
-
+    // Deliberately allowed under act-as (Mason, 2026-08-11: "it's bc I'm acting
+    // as a proxy user from Ops; please let me do this, I'll usually be the
+    // person doing this"). An import uses whatever connection THAT account
+    // already has, to pull THAT account's own SPS events into THAT account's
+    // archive — it grants no reach across tenants, and act-as already requires
+    // is_admin, so a block here bought friction rather than safety.
+    //
+    // Installing the credential stays owner-only (see /api/sps/connection).
+    // That is a different act: pasting host A's token into account B wires two
+    // accounts together, and a mis-click there is expensive in a way that
+    // running an import is not.
     const body = (await request.json().catch(() => null)) as {
       spsEventId?: string;
       deselected?: unknown;

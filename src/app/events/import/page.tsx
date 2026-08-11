@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
+import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -14,6 +16,8 @@ import {
   AlertTriangle,
   Camera,
   Loader2,
+  Search,
+  ImageOff,
   X,
 } from "lucide-react";
 
@@ -40,6 +44,8 @@ interface SpsEventRow {
   completedAt: string | null;
   imageCount: number | null;
   archiveEnabled: boolean;
+  /** SPS's cover thumbnail, when the event has one. */
+  coverUrl: string | null;
   archiveEventId: string | null;
   job: {
     id: string;
@@ -74,6 +80,10 @@ interface PullJob {
   failures: { filename?: string; reason?: string }[];
   error: string | null;
   finished_at: string | null;
+  /** Photos actually in the event — the authoritative count, from the rows. */
+  landed: number;
+  /** Photos SPS has been told about (not the same as ones it could release). */
+  reported: number;
 }
 
 type Stage = "pick" | "review" | "running";
@@ -113,6 +123,11 @@ export default function ImportFromSpsPage() {
 
   // Progress state
   const [job, setJob] = useState<PullJob | null>(null);
+  /** The last poll didn't land — say so rather than showing a stale number. */
+  const [pollStale, setPollStale] = useState(false);
+
+  // Event-list search. 84 completed events is too many to scan by eye.
+  const [eventQuery, setEventQuery] = useState("");
 
   useEffect(() => {
     if (!user) router.push("/login");
@@ -222,6 +237,13 @@ export default function ImportFromSpsPage() {
     });
   };
 
+  /** Case-insensitive substring on the event name — the only field worth matching. */
+  const visibleEvents = useMemo(() => {
+    const q = eventQuery.trim().toLowerCase();
+    if (!q) return events;
+    return events.filter((ev) => ev.name.toLowerCase().includes(q));
+  }, [events, eventQuery]);
+
   const selectedCount = images.length - deselected.size;
   const lossyCount = images.filter(
     (i) => i.quality === "lossy" && !deselected.has(i.id)
@@ -262,19 +284,37 @@ export default function ImportFromSpsPage() {
   };
 
   // ── Progress polling ──
+  //
+  // Keeps polling until it sees a TERMINAL status. The previous version only
+  // rescheduled on a successful response, so one blip — a 500, a dropped
+  // connection, a sleeping laptop — silently ended the watch and the screen
+  // froze at whatever it last saw. A frozen number is indistinguishable from a
+  // stalled import, which is exactly how the first real import read.
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollJob = useCallback(async (jobId: string) => {
+  const pollJob = useCallback(async (jobId: string, failures = 0) => {
+    const again = (delay: number, nextFailures: number) => {
+      pollTimer.current = setTimeout(() => pollJob(jobId, nextFailures), delay);
+    };
+
     try {
-      const res = await fetch(`/api/sps/pull/jobs/${jobId}`);
-      if (res.ok) {
-        const { job: fresh } = (await res.json()) as { job: PullJob };
-        setJob(fresh);
-        if (fresh.status === "queued" || fresh.status === "running") {
-          pollTimer.current = setTimeout(() => pollJob(jobId), 3000);
-        }
+      const res = await fetch(`/api/sps/pull/jobs/${jobId}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        // Back off, but never give up while we still believe it's running.
+        setPollStale(true);
+        again(Math.min(3000 * 2 ** failures, 30000), failures + 1);
+        return;
+      }
+      const { job: fresh } = (await res.json()) as { job: PullJob };
+      setJob(fresh);
+      setPollStale(false);
+      if (fresh.status === "queued" || fresh.status === "running") {
+        again(2500, 0);
       }
     } catch {
-      pollTimer.current = setTimeout(() => pollJob(jobId), 8000);
+      setPollStale(true);
+      again(Math.min(3000 * 2 ** failures, 30000), failures + 1);
     }
   }, []);
 
@@ -327,18 +367,36 @@ export default function ImportFromSpsPage() {
             </Link>
           )}
 
-          <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 reveal">
-            {stage === "pick" && "Import from SimplePhotoShare"}
-            {stage === "review" && chosen?.name}
-            {stage === "running" && "Pulling camera files"}
-          </h1>
+          {stage === "pick" ? (
+            /* The source, named in its own mark rather than in a sentence —
+               this screen is the seam between two products and should look
+               like it. */
+            <div className="flex items-end gap-4 flex-wrap">
+              <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 reveal">
+                Import from
+              </h1>
+              <Image
+                src="/sps-logo.png"
+                alt="SimplePhotoShare"
+                width={280}
+                height={72}
+                className="h-[clamp(30px,3.6vw,42px)] w-auto mb-1 reveal"
+                style={{ animationDelay: "0.1s" }}
+                priority
+              />
+            </div>
+          ) : (
+            <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 reveal">
+              {stage === "review" ? chosen?.name : "Pulling camera files"}
+            </h1>
+          )}
           <p className="caption-italic mt-3">
             {stage === "pick" &&
-              "Finished events, with their original camera files still on SPS."}
+              "Finished events, with their camera files still sitting on SPS."}
             {stage === "review" &&
               "Everything is selected. Uncheck the setup frames and test shots you don't want archived."}
             {stage === "running" &&
-              "Files are copied one page at a time. You can leave this screen."}
+              "Files are copied a page at a time. You can leave this screen — it keeps going."}
           </p>
         </div>
 
@@ -379,8 +437,36 @@ export default function ImportFromSpsPage() {
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-stone-100 border-t border-b border-stone-100">
-                {events.map((ev) => {
+              <>
+                {/* Search, because 84 completed events is past the point of
+                    scanning. Matches the archive's own search-bar treatment. */}
+                <div className="relative mb-6 max-w-md">
+                  <Search className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-300" />
+                  <input
+                    type="text"
+                    value={eventQuery}
+                    onChange={(e) => setEventQuery(e.target.value)}
+                    placeholder="Search SPS events…"
+                    className="w-full pl-7 pr-8 py-2.5 text-[14px] text-stone-900 placeholder:text-stone-300 bg-transparent border-b border-stone-200 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+                  />
+                  {eventQuery && (
+                    <button
+                      onClick={() => setEventQuery("")}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-600 transition-colors cursor-pointer"
+                      aria-label="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {visibleEvents.length === 0 ? (
+                  <p className="py-16 text-center text-[13px] text-stone-400">
+                    No SPS events match “{eventQuery}”.
+                  </p>
+                ) : (
+                <ul className="divide-y divide-stone-100 border-t border-b border-stone-100">
+                {visibleEvents.map((ev) => {
                   const busy =
                     ev.job?.status === "running" || ev.job?.status === "queued";
                   const resumable =
@@ -390,14 +476,32 @@ export default function ImportFromSpsPage() {
                       key={ev.id}
                       className="py-5 flex items-center justify-between gap-6"
                     >
-                      <div className="min-w-0">
-                        <h3 className="text-[16px] text-stone-900 truncate">
-                          {ev.name}
-                        </h3>
-                        <p className="text-[13px] text-stone-400 mt-1">
-                          Completed {formatDate(ev.completedAt)}
-                          {ev.imageCount ? ` · about ${ev.imageCount} photos` : ""}
-                        </p>
+                      <div className="min-w-0 flex items-center gap-4">
+                        {/* SPS's own cover. A row of names and dates all looks
+                            the same; the photo is how you recognise the shoot. */}
+                        <div className="w-16 h-16 shrink-0 bg-stone-100 overflow-hidden flex items-center justify-center">
+                          {ev.coverUrl ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={ev.coverUrl}
+                              alt=""
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <ImageOff size={16} className="text-stone-300" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-[16px] text-stone-900 truncate">
+                            {ev.name}
+                          </h3>
+                          <p className="text-[13px] text-stone-400 mt-1">
+                            Completed {formatDate(ev.completedAt)}
+                            {ev.imageCount ? ` · about ${ev.imageCount} photos` : ""}
+                          </p>
+                        </div>
                       </div>
 
                       {busy ? (
@@ -440,7 +544,9 @@ export default function ImportFromSpsPage() {
                     </li>
                   );
                 })}
-              </ul>
+                </ul>
+                )}
+              </>
             )}
           </>
         )}
@@ -460,7 +566,7 @@ export default function ImportFromSpsPage() {
                 {lossyCount > 0 && (
                   <span className="text-stone-400">
                     {" "}
-                    · {lossyCount} not archive-grade
+                    · {lossyCount} unverified origin
                   </span>
                 )}
               </div>
@@ -501,14 +607,24 @@ export default function ImportFromSpsPage() {
               </p>
             )}
 
+            {/* CORRECTED 2026-08-11. This used to say these photos "have no
+                camera file left on SPS" and would "import as SPS's re-encoded
+                copy". That asserted more than is known and turned out to be
+                wrong: a sha256 round-trip on the first real import came back
+                byte-identical for all six sampled frames. SPS stores JPEG
+                uploads verbatim (since 2026-05-05) but only began RECORDING
+                that provenance on 2026-08-11 — so for everything shot before
+                today the honest statement is "unverified", not "degraded". */}
             {lossyCount > 0 && (
               <p className="mb-6 text-[13px] text-stone-500 flex items-start gap-2 max-w-2xl leading-[1.7]">
-                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-500" />
+                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-stone-400" />
                 <span>
-                  {lossyCount} of these have no camera file left on SPS — they
-                  were shot before the connection existed, or their 30-day hold
-                  expired. They&apos;ll import as SPS&apos;s re-encoded copy,
-                  and they&apos;re marked so you can tell later.
+                  SPS can&apos;t vouch for {lossyCount} of these as camera
+                  originals — it only started recording that on 11 Aug. They
+                  copy across byte-for-byte exactly as SPS holds them, and for
+                  anything shot since May that is almost certainly your original
+                  file. They&apos;re marked simply because it isn&apos;t
+                  guaranteed the way a labelled one is.
                 </span>
               </p>
             )}
@@ -548,9 +664,12 @@ export default function ImportFromSpsPage() {
                       {!off && <Check size={12} className="text-white" />}
                     </span>
 
+                    {/* "unverified", not "re-encoded" — see the note above the
+                        banner. The badge must not claim the file is degraded
+                        when the bytes have been shown to be identical. */}
                     {img.quality === "lossy" && (
-                      <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5">
-                        re-encoded
+                      <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-stone-900/70 text-white px-1.5 py-0.5">
+                        unverified
                       </span>
                     )}
                   </button>
@@ -579,10 +698,14 @@ export default function ImportFromSpsPage() {
               </p>
             ) : (
               <div className="max-w-2xl">
+                {/* The count comes from `landed` — the actual number of rows in
+                    the event — not from the job's counter. Counters are the
+                    importer's bookkeeping and can drift on a retry; the rows are
+                    what is really there. */}
                 <div className="mb-8">
                   <div className="flex items-baseline justify-between mb-3">
                     <span className="font-editorial text-[32px] text-stone-900">
-                      {job.images_done.toLocaleString()}
+                      {job.landed.toLocaleString()}
                       {job.expected_total ? (
                         <span className="text-stone-300 text-[20px]">
                           {" "}
@@ -600,14 +723,36 @@ export default function ImportFromSpsPage() {
                       className="h-full bg-accent transition-all duration-700"
                       style={{
                         width: job.expected_total
-                          ? `${Math.min(100, (job.images_done / job.expected_total) * 100)}%`
+                          ? `${Math.min(100, (job.landed / job.expected_total) * 100)}%`
                           : job.status === "completed"
                             ? "100%"
                             : "12%",
                       }}
                     />
                   </div>
+
+                  {pollStale && (
+                    <p className="mt-3 text-[12px] text-stone-400">
+                      Lost touch with the server for a moment — this number may
+                      be behind. Still retrying.
+                    </p>
+                  )}
                 </div>
+
+                {/* An import is minutes of nothing to look at. The elephant is
+                    the house loader and belongs on exactly this kind of wait. */}
+                {(job.status === "running" || job.status === "queued") && (
+                  <div className="mb-8">
+                    <ElephantWalk
+                      message={`Copying from SimplePhotoShare`}
+                      detail={
+                        job.landed === 0
+                          ? "Fetching the first page of the manifest…"
+                          : `${job.landed.toLocaleString()} across so far`
+                      }
+                    />
+                  </div>
+                )}
 
                 <dl className="space-y-3 mb-8 text-[14px]">
                   <div className="flex items-baseline gap-3">
@@ -616,15 +761,22 @@ export default function ImportFromSpsPage() {
                     </dt>
                     <dd className="text-stone-700 capitalize">{job.status}</dd>
                   </div>
+                  {/* Two different numbers, and conflating them made a perfect
+                      import read as a failed one: `reported` is how many we have
+                      told SPS are safely here, `confirmed` is how many SPS
+                      actually had a separate copy to release. A passthrough
+                      image reports nothing to release — so "Confirmed 0" on an
+                      all-passthrough event is correct and used to look alarming. */}
                   <div className="flex items-baseline gap-3">
                     <dt className="label-caps text-stone-300 w-32 shrink-0">
-                      Confirmed
+                      Reported
                     </dt>
                     <dd className="text-stone-700">
-                      {job.confirmed.toLocaleString()}
+                      {job.reported.toLocaleString()}
                       <span className="text-stone-400">
-                        {" "}
-                        — SPS may release these
+                        {job.confirmed > 0
+                          ? ` — SPS released ${job.confirmed.toLocaleString()} held copies`
+                          : " — SPS held no extra copies to release, which is normal"}
                       </span>
                     </dd>
                   </div>

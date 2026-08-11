@@ -52,7 +52,10 @@ function readinessTooltip(r: {
     return `${r.uploading.toLocaleString()} photo${r.uploading === 1 ? "" : "s"} still uploading. AI processing starts once every upload has landed.`;
   }
   if (r.indexed === 0) {
-    return `Queued — ${n} photos waiting. AI processing starts automatically once uploads settle, and runs in the background; nothing is stuck. You can share this gallery now, and search, faces and smart sections switch on when it finishes.`;
+    // "Once uploads settle" is true and unhelpfully vague — settle means a 15
+    // minute per-event debounce, and not saying so sends people back to refresh
+    // a page that cannot have changed yet.
+    return `Queued — ${n} photos waiting. AI processing starts automatically up to 15 minutes after the last photo lands, and runs in the background; nothing is stuck. You can share this gallery now, and search, faces and smart sections switch on when it finishes.`;
   }
   return `${r.indexed.toLocaleString()} of ${n} photos processed. Search, faces and smart sections improve as this fills in.`;
 }

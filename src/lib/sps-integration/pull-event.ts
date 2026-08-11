@@ -57,6 +57,17 @@ export const IMPORT_SLICE = 100;
 /** Simultaneous downloads. Each holds a full original in memory. */
 const IMPORT_CONCURRENCY = 6;
 
+/**
+ * Write progress to the job row every this many photos.
+ *
+ * Counters used to be written ONCE per slice, at the end. With a 100-image
+ * slice that meant the import screen sat at "0 / 105" for over two minutes and
+ * then jumped — indistinguishable from a stalled job, which is exactly how
+ * Mason read it on the first real import. A slice is a unit of RETRY, not a
+ * unit of reporting; progress has to move at human cadence.
+ */
+const PROGRESS_FLUSH_EVERY = 5;
+
 /** Per-file download ceiling. A stalled source must not eat the whole step. */
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
@@ -298,6 +309,12 @@ export interface SliceResult {
   pageSize: number;
   /** Absent when this was the last manifest page. */
   nextOffset: number | null;
+  /**
+   * Set by importSlice once it has folded its own counters into the job row
+   * (it flushes progress as it goes, so the caller must not add them again).
+   * The caller still owns `next_offset`, which only advances on a drained page.
+   */
+  alreadyFolded?: boolean;
 }
 
 export async function loadPullJob(
@@ -386,6 +403,14 @@ export async function importSlice(
 
   if (!todo.length) {
     await confirmDurable(supabase, token, job, durable, result);
+    if (result.skipped || result.confirmed) {
+      try {
+        await applySliceResult(supabase, job.id, result, null);
+      } catch (err) {
+        console.error("SPS pull skip-count flush failed:", err);
+      }
+    }
+    result.alreadyFolded = true;
     return result;
   }
 
@@ -412,6 +437,36 @@ export async function importSlice(
   const sortBase = (tail?.[0]?.sort_order ?? -1) + 1;
 
   const failures: { spsImageId: string; filename: string; reason: string }[] = [];
+
+  // Counters already folded into the job row, so each flush writes only the
+  // DELTA since the last one. applySliceResult adds to what it reads, so
+  // flushing totals would multiply them.
+  const flushed = { imported: 0, failed: 0, skipped: 0, bytes: 0 };
+  let sinceFlush = 0;
+  const flushProgress = async () => {
+    const delta: SliceResult = {
+      imported: result.imported - flushed.imported,
+      failed: result.failed - flushed.failed,
+      skipped: result.skipped - flushed.skipped,
+      bytes: result.bytes - flushed.bytes,
+      confirmed: 0, // confirmation is its own step, after the whole slice
+      pageSize: result.pageSize,
+      nextOffset: result.nextOffset,
+    };
+    if (!delta.imported && !delta.failed && !delta.skipped) return;
+    flushed.imported = result.imported;
+    flushed.failed = result.failed;
+    flushed.skipped = result.skipped;
+    flushed.bytes = result.bytes;
+    sinceFlush = 0;
+    // Never fatal: this is a progress readout, and losing one tick must not
+    // cost the photos in flight.
+    try {
+      await applySliceResult(supabase, job.id, delta, null);
+    } catch (err) {
+      console.error("SPS pull progress flush failed:", err);
+    }
+  };
 
   // Bounded parallelism: each worker holds one full original in memory.
   let cursor = 0;
@@ -442,11 +497,33 @@ export async function importSlice(
             reason: err instanceof Error ? err.message : String(err),
           });
         }
+        if (++sinceFlush >= PROGRESS_FLUSH_EVERY) await flushProgress();
       }
     })
   );
 
+  // The remainder, so the row is accurate the moment the slice ends rather than
+  // when the lane gets around to writing it.
+  await flushProgress();
+  result.alreadyFolded = true;
+
   await confirmDurable(supabase, token, job, durable, result);
+
+  // The confirmation count lands after the last progress flush, so fold it
+  // separately rather than leaving it for a caller that has been told the
+  // counters are already done.
+  if (result.confirmed) {
+    try {
+      await applySliceResult(
+        supabase,
+        job.id,
+        { ...result, imported: 0, failed: 0, skipped: 0, bytes: 0 },
+        null
+      );
+    } catch (err) {
+      console.error("SPS pull confirm-count flush failed:", err);
+    }
+  }
 
   if (failures.length) {
     await recordFailures(supabase, job.id, failures);
@@ -615,19 +692,39 @@ async function importOneImage(
   }
 
   const update: Record<string, unknown> = { processing_status: "complete" };
+  update.width = image.width ?? null;
+  update.height = image.height ?? null;
 
   // Thumbnails from the buffer we already hold — the upload path's /complete
   // re-downloads the original from R2 to do this; we don't have to.
-  const thumbs = await generateThumbnailsFromBuffer(
-    buffer,
-    job.event_id,
-    filename
-  );
-  update.thumbnail_generated = true;
-  update.thumb_bytes = thumbs.thumbBytes;
-  update.width = thumbs.width ?? image.width ?? null;
-  update.height = thumbs.height ?? image.height ?? null;
-  if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
+  //
+  // BEST-EFFORT, and it matters. Letting this throw would abandon the row at
+  // processing_status = "pending" with its bytes already safe in R2 — which is
+  // not a ghost tile but is worse in one specific way: a stale pending row
+  // blocks the event's ENTIRE AI pipeline (countPendingUploads gates it for 30
+  // minutes) and reads to the photographer as "still uploading". One
+  // unthumbnailable frame would stall indexing for the whole event. The upload
+  // path treats thumbnails as best-effort for the same reason; the grid
+  // self-heals on view and the reconciler backfills the rest.
+  try {
+    const thumbs = await generateThumbnailsFromBuffer(
+      buffer,
+      job.event_id,
+      filename
+    );
+    update.thumbnail_generated = true;
+    update.thumb_bytes = thumbs.thumbBytes;
+    if (thumbs.width) update.width = thumbs.width;
+    if (thumbs.height) update.height = thumbs.height;
+    if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
+  } catch (thumbErr) {
+    console.error(`SPS pull: thumbnail failed for ${filename}:`, thumbErr);
+    await reportSystemError("sps.pull-thumbnail", thumbErr, {
+      imageId: id,
+      eventId: job.event_id,
+      spsImageId: image.id,
+    });
+  }
 
   const exif = await extractExif(arrayBuffer);
   if (exif) {

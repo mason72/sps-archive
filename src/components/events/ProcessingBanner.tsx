@@ -14,6 +14,20 @@ interface Status {
   perMinute: number | null;
   etaMinutes: number | null;
   complete: boolean;
+  /**
+   * An SPS import currently pulling photos into this event.
+   *
+   * Takes precedence over `uploading` in the copy below, because during an
+   * import `uploading` is the importer's concurrency window (about six) rather
+   * than the work left — a number that reads as nearly-finished with hundreds
+   * still to come.
+   */
+  importing: {
+    jobId: string;
+    landed: number;
+    expectedTotal: number | null;
+    failed: number;
+  } | null;
 }
 
 /**
@@ -49,8 +63,13 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
         const data = (await res.json()) as Status;
         if (cancelled) return;
         setStatus(data);
-        // Stop polling the moment there's nothing left to watch.
-        if (!data.complete) timer = setTimeout(poll, 20_000);
+        // Stop polling the moment there's nothing left to watch. An import in
+        // flight gets a much tighter cadence than AI indexing: photos land every
+        // couple of seconds, and a 20s refresh on a number that visibly should
+        // be moving is what makes a working import look stuck.
+        if (!data.complete) {
+          timer = setTimeout(poll, data.importing ? 3_000 : 20_000);
+        }
       } catch {
         /* transient — the next mount tries again */
       }
@@ -63,11 +82,23 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
   }, [eventId]);
 
   // Stay up while there are ghosts to clear, even if indexing has finished —
-  // otherwise the one control that resolves them disappears.
-  if (!status || status.total === 0) return null;
+  // otherwise the one control that resolves them disappears. An import in
+  // flight also keeps it up even at total === 0, which is the first minute of a
+  // pull into a brand-new event: the moment there is most to explain.
+  if (!status) return null;
+  if (status.total === 0 && !status.importing) return null;
   if (status.complete && status.stalled === 0) return null;
 
-  const pct = status.total > 0 ? status.indexed / status.total : 0;
+  const imp = status.importing;
+  // While importing, the bar tracks the IMPORT, not indexing — that is the work
+  // actually happening, and it has a real denominator.
+  const pct = imp
+    ? imp.expectedTotal
+      ? Math.min(1, imp.landed / imp.expectedTotal)
+      : 0
+    : status.total > 0
+      ? status.indexed / status.total
+      : 0;
   const eta = status.etaMinutes;
   const etaLabel =
     eta === null
@@ -83,7 +114,21 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <p className="flex items-center gap-2 text-[13px] text-stone-700">
           <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-          {status.uploading > 0 ? (
+          {imp ? (
+            <>
+              <span className="font-medium">
+                Importing from SimplePhotoShare —{" "}
+                {imp.landed.toLocaleString()}
+                {imp.expectedTotal
+                  ? ` of ${imp.expectedTotal.toLocaleString()}`
+                  : ""}{" "}
+                copied
+              </span>
+              <span className="text-stone-400">
+                — AI processing starts once the last one lands
+              </span>
+            </>
+          ) : status.uploading > 0 ? (
             <>
               <span className="font-medium">
                 {status.uploading.toLocaleString()} photo
@@ -96,8 +141,12 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
           ) : status.indexed === 0 ? (
             <>
               <span className="font-medium">Queued for AI processing</span>
+              {/* The real number, because "a few minutes" sent Mason back to
+                  refresh a page that was never going to change yet: the lane is
+                  debounced 15 minutes per event on purpose, so an upload session
+                  triggers one sweep after it settles instead of one per photo. */}
               <span className="text-stone-400">
-                — starts automatically, usually within a few minutes
+                — starts automatically, up to 15 minutes after the last photo lands
               </span>
             </>
           ) : (

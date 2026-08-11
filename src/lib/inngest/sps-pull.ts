@@ -94,14 +94,23 @@ export const spsPull = inngest.createFunction(
             const slice = await importSlice(supabase, job, offset, sliceIndex);
             const pageDone = isPageDrained(sliceIndex, slice.pageSize);
 
-            // next_offset advances only on a fully drained page, so a resume
-            // re-walks this page and skips what it already holds.
-            await applySliceResult(
-              supabase,
-              jobId,
-              slice,
-              pageDone ? slice.nextOffset : null
-            );
+            // importSlice folds its own counters as it goes (so the progress
+            // screen moves every few photos instead of once per 100). All that
+            // is left here is the offset, which only advances on a fully
+            // drained page — a resume then re-walks this page and skips what it
+            // already holds.
+            if (pageDone) {
+              await applySliceResult(
+                supabase,
+                jobId,
+                slice.alreadyFolded
+                  ? { ...slice, imported: 0, failed: 0, skipped: 0, bytes: 0, confirmed: 0 }
+                  : slice,
+                slice.nextOffset
+              );
+            } else if (!slice.alreadyFolded) {
+              await applySliceResult(supabase, jobId, slice, null);
+            }
 
             return {
               cancelled: false as const,

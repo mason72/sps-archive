@@ -39,7 +39,32 @@ export async function GET(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ job });
+    // The AUTHORITATIVE progress number is the row count, not the job counter.
+    // Counters are bookkeeping written by the importer and can drift on a retry
+    // (a re-run slice re-counts already-present photos as skipped); the rows are
+    // what actually landed. Cheap enough to read on every poll, and it means the
+    // number on screen is the number of photos in the event.
+    const { count: landed, error: countError } = await supabase
+      .from("images")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", job.event_id)
+      .not("sps_image_id", "is", null);
+    if (countError) throw countError;
+
+    // How many we have TOLD SPS about, which is not the same as how many it had
+    // a separate copy to release. A passthrough image reports nothing to
+    // confirm, and that is correct — so `job.confirmed` alone reads as "nothing
+    // worked" on an event where everything worked.
+    const { count: reported, error: reportedError } = await supabase
+      .from("images")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", job.event_id)
+      .not("sps_pulled_at", "is", null);
+    if (reportedError) throw reportedError;
+
+    return NextResponse.json({
+      job: { ...job, landed: landed ?? 0, reported: reported ?? 0 },
+    });
   } catch (error) {
     console.error("SPS pull job status error:", error);
     await reportSystemError("sps.pull-job-status", error, {});

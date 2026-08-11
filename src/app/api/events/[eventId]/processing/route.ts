@@ -85,6 +85,47 @@ export async function GET(
     const indexed = indexedRes.count ?? 0;
     const uploading = pendingRes.count ?? 0;
     const stalled = stalledRes.count ?? 0;
+
+    // An SPS import in flight, if there is one.
+    //
+    // Without this the banner reports `uploading` — the count of rows currently
+    // pending — which during an import is the importer's CONCURRENCY WINDOW, not
+    // the work remaining. Mason watched it say "6 photos still uploading" while
+    // sixty had not been fetched yet: a number that reads as nearly-done and
+    // means nothing of the kind. An import knows its own denominator, so say
+    // that instead.
+    const { data: pull, error: pullError } = await supabase
+      .from("sps_pull_jobs")
+      .select("id, status, expected_total, images_failed")
+      .eq("event_id", eventId)
+      .in("status", ["queued", "running"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (pullError) throw new Error(`pull: ${pullError.message}`);
+
+    let importing: {
+      jobId: string;
+      landed: number;
+      expectedTotal: number | null;
+      failed: number;
+    } | null = null;
+
+    if (pull) {
+      // Count the rows, not the job's counter — same reason the import screen
+      // does: rows are what actually landed.
+      const { count: landed } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .not("sps_image_id", "is", null);
+      importing = {
+        jobId: pull.id,
+        landed: landed ?? 0,
+        expectedTotal: pull.expected_total,
+        failed: pull.images_failed,
+      };
+    }
     const startedAt = (firstRes.data as { ai_indexed_at: string } | null)?.ai_indexed_at ?? null;
 
     // Photos per minute, measured over this event's own run.
@@ -106,9 +147,13 @@ export async function GET(
       startedAt,
       perMinute,
       etaMinutes,
+      importing,
       // Stalled rows must NOT keep this open forever — they're resolved by
       // dismissing the banner, not by waiting.
-      complete: total > 0 && indexed >= total && uploading === 0,
+      // An import in flight DOES keep it open: photos are still arriving, so
+      // "complete" would be a claim about a set that is still growing.
+      complete:
+        !importing && total > 0 && indexed >= total && uploading === 0,
     });
   } catch (error) {
     await reportSystemError("events.processing", error, { eventId });
