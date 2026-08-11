@@ -19,9 +19,9 @@ const PASSING_SAMPLE = [
   "/logo.png",
   "/elephant/body.png",
   "/logo.png",
-  "/elephant/head.png",
+  "/elephant/trunk.png",
   "/logo.png",
-  "/elephant/body.png",
+  "/elephant/tail.png",
 ];
 
 export default function LoadingPlayground() {

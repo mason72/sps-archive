@@ -384,7 +384,6 @@ const BIRD_FAR = ["#5b7fa5", "#6f93a8"];
  * the server and the client agree on the first frame.
  */
 function PhotoBand({
-  uid,
   photos,
   anim,
   duration,
@@ -396,7 +395,6 @@ function PhotoBand({
   z,
   seed,
 }: {
-  uid: string;
   photos: string[];
   anim: string;
   duration: number;
@@ -410,11 +408,9 @@ function PhotoBand({
   seed: number;
 }) {
   if (!photos.length) return null;
-  const perCopy = Math.min(photos.length, 3);
 
   return (
     <div
-      key={`${uid}-${photos.length}`}
       className="pointer-events-none absolute inset-y-0 left-0 flex"
       style={{
         width: `${spread * 100}%`,
@@ -423,40 +419,42 @@ function PhotoBand({
         opacity,
       }}
     >
-      {[0, 1].map((copy) => (
-        <div key={copy} className="relative h-full w-1/2 shrink-0">
-          {Array.from({ length: perCopy }, (_, i) => {
-            const n = seed * 17 + copy * 5 + i * 11;
-            const photo = photos[(seed + copy * perCopy + i) % photos.length];
-            // Deterministic scatter: spacing, a little vertical wander, and a
-            // tilt so they read as prints being carried, not as a UI grid.
-            const left = 6 + i * (86 / perCopy) + (n % 7);
-            const lift = (n % 5) * 1.6;
-            const tilt = ((n % 9) - 4) * 1.1;
-            return (
-              <div
-                key={i}
-                className="absolute bg-white p-[3px] shadow-[0_2px_10px_rgba(28,25,23,0.18)]"
-                style={{
-                  left: `${left}%`,
-                  bottom: `calc(${bottom} + ${lift}%)`,
-                  width: `${width}%`,
-                  transform: `rotate(${tilt}deg)`,
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className="block aspect-[3/2] w-full object-cover"
-                />
-              </div>
-            );
-          })}
-        </div>
-      ))}
+      {/* ONE photo per copy, exactly like TreeBand — with `spread` at 3 that
+          makes a sighting rare and the road mostly empty. Three per copy read as
+          a parade (Mason: "too many... should be a bit more sporadic sort of
+          like the trees"), and a parade is a UI element where this wants to be
+          scenery. */}
+      {[0, 1].map((copy) => {
+        const n = seed * 17 + copy * 5;
+        const photo = photos[(seed + copy) % photos.length];
+        // Deterministic placement — a little vertical wander and a tilt, so it
+        // reads as a print being carried past rather than a slot in a grid.
+        const left = 16 + copy * 11 + (n % 9);
+        const lift = (n % 5) * 1.6;
+        const tilt = ((n % 9) - 4) * 1.1;
+        return (
+          <div key={copy} className="relative h-full w-1/2 shrink-0">
+            <div
+              className="absolute bg-white p-[3px] shadow-[0_2px_10px_rgba(28,25,23,0.18)]"
+              style={{
+                left: `${left}%`,
+                bottom: `calc(${bottom} + ${lift}%)`,
+                width: `${width}%`,
+                transform: `rotate(${tilt}deg)`,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="block aspect-[3/2] w-full object-cover"
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -575,7 +573,6 @@ export function ElephantWalk({
             to sit in the same aerial perspective as the far acacias. */}
         {trees && passing && passing.length > 0 && (
           <PhotoBand
-            uid={uid}
             photos={passing}
             anim={`drift${uid}`}
             duration={38}
@@ -644,7 +641,6 @@ export function ElephantWalk({
             into step and read as one object. */}
         {trees && passing && passing.length > 0 && (
           <PhotoBand
-            uid={uid}
             photos={passing}
             anim={`rush${uid}`}
             duration={15}

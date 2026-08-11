@@ -129,6 +129,9 @@ export default function ImportFromSpsPage() {
   // Event-list search. 84 completed events is too many to scan by eye.
   const [eventQuery, setEventQuery] = useState("");
 
+  /** Which slice of the event's photos is currently drifting past the elephant. */
+  const [photoWindow, setPhotoWindow] = useState(0);
+
   useEffect(() => {
     if (!user) router.push("/login");
   }, [user, router]);
@@ -255,10 +258,24 @@ export default function ImportFromSpsPage() {
    */
   const passingPhotos = useMemo(() => {
     const kept = images.filter((i) => !deselected.has(i.id));
-    if (kept.length <= 8) return kept.map((i) => i.previewUrl);
-    const stride = Math.floor(kept.length / 8);
-    return Array.from({ length: 8 }, (_, i) => kept[i * stride].previewUrl);
-  }, [images, deselected]);
+    if (!kept.length) return [];
+    // Only four are on the road at a time (one per band per copy), so hand over
+    // a small rotating window rather than the whole event — and rotate it, or a
+    // 40-minute pull shows the same two frames for 40 minutes.
+    const step = Math.max(1, Math.floor(kept.length / 12));
+    return Array.from({ length: 4 }, (_, i) => {
+      const idx = ((photoWindow + i) * step) % kept.length;
+      return kept[idx].previewUrl;
+    });
+  }, [images, deselected, photoWindow]);
+
+  // Advance the window on a slow clock — matched to the near band's 15s pass, so
+  // a photo changes between sightings rather than mid-flight.
+  useEffect(() => {
+    if (stage !== "running") return;
+    const t = setInterval(() => setPhotoWindow((w) => w + 1), 16_000);
+    return () => clearInterval(t);
+  }, [stage]);
 
   const selectedCount = images.length - deselected.size;
   const lossyCount = images.filter(
