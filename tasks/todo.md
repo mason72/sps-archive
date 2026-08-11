@@ -169,6 +169,26 @@ origin fallback removed + rate limited ("forgot" scope).
 - E2E: scratch event, 55-then-60 file batches — banner said 60 not 115,
       ring live "17 of 60", settled to 115; guest nav default/toggled verified.
 
+### People index + wall of fame — SHIPPED 2026-08-10 (bbddb80)
+- [x] /people: archive-wide index (910 named people), search, sort by most
+      events / most photos / A-Z, "repeat only" filter, podium wall of fame
+      with editorial numeral + per-event time strip. Internal only.
+- [x] Grounding that changed the design: a repeat-only page would have had
+      ONE member. Data first, then the feature.
+- [ ] Next chapter (unscheduled): cross-event FACE matching to find repeat
+      humans in the UNNAMED events (booths/festivals/weddings) — 32k faces
+      already embedded; suggest-don't-merge.
+
+### Alpha feedback rounds 4-5 (Justin) — SHIPPED 2026-08-10
+- [x] Sort per section + Randomize (dice, seeded, reshuffle) — 045.
+- [x] Archive cards: real composed cover for mosaic/color events; photo
+      fallbacks face-anchored (044 returns focal + prefers a frame with one).
+- [x] Cover "Fit whole image" + space slider for logo covers.
+- [x] Download PIN travels in the gallery email, same rule as the password.
+- [x] Guest multi-select + "Download selection (N)" in the download menu.
+- [x] Editor title suffix scoped to Sections context; act-as banner no longer
+      renders inside the embedded gallery preview.
+
 ### Alpha feedback round 3 (Justin) — SHIPPED 2026-08-10
 - [x] Event editor title no longer carries "// <section>" into the Design/
       Details/Activity panels — the suffix renders only in Sections context.

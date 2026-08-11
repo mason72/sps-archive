@@ -64,6 +64,32 @@ Built 2026-08-10. Everything here shipped verified; history in `tasks/todo.md`
 - Verifying Inngest registration: unsigned GET /api/inngest is 401 since SDK
   3.54 — introspection must be HMAC-signed (the 401 is itself healthy).
 
+## People index (/people) — added 2026-08-10
+
+Archive-wide index of everyone the photographer has shot, with the "wall of
+fame" as its podium rather than a separate page (a repeat-only page would
+have shipped with ONE member: 910 named people, 1 in two events, because the
+archive is only part-migrated).
+
+- Identity: `personNameFromParts` — the SAME helper stacks/auto-sections use.
+  Never re-derive names; that drift caused the "AaronCote Appfolio" bug.
+- `src/lib/people/index-people.ts` is the one home. It excludes the four
+  marketing galleries (TDP Website/Work/Sample Images/Samples — they
+  duplicate each other's photos, and their filenames parse into venues:
+  the first leaderboard's top entries were MOSCONE CENTER and Stripe BTS)
+  and applies `looksLikePersonName`.
+- `displayName` title-cases ONLY single-cased names; mixed case is left
+  alone (McCartney, de Vries, O'Neil).
+- Sorts: most events (default, = the ranking), most photos, A-Z, plus a
+  "repeat only" filter. Podium shows only in rank order, unfiltered.
+- Hero frame per person = highest `aesthetic_score`. Podium carries a time
+  strip: one frame per event, oldest first, each linking to that shoot.
+- INTERNAL ONLY. It aggregates named faces across clients, which reveals
+  employment across companies — never expose publicly or client-facing.
+- Next chapter (not built): cross-event FACE matching for the unnamed events
+  (booths/festivals/weddings). 32k+ embedded faces exist. Must suggest, not
+  merge — same rule as the rest of the AI suite.
+
 ## Marketing site (src/app/m)
 
 Copy posture: **outcome-led, mechanism-silent** — no model names, no infra

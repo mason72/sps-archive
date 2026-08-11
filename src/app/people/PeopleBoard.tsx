@@ -21,7 +21,7 @@ export interface PersonCard {
   events: PersonAppearance[];
 }
 
-type SortMode = "rank" | "alpha";
+type SortMode = "rank" | "photos" | "alpha";
 
 export function PeopleBoard({ people }: { people: PersonCard[] }) {
   const [query, setQuery] = useState("");
@@ -35,6 +35,16 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
     if (sort === "alpha") {
       list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sort === "photos") {
+      // Most-photographed, regardless of how many events that took — a single
+      // long session outranks two quick ones, which is the honest answer to
+      // "who do I have the most of".
+      list = [...list].sort(
+        (a, b) =>
+          b.imageCount - a.imageCount ||
+          b.eventCount - a.eventCount ||
+          a.name.localeCompare(b.name)
+      );
     }
     // "rank" arrives pre-sorted from the server (events → photos → name).
     return list;
@@ -81,6 +91,15 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
             }`}
           >
             Most events
+          </button>
+          <span className="h-3 w-px bg-stone-200" />
+          <button
+            onClick={() => setSort("photos")}
+            className={`uppercase tracking-[0.12em] transition-colors ${
+              sort === "photos" ? "text-stone-900" : "text-stone-400 hover:text-stone-600"
+            }`}
+          >
+            Most photos
           </button>
           <span className="h-3 w-px bg-stone-200" />
           <button
