@@ -122,6 +122,12 @@ export async function middleware(request: NextRequest) {
     // Site-facing scene API enforces its own X-SPS-Key shared-secret auth
     // (like /api/sps) — the login redirect must not intercept it.
     pathname.startsWith("/api/site") ||
+    // The guest-list download is authenticated BY ITS TOKEN, not by a session:
+    // the recipient is a client who has no Pixeltrunk account. Behind the login
+    // redirect the emailed link 307s to /login and is simply broken for the one
+    // person it exists for. The route itself rate-limits, verifies the hashed
+    // token, and requires a live share.
+    pathname.startsWith("/api/guest-list/") ||
     pathname.startsWith("/dev");
 
   // Redirect unauthenticated users to login
