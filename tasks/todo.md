@@ -1462,3 +1462,55 @@ Shipped and verified on production (commits `ed8493b` … `79f965c`):
       second smaller elephant trailing behind is the best candidate.
 - [ ] **HDC face clustering** — run once indexing completes (~05:30 UTC
       2026-08-11); `scripts/cluster-all-events.ts` is idempotent.
+
+## SPS guest-list spreadsheet in the client email — DESIGNED, not built (2026-08-11)
+
+Mason: "When I share a PT gallery, I often want to include the data sheet from
+SPSv2 > Analytics > Create Spreadsheet… then I don't need to fuss with
+downloading and reuploading it somewhere shareable."
+
+**Decision taken: LIVE link, resolved on click.** PT stores only the SPS event
+id; the client's link generates the sheet fresh at download time. A guest list
+is live data — people keep signing in after the gallery goes out, so a snapshot
+emailed Tuesday is wrong by Friday and nothing on the page says so.
+
+### Ground truth established
+- **SPS is a SEPARATE Supabase project.** PT has no guest/sign-in/analytics
+  tables (verified 2026-08-11). PT cannot read SPS data directly.
+- `src/lib/sps-integration/auth.ts` is **inbound only** — it authenticates
+  SPS → PT (Supabase JWT, or `X-SPS-Key` / `SPS_INTEGRATION_KEY`). There is no
+  PT → SPS path today. This is the main new plumbing.
+- Two repos: **spsv2** (expose the data) and **pixeltrunk** (link, pick, serve).
+
+### spsv2 side
+1. `GET /api/integration/events?email=` (or by user id) — the signed-in
+   photographer's events: id, name, date, guest count. Authenticated with a
+   NEW outbound key (`PT_INTEGRATION_KEY`) — do NOT reuse SPS_INTEGRATION_KEY,
+   which travels the other way; one key per direction so either can be rotated
+   without taking down the other.
+2. `GET /api/integration/events/[id]/spreadsheet` — returns the SAME CSV the
+   "Create Spreadsheet" button produces. Reuse that generator; do not
+   reimplement the cleaning rules (title-cased names, loose emails named from
+   filenames, sorted A–Z) or the two will drift.
+
+### pixeltrunk side
+3. Account setting: link SPS by email (matching on email is fine — same email
+   for both accounts). Store the SPS user id, not just the email.
+4. Event setting: pick the corresponding SPS event. Store `settings.sps.eventId`.
+5. `GET /api/gallery/[slug]/guest-list` — guest route, scoped to the SHARE:
+   resolves the SPS event id, calls spsv2, streams the CSV back. Must go
+   through `resolveShareImageScope()`-style gating: fails closed, dies with
+   the share, respects the gallery password.
+6. Email composer: a "Guest list (CSV)" link when the event is linked.
+
+### Non-negotiable: this sheet is PII
+Guest names, emails and sign-in answers. The link is forwardable, so it must be
+share-scoped and revocable — same posture as gallery passwords, never a naked
+public URL. Turning off the share must kill the sheet. Consider inheriting the
+gallery password gate, and log downloads to activity_log like any other.
+
+### Open questions for the build session
+- Does the SPSv2 spreadsheet generator run server-side already, or is it built
+  in the browser? If browser-only, step 2 is the real work.
+- Should the link appear for GUESTS at all, or only in the email to the client
+  contact? A wedding guest should probably not download every attendee's email.
