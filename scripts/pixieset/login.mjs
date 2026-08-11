@@ -36,6 +36,22 @@ while (Date.now() < deadline) {
       const j = await r.json();
       const name = j?.data?.username;
       if (name) {
+        // Pixieset issues the session as a *browser-session* cookie (expires=-1).
+        // Chromium discards those on every launch, so a persistent profile alone
+        // does not survive a restart. Re-add it with an explicit expiry so it is
+        // written to disk as persistent — the server only ever sees the value.
+        const cookies = await ctx.cookies("https://galleries.pixieset.com");
+        const sess = cookies.find((c) => c.name === "gallery_dashboard_session");
+        if (sess) {
+          await ctx.addCookies([{
+            name: sess.name, value: sess.value, domain: sess.domain, path: sess.path,
+            httpOnly: sess.httpOnly, secure: sess.secure, sameSite: sess.sameSite,
+            expires: Math.floor(Date.now() / 1000) + 30 * 86400,
+          }]);
+          console.log("  made the session cookie persistent (30d)");
+        } else {
+          console.log("  ! session cookie not found — headless runs may not authenticate");
+        }
         console.log(`✓ signed in as "${name}" — session saved to scripts/pixieset/profile`);
         ok = true;
         break;
