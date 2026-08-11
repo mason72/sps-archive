@@ -35,6 +35,13 @@ export async function POST(request: NextRequest) {
     // Note this is only the *request* — the password itself is read server-side
     // below; a client-supplied string is never printed.
     const includePassword = body.includePassword === true;
+    // The download PIN is INDEPENDENT of the gallery password. Riding it on
+    // includePassword meant a gallery with a PIN but no password silently
+    // dropped it — the toggle never rendered, so the flag was never true, and
+    // the client got a link that asks for a PIN nobody sent them
+    // (Mason, 2026-08-11). Defaults ON: a PIN the guest will be ASKED for is
+    // useless to withhold.
+    const includePin = body.includePin !== false;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -208,7 +215,7 @@ export async function POST(request: NextRequest) {
       fromName,
       coverImageUrl,
       eventName,
-      downloadPin: includePassword ? shareDownloadPin : null,
+      downloadPin: includePin ? shareDownloadPin : null,
       password: emailPassword,
     });
 

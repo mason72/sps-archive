@@ -58,6 +58,9 @@ function ShareComposePage() {
   // The event's gallery password, if one is set. Owner-only screen — showing
   // the real value is the point (this is the email he's about to send).
   const [galleryPassword, setGalleryPassword] = useState("");
+  /** Include the download PIN. Independent of the password — a gallery often
+   *  has one and not the other, and the PIN is one the guest gets ASKED for. */
+  const [includePin, setIncludePin] = useState(true);
   const [includePassword, setIncludePassword] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -208,6 +211,8 @@ function ShareComposePage() {
           // Request only — the server reads the password itself and refuses
           // unless the verified share actually carries a hash.
           includePassword: !!galleryPassword && includePassword,
+          // Separate flag: a share can have a PIN and no password.
+          includePin,
         }),
       });
 
