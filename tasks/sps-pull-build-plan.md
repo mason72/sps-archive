@@ -139,14 +139,41 @@ deleting it. `generateEnhancements` stays.
 Provenance lives on the image, not on the job: it must outlive the import, it is
 what makes a lossy frame findable later, and it is the idempotency key.
 
-## Open question
+## Review thumbnails — RESOLVED 2026-08-11
 
-**Review thumbnails.** The manifest returns only `url` — the full original. A
-6,000-photo review grid at full res is ~30 GB of client egress, so it can't be
-rendered directly. SPS already stores a 200px `thumbnail_url` and a 1200px
-`medium_url` per image (`packages`/`images` schema, `IMAGE_SIZES`), so exposing
-one is ~2 lines in the manifest route. Until that lands, the fallback is a
-Pixeltrunk-side proxy that downloads the original server-side and resizes —
-correct, but it pulls the whole event through Vercel just to draw the grid.
-The client will prefer `image.thumbUrl` and fall back to the proxy, so the UI
-ships either way and gets fast when the field appears.
+The manifest originally returned only `url`, the full original, which made a
+6,000-photo review grid ~30 GB of client egress — unrenderable, and a review step
+that can't render is a review step that gets skipped.
+
+Mason approved adding it to SPS. `spsv2 d19b118` now sends
+`thumbUrl: thumbnail_url ?? medium_url` (200px, else 1200px) — both variants
+already existed and are already public, so it cost nothing. Deployed to
+admin2.simplephotoshare.com. The grid resolves `previewUrl = thumbUrl || url` in
+the manifest proxy, so a row with no variant still renders (from the original)
+and the UI says why scrolling is slow. No Pixeltrunk-side resize proxy was
+needed.
+
+## State — 2026-08-11
+
+**Shipped and verified live.** Pixeltrunk `70b0774` on app.pixeltrunk.com (all
+six `/api/sps/*` routes present in the production build log, `/api/sps/import`
+absent); spsv2 `d19b118` on admin2 (archive API answers 401 to a bad token);
+migration 046 applied to production and columns confirmed; 434 tests pass;
+`next build` clean.
+
+`NEXT_PUBLIC_ENABLE_PIXELTRUNK=true` is set on sps-admin production and the app
+was redeployed afterwards — a `NEXT_PUBLIC_*` var is inlined at build time, so
+setting it without a redeploy would have left the Connect card invisible while
+looking configured.
+
+**Open, and needs Mason:** mint a token in SPS (Settings → Pixeltrunk) and paste
+it at app.pixeltrunk.com/settings/connections. Entering a credential into a form
+is his to do, not the agent's. Then the spec's required proof can run:
+
+```bash
+npx tsx scripts/verify-sps-pull.ts <archiveEventId>
+```
+
+Until a real import has run, the byte-moving path has been proven by build,
+types, unit tests and inspection — **not** by a sha256 round-trip against a real
+SPS event, which is the only evidence that counts for the quality claim.
