@@ -87,9 +87,22 @@ async function DashboardView({
         >
           People
         </Link>
-        <Link href="/events/new">
-          <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
-        </Link>
+        {/* Import sits WITH New Event, not in Settings: pulling a finished
+            shoot out of SimplePhotoShare is a way to create an event, so it
+            belongs beside the primary action rather than filed under account
+            preferences. Tighter gap than the nav's own so the two read as one
+            group with a primary and a secondary. */}
+        <div className="flex items-center gap-4">
+          <Link
+            href="/events/import"
+            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+          >
+            Import
+          </Link>
+          <Link href="/events/new">
+            <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
+          </Link>
+        </div>
         <Link
           href="/account"
           className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"

@@ -13,6 +13,7 @@ import {
   Calendar,
   Command,
   CornerDownLeft,
+  Download,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────
@@ -118,6 +119,13 @@ export function CommandPalette() {
       icon: <PlusCircle size={15} />,
       shortcut: "N",
       onSelect: () => navigate("/events/new"),
+    },
+    {
+      id: "nav-import-sps",
+      label: "Import from SimplePhotoShare",
+      group: "Navigation",
+      icon: <Download size={15} />,
+      onSelect: () => navigate("/events/import"),
     },
     {
       id: "nav-account",

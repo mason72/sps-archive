@@ -249,6 +249,21 @@ export default function NewEventPage() {
             {isCreating ? "Creating..." : "Create event & start uploading"}
           </BrandButton>
         </form>
+
+        {/* The other way to start an event: pull a finished one out of
+            SimplePhotoShare with its camera files. Offered here because this is
+            the page someone is already on when they want a new event. */}
+        <div className="mt-10 reveal" style={{ animationDelay: "0.3s" }}>
+          <p className="text-[13px] text-stone-400">
+            Already shot it on SimplePhotoShare?{" "}
+            <Link
+              href="/events/import"
+              className="text-accent hover:text-accent-hover transition-colors duration-300"
+            >
+              Import it with the camera files
+            </Link>
+          </p>
+        </div>
       </main>
 
       <Footer />

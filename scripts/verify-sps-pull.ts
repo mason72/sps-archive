@@ -10,9 +10,16 @@
  *   2. fetches a FRESH manifest URL from SPS and hashes that,
  *   3. reports whether they are identical.
  *
- * A `quality: "archive"` image MUST match exactly — that is the whole promise of
- * the integration. A `lossy` image is expected NOT to match (SPS re-encodes),
- * and a mismatch there is information, not a failure.
+ * **Every image must match, whatever its quality.** The importer copies bytes
+ * verbatim — it never re-encodes — so a mismatch is corruption in the transfer,
+ * full stop. `quality` answers a DIFFERENT question: whether the bytes SPS
+ * handed over are the photographer's camera file or SPS's own re-encode. It is
+ * reported alongside for context and is never an excuse for a hash difference.
+ *
+ * (An earlier version of this script treated a mismatch on a `lossy` image as
+ * expected. That would have made a real corruption bug on a lossy import
+ * indistinguishable from normal operation — a check that shares the assumption
+ * it is supposed to be testing.)
  *
  *   npx tsx scripts/verify-sps-pull.ts <archiveEventId> [--sample 5]
  */
@@ -92,7 +99,6 @@ async function main() {
   }
 
   let matched = 0;
-  let expectedMismatch = 0;
   let failed = 0;
 
   for (const row of rows) {
@@ -128,16 +134,13 @@ async function main() {
     if (same) {
       matched++;
       console.log(`  ✓ ${label} — identical (${sizeNote})`);
-    } else if (row.sps_quality === "lossy" || source.quality === "lossy") {
-      expectedMismatch++;
-      console.log(
-        `  ~ ${label} — differs, as expected for a lossy source (${sizeNote})`
-      );
     } else {
       failed++;
       console.log(
-        `  ✗ ${label} — ARCHIVE-GRADE BUT DIFFERENT (${sizeNote})\n` +
-          `      stored ${storedHash}\n      source ${liveHash}`
+        `  ✗ ${label} — STORED BYTES DIFFER FROM SOURCE (${sizeNote})\n` +
+          `      stored ${storedHash}\n      source ${liveHash}\n` +
+          `      The importer copies verbatim, so this is a transfer fault —\n` +
+          `      not something the ${row.sps_quality} label explains.`
       );
     }
 
@@ -146,8 +149,12 @@ async function main() {
     }
   }
 
+  const archiveGrade = rows.filter((r) => r.sps_quality === "archive").length;
   console.log(
-    `\n${matched} identical, ${expectedMismatch} expected mismatch (lossy), ${failed} unexpected.\n`
+    `\n${matched} identical, ${failed} corrupt.\n` +
+      `Of the sample, ${archiveGrade} carry SPS's archive-grade label and ` +
+      `${rows.length - archiveGrade} are marked lossy — that is a statement about\n` +
+      `what SPS held, not about this transfer.\n`
   );
   if (failed > 0) process.exit(2);
 }
