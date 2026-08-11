@@ -56,6 +56,17 @@ const PARTS: Record<string, Part> = {
   trunk: { file: "trunk", x: 1027, y: 432, w: 132, h: 280, z: 5, origin: "50% 4%" },
 };
 
+/**
+ * Band durations are deliberately NOT multiples of each other (11s near, 30s
+ * far → a near tree every ~5.5s, a far one every ~15s). Because the periods
+ * don't divide, the two sightings drift in and out of phase and the scene
+ * never repeats the same combination twice in a row — which is the whole
+ * reason it reads as a journey rather than a loop (Mason, 2026-08-10: "I like
+ * how the foreground and background trees come in at different cadences").
+ * Rounding these to 10 and 30 would lock them together every third pass and
+ * quietly kill it.
+ */
+
 /** Deterministic hash → [0,1). No Math.random: SSR and client must agree. */
 function rnd(seed: number, n: number): number {
   const x = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453;
@@ -162,6 +173,13 @@ function MosaicFill({
  * Now: ~0.8Hz, wings that shorten rather than invert, and phases spread far
  * enough apart that the flock never pulses in unison — a synchronised flock is
  * what turns many small movements into one big flash.
+ *
+ * DISTANT ONLY. A two-tile chevron reads as a bird at 3% of the frame, where
+ * it is pure silhouette, and as "two black tic tacs" at 9%, where you can see
+ * it is two rounded rectangles (Mason, 2026-08-10). The close flyby was cut
+ * rather than detailed: matching the mark's craft at that size would take as
+ * many tiles as the elephant has, for a thing on screen two seconds at a time.
+ * Detail budget has to match display size.
  */
 function Bird({ uid, seed, colors }: { uid: string; seed: number; colors: string[] }) {
   const c = colors[Math.floor(rnd(seed, 2) * colors.length)];
@@ -216,36 +234,6 @@ function BirdFlock({ uid, cadence }: { uid: string; cadence: ElephantCadence }) 
               <Bird uid={uid} seed={i + copy * 5 + 2} colors={BIRD_FAR} />
             </div>
           ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** One bird, close and quick, crossing in front of everything. */
-function BirdFlyby({ uid, cadence }: { uid: string; cadence: ElephantCadence }) {
-  return (
-    <div
-      className="pointer-events-none absolute inset-y-0 left-0 flex w-[600%]"
-      style={{
-        animation: `flyby${uid} 19s ${cadence === "stopmotion" ? "steps(58, end)" : "linear"} infinite`,
-        zIndex: 11,
-      }}
-    >
-      {[0, 1].map((copy) => (
-        <div key={copy} className="relative h-full w-1/2 shrink-0">
-          {/* Drifts downward slightly as it crosses — a bird on a flat
-              horizontal line reads as a paper cut-out on a wire. */}
-          <div
-            className="absolute h-[9%]"
-            style={{
-              left: "12%",
-              top: "22%",
-              animation: `glide${uid} 19s ease-in-out infinite`,
-            }}
-          >
-            <Bird uid={uid} seed={copy * 9 + 6} colors={BIRD_NEAR} />
-          </div>
         </div>
       ))}
     </div>
@@ -381,7 +369,6 @@ const TREE_NEAR = ["#1b3a6b", "#226b60", "#2b7a78", "#5f9455", "#8cb369", "#c7cf
 const TREE_NEAR_ACCENT = ["#f0a92b", "#ef7724", "#e04f6e"];
 /** Birds read as ink — the only thing out here besides him and the acacias. */
 const BIRD_FAR = ["#5b7fa5", "#6f93a8"];
-const BIRD_NEAR = ["#1b3a6b", "#2b4d7a"];
 
 export type ElephantCadence = "stopmotion" | "smooth";
 
@@ -458,13 +445,7 @@ export function ElephantWalk({
         }
         @keyframes drift${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         @keyframes rush${uid}  { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-        @keyframes flock${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-        @keyframes flyby${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         /* Two held frames — wings up, wings down. Nothing between. */
-        @keyframes flap${uid}  { 0% { transform: scaleY(1); } 50% { transform: scaleY(0.45); } 100% { transform: scaleY(1); } }
-        /* A gentle rise and fall across the crossing, so the flyby isn't a
-           cut-out sliding along a wire. */
-        @keyframes glide${uid} { 0% { transform: translateY(0); } 35% { transform: translateY(38%); } 70% { transform: translateY(-22%); } 100% { transform: translateY(6%); } }
         @media (prefers-reduced-motion: reduce) {
           .rig${uid} * { animation: none !important; }
         }
@@ -560,7 +541,6 @@ export function ElephantWalk({
             z={9}
           />
         )}
-        {trees && <BirdFlyby uid={uid} cadence={cadence} />}
       </div>
 
       {(message || detail) && (
