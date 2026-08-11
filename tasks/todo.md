@@ -169,6 +169,21 @@ origin fallback removed + rate limited ("forgot" scope).
 - E2E: scratch event, 55-then-60 file batches — banner said 60 not 115,
       ring live "17 of 60", settled to 115; guest nav default/toggled verified.
 
+### Alpha feedback round 3 (Justin) — SHIPPED 2026-08-10
+- [x] Event editor title no longer carries "// <section>" into the Design/
+      Details/Activity panels — the suffix renders only in Sections context.
+
+### Session close-out 2026-08-10
+- [x] Retired env vars deleted from Vercel (ALLOWED_SIGNUP_EMAILS,
+      MODAL_EMBED_TEXT_URL, MODAL_PROCESS_IMAGE_URL — all code-dead).
+- [x] 7 content-landed remote claude/* branches deleted. KEPT deliberately:
+      pixeltrunk-deep-review (44 May commits, historic) and
+      ai-event-creation-setup (3 unmerged commits, unreviewed — decide later).
+      Local dead branch husks: Mason runs the force-delete one-liner from
+      the session (the safety hook blocks agents from it, by design).
+- [x] docs/OPS.md written (access model, act-as, metering, crons, QA
+      patterns); CLAUDE.md carries the ops invariants + doc pointer.
+
 ### Alpha feedback round 2 (Justin) — SHIPPED 2026-08-10 (5c7461f)
 - [x] Photo covers: cover.image {fit, padding} in normalizeCoverSettings
       (default cover — zero change to existing galleries); "Fit whole image"

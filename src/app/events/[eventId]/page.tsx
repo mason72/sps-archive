@@ -1395,7 +1395,10 @@ export default function EventPage({
           {event ? (
             <h1 className="font-editorial text-[clamp(36px,5vw,64px)] leading-[0.95] text-stone-900 reveal">
               {event.name}
-              {activeSection && (
+              {/* The section suffix only means something in section context —
+                  carrying "// AI Renders" into the Cover/Design panels read
+                  as unrelated noise (Justin, 2026-08-10). */}
+              {activeSection && sidebarPanel === "sections" && (
                 <span className="text-accent">
                   {" // "}
                   {sections.find((s) => s.id === activeSection)?.name}
