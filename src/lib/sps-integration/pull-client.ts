@@ -52,6 +52,11 @@ export interface SpsPullEvent {
   /** Includes AI copies — display only. NEVER a completion denominator. */
   imageCount: number | null;
   archiveEnabled: boolean;
+  /**
+   * SPS's public cover thumbnail, for the import list. Optional because it
+   * post-dates the original contract; null on events that never had one set.
+   */
+  coverUrl?: string | null;
 }
 
 export interface SpsManifestImage {
