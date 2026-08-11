@@ -106,6 +106,41 @@ sibling within 2 days. Backup at `data/decisions.backup.json`.
   model was averaging three different policies. Any future model trained on this
   data inherits that.
 
+## Fidelity check — RESOLVED (2026-08-11)
+
+**Pixieset does not re-compress. It serves back what was uploaded, at full camera
+resolution from 2015 onward.** The SPS lossy-source worry does not apply here.
+
+Measured via `GET /api/v1/collections/{id}/photos`, which returns per-photo
+`width`, `height`, `size` (24/page). Median long edge by year, 3 galleries × 24
+photos each:
+
+| year | median long edge | mean MB/photo |
+|---|---|---|
+| 2014 | 5,760 (mixed; some 1,844) | 6.53 |
+| 2015 | 3,840 | 2.14 |
+| 2016 | 3,840 | 1.70 |
+| 2017 | 5,472 | 2.17 |
+| 2018 | 5,184 | 0.88 |
+| 2019 | 4,195 | 1.73 |
+| 2020 | 4,800 | 1.14 |
+| 2021 | 4,096 | 1.27 |
+| 2022 | 4,800 | 2.26 |
+| 2023 | 4,800 | 1.69 |
+
+Note `download_size` / `high_res_download_size` on the collection are CLIENT
+download permissions, not the stored file — don't read them as fidelity.
+
+### Consequence: store originals, drop the derivative plan
+
+At-risk set (pre-2024 keep) = 655,686 photos ≈ **1.13 TB** ≈ **$208/yr** on R2.
+Whole keep set at full res ≈ 2.9 TB ≈ ~$530/yr. Derivatives would save ~$180/yr
+and cost a "linked original" feature plus permanent loss of the real files.
+Not worth it. **Take the originals.**
+
+The remaining unmeasured cost is AI indexing ~1.58M images on Modal. That is what
+the pilot is for.
+
 ## Open decisions
 
 1. **Storage tier for the 949k at-risk photos.** Full-res in R2 for all 1.88M is ~5.6 TB ≈
