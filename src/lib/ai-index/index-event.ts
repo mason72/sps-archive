@@ -51,18 +51,37 @@ export function isAiIndexingEnabled(): boolean {
 }
 
 /**
+ * A pending row stops looking like an upload in flight after this long. Matches
+ * the reconciler's own staleness cutoff (RECONCILE_STALE_MINUTES) — the two
+ * describe the same thing and must not drift.
+ */
+export const PENDING_UPLOAD_STALE_MINUTES = 30;
+
+/**
  * Uploads still in flight for this event? `pending` rows are presign-created
  * ahead of their binary; indexing must wait until the event has settled.
+ *
+ * RECENT pending rows only. A row that has sat pending for hours is not an
+ * upload in flight, it's a ghost — its bytes never arrived — and counting it
+ * starves the whole event forever, because `ai-index` returns
+ * `skipped: "uploads-in-flight"` and therefore never sends
+ * `faces/cluster.requested` either. Hotel Data Conference 2026 (2026-08-10)
+ * lost semantic search, faces, smart sections AND selfie search across 5,778
+ * finished photos to exactly NINE stuck rows.
  */
 export async function countPendingUploads(
   supabase: SupabaseDB,
   eventId: string
 ): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - PENDING_UPLOAD_STALE_MINUTES * 60 * 1000
+  ).toISOString();
   const { count } = await supabase
     .from("images")
     .select("id", { count: "exact", head: true })
     .eq("event_id", eventId)
-    .eq("processing_status", "pending");
+    .eq("processing_status", "pending")
+    .gt("created_at", cutoff);
   return count ?? 0;
 }
 
