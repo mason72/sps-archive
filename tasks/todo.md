@@ -1528,3 +1528,35 @@ HDC is ready to send. Two ways to get there:
   link. Proves the client-facing half TODAY; the API later replaces only the
   "where the CSV came from" step, leaving the token, the email and the
   revocation intact. Recommended for a first experiment.
+
+## Guest-list spreadsheet — backend SHIPPED, UI remaining (2026-08-11)
+
+Built and live (`d777b32`, `9a00d07`, `ce54371`):
+- [x] `src/lib/guest-list/store.ts` — metadata on `events.settings.guestList`;
+      token hashed (SHA-256), never stored in the clear, minted per attach.
+- [x] `POST/GET/DELETE /api/events/[eventId]/guest-list` — owner-only attach,
+      status, revoke. Accepts **.xlsx** (what SPS actually exports), .csv, .tsv.
+- [x] `GET /api/guest-list/[token]` — the ONE door. Rate-limited, hashed-token
+      verified, requires a LIVE share (410 otherwise), logs
+      `guest_list_download`, `Cache-Control: private, no-store`.
+- [x] Middleware exemption — token IS the auth; the recipient has no account.
+- [x] HDC's real file attached and verified end to end (410 correctly, because
+      HDC had no share yet).
+
+### Remaining
+- [ ] **Upload control in the publish flow** — attach the sheet, show
+      filename/size/uploaded-at, re-upload (mints a new token, kills the old),
+      revoke. Token is returned ONCE by POST — surface it immediately or it's
+      unrecoverable.
+- [ ] **Link in the publish email** — only when a sheet is attached. Email
+      recipient only; never a gallery surface.
+- [ ] **Replace the manual step with the SPS API** — see the design section
+      above. Only swaps "where the CSV came from"; token, email, revocation
+      and the download route all stay.
+
+## Publish email — line breaks not reflected (2026-08-11, OPEN)
+Mason added blank lines between paragraphs; the preview/sent email doesn't
+space accordingly. Hypothesis (UNVERIFIED): empty `<p></p>` collapsed between
+the editor's HTML and the email shell's sanitiser. Diagnose by capturing the
+HTML at three points — editor output, what POSTs to /api/emails/send, and what
+the shell renders — rather than guessing at the sanitiser.
