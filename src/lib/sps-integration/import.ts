@@ -11,10 +11,22 @@ import type { SPSEventImport, ArchiveEnhancements } from "./types";
  * serves from its own lane (`pub-7363d57d….r2.dev`) while the archive reads
  * `sps-prism`; listing `sps-prism` under an SPS key prefix returns 0 objects.
  * Rows minted here would reference keys the archive cannot read — ghost tiles
- * (lessons #21–23, #54). A correct import must MOVE THE BYTES; note also that
- * SPS re-compresses on ingest (~⅓ the bytes at identical pixel dimensions), so
- * it is a lossy source for an archive that is meant to hold the good copy.
+ * (lessons #21–23, #54). A correct import must MOVE THE BYTES.
  * Working reference: `scripts/backfill-sps-fou26.ts`.
+ *
+ * CORRECTED 2026-08-11 — this header used to add "SPS re-compresses on ingest
+ * (~⅓ the bytes at identical pixel dimensions), so it is a lossy source." That
+ * is NOT true of current SPS. The ratio was measured on FoU26 frames, which
+ * were uploaded before SPS `f406ee7` (2026-05-05) added a passthrough branch:
+ * a JPEG upload with no test-mode watermark and no branding overlay is now
+ * stored byte-for-byte as `original.jpg` (verified by sha256 round-trip). The
+ * measurement described stored bytes and got generalized into a statement about
+ * behaviour.
+ *
+ * Do not re-derive this from SPS's `IMAGE_SIZES` — it still reads
+ * `quality: 95` because that encoder runs for the cases passthrough excludes.
+ * SPS's pull API reports `quality: 'archive' | 'lossy'` per image; trust that
+ * field and never infer. Contract: `tasks/sps-archive-pull-spec.md`.
  *
  * Flow:
  *   1. SPS sends event + image metadata via API
