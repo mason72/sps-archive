@@ -11,12 +11,13 @@ import { Camera, ImageUp, X } from "lucide-react";
  * server-side, and never stored — the consent line can say so honestly.
  */
 export function FindMyPhotos({
-  slug,
+  apiBase,
   colors,
   onResults,
   onClose,
 }: {
-  slug: string;
+  /** Gallery API base — `/api/gallery/<slug>` or the preview equivalent. */
+  apiBase: string;
   colors: { primary: string; secondary: string };
   onResults: (imageIds: string[]) => void;
   onClose: () => void;
@@ -62,7 +63,7 @@ export function FindMyPhotos({
     async (base64: string) => {
       setMode("busy");
       try {
-        const res = await fetch(`/api/gallery/${slug}/selfie-search`, {
+        const res = await fetch(`${apiBase}/selfie-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: base64 }),
@@ -82,7 +83,7 @@ export function FindMyPhotos({
         setMode("error");
       }
     },
-    [slug, onResults]
+    [apiBase, onResults]
   );
 
   /** Downscale to ≤800px JPEG and return raw base64 (no data: prefix). */
