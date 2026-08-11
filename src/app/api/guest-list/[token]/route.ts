@@ -74,7 +74,7 @@ export async function GET(
 
     return new NextResponse(new Uint8Array(body), {
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Type": match.meta.contentType ?? "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="${match.meta.filename.replace(/"/g, "")}"`,
         // Never cached by a proxy — this is one client's personal data.
         "Cache-Control": "private, no-store",

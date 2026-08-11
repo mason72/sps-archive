@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive Triage</title>
+<style>
+  :root {
+    --stone-50:#fafaf9; --stone-100:#f5f5f4; --stone-200:#e7e5e4; --stone-300:#d6d3d1;
+    --stone-400:#a8a29e; --stone-500:#78716c; --stone-600:#57534e; --stone-900:#1c1917;
+    --emerald:#059669; --emerald-soft:#ecfdf5;
+    --rose:#9f1239; --rose-soft:#fff1f2;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    background:var(--stone-50); color:var(--stone-900);
+    height:100vh; display:flex; flex-direction:column; overflow:hidden;
+  }
+  .serif { font-family: "Playfair Display", Georgia, ui-serif, serif; }
+
+  header {
+    display:flex; align-items:baseline; gap:20px; flex-wrap:wrap;
+    padding:14px 24px; border-bottom:1px solid var(--stone-200); background:#fff;
+  }
+  header h1 { font-size:19px; font-weight:600; letter-spacing:-.01em; }
+  .stat { font-size:12.5px; color:var(--stone-500); font-variant-numeric:tabular-nums; }
+  .stat b { color:var(--stone-900); font-weight:600; }
+  .bar { flex:1; min-width:120px; height:4px; background:var(--stone-200); border-radius:2px; overflow:hidden; }
+  .bar span { display:block; height:100%; background:var(--stone-900); transition:width .3s; }
+
+  main { flex:1; display:flex; align-items:center; justify-content:center; padding:24px; overflow:hidden; }
+
+  /* ---- single card ---- */
+  .card {
+    width:min(560px,92vw); background:#fff; border:1px solid var(--stone-200);
+    border-radius:14px; overflow:hidden; box-shadow:0 8px 28px rgba(28,25,23,.09);
+    user-select:none; cursor:grab; position:relative;
+  }
+  .card.dragging { cursor:grabbing; transition:none; }
+  /* direct child only — the verdict illustrations are also inside .card */
+  .card > img { width:100%; height:min(46vh,380px); object-fit:cover; display:block; background:var(--stone-100); }
+  .meta { padding:16px 20px 18px; }
+  .meta h2 { font-size:21px; font-weight:500; letter-spacing:-.015em; line-height:1.25; }
+  .sub { margin-top:7px; font-size:13px; color:var(--stone-500); font-variant-numeric:tabular-nums; }
+  .hist { margin-top:11px; font-size:12.5px; color:var(--stone-600); }
+  .hint {
+    margin-top:11px; font-size:12.5px; color:var(--stone-600);
+    background:var(--stone-100); border-radius:7px; padding:8px 11px;
+  }
+  .hint b { font-weight:600; }
+
+  .verdict {
+    position:absolute; top:19%; width:190px; text-align:center;
+    opacity:0; transform:scale(.68); pointer-events:none; z-index:2;
+  }
+  .verdict img {
+    width:158px; height:158px; object-fit:contain; display:block; margin:0 auto;
+    filter:drop-shadow(0 6px 16px rgba(28,25,23,.45));
+  }
+  /* a pill, not a text-shadow — the label has to read over any photo */
+  .verdict span {
+    display:inline-block; margin-top:6px; padding:5px 14px; border-radius:999px;
+    background:#fff; font-size:12px; font-weight:700;
+    letter-spacing:.12em; text-transform:uppercase;
+    box-shadow:0 2px 10px rgba(28,25,23,.28);
+  }
+  .verdict.keep  { left:12px;  color:var(--emerald); }
+  .verdict.trash { right:12px; color:var(--rose); }
+
+  footer img { width:19px; height:19px; object-fit:contain; vertical-align:-5px; margin-right:3px; }
+
+  /* ---- batch grid ---- */
+  .batch { width:min(1100px,96vw); max-height:100%; display:flex; flex-direction:column; }
+  .batch-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; flex-wrap:wrap; }
+  .batch-head h2 { font-size:17px; font-weight:600; }
+  .batch-head p { font-size:13px; color:var(--stone-500); flex:1; min-width:200px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:11px; overflow-y:auto; padding:3px; }
+  .tile {
+    position:relative; border-radius:9px; overflow:hidden; cursor:pointer;
+    border:2px solid transparent; background:#fff; transition:border-color .12s, opacity .12s;
+  }
+  .tile img { width:100%; height:104px; object-fit:cover; display:block; background:var(--stone-100); }
+  .tile .t-meta { padding:7px 9px 9px; }
+  .tile .t-name { font-size:11.5px; font-weight:500; line-height:1.3; overflow:hidden;
+                  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .tile .t-sub { font-size:10.5px; color:var(--stone-400); margin-top:3px; font-variant-numeric:tabular-nums; }
+  .tile.trash { border-color:var(--rose); opacity:.5; }
+  .tile.keep  { border-color:var(--emerald); }
+  .tile .flag {
+    position:absolute; top:6px; right:6px; font-size:9.5px; font-weight:700; letter-spacing:.06em;
+    padding:3px 6px; border-radius:4px; text-transform:uppercase; color:#fff;
+  }
+  .tile.trash .flag { background:var(--rose); }
+  .tile.keep  .flag { background:var(--emerald); }
+
+  button {
+    font:inherit; font-size:13.5px; font-weight:500; padding:8px 16px; border-radius:8px;
+    border:1px solid var(--stone-300); background:#fff; color:var(--stone-900); cursor:pointer;
+  }
+  button:hover { background:var(--stone-100); }
+  button.primary { background:var(--stone-900); color:#fff; border-color:var(--stone-900); }
+  button.primary:hover { background:#000; }
+
+  footer {
+    padding:11px 24px; border-top:1px solid var(--stone-200); background:#fff;
+    font-size:12px; color:var(--stone-500); display:flex; gap:18px; flex-wrap:wrap;
+  }
+  kbd {
+    font:inherit; font-size:11px; background:var(--stone-100); border:1px solid var(--stone-300);
+    border-bottom-width:2px; border-radius:4px; padding:1px 6px; color:var(--stone-600);
+  }
+  .empty { text-align:center; color:var(--stone-500); }
+  .empty h2 { font-size:26px; margin-bottom:10px; color:var(--stone-900); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 class="serif">Archive Triage</h1>
+  <div class="stat"><b id="s-done">0</b> / <span id="s-total">0</span> decided</div>
+  <div class="bar"><span id="s-bar" style="width:0"></span></div>
+  <div class="stat">keep <b id="s-keep">0</b> · <span id="s-keepimg">0</span> photos</div>
+  <div class="stat">trash <b id="s-trash">0</b> · <span id="s-trashimg">0</span> photos</div>
+  <div class="stat" id="s-model">learning…</div>
+</header>
+
+<main id="stage"></main>
+
+<footer>
+  <span><kbd>←</kbd> <img src="/assets/vault-a-cut.png" alt="">keep</span>
+  <span><kbd>→</kbd> <img src="/assets/dumpster-a-cut.png" alt="">trash</span>
+  <span><kbd>U</kbd> undo</span>
+  <span><kbd>B</kbd> batch</span>
+  <span id="f-note"></span>
+</footer>
+
+<script>
+// ---------------------------------------------------------------------------
+// Intake: window.name survives the cross-origin hop from the Pixieset tab.
+// ---------------------------------------------------------------------------
+(async function boot() {
+  if (window.name && window.name.trim().startsWith("[[")) {
+    const payload = window.name;
+    window.name = "";
+    try {
+      const r = await fetch("/ingest", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
+      });
+      const j = await r.json();
+      console.log("ingested", j);
+    } catch (e) { console.error("ingest failed", e); }
+  }
+  start();
+})();
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let INV = [];               // [id, name, date, photos, coverPath, urlKey]
+let DEC = {};               // id -> {verdict, at, via}
+let order = [];             // undecided ids, current sort
+let history = [];           // ids in decision order, for undo
+let batchSize = 6;
+let mode = "card";          // "card" | "batch"
+let batchItems = [];        // [{id, verdict}]
+let saveTimer = null;
+
+const STOP = new Set(["the","and","for","with","from","photos","photo","gallery","event",
+  "day","final","edit","edits","images","pics","llc","inc","new","all"]);
+
+const byId = new Map();
+
+function feats(rec) {
+  const [, name, date, photos] = rec;
+  const clean = name.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const toks = clean.split(" ").filter(t => t.length >= 3 && !STOP.has(t) && !/^\d+$/.test(t));
+  // client key: first segment before "//", minus trailing year/date noise
+  const seg = name.split("//")[0].toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ").replace(/\b\d+\b/g, " ").replace(/\s+/g, " ").trim();
+  const client = seg.split(" ").filter(t => t.length >= 3 && !STOP.has(t)).slice(0, 2).join(" ");
+  const year = (date || "").slice(0, 4) || "unknown";
+  const size = photos < 100 ? "tiny" : photos < 500 ? "small" : photos < 2000 ? "medium" : "large";
+  const f = [`year:${year}`, `size:${size}`];
+  if (client) f.push(`client:${client}`);
+  for (const t of toks) f.push(`tok:${t}`);
+  return { list: f, client, year, size };
+}
+
+// ---------------------------------------------------------------------------
+// Naive Bayes — deliberately simple so every suggestion can be explained.
+// ---------------------------------------------------------------------------
+let model = null;
+
+function train() {
+  const cnt = { keep: new Map(), trash: new Map() };
+  const tot = { keep: 0, trash: 0 };
+  const docs = { keep: 0, trash: 0 };
+  const vocab = new Set();
+  for (const [id, d] of Object.entries(DEC)) {
+    const rec = byId.get(Number(id));
+    if (!rec) continue;
+    docs[d.verdict]++;
+    for (const f of feats(rec).list) {
+      cnt[d.verdict].set(f, (cnt[d.verdict].get(f) || 0) + 1);
+      tot[d.verdict]++;
+      vocab.add(f);
+    }
+  }
+  model = { cnt, tot, docs, V: Math.max(vocab.size, 1), n: docs.keep + docs.trash };
+}
+
+function score(rec) {
+  if (!model || model.docs.keep < 3 || model.docs.trash < 3) return null;
+  const { cnt, tot, docs, V } = model;
+  const A = 1;
+  const lp = c => Math.log((docs[c] + 1) / (model.n + 2));
+  let sK = lp("keep"), sT = lp("trash");
+  const contrib = [];
+  for (const f of feats(rec).list) {
+    const k = (cnt.keep.get(f) || 0), t = (cnt.trash.get(f) || 0);
+    const pk = Math.log((k + A) / (tot.keep + A * V));
+    const pt = Math.log((t + A) / (tot.trash + A * V));
+    sK += pk; sT += pt;
+    if (k + t > 0) contrib.push({ f, delta: pt - pk, k, t });
+  }
+  const pTrash = 1 / (1 + Math.exp(sK - sT));
+  contrib.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return {
+    pTrash,
+    verdict: pTrash >= 0.5 ? "trash" : "keep",
+    confidence: Math.abs(pTrash - 0.5) * 2,
+    why: contrib.filter(c => (pTrash >= 0.5 ? c.delta > 0 : c.delta < 0)).slice(0, 3),
+  };
+}
+
+function explain(s) {
+  if (!s || !s.why.length) return "";
+  return s.why.map(c => {
+    const label = c.f.replace(/^tok:|^client:|^year:|^size:/, "");
+    const kept = c.k, trashed = c.t;
+    return `“${label}” (kept ${kept}, trashed ${trashed})`;
+  }).join(" · ");
+}
+
+// ---------------------------------------------------------------------------
+// Ordering: seed with a stratified spread, then hardest-first.
+// ---------------------------------------------------------------------------
+function reorder() {
+  const undecided = INV.filter(r => !DEC[r[0]]).map(r => r[0]);
+  if (Object.keys(DEC).length < 24) {
+    // spread across years so the model sees the whole space early
+    const buckets = new Map();
+    for (const id of undecided) {
+      const y = (byId.get(id)[2] || "").slice(0, 4);
+      if (!buckets.has(y)) buckets.set(y, []);
+      buckets.get(y).push(id);
+    }
+    const years = [...buckets.keys()].sort();
+    const out = [];
+    let i = 0;
+    while (out.length < undecided.length) {
+      let added = false;
+      for (const y of years) {
+        const b = buckets.get(y);
+        if (i < b.length) { out.push(b[i]); added = true; }
+      }
+      if (!added) break;
+      i++;
+    }
+    order = out;
+  } else {
+    order = undecided.sort((a, b) => {
+      const sa = score(byId.get(a)), sb = score(byId.get(b));
+      return (sa ? sa.confidence : 0) - (sb ? sb.confidence : 0);
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+function decide(id, verdict, via) {
+  DEC[id] = { verdict, at: new Date().toISOString(), via: via || "card" };
+  history.push(id);
+  train();
+  save();
+}
+
+function undo() {
+  const id = history.pop();
+  if (id === undefined) return;
+  delete DEC[id];
+  train(); reorder(); save(); render();
+}
+
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fetch("/api/decisions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(DEC),
+    }).catch(e => console.error("save failed", e));
+  }, 400);
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+const stage = document.getElementById("stage");
+const img = p => "https://images.pixieset.com/" + p;
+// same hash serves a bigger rendition — crisp on the card, thumb in the grid
+const imgLarge = p => "https://images.pixieset.com/" + p.replace("-thumb.jpg", "-large.jpg");
+const nf = n => n.toLocaleString();
+
+function stats() {
+  let keep = 0, trash = 0, keepImg = 0, trashImg = 0;
+  for (const [id, d] of Object.entries(DEC)) {
+    const rec = byId.get(Number(id));
+    const p = rec ? rec[3] : 0;
+    if (d.verdict === "keep") { keep++; keepImg += p; } else { trash++; trashImg += p; }
+  }
+  const done = keep + trash;
+  document.getElementById("s-done").textContent = nf(done);
+  document.getElementById("s-total").textContent = nf(INV.length);
+  document.getElementById("s-keep").textContent = nf(keep);
+  document.getElementById("s-trash").textContent = nf(trash);
+  document.getElementById("s-keepimg").textContent = nf(keepImg);
+  document.getElementById("s-trashimg").textContent = nf(trashImg);
+  document.getElementById("s-bar").style.width = (done / Math.max(INV.length, 1) * 100) + "%";
+  const conf = confidentPool().length;
+  document.getElementById("s-model").textContent =
+    model && model.n >= 6 ? `${conf} ready to batch` : "learning…";
+}
+
+function confidentPool() {
+  if (!model || model.n < 12) return [];
+  return INV.filter(r => !DEC[r[0]])
+    .map(r => ({ rec: r, s: score(r) }))
+    .filter(x => x.s && x.s.confidence >= 0.72)
+    .sort((a, b) => b.s.confidence - a.s.confidence);
+}
+
+function clientHistory(rec) {
+  const { client } = feats(rec);
+  if (!client) return null;
+  let k = 0, t = 0;
+  for (const [id, d] of Object.entries(DEC)) {
+    const r = byId.get(Number(id));
+    if (!r || r[0] === rec[0]) continue;
+    if (feats(r).client === client) d.verdict === "keep" ? k++ : t++;
+  }
+  return (k || t) ? { client, k, t } : null;
+}
+
+function render() {
+  stats();
+  if (mode === "batch") return renderBatch();
+
+  const id = order.find(i => !DEC[i]);
+  if (id === undefined) {
+    stage.innerHTML = `<div class="empty"><h2 class="serif">All ${nf(INV.length)} decided.</h2>
+      <p>Decisions saved to <code>scripts/triage/data/decisions.json</code>.</p></div>`;
+    document.getElementById("f-note").textContent = "";
+    return;
+  }
+  const rec = byId.get(id);
+  const s = score(rec);
+  const hist = clientHistory(rec);
+
+  stage.innerHTML = `
+    <div class="card" id="card">
+      <div class="verdict keep" id="v-keep"><img src="/assets/vault-a-cut.png" alt=""><span>Keep</span></div>
+      <div class="verdict trash" id="v-trash"><img src="/assets/dumpster-a-cut.png" alt=""><span>Trash</span></div>
+      <img src="${imgLarge(rec[4])}" alt="" draggable="false" loading="eager">
+      <div class="meta">
+        <h2 class="serif">${esc(rec[1])}</h2>
+        <div class="sub">${rec[2] || "no date"} · ${nf(rec[3])} photos</div>
+        ${hist ? `<div class="hist">You've kept <b>${hist.k}</b> and trashed <b>${hist.t}</b> from
+          “${esc(hist.client)}”.</div>` : ""}
+        ${s && s.confidence >= 0.4
+          ? `<div class="hint">Model leans <b>${s.verdict}</b> (${Math.round(s.pTrash * 100)}% trash)
+             — ${esc(explain(s))}</div>` : ""}
+      </div>
+    </div>`;
+  wireDrag(document.getElementById("card"), id);
+
+  const pool = confidentPool();
+  document.getElementById("f-note").textContent =
+    pool.length >= 4 ? `${pool.length} confident — press B to review ${Math.min(batchSize, pool.length)} at once` : "";
+}
+
+function renderBatch() {
+  stage.innerHTML = `
+    <div class="batch">
+      <div class="batch-head">
+        <h2 class="serif">Review ${batchItems.length}</h2>
+        <p>Pre-marked by the model. Click any tile to flip it, then accept.</p>
+        <button id="b-cancel">Cancel</button>
+        <button class="primary" id="b-accept">Accept all</button>
+      </div>
+      <div class="grid" id="b-grid"></div>
+    </div>`;
+
+  const grid = document.getElementById("b-grid");
+  batchItems.forEach((it, idx) => {
+    const rec = byId.get(it.id);
+    const el = document.createElement("div");
+    el.className = "tile " + it.verdict;
+    el.innerHTML = `
+      <span class="flag">${it.verdict}</span>
+      <img src="${img(rec[4])}" alt="" loading="lazy">
+      <div class="t-meta">
+        <div class="t-name">${esc(rec[1])}</div>
+        <div class="t-sub">${(rec[2] || "").slice(0, 4)} · ${nf(rec[3])}</div>
+      </div>`;
+    el.onclick = () => {
+      it.verdict = it.verdict === "trash" ? "keep" : "trash";
+      it.flipped = !it.flipped;
+      el.className = "tile " + it.verdict;
+      el.querySelector(".flag").textContent = it.verdict;
+    };
+    grid.appendChild(el);
+  });
+
+  document.getElementById("b-cancel").onclick = () => { mode = "card"; render(); };
+  document.getElementById("b-accept").onclick = acceptBatch;
+}
+
+function acceptBatch() {
+  const vetoed = batchItems.filter(i => i.flipped).length;
+  const rate = vetoed / Math.max(batchItems.length, 1);
+  for (const it of batchItems) decide(it.id, it.verdict, "batch");
+  // Self-tune: grow when the model is trusted, shrink hard when it isn't.
+  if (rate <= 0.05) batchSize = Math.min(batchSize * 2, 40);
+  else if (rate > 0.2) batchSize = Math.max(4, Math.floor(batchSize / 2));
+  mode = "card";
+  reorder(); render();
+}
+
+function openBatch() {
+  const pool = confidentPool();
+  if (pool.length < 4) return;
+  batchItems = pool.slice(0, batchSize).map(x => ({ id: x.rec[0], verdict: x.s.verdict, flipped: false }));
+  mode = "batch";
+  render();
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Drag
+// ---------------------------------------------------------------------------
+function wireDrag(card, id) {
+  let x0 = null, dx = 0;
+  const vk = document.getElementById("v-keep"), vt = document.getElementById("v-trash");
+  const THRESH = 110;
+
+  const move = e => {
+    if (x0 === null) return;
+    dx = e.clientX - x0;
+    card.style.transform = `translateX(${dx}px) rotate(${dx / 26}deg)`;
+    const pk = dx < 0 ? Math.min(1, -dx / THRESH) : 0;
+    const pt = dx > 0 ? Math.min(1, dx / THRESH) : 0;
+    vk.style.opacity = pk; vk.style.transform = `scale(${0.68 + 0.32 * pk})`;
+    vt.style.opacity = pt; vt.style.transform = `scale(${0.68 + 0.32 * pt})`;
+  };
+  const up = () => {
+    if (x0 === null) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    card.classList.remove("dragging");
+    if (Math.abs(dx) >= THRESH) return commit(id, dx < 0 ? "keep" : "trash");
+    card.style.transition = "transform .2s";
+    card.style.transform = "";
+    vk.style.transition = vt.style.transition = "opacity .18s, transform .18s";
+    vk.style.opacity = vt.style.opacity = 0;
+    vk.style.transform = vt.style.transform = "scale(.68)";
+    x0 = null; dx = 0;
+  };
+  card.addEventListener("pointerdown", e => {
+    x0 = e.clientX; dx = 0;
+    card.classList.add("dragging");
+    card.style.transition = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+}
+
+function commit(id, verdict) {
+  const card = document.getElementById("card");
+  // Flash the illustration on the keyboard path too, not just on drag.
+  const badge = document.getElementById(verdict === "keep" ? "v-keep" : "v-trash");
+  if (badge) {
+    badge.style.transition = "opacity .12s, transform .12s";
+    badge.style.opacity = "1";
+    badge.style.transform = "scale(1)";
+  }
+  if (card) {
+    card.style.transition = "transform .22s, opacity .22s";
+    card.style.transform = `translateX(${verdict === "keep" ? -700 : 700}px) rotate(${verdict === "keep" ? -22 : 22}deg)`;
+    card.style.opacity = "0";
+  }
+  decide(id, verdict);
+  setTimeout(() => { reorder(); render(); }, 150);
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard
+// ---------------------------------------------------------------------------
+window.addEventListener("keydown", e => {
+  if (mode === "batch") {
+    if (e.key === "Escape") { mode = "card"; render(); }
+    if (e.key === "Enter") acceptBatch();
+    return;
+  }
+  const id = order.find(i => !DEC[i]);
+  if (e.key === "ArrowLeft" && id !== undefined) { e.preventDefault(); commit(id, "keep"); }
+  else if (e.key === "ArrowRight" && id !== undefined) { e.preventDefault(); commit(id, "trash"); }
+  else if (e.key.toLowerCase() === "u") { e.preventDefault(); undo(); }
+  else if (e.key.toLowerCase() === "b") { e.preventDefault(); openBatch(); }
+});
+
+// ---------------------------------------------------------------------------
+async function start() {
+  const r = await fetch("/api/inventory");
+  if (!r.ok) {
+    stage.innerHTML = `<div class="empty"><h2 class="serif">No inventory yet.</h2>
+      <p>Scrape it from the Pixieset tab first.</p></div>`;
+    return;
+  }
+  const j = await r.json();
+  INV = j.inventory;
+  DEC = j.decisions || {};
+  for (const rec of INV) byId.set(rec[0], rec);
+  history = Object.keys(DEC).map(Number);
+  train(); reorder(); render();
+}
+</script>
+</body>
+</html>

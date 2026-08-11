@@ -1,0 +1,5 @@
+data/
+# only the two illustrations the app actually renders are tracked
+assets/*
+!assets/vault-a-cut.png
+!assets/dumpster-a-cut.png

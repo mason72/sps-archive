@@ -52,17 +52,28 @@ export async function POST(
     if (file.size === 0 || file.size > MAX_BYTES) {
       return NextResponse.json({ error: "File must be 1 byte–5MB" }, { status: 400 });
     }
+    // SPS's "Create Spreadsheet" produces XLSX, not CSV — assuming otherwise
+    // is what rejected the very first real file (2026-08-11). Accept both, plus
+    // TSV, and carry the right content type through so the client's browser
+    // opens it rather than downloading something it can't identify.
     const name = file.name.toLowerCase();
-    if (!name.endsWith(".csv") && !name.endsWith(".tsv")) {
+    const kind = name.endsWith(".xlsx")
+      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      : name.endsWith(".csv")
+        ? "text/csv"
+        : name.endsWith(".tsv")
+          ? "text/tab-separated-values"
+          : null;
+    if (!kind) {
       return NextResponse.json(
-        { error: "Upload the CSV that SPS exports" },
+        { error: "Upload the spreadsheet SPS exports (.xlsx, .csv or .tsv)" },
         { status: 400 }
       );
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    const key = guestListKey(eventId);
-    await uploadToR2(key, bytes, "text/csv");
+    const key = guestListKey(eventId, name.split(".").pop()!);
+    await uploadToR2(key, bytes, kind);
 
     const token = mintToken();
     const settings = ((event as { settings: Record<string, unknown> | null }).settings ??
@@ -78,6 +89,7 @@ export async function POST(
             uploadedAt: new Date().toISOString(),
             tokenHash: hashToken(token),
             source: "manual-upload",
+            contentType: kind,
             sizeBytes: bytes.length,
           },
         } as never,

@@ -36,11 +36,13 @@ export interface GuestListMeta {
   tokenHash: string;
   /** Where the numbers came from, for the audit trail. */
   source: "manual-upload" | "sps-api";
+  /** Carried through so the download sets the right type — SPS exports XLSX. */
+  contentType?: string;
   sizeBytes: number;
 }
 
-export function guestListKey(eventId: string): string {
-  return `events/${eventId}/attachments/guest-list.csv`;
+export function guestListKey(eventId: string, ext = "xlsx"): string {
+  return `events/${eventId}/attachments/guest-list.${ext}`;
 }
 
 /** One-way, and constant-time compared at the door. */
