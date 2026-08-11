@@ -102,6 +102,157 @@ export function normalizeNameKey(name: string): string {
 }
 
 /**
+ * The identity of the person in one photo, as a comparable key — the whole
+ * chain (parse → normalize) in one place.
+ *
+ * Anything that asks "is this photo this person's" must call THIS: the index
+ * that counts them, the detail builder behind the spotlight, and the event
+ * page resolving a `?person=` deep link. Three call sites re-typing
+ * `normalizeNameKey(personNameFromParts(...))` is three chances for the chip
+ * to promise 77 photos and the event to show 0.
+ */
+export function personKeyForImage(
+  parsedName: string | null | undefined,
+  originalFilename: string
+): string {
+  return normalizeNameKey(
+    personNameFromParts(parsedName, originalFilename)?.trim() ?? ""
+  );
+}
+
+export interface PersonDetailImage {
+  id: string;
+  r2Key: string;
+  filename: string;
+  aestheticScore: number | null;
+}
+
+export interface PersonDetailEvent {
+  eventId: string;
+  eventName: string;
+  eventDate: string | null;
+  /** Best-first — the spotlight leads with the frame worth leading with. */
+  images: PersonDetailImage[];
+}
+
+export interface PersonDetail {
+  key: string;
+  name: string;
+  imageCount: number;
+  events: PersonDetailEvent[];
+}
+
+/**
+ * Every photo of ONE person, across every event — what the spotlight shows.
+ *
+ * Identity is still `personNameFromParts` + `normalizeNameKey`, exactly as in
+ * the index, so the count here always equals the count on the tile you clicked.
+ * The SQL `ilike` is a CANDIDATE filter and nothing more: it narrows 17k rows
+ * to a handful before the real membership test runs in TypeScript. Widening it
+ * can only cost time; it can never change who belongs, which is the property
+ * that keeps the identity rule single-homed.
+ */
+export async function buildPersonDetail(
+  supabase: SupabaseDB,
+  userId: string,
+  name: string
+): Promise<PersonDetail | null> {
+  const key = normalizeNameKey(name);
+  if (!key) return null;
+
+  const { data: events, error: eventsError } = await supabase
+    .from("events")
+    .select("id, name, event_date")
+    .eq("user_id", userId);
+  if (eventsError) throw eventsError;
+
+  const eventById = new Map(
+    (events ?? [])
+      .filter((e) => !NON_PERSON_GALLERIES.has(e.name))
+      .map((e) => [e.id, e])
+  );
+  if (eventById.size === 0) return null;
+
+  // Longest word — the most selective token, and the one least likely to be an
+  // initial. PostgREST `or` needs the value inline, so strip anything that
+  // could terminate the filter expression.
+  const token = name
+    .split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z]/g, ""))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!token || token.length < 2) return null;
+
+  const PAGE = 1000;
+  type Row = {
+    id: string;
+    event_id: string;
+    r2_key: string;
+    parsed_name: string | null;
+    original_filename: string;
+    aesthetic_score: number | null;
+  };
+  const rows: Row[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("images")
+      .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
+      .in("event_id", [...eventById.keys()])
+      .eq("media_type", "image")
+      .or(`parsed_name.ilike.%${token}%,original_filename.ilike.%${token}%`)
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...(data as Row[]));
+    if (data.length < PAGE) break;
+  }
+
+  const byEvent = new Map<string, PersonDetailEvent>();
+  let display = name;
+  let count = 0;
+
+  for (const row of rows) {
+    if (personKeyForImage(row.parsed_name, row.original_filename) !== key) continue;
+    const parsed = personNameFromParts(row.parsed_name, row.original_filename).trim();
+    const ev = eventById.get(row.event_id);
+    if (!ev) continue;
+    if (parsed.length > display.length) display = parsed;
+
+    const group =
+      byEvent.get(row.event_id) ??
+      ({
+        eventId: ev.id,
+        eventName: ev.name,
+        eventDate: ev.event_date,
+        images: [],
+      } satisfies PersonDetailEvent);
+    group.images.push({
+      id: row.id,
+      r2Key: row.r2_key,
+      filename: row.original_filename,
+      aestheticScore: row.aesthetic_score,
+    });
+    byEvent.set(row.event_id, group);
+    count += 1;
+  }
+
+  if (count === 0) return null;
+
+  const grouped = [...byEvent.values()].sort((a, b) => {
+    // Newest shoot first here — the index's time strip reads as history,
+    // but a spotlight opens on the most recent work.
+    const ad = a.eventDate ?? "";
+    const bd = b.eventDate ?? "";
+    if (ad && bd) return bd.localeCompare(ad);
+    return a.eventName.localeCompare(b.eventName);
+  });
+  for (const g of grouped) {
+    g.images.sort((a, b) => (b.aestheticScore ?? 0) - (a.aestheticScore ?? 0));
+  }
+
+  return { key, name: displayName(display), imageCount: count, events: grouped };
+}
+
+/**
  * Build the index for one photographer. One paged scan of their images —
  * grouping happens here rather than in SQL because the identity rule lives in
  * TypeScript (personNameFromParts), and duplicating it as SQL is exactly the

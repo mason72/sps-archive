@@ -27,9 +27,12 @@ export interface SharingSettings {
   /** Guests can search the gallery by description (semantic). Default on. */
   guestSearch?: boolean;
   /**
-   * Guests can find their own photos with a selfie. OPT-IN (default off) —
-   * biometric-adjacent, so the photographer flips it per event deliberately
-   * (decided 2026-08-09). The selfie is embedded in memory and never stored.
+   * Guests can find their own photos with a selfie. **Default ON** (changed
+   * 2026-08-10) — the selfie is embedded in memory and never written to R2 or
+   * the database, so there is nothing retained to be careful about, and the
+   * feature is most of the reason a guest finds their own photos at all.
+   * Read it through `selfieSearchEnabled()`, never `=== true`: absent means
+   * on, and only an explicit `false` is an opt-out.
    */
   selfieSearch?: boolean;
   /**
@@ -192,7 +195,7 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   allowFavorites: true,
   favoriteMilestones: true,
   guestSearch: true,
-  selfieSearch: false,
+  selfieSearch: true,
   showAllPhotos: false,
   password: "",
   expiresAt: "",
@@ -201,6 +204,21 @@ export const DEFAULT_SHARING_SETTINGS: SharingSettings = {
   requirePinIndividual: false,
   downloadPin: "",
 };
+
+/**
+ * The ONE place that decides whether a gallery offers selfie search.
+ *
+ * Default ON, so absence means enabled and only an explicit `false` turns it
+ * off — every event created before 2026-08-10 stored no key at all, and a
+ * `=== true` read would have left all fourteen of them dark forever. The guest
+ * payload, the search route's own guard, and the editor toggle all ask here so
+ * the button a guest sees and the endpoint that answers it can never disagree.
+ */
+export function selfieSearchEnabled(
+  sharing: { selfieSearch?: boolean } | null | undefined
+): boolean {
+  return sharing?.selfieSearch !== false;
+}
 
 export const DEFAULT_IMAGE_COVER_SETTINGS = {
   fit: "cover" as const,

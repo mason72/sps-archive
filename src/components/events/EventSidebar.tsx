@@ -41,7 +41,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { EventSettings, SharingSettings } from "@/types/event-settings";
-import { DEFAULT_SHARING_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
+import {
+  DEFAULT_SHARING_SETTINGS,
+  normalizeCoverSettings,
+  selfieSearchEnabled,
+} from "@/types/event-settings";
 
 /* ─── Types ─── */
 
@@ -1374,8 +1378,9 @@ function DetailsPanel({
             </button>
           </div>
 
-          {/* Selfie search ("Find my photos") — OPT-IN, off by default:
-              biometric-adjacent, so enabling is a deliberate per-event call. */}
+          {/* Selfie search ("Find my photos") — ON by default. The selfie is
+              embedded in memory and never stored, so the toggle writes an
+              explicit false to opt OUT; `selfieSearchEnabled` reads it. */}
           <div className="flex items-center justify-between">
             <span className="text-[12px] text-stone-600">
               Selfie search
@@ -1385,13 +1390,15 @@ function DetailsPanel({
             </span>
             <button
               type="button"
-              onClick={() => updateSharing({ selfieSearch: sharing.selfieSearch !== true })}
+              onClick={() =>
+                updateSharing({ selfieSearch: !selfieSearchEnabled(sharing) })
+              }
               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
-                sharing.selfieSearch === true ? "bg-emerald-500" : "bg-stone-200"
+                selfieSearchEnabled(sharing) ? "bg-emerald-500" : "bg-stone-200"
               }`}
             >
               <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                sharing.selfieSearch === true ? "translate-x-4" : ""
+                selfieSearchEnabled(sharing) ? "translate-x-4" : ""
               }`} />
             </button>
           </div>

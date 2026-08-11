@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { Search, X } from "lucide-react";
+import { EventChip, PersonSpotlight } from "./PersonSpotlight";
 
 export interface PersonAppearance {
   eventId: string;
@@ -27,6 +27,9 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("rank");
   const [repeatOnly, setRepeatOnly] = useState(false);
+  /** The open person, held by KEY rather than index: sorting or searching
+   *  while the spotlight is open must not silently swap who you're reading. */
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -59,6 +62,9 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       ? filtered.filter((p) => p.eventCount >= 2).slice(0, 3)
       : [];
   const rest = filtered.filter((p) => !podium.includes(p));
+
+  const openAt = openKey ? filtered.findIndex((p) => p.key === openKey) : -1;
+  const open = openAt >= 0 ? filtered[openAt] : null;
 
   return (
     <div className="px-8 pb-24 md:px-16">
@@ -133,7 +139,12 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
           <p className="label-caps mb-6">Wall of fame</p>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {podium.map((p, i) => (
-              <PodiumCard key={p.key} person={p} place={i + 1} />
+              <PodiumCard
+                key={p.key}
+                person={p}
+                place={i + 1}
+                onOpen={() => setOpenKey(p.key)}
+              />
             ))}
           </div>
         </section>
@@ -143,7 +154,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       {rest.length > 0 && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {rest.map((p) => (
-            <PersonTile key={p.key} person={p} />
+            <PersonTile key={p.key} person={p} onOpen={() => setOpenKey(p.key)} />
           ))}
         </div>
       )}
@@ -155,15 +166,42 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
             : "No one matches that name."}
         </p>
       )}
+
+      {open && (
+        <PersonSpotlight
+          name={open.name}
+          onClose={() => setOpenKey(null)}
+          onPrev={
+            openAt > 0 ? () => setOpenKey(filtered[openAt - 1].key) : undefined
+          }
+          onNext={
+            openAt < filtered.length - 1
+              ? () => setOpenKey(filtered[openAt + 1].key)
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }
 
-/* ─── Podium: bigger frame, editorial numeral, and the time strip ─── */
-function PodiumCard({ person, place }: { person: PersonCard; place: number }) {
+/* ─── Podium: bigger frame, editorial numeral, and the event chips ─── */
+function PodiumCard({
+  person,
+  place,
+  onOpen,
+}: {
+  person: PersonCard;
+  place: number;
+  onOpen: () => void;
+}) {
   return (
     <div className="group relative">
-      <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
+      <button
+        onClick={onOpen}
+        className="relative block aspect-[4/5] w-full overflow-hidden bg-stone-100"
+        title={`All ${person.imageCount.toLocaleString()} photos of ${person.name}`}
+      >
         {person.heroUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
@@ -183,52 +221,60 @@ function PodiumCard({ person, place }: { person: PersonCard; place: number }) {
         >
           {place}
         </span>
-      </div>
-      <p className="font-editorial mt-3 text-[20px] leading-tight text-stone-900">
+      </button>
+      <button
+        onClick={onOpen}
+        className="font-editorial mt-3 block text-left text-[20px] leading-tight text-stone-900 hover:text-emerald-700"
+      >
         {person.name}
-      </p>
+      </button>
       <p className="mt-1 text-[12px] text-stone-400">
         {person.eventCount} events · {person.imageCount.toLocaleString()} photos
       </p>
-      <TimeStrip person={person} />
+      <EventChips person={person} />
     </div>
   );
 }
 
-/** One frame per event, oldest first — the same face across years. */
-function TimeStrip({ person }: { person: PersonCard }) {
+/**
+ * Where they've appeared. Two chips fit a podium column comfortably; beyond
+ * that a "+N" opens the spotlight, which lists every shoot without trying to
+ * cram them into a card (the wrapping problem Mason flagged before it bit).
+ */
+function EventChips({ person }: { person: PersonCard }) {
+  const MAX = 2;
+  const shown = person.events.slice(0, MAX);
+  const extra = person.events.length - shown.length;
   return (
-    <div className="mt-3 flex items-end gap-1.5">
-      {person.events.map((e) => (
-        <Link
-          key={e.eventId}
-          href={`/events/${e.eventId}`}
-          title={`${e.eventName}${e.eventDate ? ` · ${e.eventDate}` : ""} — ${e.imageCount} photos`}
-          className="group/strip relative block h-12 w-9 shrink-0 overflow-hidden bg-stone-100"
-        >
-          {e.heroUrl && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={e.heroUrl}
-              alt=""
-              className="h-full w-full object-cover opacity-80 transition-opacity duration-300 group-hover/strip:opacity-100"
-              style={{ objectPosition: "center 25%" }}
-            />
-          )}
-        </Link>
+    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      {shown.map((e) => (
+        <EventChip key={e.eventId} event={e} personName={person.name} compact />
       ))}
+      {extra > 0 && (
+        <span className="text-[11px] text-stone-400">+{extra} more</span>
+      )}
     </div>
   );
 }
 
 /* ─── Everyone else ─── */
-function PersonTile({ person }: { person: PersonCard }) {
-  const target =
-    person.events.length === 1
-      ? `/events/${person.events[0].eventId}`
-      : `/search?q=${encodeURIComponent(person.name)}`;
+function PersonTile({
+  person,
+  onOpen,
+}: {
+  person: PersonCard;
+  onOpen: () => void;
+}) {
+  // Always the spotlight. The old tile guessed — one event meant a link into
+  // that event (which loaded 5,787 photos and filtered to none of them), two
+  // meant a semantic search for their name. Clicking a face should show you
+  // that face's photos; nothing else is a defensible answer.
   return (
-    <Link href={target} className="group block" title={`${person.imageCount} photos`}>
+    <button
+      onClick={onOpen}
+      className="group block w-full text-left"
+      title={`All ${person.imageCount.toLocaleString()} photos of ${person.name}`}
+    >
       <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
         {person.heroUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
@@ -254,6 +300,6 @@ function PersonTile({ person }: { person: PersonCard }) {
       <p className="text-[11px] tabular-nums text-stone-400">
         {person.imageCount} photo{person.imageCount === 1 ? "" : "s"}
       </p>
-    </Link>
+    </button>
   );
 }

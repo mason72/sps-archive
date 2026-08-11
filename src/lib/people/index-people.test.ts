@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { displayName, looksLikePersonName, normalizeNameKey } from "./index-people";
+import {
+  displayName,
+  looksLikePersonName,
+  normalizeNameKey,
+  personKeyForImage,
+} from "./index-people";
 
 describe("looksLikePersonName", () => {
   it("accepts real two-part names", () => {
@@ -52,5 +57,35 @@ describe("displayName", () => {
 
   it("collapses runaway whitespace", () => {
     expect(displayName("  jane   doe ")).toBe("Jane Doe");
+  });
+});
+
+describe("personKeyForImage", () => {
+  it("matches the name on a /people tile to the photos in its event", () => {
+    // The real HDC filenames behind the "77 photos, opened to nothing" bug.
+    const files = [
+      "Jeff Roark_26-08-06_HDC_3182.jpg",
+      "Jeff Roark_26-08-06_HDC_3183.jpg",
+    ];
+    const key = normalizeNameKey("Jeff Roark");
+    for (const f of files) {
+      expect(personKeyForImage(null, f), f).toBe(key);
+    }
+  });
+
+  it("agrees with itself across parsed_name and filename sources", () => {
+    // parsed_name present vs absent must land on the same person, or the
+    // spotlight's count and the event's filter disagree.
+    expect(personKeyForImage("Aleta Cruel", "Aleta Cruel_26-03-02_CB_0912.jpg")).toBe(
+      personKeyForImage(null, "Aleta Cruel_26-03-02_CB_0912.jpg")
+    );
+  });
+
+  it("is raw identity, NOT a personhood test — the guard is separate", () => {
+    // A camera code still yields a key ("img"), so any caller taking a name
+    // from OUTSIDE the index (a ?person= URL) must run looksLikePersonName
+    // first, or "?person=IMG" would filter an event to every IMG_ file.
+    expect(personKeyForImage(null, "IMG_4532.jpg")).toBe("img");
+    expect(looksLikePersonName("IMG_4532")).toBe(false);
   });
 });

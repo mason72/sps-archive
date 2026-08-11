@@ -58,9 +58,14 @@ work (catches SPS imports). Backfill/ops: `scripts/backfill-ai-index.ts`
   semantic), editor in-event box (same fallback, event-scoped), guest gallery
   search (`/api/gallery/[slug]/search`, ids-only responses resolved against
   the share's visible payload — layered leak-proofing; per-event `guestSearch`
-  toggle default ON), guest selfie search (`selfie-search`, OPT-IN per event
-  `selfieSearch` default OFF; face hits vote for a PERSON, winner's complete
-  set returns — sunglasses-proof recall).
+  toggle default ON), guest selfie search (`selfie-search`, default **ON**
+  since 2026-08-10 — the selfie is embedded in memory and never stored, so
+  there is nothing retained to be cautious about; face hits vote for a PERSON,
+  winner's complete set returns — sunglasses-proof recall).
+  Read the flag ONLY via `selfieSearchEnabled()` (`src/types/event-settings.ts`):
+  absent means on, and only an explicit `false` opts out. A `=== true` read
+  would have left every pre-existing event dark forever, since events store
+  `{}` and the defaults live entirely at read time.
 
 ## Faces suite (src/lib/faces/)
 

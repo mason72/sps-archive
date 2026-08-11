@@ -82,8 +82,23 @@ archive is only part-migrated).
   alone (McCartney, de Vries, O'Neil).
 - Sorts: most events (default, = the ranking), most photos, A-Z, plus a
   "repeat only" filter. Podium shows only in rank order, unfiltered.
-- Hero frame per person = highest `aesthetic_score`. Podium carries a time
-  strip: one frame per event, oldest first, each linking to that shoot.
+- Hero frame per person = highest `aesthetic_score`.
+- **Clicking any face opens the SPOTLIGHT** (`PersonSpotlight.tsx`) — every
+  photo of that person across the whole archive, grouped by shoot, with ← / →
+  stepping to the next person in the current sort. Loaded on demand from
+  `GET /api/people/detail?name=` (`buildPersonDetail`); pre-loading 910
+  people's photo sets is not a thing.
+- **Event appearances render as CHIPS** (thumb + event name + that person's
+  count), on the podium and in the spotlight. A chip links to
+  `/events/{id}?person=<name>`, which the event page resolves client-side over
+  its loaded images and shows as the person filter — so it works in events
+  that were never face-clustered, and the number on the chip is the number you
+  land on. The chip caps at 2 on a podium card ("+N more" → the spotlight).
+- **One identity helper, three surfaces**: `personKeyForImage()` decides
+  membership for the index count, the spotlight payload, and the deep link.
+  It is RAW identity, not a personhood test — a camera code yields a key too,
+  so anything taking a name from a URL runs `looksLikePersonName` first.
+  E2E: `npx tsx scripts/verify-person-spotlight.ts` asserts all three agree.
 - INTERNAL ONLY. It aggregates named faces across clients, which reveals
   employment across companies — never expose publicly or client-facing.
 - Next chapter (not built): cross-event FACE matching for the unnamed events

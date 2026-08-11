@@ -4,6 +4,7 @@ import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { recordUsage, secondsSince } from "@/lib/usage/record";
 import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
+import { selfieSearchEnabled } from "@/types/event-settings";
 
 export const runtime = "nodejs";
 
@@ -18,9 +19,10 @@ export const runtime = "nodejs";
  * so sunglasses-at-the-party still gets the dance-floor shots. Falls back to
  * direct face hits when no person wins the vote.
  *
- * OPT-IN per event (settings.sharing.selfieSearch === true, enforced here;
- * decided 2026-08-09 — biometric-adjacent features are deliberate choices).
- * Same share gates as guest search + a strict rate limit.
+ * ON by default per event, enforced here through `selfieSearchEnabled()` —
+ * the same predicate the guest payload uses to decide whether to render the
+ * button, so the endpoint can never be open behind a hidden button or shut
+ * behind a visible one. Same share gates as guest search + a strict rate limit.
  */
 
 /** A face hit at or above this cosine is evidence; ArcFace same-person ≥ ~0.5. */
@@ -78,7 +80,7 @@ export async function POST(
 
     const sharing = ((event.settings ?? {}) as { sharing?: { selfieSearch?: boolean } })
       .sharing;
-    if (sharing?.selfieSearch !== true) {
+    if (!selfieSearchEnabled(sharing)) {
       return NextResponse.json({ error: "Selfie search is not enabled" }, { status: 403 });
     }
     if (!process.env.MODAL_AI_SELFIE_URL) {

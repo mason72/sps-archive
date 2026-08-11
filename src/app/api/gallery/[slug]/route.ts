@@ -5,7 +5,11 @@ import { getPresignedDownloadUrl, getCachedThumbnailUrl, getThumbnailKey, getDis
 import { verifyPassword } from "@/lib/shares/hash";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
-import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
+import {
+  DEFAULT_EVENT_SETTINGS,
+  normalizeCoverSettings,
+  selfieSearchEnabled,
+} from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
 import { detectStackable } from "@/lib/gallery/stackable";
@@ -360,9 +364,9 @@ export async function GET(
       guestSearch:
         ((eventSettings.sharing ?? {}) as { guestSearch?: boolean })
           .guestSearch !== false,
-      selfieSearch:
-        ((eventSettings.sharing ?? {}) as { selfieSearch?: boolean })
-          .selfieSearch === true,
+      selfieSearch: selfieSearchEnabled(
+        (eventSettings.sharing ?? {}) as { selfieSearch?: boolean }
+      ),
       // Opt-in (default off): an "All" tab across sections in the guest nav.
       showAllPhotos:
         ((eventSettings.sharing ?? {}) as { showAllPhotos?: boolean })

@@ -6,6 +6,7 @@ import {
   coverShowsTitle,
   coverNeedsRaster,
   normalizeDownloadPins,
+  selfieSearchEnabled,
 } from "./event-settings";
 
 const EVENT = "11111111-2222-3333-4444-555555555555";
@@ -225,5 +226,20 @@ describe("photo cover fit (scale-to-fit for logos)", () => {
       fit: "contain",
       padding: 18,
     });
+  });
+});
+
+describe("selfieSearchEnabled", () => {
+  it("is ON when the key was never written", () => {
+    // The state of all 14 events that existed when the default flipped
+    // (2026-08-10) — a `=== true` read would have left every one of them dark.
+    expect(selfieSearchEnabled({})).toBe(true);
+    expect(selfieSearchEnabled(undefined)).toBe(true);
+    expect(selfieSearchEnabled(null)).toBe(true);
+  });
+
+  it("respects an explicit opt-out and only an explicit opt-out", () => {
+    expect(selfieSearchEnabled({ selfieSearch: false })).toBe(false);
+    expect(selfieSearchEnabled({ selfieSearch: true })).toBe(true);
   });
 });

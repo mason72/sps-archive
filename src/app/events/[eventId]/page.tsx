@@ -37,6 +37,11 @@ import { PeopleView, PersonModal, type Person } from "@/components/events/People
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
+import {
+  looksLikePersonName,
+  normalizeNameKey,
+  personKeyForImage,
+} from "@/lib/people/index-people";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { shuffleSeeded, sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
@@ -143,6 +148,12 @@ export default function EventPage({
     imageIds: string[];
     /** Clearing the chip returns wherever the filter was set from. */
     fromPeopleView?: boolean;
+    /**
+     * Set by the `?person=` deep link from /people: membership came from
+     * FILENAMES, not a face cluster, so `id` is synthetic and rename (which
+     * PATCHes a cluster by id) must stay out of reach.
+     */
+    byName?: boolean;
   } | null>(null);
   // Review/rename the filtered person straight from the chip.
   const [renamingPerson, setRenamingPerson] = useState(false);
@@ -163,6 +174,47 @@ export default function EventPage({
       cancelled = true;
     };
   }, [eventId]);
+
+  /**
+   * `?person=Jeff%20Roark` — arriving from an event chip on /people.
+   *
+   * Membership is recomputed HERE with `personNameFromParts`, the same helper
+   * that produced the count on the chip, so the number you clicked is the
+   * number you land on. Doing it client-side over the already-loaded images
+   * also means it works in events that were never face-clustered, which is
+   * where the old link failed worst: 5,787 photos, no filter, no person.
+   *
+   * Reads location directly rather than useSearchParams() — this page is a
+   * client component and that hook drags a Suspense requirement into the
+   * build for a one-shot read.
+   */
+  const appliedPersonParam = useRef(false);
+  useEffect(() => {
+    if (appliedPersonParam.current || allImages.length === 0) return;
+    const raw = new URLSearchParams(window.location.search).get("person");
+    if (!raw) {
+      appliedPersonParam.current = true;
+      return;
+    }
+    appliedPersonParam.current = true;
+    // The key is raw identity — a camera code produces one too. Anything
+    // arriving from a URL gets the personhood guard before it can filter.
+    if (!looksLikePersonName(raw)) return;
+    const key = normalizeNameKey(raw);
+    const imageIds = allImages
+      .filter((img) => personKeyForImage(img.parsedName, img.originalFilename) === key)
+      .map((img) => img.id);
+    // Strip the param either way — a reload shouldn't resurrect a filter the
+    // photographer cleared, and a miss shouldn't leave a lying URL behind.
+    window.history.replaceState(null, "", window.location.pathname);
+    if (imageIds.length === 0) {
+      toast.error(`No photos of ${raw} in this event`);
+      return;
+    }
+    setPersonFilter({ id: `name:${key}`, name: raw, imageIds, byName: true });
+    setActiveSection(null);
+  }, [allImages]);
+
   const [sortBy, setSortByState] = useState<GallerySortMode>("upload");
   const [sortOpen, setSortOpen] = useState(false);
   // Optimistic per-section manual order overrides (sectionId -> ordered ids).
@@ -1958,17 +2010,29 @@ export default function EventPage({
             {personFilter && viewMode !== "people" && (
               <div className="-mt-7 mb-10 flex items-center gap-2 text-[12px]">
                 <span className="text-stone-400">Showing</span>
-                <button
-                  onClick={() => setRenamingPerson(true)}
-                  title="Review & rename"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-stone-300 text-stone-700 hover:border-stone-500 transition-colors"
-                >
-                  <Users className="h-3 w-3" />
-                  {personFilter.name ?? "Unnamed person"}
-                  <span className="text-stone-400 tabular-nums">
-                    {personFilter.imageIds.length}
+                {personFilter.byName ? (
+                  /* Filename-derived (deep link from /people) — there's no
+                     cluster behind it, so there's nothing to rename. */
+                  <span className="inline-flex items-center gap-1.5 border border-stone-300 px-2.5 py-1 text-stone-700">
+                    <Users className="h-3 w-3" />
+                    {personFilter.name ?? "Unnamed person"}
+                    <span className="text-stone-400 tabular-nums">
+                      {personFilter.imageIds.length}
+                    </span>
                   </span>
-                </button>
+                ) : (
+                  <button
+                    onClick={() => setRenamingPerson(true)}
+                    title="Review & rename"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-stone-300 text-stone-700 hover:border-stone-500 transition-colors"
+                  >
+                    <Users className="h-3 w-3" />
+                    {personFilter.name ?? "Unnamed person"}
+                    <span className="text-stone-400 tabular-nums">
+                      {personFilter.imageIds.length}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (personFilter.fromPeopleView) setViewMode("people");
@@ -1982,7 +2046,7 @@ export default function EventPage({
               </div>
             )}
 
-            {renamingPerson && personFilter && (
+            {renamingPerson && personFilter && !personFilter.byName && (
               <PersonModal
                 personId={personFilter.id}
                 personName={personFilter.name}
