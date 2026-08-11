@@ -141,6 +141,63 @@ Not worth it. **Take the originals.**
 The remaining unmeasured cost is AI indexing ~1.58M images on Modal. That is what
 the pilot is for.
 
+## How to actually get the bytes out — SETTLED (2026-08-11)
+
+### The constraint that decides everything
+
+**Cloudflare challenges every non-browser client on both Pixieset hosts.**
+- `accounts.pixieset.com/login` → Turnstile, loops forever in Playwright/headless.
+- `twodudesphoto.pixieset.com` → plain curl gets `HTTP 403`, `cf-mitigated: challenge`.
+
+Only a real browser a human has logged into works. **Do not try to defeat this** —
+no UA spoofing, no stealth plugins, no TLS-fingerprint mimicry, no challenge solvers.
+Playwright with a persistent profile was built and abandoned for this reason
+(`scripts/pixieset/login.mjs`, `pilot.mjs` — kept for reference, currently unusable).
+
+In-page JS in Mason's real Chrome inherits the clearance cookie and is never
+challenged; that is how the 1,763-collection inventory scrape ran 74 sequential
+API calls cleanly. **That is the only viable automation surface.**
+
+### The sanctioned download flow (verified end to end)
+
+Client-facing, email-gated, NO password and NO PIN when viewing as owner:
+
+1. `GET /{slug}/` → page contains `/download/auth/{slug}/?dt={token}`
+2. `GET /download/auth/{slug}/?dt=…` → email form
+3. submit email → `/download/sets/{slug}/?filekey={key}` → choose sets + size + destination
+4. submit → `/download/file/{slug}/?filekey={key}` → "preparing", then polls
+5. ready → `.zip` link on the SAME gallery host (NOT CloudFront), params `filekey` + `fid`
+
+Measured on `nachisheadshots` (48 photos): ZIP ready in **~2 seconds**, 68.2 MB,
+**full-resolution originals** (4800×3250 etc.), mean **1.42 MB/photo**.
+Archive layout is `All_Photos/*.jpg` — **Pixieset sets become folders**, which map
+directly onto Pixeltrunk sections. Multi-part naming is `-1of1`, so big galleries split.
+
+### `photo_count` DOUBLE-COUNTS — totals are an upper bound
+
+A photo in two sets is two photo records with two storage hashes but the SAME filename.
+`nachisheadshots`: 80 `photo_count` = All Photos 48 + Your Favorites 32, and all 32
+favorites' filenames already appear in All Photos. **Selecting "All Photos" is complete.**
+So 1,880,241 total and 655,686 at-risk are ceilings; true figures are lower.
+
+### Per-photo API — works, but do NOT use it in bulk
+
+`GET /api/v1/photos/{id}/download` 302s to a signed CloudFront URL
+(`…-orig.jpg?Expires=…&Signature=…`, ~4.2h, range-resumable, no auth needed) and
+returns the true original. Verified byte-exact against the API's `size` field.
+Useful as a **repair path for individual missing files only** — 655,686 authenticated
+requests is scraping-shaped and would rightly trip the protection above.
+Public CDN renditions cap at `xxlarge` = 1600×2240; unsuffixed/`-orig` without a
+signature is 403.
+
+### Resulting architecture
+
+- **Request + download**: scripted in-page in a real logged-in Chrome. One in-page
+  script can drive many collections per invocation.
+- **Chrome saves ZIPs to ~/Downloads**; a plain Node watcher extracts → R2 → rows → delete.
+- Peak disk is ONE collection (~a few GB), never the full 1.13 TB.
+- Post-processing is ordinary Node and can run anywhere.
+
 ## Open decisions
 
 1. **Storage tier for the 949k at-risk photos.** Full-res in R2 for all 1.88M is ~5.6 TB ≈
