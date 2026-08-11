@@ -23,7 +23,24 @@ const PARTS = {
 };
 
 for (const [name, box] of Object.entries(PARTS)) {
-  await sharp(SRC).extract(box).png().toFile(`${OUT}/${name}.png`);
+  let part = sharp(SRC).extract(box);
+  // The tail's TUFT (source y 852–907, x 217–250) hangs into the rear-near
+  // leg's crop, so it was baked into the leg and swung with every step —
+  // the flicking artifact at the tip of the tail. Nothing but tail lives left
+  // of x=284 at that height (the leg's own silhouette starts there), so the
+  // overlap can be cut away wholesale.
+  if (name === "leg-rear-near") {
+    const cut = { x: 0, y: 0, w: 284 - box.left, h: 965 - box.top };
+    part = part.composite([
+      {
+        input: Buffer.from(
+          `<svg width="${box.width}" height="${box.height}"><rect x="${cut.x}" y="${cut.y}" width="${cut.w}" height="${cut.h}" fill="#fff"/></svg>`
+        ),
+        blend: "dest-out",
+      },
+    ]);
+  }
+  await part.png().toFile(`${OUT}/${name}.png`);
 }
 
 // The body must NOT still contain the parts that now move independently, or
