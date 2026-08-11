@@ -6,6 +6,7 @@ import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
 import { Nav } from "@/components/layout/Nav";
+import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { Footer } from "@/components/layout/Footer";
 
 interface SearchResult {
@@ -38,6 +39,7 @@ function GlobalSearchInner() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchType, setSearchType] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
+  const [searching, setSearching] = useState(false);
   const columnCount = useColumnCount();
 
   // Stable identities: these are effect dependencies inside SearchBar, so
@@ -92,6 +94,7 @@ function GlobalSearchInner() {
             <SearchBar
               onResults={handleResults}
               onClear={handleClear}
+              onSearchingChange={setSearching}
               initialQuery={seedQuery}
               placeholder='Try "people laughing", "signage", or a filename…'
             />
@@ -100,7 +103,18 @@ function GlobalSearchInner() {
 
         {/* ─── Results ─── */}
         <div className="mt-12">
-          {hasSearched && results.length === 0 && (
+          {/* This page used to render NOTHING while a semantic query ran — the
+              embed is a GPU round-trip and a cold start is several seconds, so
+              the page just sat there looking broken. */}
+          {searching && results.length === 0 && (
+            <ElephantWalk
+              className="mx-auto max-w-[400px] py-8"
+              message="Searching your archive…"
+              detail="Reading the photos themselves — this can take a few seconds."
+            />
+          )}
+
+          {hasSearched && !searching && results.length === 0 && (
             <div className="text-center py-16">
               <p className="caption-italic">
                 No images found. Try a different search term.

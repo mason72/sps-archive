@@ -20,6 +20,8 @@ interface SearchBarProps {
   onResults?: (results: SearchResult[], type: string) => void;
   /** Callback when search is cleared */
   onClear?: () => void;
+  /** Fires whenever a request starts or finishes, so the page can show a wait. */
+  onSearchingChange?: (searching: boolean) => void;
   /** Placeholder override */
   placeholder?: string;
   /** Seed the (uncontrolled) input and run that search on mount — used by
@@ -53,6 +55,7 @@ export function SearchBar({
   eventId,
   onResults,
   onClear,
+  onSearchingChange,
   placeholder,
   initialQuery,
   value,
@@ -64,6 +67,11 @@ export function SearchBar({
   const query = controlled ? value ?? "" : internalQuery;
   const setQuery = controlled ? onChange! : setInternalQuery;
   const [isSearching, setIsSearching] = useState(false);
+  // Surfaced so a page can render its own waiting state — /search showed
+  // literally nothing while a semantic query ran.
+  useEffect(() => {
+    onSearchingChange?.(isSearching);
+  }, [isSearching, onSearchingChange]);
   // True once a search has been in flight for a while — the first semantic
   // query after idle cold-starts the text encoder (~15-20s); say so instead
   // of looking hung.

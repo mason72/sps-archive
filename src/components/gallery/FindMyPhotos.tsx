@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { Camera, ImageUp, X } from "lucide-react";
 
 /**
@@ -178,10 +179,18 @@ export function FindMyPhotos({
           </>
         )}
 
+        {/* The longest wait a GUEST ever sits through here: their selfie goes
+            to the GPU, gets embedded, then votes for a person cluster. It's
+            also the most emotionally loaded — they're waiting to see
+            themselves — so an animated wait beats a pulsing line of text. */}
         {mode === "busy" && (
-          <p className="py-12 text-[13px] text-stone-400 italic animate-pulse">
-            Looking for you…
-          </p>
+          <div className="py-6">
+            <ElephantWalk
+              className="mx-auto max-w-[300px]"
+              message="Looking for you…"
+              detail="Your selfie is never stored — it's used once to find your face."
+            />
+          </div>
         )}
 
         {mode === "no-face" && (

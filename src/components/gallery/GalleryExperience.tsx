@@ -9,6 +9,7 @@ import { StackModal } from "@/components/gallery/StackModal";
 import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
+import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { toast } from "sonner";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
@@ -1238,24 +1239,16 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               />
             </>
           ) : semanticLoading ? (
-            <div className="py-16 text-center">
-              <p
-                className="text-[14px] italic animate-pulse"
-                style={{ color: colors.secondary }}
-              >
-                Looking for &ldquo;{searchQuery}&rdquo;…
-              </p>
-              {/* The GPU embeds the phrase before anything can be ranked, and a
-                  cold start is a few seconds. Silence reads as broken; naming
-                  the wait reads as work. Deliberately says what it's doing
-                  ("reading the photos"), not how (no model names on a client
-                  surface). */}
-              <p
-                className="mt-2 text-[11px]"
-                style={{ color: colors.secondary, opacity: 0.6 }}
-              >
-                Reading the photos themselves — this can take a few seconds.
-              </p>
+            /* The GPU embeds the phrase before anything can be ranked, and a
+               cold start is a few seconds. Silence reads as broken; the walking
+               elephant reads as work. The copy says WHAT it's doing ("reading
+               the photos"), never how — no model names on a client surface. */
+            <div className="py-12">
+              <ElephantWalk
+                className="mx-auto max-w-[380px]"
+                message={`Looking for “${searchQuery}”…`}
+                detail="Reading the photos themselves — this can take a few seconds."
+              />
             </div>
           ) : (
             <p
