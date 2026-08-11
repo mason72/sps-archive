@@ -370,6 +370,97 @@ const TREE_NEAR_ACCENT = ["#f0a92b", "#ef7724", "#e04f6e"];
 /** Birds read as ink — the only thing out here besides him and the acacias. */
 const BIRD_FAR = ["#5b7fa5", "#6f93a8"];
 
+/**
+ * Photographs drifting past at depth, like the acacias.
+ *
+ * Built for the SPS import wait (Mason: "could be fun to show images from the
+ * import occasionally passing in front / behind the elephant similar to the
+ * trees LOL"). It earns its place beyond the joke: during a long pull the only
+ * question in the photographer's head is *are my photos actually moving*, and
+ * this answers it with the photos themselves rather than with a number.
+ *
+ * Same depth rule as TreeBand — the near band passes IN FRONT of the elephant
+ * and briefly occludes him. Scatter is derived from the index, never random, so
+ * the server and the client agree on the first frame.
+ */
+function PhotoBand({
+  uid,
+  photos,
+  anim,
+  duration,
+  timing,
+  spread,
+  width,
+  bottom,
+  opacity,
+  z,
+  seed,
+}: {
+  uid: string;
+  photos: string[];
+  anim: string;
+  duration: number;
+  timing: string;
+  spread: number;
+  /** Card width as a % of the stage — the band's apparent distance. */
+  width: number;
+  bottom: string;
+  opacity: number;
+  z: number;
+  seed: number;
+}) {
+  if (!photos.length) return null;
+  const perCopy = Math.min(photos.length, 3);
+
+  return (
+    <div
+      key={`${uid}-${photos.length}`}
+      className="pointer-events-none absolute inset-y-0 left-0 flex"
+      style={{
+        width: `${spread * 100}%`,
+        animation: `${anim} ${duration}s ${timing} infinite`,
+        zIndex: z,
+        opacity,
+      }}
+    >
+      {[0, 1].map((copy) => (
+        <div key={copy} className="relative h-full w-1/2 shrink-0">
+          {Array.from({ length: perCopy }, (_, i) => {
+            const n = seed * 17 + copy * 5 + i * 11;
+            const photo = photos[(seed + copy * perCopy + i) % photos.length];
+            // Deterministic scatter: spacing, a little vertical wander, and a
+            // tilt so they read as prints being carried, not as a UI grid.
+            const left = 6 + i * (86 / perCopy) + (n % 7);
+            const lift = (n % 5) * 1.6;
+            const tilt = ((n % 9) - 4) * 1.1;
+            return (
+              <div
+                key={i}
+                className="absolute bg-white p-[3px] shadow-[0_2px_10px_rgba(28,25,23,0.18)]"
+                style={{
+                  left: `${left}%`,
+                  bottom: `calc(${bottom} + ${lift}%)`,
+                  width: `${width}%`,
+                  transform: `rotate(${tilt}deg)`,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photo}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="block aspect-[3/2] w-full object-cover"
+                />
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export type ElephantCadence = "stopmotion" | "smooth";
 
 export function ElephantWalk({
@@ -377,6 +468,7 @@ export function ElephantWalk({
   /** Seconds per full gait cycle. Elephants are unhurried. */
   cycle = 1.6,
   trees = true,
+  passing,
   message,
   detail,
   className = "",
@@ -385,6 +477,12 @@ export function ElephantWalk({
   cycle?: number;
   /** Savanna passing at two depths. Off gives the bare walking mark. */
   trees?: boolean;
+  /**
+   * Photo URLs to drift past at depth — use small thumbnails, not originals.
+   * Intended for long waits where the work IS photographs moving (the SPS
+   * import), so the wait shows its own subject.
+   */
+  passing?: string[];
   message?: string;
   detail?: string;
   className?: string;
@@ -473,6 +571,24 @@ export function ElephantWalk({
           />
         )}
 
+        {/* Photos at distance — behind him, small, unhurried, and faint enough
+            to sit in the same aerial perspective as the far acacias. */}
+        {trees && passing && passing.length > 0 && (
+          <PhotoBand
+            uid={uid}
+            photos={passing}
+            anim={`drift${uid}`}
+            duration={38}
+            timing={cadence === "stopmotion" ? "steps(48, end)" : "linear"}
+            spread={3}
+            width={9}
+            bottom="30%"
+            opacity={0.5}
+            z={1}
+            seed={2}
+          />
+        )}
+
         {/* The elephant. With trees on, it's inset into the stage so the
             foreground band has somewhere nearer-than-it to pass through. */}
         <div
@@ -521,6 +637,26 @@ export function ElephantWalk({
           );
         })}
         </div>
+
+        {/* Photos up close — bigger, quicker, and z-above the elephant, so one
+            sails across his shoulder and briefly covers him. Slower than the
+            foreground acacias (15s vs 11s) so the two near bands don't lock
+            into step and read as one object. */}
+        {trees && passing && passing.length > 0 && (
+          <PhotoBand
+            uid={uid}
+            photos={passing}
+            anim={`rush${uid}`}
+            duration={15}
+            timing={cadence === "stopmotion" ? "steps(30, end)" : "linear"}
+            spread={3}
+            width={17}
+            bottom="8%"
+            opacity={1}
+            z={7}
+            seed={5}
+          />
+        )}
 
         {/* Foreground: bigger, faster, rooted BELOW the elephant, and above it
             in z — so it sweeps across and briefly hides him. That occlusion is

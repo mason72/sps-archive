@@ -37,7 +37,7 @@ pipeline's fatal sin).
 ## Indexing lane (settlement-triggered, never in an upload path)
 
 `/api/upload/complete` fire-and-forgets `ai/index.requested` → Inngest
-`ai-index` (15m/event debounce + zero-pending-uploads check + kill switch) →
+`ai-index` (2m/event debounce + zero-pending-uploads check + kill switch) →
 `src/lib/ai-index/index-event.ts` batches → Modal → writes AI columns + faces
 (replace-per-image, idempotent; focal_x/y untouched). Completion fires
 `faces/cluster.requested`. Nightly reconciler sweeps events with unindexed

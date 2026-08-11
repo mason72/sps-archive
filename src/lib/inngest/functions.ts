@@ -810,7 +810,7 @@ export const coverFocal = inngest.createFunction(
  * an event, batched through the Modal sps-archive-ai app (tasks/todo.md "AI
  * revival" Phase 0).
  *
- * Settlement-triggered, twice over: the 15m per-event debounce means an
+ * Settlement-triggered, twice over: the 2m per-event debounce means an
  * upload session fires this once after the dust settles, and the job ALSO
  * verifies zero pending upload rows before touching anything — if uploads are
  * still in flight it exits and waits for the next finalize/reconcile to
@@ -830,7 +830,28 @@ export const aiIndex = inngest.createFunction(
     id: "ai-index",
     retries: 2,
     concurrency: { limit: 2 },
-    debounce: { key: "event.data.eventId", period: "15m", timeout: "1h" },
+    /**
+     * 2 MINUTES, not 15 (changed 2026-08-11 after Mason asked why it was so
+     * long, and the answer did not survive contact).
+     *
+     * The debounce exists to coalesce an upload session into one sweep. It is
+     * TRAILING-EDGE, so every finished photo already resets the timer — the
+     * period only has to cover the GAP between photos that should still count as
+     * the same session, and two minutes covers any real gap between uploads.
+     *
+     * The reason 15m was over-insurance: a premature fire is nearly free and
+     * self-correcting. It exits before touching Modal if uploads are still
+     * pending, and `indexEventBatch` returns immediately when no unindexed rows
+     * exist — so the wasted case is one Postgres SELECT, not a GPU container.
+     * Measured, the real spend is ~107 GPU-seconds per pass (~1.8¢); splitting a
+     * session across a few extra passes costs fractions of a cent, while making
+     * a photographer wait a quarter of an hour to search their own gallery costs
+     * something real.
+     *
+     * `timeout: 1h` still caps it: during a continuously-uploading session it
+     * force-fires hourly rather than deferring forever.
+     */
+    debounce: { key: "event.data.eventId", period: "2m", timeout: "1h" },
   },
   { event: "ai/index.requested" },
   async ({ event, step }) => {
@@ -870,8 +891,8 @@ export const aiIndex = inngest.createFunction(
       return { indexed, faces, remaining };
     });
 
-    // Budget exhausted with work left: continue in a fresh run (the debounce
-    // delays it ~15m, which is fine — nothing user-facing waits on indexing).
+    // Budget exhausted with work left: continue in a fresh run (delayed by the
+    // 2m debounce, which is fine — nothing user-facing blocks on indexing).
     if (!("skipped" in result) && result.indexed > 0 && result.remaining > 0) {
       await step.sendEvent("continue-ai-index", {
         name: "ai/index.requested",

@@ -244,6 +244,22 @@ export default function ImportFromSpsPage() {
     return events.filter((ev) => ev.name.toLowerCase().includes(q));
   }, [events, eventQuery]);
 
+  /**
+   * Photos to drift past the elephant while the pull runs.
+   *
+   * Drawn from the manifest previews the review grid already fetched, and only
+   * from the SELECTED ones — a photo the photographer just unchecked has no
+   * business parading through the import of everything else. Spread across the
+   * event rather than taken from the front, so a 6,000-frame pull doesn't show
+   * the same six faces for an hour.
+   */
+  const passingPhotos = useMemo(() => {
+    const kept = images.filter((i) => !deselected.has(i.id));
+    if (kept.length <= 8) return kept.map((i) => i.previewUrl);
+    const stride = Math.floor(kept.length / 8);
+    return Array.from({ length: 8 }, (_, i) => kept[i * stride].previewUrl);
+  }, [images, deselected]);
+
   const selectedCount = images.length - deselected.size;
   const lossyCount = images.filter(
     (i) => i.quality === "lossy" && !deselected.has(i.id)
@@ -371,16 +387,19 @@ export default function ImportFromSpsPage() {
             /* The source, named in its own mark rather than in a sentence —
                this screen is the seam between two products and should look
                like it. */
-            <div className="flex items-end gap-4 flex-wrap">
+            <div className="flex items-end gap-4 flex-wrap min-w-0">
               <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 reveal">
                 Import from
               </h1>
+              {/* max-w-full matters: a fixed-height w-auto image keeps its
+                  intrinsic width and punches out of the container on a narrow
+                  window — the wordmark was clipped mid-letter at ~800px. */}
               <Image
                 src="/sps-logo.png"
                 alt="SimplePhotoShare"
                 width={280}
                 height={72}
-                className="h-[clamp(30px,3.6vw,42px)] w-auto mb-1 reveal"
+                className="h-[clamp(26px,3.6vw,42px)] w-auto max-w-full object-contain mb-1 reveal"
                 style={{ animationDelay: "0.1s" }}
                 priority
               />
@@ -477,9 +496,12 @@ export default function ImportFromSpsPage() {
                       className="py-5 flex items-center justify-between gap-6"
                     >
                       <div className="min-w-0 flex items-center gap-4">
-                        {/* SPS's own cover. A row of names and dates all looks
-                            the same; the photo is how you recognise the shoot. */}
-                        <div className="w-16 h-16 shrink-0 bg-stone-100 overflow-hidden flex items-center justify-center">
+                        {/* SPS's own cover, 16:9 — these are event covers, which
+                            are composed wide, so a square crop cut the logo and
+                            the subject out of its own key art. Cropping is fine
+                            (Mason: "we croppin"); cropping to the wrong shape is
+                            not. */}
+                        <div className="w-28 aspect-video shrink-0 bg-stone-100 overflow-hidden flex items-center justify-center">
                           {ev.coverUrl ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img
@@ -740,10 +762,15 @@ export default function ImportFromSpsPage() {
                 </div>
 
                 {/* An import is minutes of nothing to look at. The elephant is
-                    the house loader and belongs on exactly this kind of wait. */}
+                    the house loader and belongs on exactly this kind of wait —
+                    and here it carries the actual photographs past, which is a
+                    better answer to "is anything happening" than a number.
+                    The previews are the SPS thumbnails the review grid already
+                    loaded (~5KB each), so this costs nothing extra. */}
                 {(job.status === "running" || job.status === "queued") && (
                   <div className="mb-8">
                     <ElephantWalk
+                      passing={passingPhotos}
                       message={`Copying from SimplePhotoShare`}
                       detail={
                         job.landed === 0

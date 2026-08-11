@@ -141,12 +141,11 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
           ) : status.indexed === 0 ? (
             <>
               <span className="font-medium">Queued for AI processing</span>
-              {/* The real number, because "a few minutes" sent Mason back to
-                  refresh a page that was never going to change yet: the lane is
-                  debounced 15 minutes per event on purpose, so an upload session
-                  triggers one sweep after it settles instead of one per photo. */}
+              {/* State the real wait. "A few minutes" sent Mason back to refresh
+                  a page that could not have changed yet; the honest number is the
+                  debounce period, which is now 2 minutes from the last photo. */}
               <span className="text-stone-400">
-                — starts automatically, up to 15 minutes after the last photo lands
+                — starts about 2 minutes after the last photo lands
               </span>
             </>
           ) : (

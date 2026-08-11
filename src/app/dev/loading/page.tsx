@@ -10,6 +10,20 @@ import { ElephantWalk, type ElephantCadence } from "@/components/brand/ElephantW
  * Cadence and speed are live controls because both are taste calls that are
  * impossible to settle in prose.
  */
+/**
+ * Stand-ins for the SPS thumbnails the import screen passes in. Local files so
+ * this page needs no network and no SPS connection to judge the motion — the
+ * only thing being judged here is depth, tilt and cadence.
+ */
+const PASSING_SAMPLE = [
+  "/logo.png",
+  "/elephant/body.png",
+  "/logo.png",
+  "/elephant/head.png",
+  "/logo.png",
+  "/elephant/body.png",
+];
+
 export default function LoadingPlayground() {
   const [cadence, setCadence] = useState<ElephantCadence>("stopmotion");
   const [cycle, setCycle] = useState(1.6);
@@ -65,6 +79,21 @@ export default function LoadingPlayground() {
               cycle={cycle}
               message={'Looking for "dancing"…'}
               detail="Reading the photos themselves — this can take a few seconds."
+            />
+          </div>
+        </section>
+
+        <section>
+          <p className="label-caps mb-5">
+            Carrying photographs — the SPS import wait
+          </p>
+          <div className="border border-stone-100 p-10">
+            <ElephantWalk
+              cadence={cadence}
+              cycle={cycle}
+              passing={PASSING_SAMPLE}
+              message="Copying from SimplePhotoShare"
+              detail="61 across so far"
             />
           </div>
         </section>
