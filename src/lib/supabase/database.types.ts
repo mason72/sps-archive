@@ -431,6 +431,9 @@ export type Database = {
           siglip_embedding: string | null
           site_published_at: string | null
           site_scene: string | null
+          sps_image_id: string | null
+          sps_pulled_at: string | null
+          sps_quality: string | null
           stack_id: string | null
           stack_rank: number | null
           starred: boolean
@@ -482,6 +485,9 @@ export type Database = {
           siglip_embedding?: string | null
           site_published_at?: string | null
           site_scene?: string | null
+          sps_image_id?: string | null
+          sps_pulled_at?: string | null
+          sps_quality?: string | null
           stack_id?: string | null
           stack_rank?: number | null
           starred?: boolean
@@ -533,6 +539,9 @@ export type Database = {
           siglip_embedding?: string | null
           site_published_at?: string | null
           site_scene?: string | null
+          sps_image_id?: string | null
+          sps_pulled_at?: string | null
+          sps_quality?: string | null
           stack_id?: string | null
           stack_rank?: number | null
           starred?: boolean
@@ -798,6 +807,104 @@ export type Database = {
             columns: ["section_id"]
             isOneToOne: false
             referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sps_connections: {
+        Row: {
+          connected_at: string
+          last_pull_at: string | null
+          token: string
+          token_prefix: string
+          user_id: string
+        }
+        Insert: {
+          connected_at?: string
+          last_pull_at?: string | null
+          token: string
+          token_prefix: string
+          user_id: string
+        }
+        Update: {
+          connected_at?: string
+          last_pull_at?: string | null
+          token?: string
+          token_prefix?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sps_pull_jobs: {
+        Row: {
+          bytes_copied: number
+          confirmed: number
+          created_at: string
+          deselected: string[]
+          error: string | null
+          event_id: string
+          expected_total: number | null
+          failures: Json
+          finished_at: string | null
+          id: string
+          images_done: number
+          images_failed: number
+          images_skipped: number
+          next_offset: number
+          sps_event_id: string
+          sps_event_name: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bytes_copied?: number
+          confirmed?: number
+          created_at?: string
+          deselected?: string[]
+          error?: string | null
+          event_id: string
+          expected_total?: number | null
+          failures?: Json
+          finished_at?: string | null
+          id?: string
+          images_done?: number
+          images_failed?: number
+          images_skipped?: number
+          next_offset?: number
+          sps_event_id: string
+          sps_event_name?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bytes_copied?: number
+          confirmed?: number
+          created_at?: string
+          deselected?: string[]
+          error?: string | null
+          event_id?: string
+          expected_total?: number | null
+          failures?: Json
+          finished_at?: string | null
+          id?: string
+          images_done?: number
+          images_failed?: number
+          images_skipped?: number
+          next_offset?: number
+          sps_event_id?: string
+          sps_event_name?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sps_pull_jobs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -1166,6 +1273,16 @@ export type Database = {
           pending: number
           processing: number
           total: number
+        }[]
+      }
+      event_readiness: {
+        Args: { p_event_ids: string[] }
+        Returns: {
+          event_id: string
+          indexed: number
+          stalled: number
+          total: number
+          uploading: number
         }[]
       }
       first_image_per_event: {
