@@ -63,28 +63,40 @@ export async function GET(
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
-    let offset = 0;
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data, error: pageError } = await supabase
-        .from("images")
-        .select(IMAGE_FIELDS)
-        .eq("event_id", eventId)
-        // Show every image that exists. processing_status only reflects the
-        // (now decoupled) thumbnail/AI step — an image with a successful R2
-        // upload must appear in the grid regardless, falling back to the
-        // original if no thumbnail yet. Filtering by status here is what hid
-        // hundreds of perfectly-good uploads marked 'failed' by the old
-        // pipeline.
-        .order("created_at", { ascending: true })
-        .range(offset, offset + PAGE_SIZE - 1);
+    // Count first, then fetch every page IN PARALLEL. The old sequential
+    // while-loop cost one round-trip per 1,000 rows — six of them, ~1s, on a
+    // 5,787-image event, with each page waiting on the one before it for no
+    // reason. One count plus N concurrent ranges is the same data in roughly
+    // the time of a single page.
+    const { count: imageCount, error: countError } = await supabase
+      .from("images")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", eventId);
+    if (countError) throw countError;
 
-      if (pageError) throw pageError;
-      if (!data || data.length === 0) break;
-      rawImages = rawImages.concat(data);
-      if (data.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
+    const pageCount = Math.ceil((imageCount ?? 0) / PAGE_SIZE);
+    if (pageCount > 0) {
+      const pages = await Promise.all(
+        Array.from({ length: pageCount }, (_, i) =>
+          supabase
+            .from("images")
+            .select(IMAGE_FIELDS)
+            .eq("event_id", eventId)
+            // Show every image that exists. processing_status only reflects the
+            // (now decoupled) thumbnail/AI step — an image with a successful R2
+            // upload must appear in the grid regardless, falling back to the
+            // original if no thumbnail yet. Filtering by status here is what hid
+            // hundreds of perfectly-good uploads marked 'failed' by the old
+            // pipeline.
+            .order("created_at", { ascending: true })
+            .range(i * PAGE_SIZE, i * PAGE_SIZE + PAGE_SIZE - 1)
+        )
+      );
+      for (const page of pages) {
+        if (page.error) throw page.error;
+        rawImages = rawImages.concat(page.data ?? []);
+      }
     }
 
     // 2b. Fetch section membership for ALL images in one grouped query, then

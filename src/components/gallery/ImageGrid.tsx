@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Check, Crosshair, Play } from "lucide-react";
 import { formatDuration } from "@/lib/upload/media";
 import {
@@ -137,6 +137,8 @@ export function ImageGrid({
 }: ImageGridProps) {
   const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
+  const totalItems = stacks.length + standalone.length;
+  const { revealed, sentinelRef } = useProgressiveReveal(totalItems);
 
   if (dndEnabled) {
     return (
@@ -182,7 +184,13 @@ export function ImageGrid({
     );
   }
 
-  const columns = distributeBalanced(gridItems, colCount, (item) => {
+  // Only the items that have been revealed so far. See useProgressiveReveal:
+  // mounting 5,787 tiles (each with its own <img>) is what made a large event
+  // take 15-20 seconds to become interactive — the server payload was under
+  // three seconds of that.
+  const visibleItems = gridItems.slice(0, revealed);
+
+  const columns = distributeBalanced(visibleItems, colCount, (item) => {
     const d = item.type === "image" ? item.data : item.data.images[0];
     return d && d.width && d.height ? d.height / d.width : 4 / 3;
   });
@@ -231,14 +239,67 @@ export function ImageGrid({
   };
 
   return (
-    <div className="flex items-start" style={{ gap: `${gapPx}px` }}>
-      {columns.map((col, ci) => (
-        <div key={ci} className="min-w-0 flex-1">
-          {col.map(renderItem)}
+    <>
+      <div className="flex items-start" style={{ gap: `${gapPx}px` }}>
+        {columns.map((col, ci) => (
+          <div key={ci} className="min-w-0 flex-1">
+            {col.map(renderItem)}
+          </div>
+        ))}
+      </div>
+      {revealed < gridItems.length && (
+        <div ref={sentinelRef} className="py-10 text-center">
+          <p className="text-[12px] text-stone-300">
+            {(gridItems.length - revealed).toLocaleString()} more…
+          </p>
         </div>
-      ))}
-    </div>
+      )}
+    </>
   );
+}
+
+/**
+ * Reveal the grid in chunks as the viewport approaches the end of it.
+ *
+ * Deliberately NOT full virtualisation: tiles that have been seen stay
+ * mounted, so scrolling back up never re-flashes and the masonry columns never
+ * reflow under the user. That trade — a growing DOM instead of a fixed-size
+ * window — is right for a gallery, where people scan up and down repeatedly and
+ * a tile popping out from behind them is far worse than some extra nodes.
+ *
+ * The first chunk is sized to fill a couple of screens on any column count, so
+ * the page is interactive immediately; everything after that arrives before the
+ * user can reach it (the sentinel sits 1200px below the fold).
+ */
+const REVEAL_FIRST = 180;
+const REVEAL_STEP = 180;
+
+function useProgressiveReveal(total: number) {
+  const [revealed, setRevealed] = useState(() => Math.min(REVEAL_FIRST, total));
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // A new set of items (section switch, search, re-sort) starts over — showing
+  // 3,000 tiles of a freshly-chosen 40-image section would defeat the point.
+  useEffect(() => {
+    setRevealed(Math.min(REVEAL_FIRST, total));
+  }, [total]);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setRevealed((r) => Math.min(r + REVEAL_STEP, total));
+        }
+      },
+      { rootMargin: "1200px 0px" }
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [total, revealed]);
+
+  return { revealed, sentinelRef };
 }
 
 /* ─────────────────────────── Manual (sortable) grid ─────────────────────── */
