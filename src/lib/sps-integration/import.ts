@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { inngest } from "@/lib/inngest/client";
 import type { SPSEventImport, ArchiveEnhancements } from "./types";
+import { spsEventLinkPatch } from "./event-link";
 
 /**
  * Import an event from SPS into Archive.
@@ -61,7 +62,15 @@ export async function importFromSPS(
       description: data.description || null,
       event_date: data.date || null,
       event_type: data.eventType || null,
-      settings: { spsEventId: data.spsEventId, source: "sps-import" },
+      // Through the one patch builder — see event-link.ts. A pulled event
+      // arrives already linked, which is why matching is only ever needed for
+      // the pre-existing backlog.
+      settings: spsEventLinkPatch({
+        eventId: data.spsEventId,
+        eventName: data.name,
+        linkedAt: new Date().toISOString(),
+        source: "sps-import",
+      }),
     })
     .select("id")
     .single();

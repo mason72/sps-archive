@@ -1496,7 +1496,19 @@ emailed Tuesday is wrong by Friday and nothing on the page says so.
 ### pixeltrunk side
 3. Account setting: link SPS by email (matching on email is fine — same email
    for both accounts). Store the SPS user id, not just the email.
-4. Event setting: pick the corresponding SPS event. Store `settings.sps.eventId`.
+4. Event setting: pick the corresponding SPS event.
+   **CORRECTED 2026-08-11 — this line previously said `settings.sps.eventId`
+   (nested). That is WRONG.** The key is the flat `settings.spsEventId`, which
+   `import.ts` has written since SPS import shipped and which
+   `/api/sps/enhancements/[eventId]` already reads. Two documents specifying
+   two shapes for one fact would have linked events under one key and read
+   them under the other — silently, so the guest list would simply never
+   auto-resolve for exactly the events that were imported correctly.
+   Full contract, including why names must never be matched and why ranking
+   uses `images.taken_at` in local time rather than `events.event_date`:
+   **`tasks/sps-event-link-contract.md`**. One home:
+   `src/lib/sps-integration/event-link.ts`.
+   Note a pulled event arrives ALREADY linked, so matching is backlog-only.
 5. **EMAIL-ONLY. NOT a gallery surface.** (Mason, 2026-08-11: "this is only
    going to the client we email the gallery to in the Publish workflow. This
    should not be available anywhere else.") The link is minted per PUBLISH

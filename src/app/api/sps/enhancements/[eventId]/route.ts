@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateSPSRequest } from "@/lib/sps-integration/auth";
 import { generateEnhancements } from "@/lib/sps-integration/import";
+import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -56,9 +57,12 @@ export async function GET(
       );
     }
 
-    // Extract spsEventId from event settings
-    const settings = event.settings as Record<string, unknown> | null;
-    const spsEventId = (settings?.spsEventId as string) || "";
+    // One reader for the SPS link — see src/lib/sps-integration/event-link.ts.
+    // Inlining `settings.spsEventId` here is what let a second key shape get
+    // proposed elsewhere without anything noticing.
+    const spsEventId = readSpsEventId(
+      event.settings as Record<string, unknown> | null
+    ) ?? "";
 
     // Check processing progress
     const { count: totalImages } = await supabase
