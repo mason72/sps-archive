@@ -1164,6 +1164,8 @@ export type Database = {
         Args: { p_event_ids: string[] }
         Returns: {
           event_id: string
+          focal_x: number
+          focal_y: number
           r2_key: string
         }[]
       }

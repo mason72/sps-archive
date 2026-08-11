@@ -28,6 +28,8 @@ interface Event {
   event_date: string | null;
   images: { count: number }[];
   coverThumbnailUrl?: string | null;
+  /** Face-derived crop anchor (0–100) for the card thumbnail, if any. */
+  coverFocal?: { x: number; y: number } | null;
   activeShareSlug?: string | null;
   pinned_at: string | null;
 }
@@ -389,6 +391,15 @@ function EventCard({
               src={event.coverThumbnailUrl}
               alt=""
               className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+              // Anchor on the subject. Without this a 16:9 crop of a portrait
+              // beheads it — every headshot card was chin-to-chest
+              // (Mason, 2026-08-10). No anchor (older photos, composed
+              // rasters) biases high, where faces live, per the house rule.
+              style={{
+                objectPosition: event.coverFocal
+                  ? `${event.coverFocal.x}% ${event.coverFocal.y}%`
+                  : "center 25%",
+              }}
               loading="lazy"
             />
           </div>

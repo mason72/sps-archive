@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     ...event,
     ...(enrichment.get(event.id) ?? {
       coverThumbnailUrl: null,
+      coverFocal: null,
       activeShareSlug: null,
     }),
   }));

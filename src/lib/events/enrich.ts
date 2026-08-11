@@ -1,4 +1,9 @@
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import {
+  getObjectMetadata,
+  getPresignedDownloadUrl,
+  getThumbnailKey,
+} from "@/lib/r2/client";
+import { coverRasterKey } from "@/lib/cover/pool";
 import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import type { createServiceClient } from "@/lib/supabase/server";
 
@@ -34,6 +39,12 @@ export function coverImageIdFor(e: { settings?: unknown }): string | undefined {
 export interface EventEnrichment {
   /** Presigned cover thumbnail URL (settings cover → earliest image fallback). */
   coverThumbnailUrl: string | null;
+  /**
+   * Crop anchor for that thumbnail, 0–100 in each axis, or null for a
+   * composed raster (already framed) / an image with no anchor. Cards render
+   * object-cover, so without this a headshot card crops through the face.
+   */
+  coverFocal: { x: number; y: number } | null;
   /** Active share slug (newest "full" share, else newest of any type). */
   activeShareSlug: string | null;
 }
@@ -58,33 +69,70 @@ export async function enrichEvents(
 
   // The r2_key to use as each event's cover.
   const coverKeyByEvent = new Map<string, string>();
+  // Crop anchors (0–100) for keys that are photos. A composed raster is
+  // already framed, so it gets no anchor.
+  const focalByEvent = new Map<string, { x: number; y: number }>();
+  // Keys that are pre-composed rasters — presigned as-is, no thumbnail path.
+  const rasterEvents = new Set<string>();
 
   // 1. Explicit cover images (settings.cover.imageId), one query.
   //
   // ONLY for photo-type covers. `imageId` is not cleared when the
   // photographer switches to mosaic/color/fade, so honoring it regardless of
   // type made the archive card show a stale, unrelated photo long after the
-  // real cover changed (Justin, 2026-08-10). Raster covers fall through to
-  // the event's first image below — a real frame from the event, and free.
-  // (Showing the composed raster itself would need an R2 HEAD per event and
-  // can enqueue a compose job; too heavy for a list route.)
+  // real cover changed (Justin, 2026-08-10). Raster covers are resolved in 1b.
   const coverImageIds = events
     .map(coverImageIdFor)
     .filter((id): id is string => !!id);
 
   const coverKeyById = new Map<string, string>();
+  const focalById = new Map<string, { x: number; y: number }>();
   if (coverImageIds.length > 0) {
     const { data: coverImgs } = await supabase
       .from("images")
-      .select("id, r2_key")
+      .select("id, r2_key, focal_x, focal_y")
       .in("id", coverImageIds);
-    for (const img of coverImgs ?? []) coverKeyById.set(img.id, img.r2_key);
+    for (const img of coverImgs ?? []) {
+      coverKeyById.set(img.id, img.r2_key);
+      if (img.focal_x != null && img.focal_y != null) {
+        focalById.set(img.id, { x: img.focal_x, y: img.focal_y });
+      }
+    }
   }
   for (const e of events) {
     const imageId = coverImageIdFor(e);
     const key = imageId ? coverKeyById.get(imageId) : undefined;
-    if (key) coverKeyByEvent.set(e.id, key);
+    if (key) {
+      coverKeyByEvent.set(e.id, key);
+      const f = imageId ? focalById.get(imageId) : undefined;
+      if (f) focalByEvent.set(e.id, f);
+    }
   }
+
+  // 1b. Raster covers (mosaic/color): show the COMPOSED cover, which is what
+  // the gallery actually displays — a photo fallback here is why the card
+  // looked "stuck" after switching cover type. One parallel R2 HEAD per
+  // raster-cover event, and deliberately NOT resolveCoverRasterUrl: that
+  // enqueues a compose job on a miss, which a list route must never do.
+  const rasterCandidates = events.filter((e) => {
+    const cover = ((e.settings ?? {}) as Record<string, unknown>).cover as
+      | { type?: string }
+      | undefined;
+    return (
+      !coverKeyByEvent.has(e.id) &&
+      (cover?.type === "mosaic" || cover?.type === "solid")
+    );
+  });
+  await Promise.all(
+    rasterCandidates.map(async (e) => {
+      const key = coverRasterKey(e.id);
+      const meta = await getObjectMetadata(key).catch(() => null);
+      if (meta !== null) {
+        coverKeyByEvent.set(e.id, key);
+        rasterEvents.add(e.id);
+      }
+    })
+  );
 
   // 2. Fallback: earliest image per event (one round-trip) for the rest.
   const needFallback = eventIds.filter((id) => !coverKeyByEvent.has(id));
@@ -95,6 +143,9 @@ export async function enrichEvents(
     for (const row of firsts ?? []) {
       if (!coverKeyByEvent.has(row.event_id)) {
         coverKeyByEvent.set(row.event_id, row.r2_key);
+        if (row.focal_x != null && row.focal_y != null) {
+          focalByEvent.set(row.event_id, { x: row.focal_x, y: row.focal_y });
+        }
       }
     }
   }
@@ -126,10 +177,16 @@ export async function enrichEvents(
   await Promise.all(
     events.map(async (event) => {
       const key = coverKeyByEvent.get(event.id);
+      const isRaster = rasterEvents.has(event.id);
       result.set(event.id, {
         coverThumbnailUrl: key
-          ? await getPresignedDownloadUrl(getThumbnailKey(key), 14400)
+          ? await getPresignedDownloadUrl(
+              isRaster ? key : getThumbnailKey(key),
+              14400
+            )
           : null,
+        // A raster is composed to frame — anchoring it would re-crop it.
+        coverFocal: isRaster ? null : (focalByEvent.get(event.id) ?? null),
         activeShareSlug: shareSlugByEvent.get(event.id) ?? null,
       });
     })

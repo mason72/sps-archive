@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 /**
  * Always-visible indicator that an admin is acting as another account.
  * A full-width bar ABOVE the app (normal flow + sticky, so it pushes content
@@ -7,6 +9,14 @@
  * bottom-left pill and Mason scrolled right past it.
  */
 export function ActAsBanner({ email }: { email: string }) {
+  const pathname = usePathname();
+
+  // Never on guest-facing gallery surfaces. The editor embeds
+  // /gallery/preview/<id> as a live preview, so the bar was rendering a
+  // second time INSIDE the preview — admin chrome inside a client-facing
+  // frame (Mason, 2026-08-10). Real /gallery pages are client surfaces too.
+  if (pathname?.startsWith("/gallery")) return null;
+
   async function switchBack() {
     await fetch("/api/ops/act-as", { method: "DELETE" });
     window.location.href = "/";
