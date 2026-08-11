@@ -213,7 +213,9 @@ const byId = new Map();
 // Taking the first segment blindly filed "Brenda L. // Assetmark" under
 // client "brenda", so five AssetMark sessions never looked related.
 // NOTE: audit.mjs carries an identical copy — change both together.
-const PERSON_RE = /^[A-Z][a-z]+(?:'s)?\s+(?:[A-Z]\.|[A-Z][a-z]+)(?:'s)?$/;
+// Must be "First X." with an initial. Allowing "First Last" swallowed real
+// two-word clients — "Pure Storage // DX Team" filed itself under "team".
+const PERSON_RE = /^[A-Z][a-z]+\s+[A-Z]\.?$/;
 function clientKey(name) {
   const parts = name.split("//").map(s => s.trim()).filter(Boolean);
   let seg = parts[0] || name;

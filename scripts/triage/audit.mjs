@@ -22,7 +22,8 @@ const STOP = new Set(["the","and","for","with","from","photos","photo","gallery"
   "day","final","edit","edits","images","pics","llc","inc","new","all"]);
 
 // "CLIENT // DETAIL" vs "PERSON // CLIENT" — identical copy lives in app.html
-const PERSON_RE = /^[A-Z][a-z]+(?:'s)?\s+(?:[A-Z]\.|[A-Z][a-z]+)(?:'s)?$/;
+// "First X." only — "First Last" swallowed real two-word client names
+const PERSON_RE = /^[A-Z][a-z]+\s+[A-Z]\.?$/;
 function clientKey(name) {
   const parts = name.split("//").map(s => s.trim()).filter(Boolean);
   let seg = parts[0] || name;
