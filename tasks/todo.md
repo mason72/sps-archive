@@ -1497,20 +1497,34 @@ emailed Tuesday is wrong by Friday and nothing on the page says so.
 3. Account setting: link SPS by email (matching on email is fine — same email
    for both accounts). Store the SPS user id, not just the email.
 4. Event setting: pick the corresponding SPS event. Store `settings.sps.eventId`.
-5. `GET /api/gallery/[slug]/guest-list` — guest route, scoped to the SHARE:
-   resolves the SPS event id, calls spsv2, streams the CSV back. Must go
-   through `resolveShareImageScope()`-style gating: fails closed, dies with
-   the share, respects the gallery password.
-6. Email composer: a "Guest list (CSV)" link when the event is linked.
+5. **EMAIL-ONLY. NOT a gallery surface.** (Mason, 2026-08-11: "this is only
+   going to the client we email the gallery to in the Publish workflow. This
+   should not be available anywhere else.") The link is minted per PUBLISH
+   EMAIL and carries its own token — it is NOT reachable from the gallery, not
+   in the guest nav, not behind the share slug, and a guest who never received
+   the email has no path to it at all.
+   `GET /api/guest-list/[token]` — validates the token, resolves the SPS event,
+   streams the CSV. Token is revocable and dies with the share.
+6. Email composer: a "Guest list (CSV)" link, shown only when the event is
+   linked to an SPS event.
 
 ### Non-negotiable: this sheet is PII
-Guest names, emails and sign-in answers. The link is forwardable, so it must be
-share-scoped and revocable — same posture as gallery passwords, never a naked
-public URL. Turning off the share must kill the sheet. Consider inheriting the
-gallery password gate, and log downloads to activity_log like any other.
+Guest names, emails and sign-in answers. Email-only placement is the primary
+control — it never appears on a surface a guest can browse to. The token is
+still forwardable, so: revocable, dies with the share, and every download logged
+to activity_log. Never a naked public URL, never a guessable id.
 
-### Open questions for the build session
+### Open question for the build session
 - Does the SPSv2 spreadsheet generator run server-side already, or is it built
   in the browser? If browser-only, step 2 is the real work.
-- Should the link appear for GUESTS at all, or only in the email to the client
-  contact? A wedding guest should probably not download every attendee's email.
+  (The guest-visibility question is CLOSED: email recipient only.)
+
+### First experiment: HDC
+HDC is ready to send. Two ways to get there:
+- **Full path** — build the spsv2 endpoint first, then PT. Correct, reusable,
+  but gated on the other repo.
+- **Manual bridge** — Mason downloads the sheet from SPS once (he is already on
+  that screen), PT stores it against the event and mints the tokenized email
+  link. Proves the client-facing half TODAY; the API later replaces only the
+  "where the CSV came from" step, leaving the token, the email and the
+  revocation intact. Recommended for a first experiment.
