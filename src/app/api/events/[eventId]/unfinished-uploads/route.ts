@@ -75,3 +75,81 @@ export async function GET(
     );
   }
 }
+
+/**
+ * DELETE /api/events/[eventId]/unfinished-uploads
+ *
+ * Resolve the stalled rows for real: HEAD each one in R2, keep anything whose
+ * binary actually landed (the nightly reconciler heals those), and delete the
+ * rows that are genuinely empty.
+ *
+ * This exists because "Dismiss" used to write a localStorage timestamp and
+ * nothing else — it silenced the banner in ONE browser while the ghost rows
+ * stayed in the database. Mason dismissed HDC's nine and reasonably assumed
+ * they were gone; hours later they were still rendering as blank tiles in the
+ * grid, still inflating the photo count, and still counted as "uploads in
+ * flight" — which was blocking AI indexing for all 5,778 finished photos.
+ *
+ * A control labelled "dismiss" that only hides is the same species of bug as a
+ * fallback that fabricates success: the UI reports a state the system isn't in.
+ * Unlike the GET above, the round-trip cost per row is fine here — this runs
+ * once, on a click, over a handful of rows.
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ eventId: string }> }
+) {
+  const { eventId } = await params;
+  try {
+    const { user, supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
+
+    const staleCutoff = new Date(
+      Date.now() - STALE_MINUTES * 60 * 1000
+    ).toISOString();
+
+    const { data: rows, error } = await supabase
+      .from("images")
+      .select("id, r2_key, original_filename, events!event_id!inner(user_id)")
+      .eq("event_id", eventId)
+      .eq("events.user_id", user!.id)
+      .eq("processing_status", "pending")
+      .lt("created_at", staleCutoff);
+    if (error) throw error;
+
+    const { getObjectMetadata } = await import("@/lib/r2/client");
+    const deletable: string[] = [];
+    let recoverable = 0;
+    for (const row of (rows ?? []) as { id: string; r2_key: string | null }[]) {
+      let bytes = 0;
+      if (row.r2_key) {
+        try {
+          bytes = Number((await getObjectMetadata(row.r2_key))?.size ?? 0);
+        } catch {
+          bytes = 0;
+        }
+      }
+      // Bytes present = a finalize that never landed, NOT a lost upload.
+      // Deleting it would destroy a photo the photographer actually has.
+      if (bytes > 0) recoverable += 1;
+      else deletable.push(row.id);
+    }
+
+    if (deletable.length > 0) {
+      const { error: delErr } = await supabase
+        .from("images")
+        .delete()
+        .in("id", deletable);
+      if (delErr) throw delErr;
+    }
+
+    return NextResponse.json({
+      deleted: deletable.length,
+      recoverable,
+      checked: rows?.length ?? 0,
+    });
+  } catch (error) {
+    await reportSystemError("events.unfinished-uploads.delete", error, { eventId });
+    return NextResponse.json({ error: "Couldn't clear those rows" }, { status: 500 });
+  }
+}

@@ -4,6 +4,7 @@ import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import { Upload, Loader2, RotateCcw, ShieldAlert, Copy, Film } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
+import { toast } from "sonner";
 import { UPLOAD_ACCEPT, isVideoMime, validateUploadFile } from "@/lib/upload/media";
 import {
   useUploadManager,
@@ -453,7 +454,14 @@ export function UploadZone({
           </div>
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
+              // Dismiss RESOLVES. It used to write a localStorage timestamp
+              // and nothing else, so the ghost rows survived — still blank
+              // tiles in the grid, still counted as "uploads in flight", still
+              // blocking AI indexing for the whole event. The server now
+              // HEADs each row in R2 and deletes only the genuinely empty
+              // ones; anything whose bytes landed is left for the reconciler
+              // to heal.
               try {
                 localStorage.setItem(
                   unfinishedDismissedKey(eventId),
@@ -465,6 +473,31 @@ export function UploadZone({
               }
               setUnfinished([]);
               setUnfinishedTotal(0);
+              try {
+                const res = await fetch(
+                  `/api/events/${eventId}/unfinished-uploads`,
+                  { method: "DELETE" }
+                );
+                if (res.ok) {
+                  const r = (await res.json()) as {
+                    deleted: number;
+                    recoverable: number;
+                  };
+                  if (r.deleted > 0) {
+                    toast.success(
+                      `Cleared ${r.deleted.toLocaleString()} unfinished upload${r.deleted === 1 ? "" : "s"}`,
+                      {
+                        description:
+                          r.recoverable > 0
+                            ? `${r.recoverable} had already arrived and will be repaired automatically.`
+                            : "Re-drop those files to add them.",
+                      }
+                    );
+                  }
+                }
+              } catch {
+                /* the banner is already hidden; the nightly sweep still runs */
+              }
             }}
             className="shrink-0 text-[12px] text-amber-700 underline underline-offset-2 hover:text-amber-900"
           >

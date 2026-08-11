@@ -58,11 +58,11 @@ function readinessTooltip(r: {
 }
 
 /** A ring that fills clockwise — no text, legible at 12px. */
-function ReadinessPie({ fraction, title }: { fraction: number; title: string }) {
+function ReadinessPie({ fraction }: { fraction: number }) {
   const r = 5;
   const c = 2 * Math.PI * r;
   return (
-    <span title={title} className="inline-flex items-center" aria-label={title}>
+    <span className="inline-flex items-center">
       <svg width="13" height="13" viewBox="0 0 14 14" className="shrink-0">
         <circle cx="7" cy="7" r={r} fill="none" strokeWidth="2" className="stroke-stone-200" />
         <circle
@@ -128,7 +128,7 @@ export function GalleryStatusBadge({ status }: { status: EventStatus | null }) {
           className="inline-flex cursor-help items-center gap-1.5 text-[11px] text-stone-400"
           title={readinessTooltip(readiness)}
         >
-          <ReadinessPie fraction={pct} title="" />
+          <ReadinessPie fraction={pct} />
           {readiness.uploading > 0
             ? "Uploading"
             : readiness.indexed === 0

@@ -52,7 +52,9 @@ export function EventList() {
   const loadEvents = useCallback(async () => {
     setLoadError(false);
     try {
-      const res = await fetch("/api/events?limit=100");
+      // no-store: the readiness ring is live data. A cached response showed a
+      // 5,787-photo event as "Queued" while it was already 19% through.
+      const res = await fetch("/api/events?limit=100", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load events");
       const data = await res.json();
       setEvents(data.events || []);

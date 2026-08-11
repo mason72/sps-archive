@@ -25,6 +25,7 @@ import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
+import { ProcessingBanner } from "@/components/events/ProcessingBanner";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
@@ -1526,6 +1527,9 @@ export default function EventPage({
             </p>
           )}
         </div>
+
+        {/* ─── AI processing, live ─── */}
+        <ProcessingBanner eventId={eventId} />
 
         {/* ─── Loading skeleton ─── */}
         {isLoading && (
