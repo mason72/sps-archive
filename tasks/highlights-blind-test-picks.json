@@ -1,0 +1,443 @@
+[
+ {
+  "rank": 1,
+  "moment": 36,
+  "frames": 2,
+  "rep_id": "3f55b5d2-d45e-4db0-a700-7dbfaec52fde",
+  "taken_at": "2026-08-08T18:10:40+00:00",
+  "ids": [
+   "3f55b5d2-d45e-4db0-a700-7dbfaec52fde",
+   "a6575ce9-1446-40b7-bfc9-23adc612c748"
+  ]
+ },
+ {
+  "rank": 2,
+  "moment": 114,
+  "frames": 2,
+  "rep_id": "ef4f982b-8445-4508-b073-5a803771f53a",
+  "taken_at": "2026-08-08T18:59:14+00:00",
+  "ids": [
+   "fdd6bb7a-61dc-4be5-8820-d49c6c240f8e",
+   "ef4f982b-8445-4508-b073-5a803771f53a"
+  ]
+ },
+ {
+  "rank": 3,
+  "moment": 42,
+  "frames": 2,
+  "rep_id": "fa9adc81-d619-4b17-ae9f-3f6464391136",
+  "taken_at": "2026-08-08T18:13:46+00:00",
+  "ids": [
+   "fa9adc81-d619-4b17-ae9f-3f6464391136",
+   "160c88d4-ae3b-44d9-b0c2-93f9457f4796"
+  ]
+ },
+ {
+  "rank": 4,
+  "moment": 306,
+  "frames": 4,
+  "rep_id": "53152d23-ebca-40cf-afc7-6be3986f99f1",
+  "taken_at": "2026-08-08T22:06:39+00:00",
+  "ids": [
+   "53152d23-ebca-40cf-afc7-6be3986f99f1",
+   "21b80517-fbb2-4a2c-8cea-52f994b61574",
+   "ec6be828-ad85-41fd-a28e-220ff571c090",
+   "e6ce3c3d-8dbe-4ac2-bf5a-0361955fb694"
+  ]
+ },
+ {
+  "rank": 5,
+  "moment": 97,
+  "frames": 2,
+  "rep_id": "4bdb9588-998e-4f5f-bb55-d76fbb1f6fcf",
+  "taken_at": "2026-08-08T18:41:29+00:00",
+  "ids": [
+   "4bdb9588-998e-4f5f-bb55-d76fbb1f6fcf",
+   "ff21938b-a782-4d71-813b-0a86820b1bde"
+  ]
+ },
+ {
+  "rank": 6,
+  "moment": 342,
+  "frames": 2,
+  "rep_id": "e6b9d959-4470-4ca7-8800-9a3846f82d4c",
+  "taken_at": "2026-08-08T22:31:35+00:00",
+  "ids": [
+   "e6b9d959-4470-4ca7-8800-9a3846f82d4c",
+   "972a447f-c693-4682-bd1b-b232203253b3"
+  ]
+ },
+ {
+  "rank": 7,
+  "moment": 190,
+  "frames": 2,
+  "rep_id": "cee85d84-0791-46ae-a811-f8eb769b7424",
+  "taken_at": "2026-08-08T20:36:34+00:00",
+  "ids": [
+   "28d20816-9494-4a27-9e54-a786c4423896",
+   "cee85d84-0791-46ae-a811-f8eb769b7424"
+  ]
+ },
+ {
+  "rank": 8,
+  "moment": 262,
+  "frames": 2,
+  "rep_id": "2313d85b-ed80-4d09-8867-49096346bff3",
+  "taken_at": "2026-08-08T21:38:54+00:00",
+  "ids": [
+   "2313d85b-ed80-4d09-8867-49096346bff3",
+   "72d4d926-7164-4d05-8b5f-03ecc143778c"
+  ]
+ },
+ {
+  "rank": 9,
+  "moment": 286,
+  "frames": 2,
+  "rep_id": "b871d6b8-eec7-4a44-a58e-56fb92fa05e5",
+  "taken_at": "2026-08-08T21:54:48+00:00",
+  "ids": [
+   "b871d6b8-eec7-4a44-a58e-56fb92fa05e5",
+   "ee5cbe42-ecaf-40ae-9b3e-effff9101b7b"
+  ]
+ },
+ {
+  "rank": 10,
+  "moment": 326,
+  "frames": 2,
+  "rep_id": "740db50c-f5ee-4c8e-823d-e466f70815b2",
+  "taken_at": "2026-08-08T22:25:18+00:00",
+  "ids": [
+   "740db50c-f5ee-4c8e-823d-e466f70815b2",
+   "8efcbbc8-4ebc-46fa-8741-d143c2946912"
+  ]
+ },
+ {
+  "rank": 11,
+  "moment": 298,
+  "frames": 2,
+  "rep_id": "ab3ca5aa-cdf1-4736-b7cd-005a4f534d28",
+  "taken_at": "2026-08-08T22:04:05+00:00",
+  "ids": [
+   "ab3ca5aa-cdf1-4736-b7cd-005a4f534d28",
+   "a0316401-18c6-4075-a59d-c3670397e1f5"
+  ]
+ },
+ {
+  "rank": 12,
+  "moment": 316,
+  "frames": 2,
+  "rep_id": "a4d83094-5f53-48c2-a8aa-4837ceda4e22",
+  "taken_at": "2026-08-08T22:22:27+00:00",
+  "ids": [
+   "24bd8948-9575-47cb-8392-02ada37d7c9b",
+   "a4d83094-5f53-48c2-a8aa-4837ceda4e22"
+  ]
+ },
+ {
+  "rank": 13,
+  "moment": 23,
+  "frames": 2,
+  "rep_id": "9c1b7156-8383-42df-9fee-bbfa84b09120",
+  "taken_at": "2026-08-08T18:05:53+00:00",
+  "ids": [
+   "9c1b7156-8383-42df-9fee-bbfa84b09120",
+   "2a3c1a86-c9a5-4902-bddd-12d7386cb3a0"
+  ]
+ },
+ {
+  "rank": 14,
+  "moment": 265,
+  "frames": 4,
+  "rep_id": "42316292-9840-49b2-87c8-267b3526f25a",
+  "taken_at": "2026-08-08T21:40:00+00:00",
+  "ids": [
+   "42316292-9840-49b2-87c8-267b3526f25a",
+   "b7b51552-80a3-417d-8eca-74871491fd5c",
+   "c6233ff4-b6a4-4c39-8e4c-b1556c8d5b6a",
+   "f747ad92-f8bf-4d74-b993-8477dbe9257e"
+  ]
+ },
+ {
+  "rank": 15,
+  "moment": 256,
+  "frames": 2,
+  "rep_id": "1f6d101d-21ff-490f-8c25-b847d69a25ba",
+  "taken_at": "2026-08-08T21:34:43+00:00",
+  "ids": [
+   "1f6d101d-21ff-490f-8c25-b847d69a25ba",
+   "60958c78-f1d3-4d5f-a44b-eb597fdf9021"
+  ]
+ },
+ {
+  "rank": 16,
+  "moment": 47,
+  "frames": 2,
+  "rep_id": "70ca9e95-903f-4e64-9caf-d4ec5ddab602",
+  "taken_at": "2026-08-08T18:16:24+00:00",
+  "ids": [
+   "70ca9e95-903f-4e64-9caf-d4ec5ddab602",
+   "c60fec18-12d4-4014-9350-3af17972464c"
+  ]
+ },
+ {
+  "rank": 17,
+  "moment": 2,
+  "frames": 2,
+  "rep_id": "5718541f-09f3-4957-9bc4-d29ede29db91",
+  "taken_at": "2026-08-08T17:55:01+00:00",
+  "ids": [
+   "5718541f-09f3-4957-9bc4-d29ede29db91",
+   "97062f79-cd18-4f62-8b3d-16a2a4fdb266"
+  ]
+ },
+ {
+  "rank": 18,
+  "moment": 288,
+  "frames": 2,
+  "rep_id": "9146add2-fb0a-4bb5-9634-c26f8cdafd60",
+  "taken_at": "2026-08-08T21:58:23+00:00",
+  "ids": [
+   "9146add2-fb0a-4bb5-9634-c26f8cdafd60",
+   "8c6f4197-7474-4551-8546-970ad406656e"
+  ]
+ },
+ {
+  "rank": 19,
+  "moment": 112,
+  "frames": 2,
+  "rep_id": "636ff869-7ac7-4e48-ba15-9c4042dfef42",
+  "taken_at": "2026-08-08T18:57:16+00:00",
+  "ids": [
+   "2f283f34-c2ee-46c4-a6da-be0d63d637b4",
+   "636ff869-7ac7-4e48-ba15-9c4042dfef42"
+  ]
+ },
+ {
+  "rank": 20,
+  "moment": 81,
+  "frames": 1,
+  "rep_id": "f6ce6217-aa42-4b66-83c9-741273289b76",
+  "taken_at": "2026-08-08T18:34:20+00:00",
+  "ids": [
+   "f6ce6217-aa42-4b66-83c9-741273289b76"
+  ]
+ },
+ {
+  "rank": 21,
+  "moment": 6,
+  "frames": 2,
+  "rep_id": "6c1f8115-86d0-4bd7-a944-024e9fcf9093",
+  "taken_at": "2026-08-08T17:56:20+00:00",
+  "ids": [
+   "6c1f8115-86d0-4bd7-a944-024e9fcf9093",
+   "57c49d5e-4c9f-4ec1-9d0b-bdf03e8f96ef"
+  ]
+ },
+ {
+  "rank": 22,
+  "moment": 12,
+  "frames": 2,
+  "rep_id": "461ba531-2954-4301-a0aa-8f9e17e67285",
+  "taken_at": "2026-08-08T17:58:32+00:00",
+  "ids": [
+   "461ba531-2954-4301-a0aa-8f9e17e67285",
+   "41fb6566-cb85-4ab5-8824-188823bf2913"
+  ]
+ },
+ {
+  "rank": 23,
+  "moment": 343,
+  "frames": 2,
+  "rep_id": "57614d57-e277-4e34-87ea-fdc82dcf02bf",
+  "taken_at": "2026-08-08T22:31:38+00:00",
+  "ids": [
+   "e9c175e1-b500-48d6-bd07-0fcebac53a3b",
+   "57614d57-e277-4e34-87ea-fdc82dcf02bf"
+  ]
+ },
+ {
+  "rank": 24,
+  "moment": 321,
+  "frames": 2,
+  "rep_id": "13451e75-9c20-4572-9c80-f1c427fc3db5",
+  "taken_at": "2026-08-08T22:23:14+00:00",
+  "ids": [
+   "565de6ed-08ef-4a40-81d0-b37dc3d74fb5",
+   "13451e75-9c20-4572-9c80-f1c427fc3db5"
+  ]
+ },
+ {
+  "rank": 25,
+  "moment": 328,
+  "frames": 2,
+  "rep_id": "9f6f8ec5-651c-45f6-a55a-ba41d76ddd0f",
+  "taken_at": "2026-08-08T22:25:53+00:00",
+  "ids": [
+   "10ad4185-313d-43ec-a3d5-f83b0becc884",
+   "9f6f8ec5-651c-45f6-a55a-ba41d76ddd0f"
+  ]
+ },
+ {
+  "rank": 26,
+  "moment": 59,
+  "frames": 2,
+  "rep_id": "6be9f3a7-96fe-4d20-bade-8153149ef72b",
+  "taken_at": "2026-08-08T18:22:07+00:00",
+  "ids": [
+   "778fd542-9da5-48e8-9a71-9b57f3cc8022",
+   "6be9f3a7-96fe-4d20-bade-8153149ef72b"
+  ]
+ },
+ {
+  "rank": 27,
+  "moment": 49,
+  "frames": 2,
+  "rep_id": "dbb97754-c8d0-4e8e-a6d0-b9e95c5d9fb0",
+  "taken_at": "2026-08-08T18:17:14+00:00",
+  "ids": [
+   "2eaf77b5-8da5-44fb-bfa8-e3c1b68c7484",
+   "dbb97754-c8d0-4e8e-a6d0-b9e95c5d9fb0"
+  ]
+ },
+ {
+  "rank": 28,
+  "moment": 230,
+  "frames": 2,
+  "rep_id": "2c7b8e27-692e-4081-b890-53d0dd7a2457",
+  "taken_at": "2026-08-08T21:16:21+00:00",
+  "ids": [
+   "1789e1fb-41a3-43e4-8f71-2d7ea24e018a",
+   "2c7b8e27-692e-4081-b890-53d0dd7a2457"
+  ]
+ },
+ {
+  "rank": 29,
+  "moment": 271,
+  "frames": 2,
+  "rep_id": "0427d1d1-463f-48a8-bf63-e5494c1458bb",
+  "taken_at": "2026-08-08T21:42:50+00:00",
+  "ids": [
+   "0427d1d1-463f-48a8-bf63-e5494c1458bb",
+   "67615328-ec90-4cfc-bdc9-5dff15c9565f"
+  ]
+ },
+ {
+  "rank": 30,
+  "moment": 86,
+  "frames": 2,
+  "rep_id": "ce7e1039-953b-4f9c-b2bc-b85b8e340d41",
+  "taken_at": "2026-08-08T18:36:56+00:00",
+  "ids": [
+   "ce7e1039-953b-4f9c-b2bc-b85b8e340d41",
+   "45b2c08a-9a66-4e06-822d-c9e1344379b3"
+  ]
+ },
+ {
+  "rank": 31,
+  "moment": 173,
+  "frames": 2,
+  "rep_id": "ea1ba258-4cc9-4b49-a220-4ec413834989",
+  "taken_at": "2026-08-08T20:26:44+00:00",
+  "ids": [
+   "ea1ba258-4cc9-4b49-a220-4ec413834989",
+   "a16aae08-e235-4935-806c-6e69eefa4be6"
+  ]
+ },
+ {
+  "rank": 32,
+  "moment": 16,
+  "frames": 2,
+  "rep_id": "e5e78469-1154-4cf1-81a3-56476261f947",
+  "taken_at": "2026-08-08T18:00:24+00:00",
+  "ids": [
+   "e5e78469-1154-4cf1-81a3-56476261f947",
+   "f52fced1-ac29-400b-b5cc-137f4da6d022"
+  ]
+ },
+ {
+  "rank": 33,
+  "moment": 312,
+  "frames": 2,
+  "rep_id": "bf26d558-1e2f-4746-8fe0-8d7bd7a5eb82",
+  "taken_at": "2026-08-08T22:17:53+00:00",
+  "ids": [
+   "bf26d558-1e2f-4746-8fe0-8d7bd7a5eb82",
+   "981c179e-166e-485e-8da2-6173c5edf0ab"
+  ]
+ },
+ {
+  "rank": 34,
+  "moment": 142,
+  "frames": 2,
+  "rep_id": "d0a483c4-db8b-4372-9a6e-048692480d75",
+  "taken_at": "2026-08-08T19:55:49+00:00",
+  "ids": [
+   "d0a483c4-db8b-4372-9a6e-048692480d75",
+   "79285f6d-4c0c-4bd1-8ed0-e36b310d17ef"
+  ]
+ },
+ {
+  "rank": 35,
+  "moment": 102,
+  "frames": 2,
+  "rep_id": "2551b6ba-5e10-4072-bbd3-45957f6e0343",
+  "taken_at": "2026-08-08T18:48:57+00:00",
+  "ids": [
+   "e7c037bd-f249-46e2-8750-e1885d716d22",
+   "2551b6ba-5e10-4072-bbd3-45957f6e0343"
+  ]
+ },
+ {
+  "rank": 36,
+  "moment": 32,
+  "frames": 2,
+  "rep_id": "2c89255e-3c6f-438e-afd7-0f92bf6cb946",
+  "taken_at": "2026-08-08T18:08:56+00:00",
+  "ids": [
+   "2c89255e-3c6f-438e-afd7-0f92bf6cb946",
+   "7d6da298-3570-4cfb-99d2-65ffe0973fe4"
+  ]
+ },
+ {
+  "rank": 37,
+  "moment": 67,
+  "frames": 2,
+  "rep_id": "09f89b50-3645-4c83-8b29-8270c4ce5b72",
+  "taken_at": "2026-08-08T18:26:18+00:00",
+  "ids": [
+   "25e4318e-38a0-43d7-af09-621d59c35d24",
+   "09f89b50-3645-4c83-8b29-8270c4ce5b72"
+  ]
+ },
+ {
+  "rank": 38,
+  "moment": 122,
+  "frames": 2,
+  "rep_id": "b88bff5c-5668-426f-a94d-949d024cefd9",
+  "taken_at": "2026-08-08T19:24:20+00:00",
+  "ids": [
+   "17303b63-5e4b-49cd-a353-dea57eee4821",
+   "b88bff5c-5668-426f-a94d-949d024cefd9"
+  ]
+ },
+ {
+  "rank": 39,
+  "moment": 242,
+  "frames": 1,
+  "rep_id": "3f7794c3-5ca3-427b-adc2-10148f266ba9",
+  "taken_at": "2026-08-08T21:21:32+00:00",
+  "ids": [
+   "3f7794c3-5ca3-427b-adc2-10148f266ba9"
+  ]
+ },
+ {
+  "rank": 40,
+  "moment": 352,
+  "frames": 1,
+  "rep_id": "fe087905-21c1-417a-b929-62e6f94d2fbe",
+  "taken_at": "2026-08-08T22:48:21+00:00",
+  "ids": [
+   "fe087905-21c1-417a-b929-62e6f94d2fbe"
+  ]
+ }
+]

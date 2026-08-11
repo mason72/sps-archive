@@ -78,6 +78,21 @@ interface ImageGridProps {
    * manual drag order — the grid just renders what it's given. See TileBadge.
    */
   positionBadges?: Map<string, TileBadge>;
+  /**
+   * Per-tile interactive overlay (Highlights review: cut this pick, swap the
+   * frame within its moment). A render prop rather than a second grid — tiles
+   * must keep their natural aspect ratio and focal-aware crop, and the moment
+   * a review surface forks this component it starts drifting from the grid it
+   * claims to be previewing (lesson 70).
+   *
+   * Rendered as a SIBLING of the tile button (a nested <button> is invalid HTML
+   * and hydration-errors), inside a `group relative` wrapper so hover states
+   * still key off the tile. The overlay layer is pointer-events-none — each
+   * interactive child must set `pointer-events-auto` to become clickable.
+   *
+   * Additive: with no overlay the tile renders exactly as before.
+   */
+  tileOverlay?: (image: ImageData) => React.ReactNode;
 }
 
 /**
@@ -134,6 +149,7 @@ export function ImageGrid({
   showFocalBadge,
   coverImageId,
   positionBadges,
+  tileOverlay,
 }: ImageGridProps) {
   const colCount = useResponsiveColumns(settingsColumnCount ?? 4);
   const gapPx = GAP_PX[gap];
@@ -232,6 +248,7 @@ export function ImageGrid({
             showFocalBadge={showFocalBadge}
             isCover={item.data.id === coverImageId}
             badge={positionBadges?.get(item.data.id)}
+            overlay={tileOverlay?.(item.data)}
           />
         )}
       </div>
@@ -680,6 +697,7 @@ function GridImage({
   showFocalBadge,
   isCover,
   badge,
+  overlay,
 }: {
   image: ImageData;
   onSelect: () => void;
@@ -700,6 +718,8 @@ function GridImage({
   isCover?: boolean;
   /** Slot-mapping badge for TDP Website scenes (position / cover / extra). */
   badge?: TileBadge;
+  /** Interactive overlay for review surfaces (see ImageGridProps.tileOverlay). */
+  overlay?: React.ReactNode;
 }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -762,7 +782,7 @@ function GridImage({
     [image.id, isSelected, selectedIds]
   );
 
-  return (
+  const tile = (
     <button
       data-image-id={image.id}
       // In manual mode the parent dnd-kit sortable owns dragging; native HTML5
@@ -974,5 +994,18 @@ function GridImage({
         </div>
       )}
     </button>
+  );
+
+  // The overlay must be a SIBLING of the tile button, never a child: a nested
+  // <button> is invalid HTML and React hydration errors on it. The wrapper
+  // carries `group` so the overlay's hover states still key off the tile, and
+  // is pointer-events-none so it never steals clicks from the tile underneath —
+  // each interactive child opts back in.
+  if (!overlay) return tile;
+  return (
+    <div className="group relative">
+      {tile}
+      <div className="pointer-events-none absolute inset-0 z-[3]">{overlay}</div>
+    </div>
   );
 }
