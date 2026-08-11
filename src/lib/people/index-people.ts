@@ -278,23 +278,36 @@ export async function buildPeopleIndex(
     original_filename: string;
     aesthetic_score: number | null;
   };
+  // Count first, then pull every page CONCURRENTLY. Sequential paging meant
+  // ~18 round-trips before a single face could render, each waiting on the
+  // last for no reason — the dominant cost of loading /people.
+  const { count: rowCount, error: countError } = await supabase
+    .from("images")
+    .select("id", { count: "exact", head: true })
+    .in("event_id", [...eventById.keys()])
+    .eq("media_type", "image")
+    .eq("processing_status", "complete");
+  if (countError) throw countError;
+
   const rows: Row[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
-      .from("images")
-      .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
-      .in("event_id", [...eventById.keys()])
-      .eq("media_type", "image")
-      // Presign-created rows exist BEFORE their bytes do. Counting them
-      // promises photos the gallery can't show — Jeff Roark's tile said 77
-      // when 9 were ghosts from a died-mid-upload session, and the spotlight
-      // rendered them as blank tiles.
-      .eq("processing_status", "complete")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    rows.push(...(data as Row[]));
-    if (data.length < PAGE) break;
+  const pages = await Promise.all(
+    Array.from({ length: Math.ceil((rowCount ?? 0) / PAGE) }, (_, i) =>
+      supabase
+        .from("images")
+        .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
+        .in("event_id", [...eventById.keys()])
+        .eq("media_type", "image")
+        // Presign-created rows exist BEFORE their bytes do. Counting them
+        // promises photos the gallery can't show — Jeff Roark's tile said 77
+        // when 9 were ghosts from a died-mid-upload session, and the spotlight
+        // rendered them as blank tiles.
+        .eq("processing_status", "complete")
+        .range(i * PAGE, i * PAGE + PAGE - 1)
+    )
+  );
+  for (const page of pages) {
+    if (page.error) throw page.error;
+    rows.push(...((page.data ?? []) as Row[]));
   }
 
   // person key → event id → appearance

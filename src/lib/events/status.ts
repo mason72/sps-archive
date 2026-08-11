@@ -78,13 +78,11 @@ export async function resolveEventStatuses(
       .select("event_id, action")
       .in("event_id", eventIds)
       .in("action", ["gallery_download", "image_download"]),
-    // Readiness needs per-image state; ids only, paged by the caller's page
-    // size (an archive page is ~24 events, so this stays bounded).
-    supabase
-      .from("images")
-      .select("event_id, processing_status, ai_indexed_at, media_type")
-      .in("event_id", eventIds)
-      .eq("media_type", "image"),
+    // Readiness is aggregated IN the database (migration 046). The previous
+    // version fetched every image row and counted in memory, which silently
+    // hit PostgREST's 1000-row cap — so a large archive computed every badge
+    // from an arbitrary sample, and shipped ~18k rows on each dashboard load.
+    supabase.rpc("event_readiness", { p_event_ids: eventIds }),
   ]);
 
   // A Supabase error is a RETURN VALUE — `data || []` would turn a 400 into a
@@ -134,21 +132,22 @@ export async function resolveEventStatuses(
     shareAgg.set(row.event_id, cur);
   }
 
-  type ImageRow = {
+  type ReadinessRow = {
     event_id: string;
-    processing_status: string | null;
-    ai_indexed_at: string | null;
+    total: number;
+    indexed: number;
+    uploading: number;
+    stalled: number;
   };
   const imgAgg = new Map<string, { uploading: number; indexed: number; total: number }>();
-  for (const row of (imagesRes.data ?? []) as ImageRow[]) {
-    const cur = imgAgg.get(row.event_id) ?? { uploading: 0, indexed: 0, total: 0 };
-    if (row.processing_status === "complete") {
-      cur.total += 1;
-      if (row.ai_indexed_at) cur.indexed += 1;
-    } else if (row.processing_status === "pending") {
-      cur.uploading += 1;
-    }
-    imgAgg.set(row.event_id, cur);
+  for (const row of (imagesRes.data ?? []) as ReadinessRow[]) {
+    imgAgg.set(row.event_id, {
+      total: Number(row.total),
+      indexed: Number(row.indexed),
+      // Only RECENT pending rows count as in-flight; stale ones are ghosts and
+      // must not keep an event reading "Uploading" forever.
+      uploading: Number(row.uploading),
+    });
   }
 
   for (const eventId of eventIds) {

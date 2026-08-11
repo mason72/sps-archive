@@ -67,6 +67,12 @@ export default async function PeoplePage() {
     <div className="flex min-h-screen flex-col">
       <Nav>
         <Link
+          href="/"
+          className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700"
+        >
+          Archive
+        </Link>
+        <Link
           href="/search"
           className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700"
         >
