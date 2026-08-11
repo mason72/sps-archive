@@ -1,44 +1,38 @@
 /**
- * The SimplePhotoShare ↔ Pixeltrunk contract.
+ * The SimplePhotoShare → Pixeltrunk contract.
  *
- * Two directions, and they are not symmetrical:
+ * **One direction only** (Mason, 2026-08-11: "this can be a 1-way door. I don't
+ * anticipate a need to maintain any parity between events on the two systems").
+ * Pixeltrunk pulls a finished event's camera files; SPS is never told what the
+ * archive did with them afterwards. Sections, stacks, tags, focal points and
+ * every other curation decision live here and stay here.
  *
- *  - **Pull (SPS → archive).** Pixeltrunk asks SPS for a finished event's camera
- *    files and moves the bytes. Types live in `pull-client.ts`, next to the
- *    only code that speaks that protocol. Contract:
- *    `tasks/sps-archive-pull-spec.md`.
- *  - **Enhancements (archive → SPS).** After AI processing, SPS can read back
- *    sections, stacks and per-image tags to enrich its own gallery. That is what
- *    this file describes.
+ * The protocol types live in `pull-client.ts`, next to the only code that speaks
+ * it. Contract: `tasks/sps-archive-pull-spec.md`.
  *
- * This file used to also describe a PUSH import ("SPS sends event + image
- * metadata, archive mints rows pointing at the same R2 keys") on the stated
- * premise of a shared bucket. There is no shared bucket — SPS serves from
- * `pub-7363d57d….r2.dev`, the archive stores in `sps-prism` — so those types
- * described an import that could only produce unreadable tiles. Deleted
- * 2026-08-11 along with the route and the importer that used them.
+ * Two things this file used to describe, both now deleted:
+ *
+ *  - **A PUSH import** ("SPS sends event + image metadata, the archive mints rows
+ *    pointing at the same R2 keys"), premised on a shared bucket. There is no
+ *    shared bucket — SPS serves `pub-7363d57d….r2.dev`, the archive stores
+ *    `sps-prism` — so those types described an import that could only ever
+ *    produce unreadable tiles.
+ *  - **An enhancements RETURN LEG** (`ArchiveEnhancements`, `generateEnhancements`,
+ *    `GET /api/sps/enhancements/[eventId]`), which sent AI sections and stacks
+ *    back for SPS to display. Nothing in the SPS family ever called it —
+ *    verified by grep across every app, package, tool and sibling repo — and it
+ *    was the only parity machinery, so the one-way-door decision retired it.
+ *    Its removal also empties the middleware's public `/api/sps` exception list:
+ *    every remaining route under `/api/sps` is photographer-facing and sits
+ *    behind the session.
+ *
+ * What survives the one-way door is the LINK, not parity:
+ * `events.settings.spsEventId` (see `event-link.ts`) and the per-photo
+ * `images.sps_image_id`. Those are provenance — they answer "where did this come
+ * from", make "already imported" exact rather than a name guess, and let the
+ * guest-list flow resolve an event without matching on names. A pulled event
+ * arrives already carrying the foreign id, which is precisely why nothing ever
+ * has to guess.
  */
 
-/** What Archive sends back to SPS after processing */
-export interface ArchiveEnhancements {
-  eventId: string;
-  spsEventId: string;
-  /** AI-generated sections that SPS can display */
-  sections: {
-    name: string;
-    imageIds: string[];
-  }[];
-  /** Smart stack groupings */
-  stacks: {
-    coverImageId: string;
-    imageIds: string[];
-    personName?: string;
-  }[];
-  /** Per-image AI metadata */
-  imageEnhancements: {
-    spsImageId: string;
-    sceneTags: string[];
-    aestheticScore: number;
-    personName?: string;
-  }[];
-}
+export {};

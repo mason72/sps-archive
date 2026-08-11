@@ -14,7 +14,9 @@ const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
  *
  * Public app routes (no auth required):
  *   /, /login, /signup, /forgot-password, /reset-password,
- *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/sps/*, /api/site/*
+ *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/site/*,
+ *   /api/waitlist, /api/guest-list/* (token-authenticated), /dev/*
+ *   — note /api/sps/* is NOT public; see the isPublic block below.
  *
  * Protected app routes (redirect to /login if unauthenticated):
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
@@ -118,14 +120,18 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/gallery") ||
     pathname.startsWith("/api/inngest") ||
     pathname.startsWith("/api/stripe/webhook") ||
-    // NOT all of /api/sps. That blanket rule dates from the push-import lane
-    // (deleted 2026-08-11) and would leave any future /api/sps/* route that
-    // forgets its own auth check publicly reachable. Only the enhancements
-    // callback is genuinely session-less — SPS calls it server-side with a JWT
-    // or the X-SPS-Key shared secret and has no cookie to present. Everything
-    // else under /api/sps is photographer-facing (the connection screen, the
-    // pull lane) and belongs behind the session.
-    pathname.startsWith("/api/sps/enhancements") ||
+    // NOTHING under /api/sps is public any more.
+    //
+    // It used to be all of it, for the push-import lane. Then just the
+    // enhancements callback, which SPS called server-side with no cookie. Both
+    // are deleted (2026-08-11): the import is a PULL, and the integration is a
+    // one-way door with no return leg. Every remaining /api/sps route is
+    // photographer-facing — the connection screen and the pull lane — so the
+    // session is the right gate, and there is no exception to carve out.
+    //
+    // If a session-less SPS callback is ever needed again, add THAT path
+    // explicitly. Never re-add the prefix: a blanket rule silently exempts
+    // every route someone adds later.
     // Site-facing scene API enforces its own X-SPS-Key shared-secret auth
     // (like /api/sps) — the login redirect must not intercept it.
     pathname.startsWith("/api/site") ||
