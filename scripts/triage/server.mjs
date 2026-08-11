@@ -120,7 +120,11 @@ const server = createServer(async (req, res) => {
   // --- the app ---
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
     cors(res);
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    // no-store: a cached page reads as "my change didn't work"
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store, must-revalidate",
+    });
     return res.end(await readFile(join(HERE, "app.html"), "utf8"));
   }
 

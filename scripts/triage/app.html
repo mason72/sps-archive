@@ -40,10 +40,27 @@
   .card.dragging { cursor:grabbing; transition:none; }
   /* direct child only — the verdict illustrations are also inside .card */
   .card > img { width:100%; height:min(46vh,380px); object-fit:cover; display:block; background:var(--stone-100); }
+  /* watermark year — sits on the page background above the card */
+  .cardwrap { display:flex; flex-direction:column; align-items:center; }
+  .year {
+    font-family:"Playfair Display", Georgia, ui-serif, serif;
+    font-size:clamp(64px, 13vh, 128px); font-weight:700;
+    line-height:.94; letter-spacing:.045em;
+    color:rgba(28,25,23,.17);
+    margin-bottom:4px;
+    pointer-events:none; user-select:none;
+  }
   .meta { padding:16px 20px 18px; }
   .meta h2 { font-size:21px; font-weight:500; letter-spacing:-.015em; line-height:1.25; }
   .sub { margin-top:7px; font-size:13px; color:var(--stone-500); font-variant-numeric:tabular-nums; }
   .hist { margin-top:11px; font-size:12.5px; color:var(--stone-600); }
+  .actions { margin-top:12px; }
+  .viewbtn {
+    display:inline-flex; align-items:center; gap:8px; text-decoration:none;
+    font-size:13px; font-weight:500; color:var(--stone-900);
+    background:#fff; border:1px solid var(--stone-300); border-radius:8px; padding:7px 13px;
+  }
+  .viewbtn:hover { background:var(--stone-100); border-color:var(--stone-400); }
   .hint {
     margin-top:11px; font-size:12.5px; color:var(--stone-600);
     background:var(--stone-100); border-radius:7px; padding:8px 11px;
@@ -148,6 +165,7 @@
   <span><kbd>→</kbd> <img src="/assets/dumpster-a-cut.png" alt="">trash</span>
   <span><kbd>U</kbd> undo</span>
   <span><kbd>B</kbd> batch</span>
+  <span><kbd>V</kbd> view gallery</span>
   <span id="f-note"></span>
 </footer>
 
@@ -330,6 +348,11 @@ function save() {
 // Render
 // ---------------------------------------------------------------------------
 const stage = document.getElementById("stage");
+// public gallery lives at <username>.pixieset.com/<url_key>/ — the owner session
+// opens it even when the gallery is password-protected
+const STUDIO = "twodudesphoto";
+const galleryUrl = rec => (rec[5] ? `https://${STUDIO}.pixieset.com/${rec[5]}/` : null);
+
 const img = p => "https://images.pixieset.com/" + p;
 // same hash serves a bigger rendition — crisp on the card, thumb in the grid
 const imgLarge = p => "https://images.pixieset.com/" + p.replace("-thumb.jpg", "-large.jpg");
@@ -395,19 +418,27 @@ function render() {
   const hist = clientHistory(rec);
 
   stage.innerHTML = `
+    <div class="cardwrap">
+    <div class="year">${(rec[2] || "").slice(0, 4) || "—"}</div>
     <div class="card" id="card">
       <img src="${imgLarge(rec[4])}" alt="" draggable="false" loading="eager">
       <div class="meta">
         <h2 class="serif">${esc(rec[1])}</h2>
         <div class="sub">${rec[2] || "no date"} · ${nf(rec[3])} photos</div>
+        ${galleryUrl(rec) ? `<div class="actions"><a class="viewbtn" id="view-link"
+           href="${galleryUrl(rec)}" target="_blank" rel="noopener">View gallery ↗ <kbd>V</kbd></a></div>` : ""}
         ${hist ? `<div class="hist">You've kept <b>${hist.k}</b> and trashed <b>${hist.t}</b> from
           “${esc(hist.client)}”.</div>` : ""}
         ${s && s.confidence >= 0.4
           ? `<div class="hint">Model leans <b>${s.verdict}</b> (${Math.round(s.pTrash * 100)}% trash)
              — ${esc(explain(s))}</div>` : ""}
       </div>
+    </div>
     </div>`;
   wireDrag(document.getElementById("card"), id);
+  // the whole card is a drag surface — don't let the button start one
+  const vl = document.getElementById("view-link");
+  if (vl) vl.addEventListener("pointerdown", e => e.stopPropagation());
 
   const pool = confidentPool();
   document.getElementById("f-note").textContent =
@@ -548,6 +579,11 @@ window.addEventListener("keydown", e => {
   else if (e.key === "ArrowRight" && id !== undefined) { e.preventDefault(); commit(id, "trash"); }
   else if (e.key.toLowerCase() === "u") { e.preventDefault(); undo(); }
   else if (e.key.toLowerCase() === "b") { e.preventDefault(); openBatch(); }
+  else if (e.key.toLowerCase() === "v" && id !== undefined) {
+    e.preventDefault();
+    const u = galleryUrl(byId.get(id));
+    if (u) window.open(u, "_blank", "noopener");
+  }
 });
 
 // ---------------------------------------------------------------------------
