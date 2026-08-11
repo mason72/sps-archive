@@ -150,6 +150,109 @@ function MosaicFill({
 }
 
 /**
+ * A bird: two tiles in a shallow V, flapping on two held frames.
+ *
+ * SLOWLY, and this is a safety constraint rather than a style one. The first
+ * version flapped every 0.42s — about 2.4Hz — and swung the wings through
+ * `scaleY(-0.55)`, so they collapsed to nothing and inverted on every frame.
+ * Six of those alternating at once is flicker in the photosensitive-risk band
+ * (the usual guidance is to stay well under 3Hz), and Mason called it
+ * immediately: "the birds are going to cause a seizure."
+ *
+ * Now: ~0.8Hz, wings that shorten rather than invert, and phases spread far
+ * enough apart that the flock never pulses in unison — a synchronised flock is
+ * what turns many small movements into one big flash.
+ */
+function Bird({ uid, seed, colors }: { uid: string; seed: number; colors: string[] }) {
+  const c = colors[Math.floor(rnd(seed, 2) * colors.length)];
+  // Spread across a FULL cycle, so no two birds beat together.
+  const phase = rnd(seed, 5) * 1.25;
+  return (
+    <svg viewBox="0 0 24 14" className="h-full w-auto" preserveAspectRatio="xMidYMid meet">
+      <g
+        style={{
+          animation: `flap${uid} 1.25s steps(2, end) infinite`,
+          animationDelay: `-${phase}s`,
+          transformOrigin: "12px 8px",
+        }}
+      >
+        <rect x="1" y="5.6" width="11" height="2.6" rx="1.3" fill={c} transform="rotate(-19 12 7)" />
+        <rect x="12" y="5.6" width="11" height="2.6" rx="1.3" fill={c} transform="rotate(19 12 7)" />
+      </g>
+    </svg>
+  );
+}
+
+/** A loose skein in the far sky — slow, faint, behind everything. */
+function BirdFlock({ uid, cadence }: { uid: string; cadence: ElephantCadence }) {
+  // Offsets trace a ragged V; real flocks are never tidy.
+  // Four, not six. Fewer moving parts is fewer things flickering, and a
+  // sparse skein reads as distance better than a crowd does.
+  const birds = [
+    { x: 0, y: 0, s: 1 }, { x: 8, y: 6, s: 0.88 },
+    { x: 9, y: -7, s: 0.9 }, { x: 18, y: -1, s: 0.8 },
+  ];
+  return (
+    <div
+      className="pointer-events-none absolute inset-y-0 left-0 flex w-[400%]"
+      style={{
+        animation: `flock${uid} 26s ${cadence === "stopmotion" ? "steps(52, end)" : "linear"} infinite`,
+        zIndex: 0,
+        opacity: 0.34,
+      }}
+    >
+      {[0, 1].map((copy) => (
+        <div key={copy} className="relative h-full w-1/2 shrink-0">
+          {birds.map((b, i) => (
+            <div
+              key={i}
+              className="absolute"
+              style={{
+                left: `${9 + b.x * 0.55}%`,
+                top: `${16 + b.y * 0.9}%`,
+                height: `${3.4 * b.s}%`,
+              }}
+            >
+              <Bird uid={uid} seed={i + copy * 5 + 2} colors={BIRD_FAR} />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One bird, close and quick, crossing in front of everything. */
+function BirdFlyby({ uid, cadence }: { uid: string; cadence: ElephantCadence }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-y-0 left-0 flex w-[600%]"
+      style={{
+        animation: `flyby${uid} 19s ${cadence === "stopmotion" ? "steps(58, end)" : "linear"} infinite`,
+        zIndex: 11,
+      }}
+    >
+      {[0, 1].map((copy) => (
+        <div key={copy} className="relative h-full w-1/2 shrink-0">
+          {/* Drifts downward slightly as it crosses — a bird on a flat
+              horizontal line reads as a paper cut-out on a wire. */}
+          <div
+            className="absolute h-[9%]"
+            style={{
+              left: "12%",
+              top: "22%",
+              animation: `glide${uid} 19s ease-in-out infinite`,
+            }}
+          >
+            <Bird uid={uid} seed={copy * 9 + 6} colors={BIRD_NEAR} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * An acacia — umbrella canopy, boughs reaching up and out — rendered as a
  * mosaic in the mark's own construction. The silhouette is a path; the colour
  * is tiles clipped to it.
@@ -276,6 +379,9 @@ const TREE_FAR = ["#3a5f8f", "#4a7fb0", "#5b8fc4", "#4aa3df", "#7fa9c9"];
 const TREE_FAR_ACCENT = ["#8a7fb5", "#6f93a8"];
 const TREE_NEAR = ["#1b3a6b", "#226b60", "#2b7a78", "#5f9455", "#8cb369", "#c7cf5a"];
 const TREE_NEAR_ACCENT = ["#f0a92b", "#ef7724", "#e04f6e"];
+/** Birds read as ink — the only thing out here besides him and the acacias. */
+const BIRD_FAR = ["#5b7fa5", "#6f93a8"];
+const BIRD_NEAR = ["#1b3a6b", "#2b4d7a"];
 
 export type ElephantCadence = "stopmotion" | "smooth";
 
@@ -352,6 +458,13 @@ export function ElephantWalk({
         }
         @keyframes drift${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         @keyframes rush${uid}  { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @keyframes flock${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @keyframes flyby${uid} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        /* Two held frames — wings up, wings down. Nothing between. */
+        @keyframes flap${uid}  { 0% { transform: scaleY(1); } 50% { transform: scaleY(0.45); } 100% { transform: scaleY(1); } }
+        /* A gentle rise and fall across the crossing, so the flyby isn't a
+           cut-out sliding along a wire. */
+        @keyframes glide${uid} { 0% { transform: translateY(0); } 35% { transform: translateY(38%); } 70% { transform: translateY(-22%); } 100% { transform: translateY(6%); } }
         @media (prefers-reduced-motion: reduce) {
           .rig${uid} * { animation: none !important; }
         }
@@ -361,16 +474,17 @@ export function ElephantWalk({
         className={`rig${uid} relative mx-auto w-full ${trees ? "max-w-[520px] overflow-hidden" : "max-w-[300px]"}`}
         style={{ aspectRatio: trees ? "16 / 10" : `${FRAME.w} / ${FRAME.h}` }}
       >
+        {trees && <BirdFlock uid={uid} cadence={cadence} />}
         {trees && (
           <TreeBand
             uid={uid}
             depth={1}
             anim={`drift${uid}`}
-            duration={78}
-            timing={cadence === "stopmotion" ? "steps(64, end)" : "linear"}
+            duration={30}
+            timing={cadence === "stopmotion" ? "steps(40, end)" : "linear"}
             colors={TREE_FAR}
             accents={TREE_FAR_ACCENT}
-            spread={8}
+            spread={3}
             height="30%"
             bottom="27%"
             opacity={0.34}
@@ -435,17 +549,18 @@ export function ElephantWalk({
             uid={uid}
             depth={2}
             anim={`rush${uid}`}
-            duration={34}
-            timing={cadence === "stopmotion" ? "steps(46, end)" : "linear"}
+            duration={11}
+            timing={cadence === "stopmotion" ? "steps(26, end)" : "linear"}
             colors={TREE_NEAR}
             accents={TREE_NEAR_ACCENT}
-            spread={8}
+            spread={3}
             height="58%"
             bottom="-6%"
             opacity={1}
             z={9}
           />
         )}
+        {trees && <BirdFlyby uid={uid} cadence={cadence} />}
       </div>
 
       {(message || detail) && (
