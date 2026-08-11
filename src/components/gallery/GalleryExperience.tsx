@@ -71,6 +71,20 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
 
 
 /**
+ * The ZIP-build toast. Compact: no savanna, just the walking mark beside the
+ * progress line — a toast is 380px wide and the trees would be noise at that
+ * size (detail budget has to match display size).
+ */
+function ZipProgressToast({ label }: { label: string }) {
+  return (
+    <div className="flex w-[360px] items-center gap-3 border border-stone-200 bg-white px-4 py-3 shadow-lg">
+      <ElephantWalk trees={false} className="w-[92px] shrink-0" />
+      <p className="text-[12px] leading-snug text-stone-600">{label}</p>
+    </div>
+  );
+}
+
+/**
  * WHERE this gallery comes from. A guest reaches it through a share slug; the
  * photographer reaches the identical experience through their own event id.
  */
@@ -508,7 +522,12 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           : "";
       return `Preparing your gallery${counts}… You can keep browsing; the download starts automatically when it's ready.`;
     };
-    toast.loading(progressLabel(undefined, imageTotal), {
+    // A CUSTOM toast rather than toast.loading's spinner: the ZIP build is the
+    // longest wait a guest ever sits through (tens of seconds on a large
+    // gallery), and it stays a toast on purpose — the build is server-side, so
+    // blocking the page would take away the browsing they were told they could
+    // keep doing.
+    toast.custom(() => <ZipProgressToast label={progressLabel(undefined, imageTotal)} />, {
       id: toastId,
       duration: Infinity,
     });
@@ -522,8 +541,12 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         );
         const data = await res.json();
         if (data.status === "building" || data.status === "pending") {
-          toast.loading(
-            progressLabel(data.imagesDone, data.imageTotal ?? imageTotal),
+          toast.custom(
+            () => (
+              <ZipProgressToast
+                label={progressLabel(data.imagesDone, data.imageTotal ?? imageTotal)}
+              />
+            ),
             { id: toastId, duration: Infinity }
           );
         }
