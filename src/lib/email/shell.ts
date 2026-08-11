@@ -39,16 +39,16 @@ function galleryButton(url: string, label = "View Gallery"): string {
  * on the cell rather than a border-radius'd div, and letter-spaced monospace
  * so "rn" never reads as "m" when someone retypes it on a phone.
  */
-function passwordCard(password: string): string {
+function credentialCard(label: string, value: string): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 4px;">
     <tr>
       <td style="padding:16px 20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;" align="center">
         <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};padding-bottom:8px;">
-          Gallery Password
+          ${escapeHtml(label)}
         </div>
         <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:19px;font-weight:600;letter-spacing:0.14em;color:${INK};word-break:break-all;">
-          ${escapeHtml(password)}
+          ${escapeHtml(value)}
         </div>
       </td>
     </tr>
@@ -78,6 +78,12 @@ export interface EmailShellOptions {
    * server's own read of the event, never from the composer's payload.
    */
   password?: string | null;
+  /**
+   * Download PIN, when the share requires one. Same rule as the password: a
+   * client who is handed a gallery that demands a PIN and no PIN is a support
+   * ticket, so the credential travels with the link that needs it.
+   */
+  downloadPin?: string | null;
 }
 
 export function renderEmailShell({
@@ -88,13 +94,16 @@ export function renderEmailShell({
   eventName,
   buttonLabel,
   password,
+  downloadPin,
 }: EmailShellOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
   let content = looksHtml ? body : body.replace(/\n/g, "<br/>");
 
   const button = galleryUrl ? galleryButton(galleryUrl, buttonLabel) : "";
-  const credentials = password ? passwordCard(password) : "";
+  const credentials =
+    (password ? credentialCard("Gallery Password", password) : "") +
+    (downloadPin ? credentialCard("Download PIN", downloadPin) : "");
 
   // Replace an explicit {gallery_button} token; otherwise append the button.
   // The password rides immediately behind the button either way — a client who

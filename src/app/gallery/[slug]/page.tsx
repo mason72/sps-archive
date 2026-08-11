@@ -88,6 +88,18 @@ export default function GalleryPage({
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  // Client multi-select for "Download selection". Deliberately NOT persisted:
+  // a picking session is a moment, not a saved list (favorites are the saved
+  // list, and they already exist).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = useCallback((imageId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(imageId)) next.delete(imageId);
+      else next.add(imageId);
+      return next;
+    });
+  }, []);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [preparingDownload, setPreparingDownload] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
@@ -557,6 +569,13 @@ export default function GalleryPage({
     startBulkDownload(favoritesOnly ? { favorites: "true" } : {});
   };
 
+  /** Download exactly the photos the client picked (Justin, 2026-08-10:
+   *  wanting 12 specific shots shouldn't mean downloading all 600). */
+  const handleSelectionDownload = () => {
+    if (selectedIds.size === 0) return;
+    startBulkDownload({ images: [...selectedIds].join(",") });
+  };
+
   /** Download every photo in a smart stack as one ZIP */
   const handleStackDownload = (stack: GalleryStack) => {
     startBulkDownload({
@@ -988,6 +1007,16 @@ export default function GalleryPage({
                   className="absolute right-0 top-11 z-20 min-w-[190px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-md border bg-white py-1 shadow-lg"
                   style={{ borderColor: `${colors.secondary}1f` }}
                 >
+                  {selectedIds.size > 0 && (
+                    <button
+                      onMouseDown={handleSelectionDownload}
+                      className="block w-full px-4 py-2 text-left text-[13px] font-medium hover:bg-stone-50"
+                      style={{ color: colors.primary }}
+                      title={`Download the ${selectedIds.size} photo${selectedIds.size === 1 ? "" : "s"} you picked`}
+                    >
+                      Download selection ({selectedIds.size})
+                    </button>
+                  )}
                   <button
                     onMouseDown={() => handleDownloadAll(false)}
                     className="block w-full px-4 py-2 text-left text-[13px] hover:bg-stone-50"
@@ -1139,6 +1168,8 @@ export default function GalleryPage({
               onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
               onImageClick={(id) => setSelectedImageId(id)}
               onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
               onOpenStack={setOpenStack}
               onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1173,6 +1204,8 @@ export default function GalleryPage({
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1192,6 +1225,8 @@ export default function GalleryPage({
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}
@@ -1215,6 +1250,8 @@ export default function GalleryPage({
             onFavoriteMany={gallery.allowFavorites ? handleFavoriteMany : undefined}
             onImageClick={(id) => setSelectedImageId(id)}
             onDownloadClick={gallery.allowDownload ? handleIndividualDownload : undefined}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             onOpenStack={setOpenStack}
             onDownloadStack={gallery.allowDownload ? handleStackDownload : undefined}
             celebrateFirstFavorite={favoriteIds.size === 0}

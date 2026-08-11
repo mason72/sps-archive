@@ -24,6 +24,8 @@ export function SectionedGallery({
   favoriteIds,
   onFavorite,
   onFavoriteMany,
+  selectedIds,
+  onToggleSelect,
   onImageClick,
   onDownloadClick,
   gridStyle,
@@ -47,6 +49,9 @@ export function SectionedGallery({
   onFavorite?: (imageId: string) => void;
   /** Batch favorite/unfavorite — powers smart stacks' heart-all. */
   onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
+  /** Guest multi-select, threaded to the grid. */
+  selectedIds?: Set<string>;
+  onToggleSelect?: (imageId: string) => void;
   onImageClick: (id: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
   gridStyle?: "masonry" | "uniform";
@@ -443,6 +448,8 @@ export function SectionedGallery({
           favoriteIds={favoriteIds}
           onFavorite={onFavorite}
           onFavoriteMany={onFavoriteMany}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
           onImageClick={onImageClick}
           onDownloadClick={onDownloadClick}
           onOpenStack={onOpenStack}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Download, Heart } from "lucide-react";
+import { Check, Download, Heart } from "lucide-react";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
 import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
@@ -16,6 +16,10 @@ interface GalleryGridProps {
   onFavorite?: (imageId: string) => void;
   /** Batch favorite/unfavorite — required for smart stacks' heart-all. */
   onFavoriteMany?: (imageIds: string[], favorite: boolean) => void;
+  /** Guest multi-select: ids currently picked, and the toggle. When
+   *  onToggleSelect is absent the checkbox affordance doesn't render at all. */
+  selectedIds?: Set<string>;
+  onToggleSelect?: (imageId: string) => void;
   onImageClick: (imageId: string) => void;
   onDownloadClick?: (image: GalleryImage) => void;
   /** Clicking a multi-image stack opens its mini gallery (page-level modal). */
@@ -68,6 +72,8 @@ export function GalleryGrid({
   favoriteIds,
   onFavorite,
   onFavoriteMany,
+  selectedIds,
+  onToggleSelect,
   onImageClick,
   onDownloadClick,
   onOpenStack,
@@ -165,6 +171,8 @@ export function GalleryGrid({
               allowDownload={allowDownload}
               allowFavorites={allowFavorites}
               isFavorited={favoriteIds.has(item.images[0].id)}
+              isSelected={selectedIds?.has(item.images[0].id) ?? false}
+              onToggleSelect={onToggleSelect}
               onFavorite={onFavorite}
               celebrateFirstFavorite={celebrateFirstFavorite}
               onClick={() => onImageClick(item.images[0].id)}
@@ -205,6 +213,8 @@ export function GalleryGrid({
                 allowDownload={allowDownload}
                 allowFavorites={allowFavorites}
                 isFavorited={favoriteIds.has(item.images[0].id)}
+                isSelected={selectedIds?.has(item.images[0].id) ?? false}
+                onToggleSelect={onToggleSelect}
                 onFavorite={onFavorite}
                 celebrateFirstFavorite={celebrateFirstFavorite}
                 onClick={() => onImageClick(item.images[0].id)}
@@ -226,6 +236,8 @@ function GalleryCard({
   allowDownload,
   allowFavorites,
   isFavorited,
+  isSelected,
+  onToggleSelect,
   onFavorite,
   celebrateFirstFavorite,
   onClick,
@@ -238,6 +250,8 @@ function GalleryCard({
   allowDownload: boolean;
   allowFavorites: boolean;
   isFavorited: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (imageId: string) => void;
   onFavorite?: (imageId: string) => void;
   celebrateFirstFavorite?: boolean;
   onClick: () => void;
@@ -348,6 +362,32 @@ function GalleryCard({
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 pointer-events-none">
           <p className="truncate text-[11px] text-white">{image.originalFilename}</p>
         </div>
+      )}
+
+      {/* Multi-select checkbox (top-left, away from the hover actions).
+          Always visible on touch and whenever the tile is selected — a
+          selection affordance that only exists on hover is invisible on a
+          phone, which is where clients actually pick photos. */}
+      {onToggleSelect && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect(image.id);
+          }}
+          aria-pressed={isSelected}
+          title={isSelected ? "Remove from selection" : "Add to selection"}
+          className={`absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
+            isSelected
+              ? "bg-white text-stone-900 opacity-100 ring-2 ring-white/70"
+              : "bg-black/30 text-white opacity-100 hover:bg-black/50 md:opacity-0 md:group-hover:opacity-100"
+          }`}
+        >
+          {isSelected ? (
+            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+          ) : (
+            <span className="block h-3.5 w-3.5 rounded-full border-2 border-white/80" />
+          )}
+        </button>
       )}
 
       {/* Action buttons */}

@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
     let verifiedGalleryUrl: string | null = null;
     let verifiedSlug: string | null = null;
     let shareIsProtected = false;
+    let shareDownloadPin: string | null = null;
     let verifiedShare: {
       event_id: string;
       share_type: string;
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
         const { data: shareRow } = await supabase
           .from("shares")
           .select(
-            "slug, password_hash, event_id, share_type, image_ids, events!inner(user_id)"
+            "slug, password_hash, event_id, share_type, image_ids, require_pin_bulk, require_pin_individual, download_pin, events!inner(user_id)"
           )
           .eq("slug", candidateSlug)
           .eq("events.user_id", user!.id)
@@ -112,6 +113,15 @@ export async function POST(request: NextRequest) {
         if (shareRow) {
           verifiedSlug = shareRow.slug;
           shareIsProtected = !!shareRow.password_hash;
+          // A PIN the guest will be ASKED for travels with the link, same
+          // rule as the password (Justin, 2026-08-10). Read from the verified
+          // share row — never from the composer's payload.
+          shareDownloadPin =
+            (shareRow.require_pin_bulk || shareRow.require_pin_individual) &&
+            typeof shareRow.download_pin === "string" &&
+            shareRow.download_pin.trim()
+              ? shareRow.download_pin.trim()
+              : null;
           verifiedShare = {
             event_id: shareRow.event_id,
             share_type: shareRow.share_type,
@@ -198,6 +208,7 @@ export async function POST(request: NextRequest) {
       fromName,
       coverImageUrl,
       eventName,
+      downloadPin: includePassword ? shareDownloadPin : null,
       password: emailPassword,
     });
 
