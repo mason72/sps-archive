@@ -26,6 +26,7 @@ import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
 import { ProcessingBanner } from "@/components/events/ProcessingBanner";
+import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { useSelection } from "@/hooks/useSelection";
 import { useMarqueeSelect } from "@/hooks/useMarqueeSelect";
 import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
@@ -2215,6 +2216,17 @@ export default function EventPage({
                         : "Manual order is read-only in “All Images.” Open a section to rearrange it."}
                     </p>
                   )}
+                  {/* The editor's own semantic wait. It had text-only empty
+                      copy ("Looking…"), which is invisible while the grid still
+                      holds the previous results — so a search here looked like
+                      nothing happened at all. */}
+                  {visualSearching && images.length === 0 && (
+                    <ElephantWalk
+                      className="mx-auto max-w-[380px] py-8"
+                      message={`Looking for “${trimmedQuery}”…`}
+                      detail="Reading the photos themselves — this can take a few seconds."
+                    />
+                  )}
                   <ImageGrid
                     images={images}
                     stacks={gridStacks}
@@ -2236,14 +2248,14 @@ export default function EventPage({
                     emptyTitle={
                       isSearching
                         ? visualSearching
-                          ? "Looking…"
+                          ? "" // the elephant above says it better
                           : `No matches for “${trimmedQuery}”`
                         : undefined
                     }
                     emptySubtitle={
                       isSearching
                         ? visualSearching
-                          ? "Checking what's in your photos"
+                          ? ""
                           : "Try a name, a filename, or describe the photo"
                         : undefined
                     }
