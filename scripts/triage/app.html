@@ -209,18 +209,35 @@ const STOP = new Set(["the","and","for","with","from","photos","photo","gallery"
 
 const byId = new Map();
 
+// Names come in two shapes: "CLIENT // DETAIL" and "PERSON // CLIENT".
+// Taking the first segment blindly filed "Brenda L. // Assetmark" under
+// client "brenda", so five AssetMark sessions never looked related.
+// NOTE: audit.mjs carries an identical copy — change both together.
+const PERSON_RE = /^[A-Z][a-z]+(?:'s)?\s+(?:[A-Z]\.|[A-Z][a-z]+)(?:'s)?$/;
+function clientKey(name) {
+  const parts = name.split("//").map(s => s.trim()).filter(Boolean);
+  let seg = parts[0] || name;
+  if (parts.length > 1 && PERSON_RE.test(parts[0])) seg = parts[1];
+  return seg.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ").replace(/\b\d+\b/g, " ").replace(/\s+/g, " ").trim()
+    .split(" ").filter(t => t.length >= 3 && !STOP.has(t)).slice(0, 2).join(" ");
+}
+
 function feats(rec) {
   const [, name, date, photos] = rec;
   const clean = name.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
   const toks = clean.split(" ").filter(t => t.length >= 3 && !STOP.has(t) && !/^\d+$/.test(t));
-  // client key: first segment before "//", minus trailing year/date noise
-  const seg = name.split("//")[0].toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ").replace(/\b\d+\b/g, " ").replace(/\s+/g, " ").trim();
-  const client = seg.split(" ").filter(t => t.length >= 3 && !STOP.has(t)).slice(0, 2).join(" ");
+  const client = clientKey(name);
   const year = (date || "").slice(0, 4) || "unknown";
   const size = photos < 100 ? "tiny" : photos < 500 ? "small" : photos < 2000 ? "medium" : "large";
   const f = [`year:${year}`, `size:${size}`];
-  if (client) f.push(`client:${client}`);
+  // both granularities: "assetmark national" is specific, "assetmark" still
+  // links it to "Brenda L. // Assetmark"
+  if (client) {
+    f.push(`client:${client}`);
+    const head = client.split(" ")[0];
+    if (head && head !== client) f.push(`client1:${head}`);
+  }
   for (const t of toks) f.push(`tok:${t}`);
   return { list: f, client, year, size };
 }
