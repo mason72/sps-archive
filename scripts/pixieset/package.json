@@ -1,0 +1,7 @@
+{
+  "name": "pixieset-migration",
+  "private": true,
+  "type": "module",
+  "description": "Local-only migration tooling. Deliberately NOT part of the app's dependency tree so it never reaches a Vercel build.",
+  "dependencies": { "playwright": "^1.49.0" }
+}
