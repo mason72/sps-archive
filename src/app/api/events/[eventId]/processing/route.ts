@@ -32,7 +32,8 @@ export async function GET(
       .maybeSingle();
     if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const [totalRes, indexedRes, pendingRes, firstRes] = await Promise.all([
+    const staleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const [totalRes, indexedRes, pendingRes, stalledRes, firstRes] = await Promise.all([
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
@@ -50,7 +51,18 @@ export async function GET(
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
-        .eq("processing_status", "pending"),
+        .eq("processing_status", "pending")
+        // RECENT only. A row pending for hours is a ghost, not an upload in
+        // flight — reporting it as "still uploading" tells the photographer to
+        // wait for bytes that are never coming. Same 30-minute cutoff
+        // countPendingUploads and the reconciler use.
+        .gt("created_at", staleCutoff),
+      supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .eq("processing_status", "pending")
+        .lt("created_at", staleCutoff),
       supabase
         .from("images")
         .select("ai_indexed_at")
@@ -72,6 +84,7 @@ export async function GET(
     const total = totalRes.count ?? 0;
     const indexed = indexedRes.count ?? 0;
     const uploading = pendingRes.count ?? 0;
+    const stalled = stalledRes.count ?? 0;
     const startedAt = (firstRes.data as { ai_indexed_at: string } | null)?.ai_indexed_at ?? null;
 
     // Photos per minute, measured over this event's own run.
@@ -89,9 +102,12 @@ export async function GET(
       total,
       indexed,
       uploading,
+      stalled,
       startedAt,
       perMinute,
       etaMinutes,
+      // Stalled rows must NOT keep this open forever — they're resolved by
+      // dismissing the banner, not by waiting.
       complete: total > 0 && indexed >= total && uploading === 0,
     });
   } catch (error) {

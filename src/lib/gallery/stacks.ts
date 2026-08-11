@@ -61,6 +61,36 @@ function normName(s: string): string {
 }
 
 /**
+ * Display casing — the ONE home, used by stacks, sections and /people.
+ * Filenames arrive shouted or lowercased ("ANDREW MC CARTNEY",
+ * "andrew dorman") and a wall of those reads like a spreadsheet. Title-case
+ * ONLY when the whole name is single-case — mixed case is left exactly as
+ * typed, because that's where the real ones live (McCartney, de Vries, O'Neil)
+ * and "fixing" them is how you misspell someone's name on a wall of fame.
+ */
+export function displayName(name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  const isSingleCase =
+    trimmed === trimmed.toLowerCase() || trimmed === trimmed.toUpperCase();
+  if (!isSingleCase) return trimmed;
+  return trimmed
+    .split(" ")
+    .map((w) =>
+      w
+        // Hyphenated and apostrophe'd parts each get their own capital
+        // (Anne-Marie, O'Neil).
+        .split(/([-'’])/)
+        .map((part) =>
+          /^[-'’]$/.test(part)
+            ? part
+            : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        )
+        .join("")
+    )
+    .join(" ");
+}
+
+/**
  * The person-name derivation, decoupled from GalleryImage so server code
  * (auto-sections) can reuse the exact same logic on raw DB rows
  * (parsed_name + original_filename). stackPersonName is the gallery-side
@@ -192,7 +222,7 @@ export function buildNameCleaner(rawNames: Iterable<string>): (name: string) => 
 export interface PersonStack<T> {
   /** Stable key for React lists (normalized person name). */
   key: string;
-  /** Display name for the stack (as parsed — e.g. "Smith, John"). */
+  /** Display name for the stack, title-cased via `displayName`. */
   personName: string;
   /** Members in gallery order; length 1 renders as a plain card. */
   images: T[];
@@ -219,7 +249,13 @@ export function buildStacks<
   const clean = buildNameCleaner(rawNames);
   const groups = new Map<string, PersonStack<T>>();
   images.forEach((img, i) => {
-    const personName = clean(rawNames[i]);
+    // Title-cased for display. Filenames arrive shouted or lowercased
+    // ("pete destefano"), and a grid of those reads like a spreadsheet — but
+    // MIXED case is left exactly as typed, because that's the only evidence
+    // we'll ever have that someone writes their name "DeStefano".
+    const personName = displayName(clean(rawNames[i]));
+    // Grouping is case-insensitive (normName lowercases), so display casing
+    // can never split one person into two stacks.
     const key = normName(personName) || personName.toLowerCase();
     const existing = groups.get(key);
     if (existing) {

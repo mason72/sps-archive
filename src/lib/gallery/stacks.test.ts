@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildNameCleaner,
+  buildStacks,
+  displayName,
   extractPersonName,
   nameBeforeDate,
+  personNameFromParts,
   stackPersonName,
-  buildStacks,
-  buildNameCleaner,
 } from "./stacks";
 import type { GalleryImage } from "@/types/gallery";
 
@@ -228,5 +230,19 @@ describe("buildStacks — event-tag merging", () => {
     expect(aaron).toHaveLength(1);
     expect(aaron[0].images).toHaveLength(2);
     expect(stacks.every((s) => !/appfolio/i.test(s.personName))).toBe(true);
+  });
+});
+
+describe("stack display casing", () => {
+  it("title-cases shouted and lowercased filename names", () => {
+    // The HDC grid: "pablo estrada", "pete destefano", "paula weiss4end".
+    expect(displayName("pete destefano")).toBe("Pete Destefano");
+    expect(displayName("PABLO ESTRADA")).toBe("Pablo Estrada");
+  });
+
+  it("leaves mixed case alone — it's the only evidence of a real spelling", () => {
+    for (const n of ["Pete DeStefano", "Petre Trpkovski", "Anne de Vries"]) {
+      expect(displayName(n)).toBe(n);
+    }
   });
 });

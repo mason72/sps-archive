@@ -157,6 +157,12 @@ export async function POST(
           name: section.name,
           sort_order: nextSort++,
           is_auto: true,
+          // Every plan mode groups by NAME (A–H, per-person, even splits of
+          // the name list), so the only order that makes sense inside one is
+          // alphabetical. Leaving this NULL inherited the event default —
+          // usually upload order — and a section literally labelled "P–S"
+          // opened in the order the photos happened to arrive.
+          sort_mode: "filename",
         })
         .select("id")
         .single();

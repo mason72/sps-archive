@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 interface Status {
   total: number;
   indexed: number;
   uploading: number;
+  /** Pending for over 30 minutes — ghosts, not uploads in flight. */
+  stalled: number;
   startedAt: string | null;
   perMinute: number | null;
   etaMinutes: number | null;
@@ -31,6 +34,7 @@ interface Status {
  */
 export function ProcessingBanner({ eventId }: { eventId: string }) {
   const [status, setStatus] = useState<Status | null>(null);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +62,10 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
     };
   }, [eventId]);
 
-  if (!status || status.complete || status.total === 0) return null;
+  // Stay up while there are ghosts to clear, even if indexing has finished —
+  // otherwise the one control that resolves them disappears.
+  if (!status || status.total === 0) return null;
+  if (status.complete && status.stalled === 0) return null;
 
   const pct = status.total > 0 ? status.indexed / status.total : 0;
   const eta = status.etaMinutes;
@@ -114,6 +121,57 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
           style={{ width: `${Math.max(pct * 100, 1.5)}%` }}
         />
       </div>
+
+      {/* Stalled rows get their own line AND a way out. They are not
+          "uploading" — their bytes never arrived and never will — so telling
+          the photographer to wait is a lie, and leaving them there keeps the
+          event's photo count wrong and its grid full of blank tiles. */}
+      {status.stalled > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-amber-800">
+          <span>
+            {status.stalled.toLocaleString()} photo
+            {status.stalled === 1 ? "" : "s"} never finished uploading — their
+            files never reached us.
+          </span>
+          <button
+            type="button"
+            disabled={clearing}
+            onClick={async () => {
+              setClearing(true);
+              try {
+                const res = await fetch(
+                  `/api/events/${eventId}/unfinished-uploads`,
+                  { method: "DELETE" }
+                );
+                const r = (await res.json()) as {
+                  deleted?: number;
+                  recoverable?: number;
+                };
+                if (res.ok) {
+                  toast.success(
+                    `Cleared ${(r.deleted ?? 0).toLocaleString()} unfinished upload${r.deleted === 1 ? "" : "s"}`,
+                    {
+                      description: r.recoverable
+                        ? `${r.recoverable} had already arrived and will be repaired automatically.`
+                        : "Re-drop those files if you still want them.",
+                    }
+                  );
+                  setStatus((s) => (s ? { ...s, stalled: 0 } : s));
+                } else {
+                  toast.error("Couldn't clear those rows");
+                }
+              } catch {
+                toast.error("Couldn't clear those rows");
+              } finally {
+                setClearing(false);
+              }
+            }}
+            className="underline underline-offset-2 hover:text-amber-950 disabled:opacity-50"
+          >
+            {clearing ? "Clearing…" : "Clear them"}
+          </button>
+        </p>
+      )}
 
       {/* The line that actually answers "am I blocked?". */}
       <p className="mt-3 text-[12px] leading-relaxed text-stone-500">

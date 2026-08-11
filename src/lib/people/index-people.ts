@@ -14,7 +14,7 @@
  */
 
 import type { createServiceClient } from "@/lib/supabase/server";
-import { personNameFromParts } from "@/lib/gallery/stacks";
+import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -68,34 +68,7 @@ export interface IndexedPerson {
   heroKey: string | null;
 }
 
-/**
- * Display casing. Filenames arrive shouted or lowercased ("ANDREW MC CARTNEY",
- * "andrew dorman") and a wall of those reads like a spreadsheet. Title-case
- * ONLY when the whole name is single-case — mixed case is left exactly as
- * typed, because that's where the real ones live (McCartney, de Vries, O'Neil)
- * and "fixing" them is how you misspell someone's name on a wall of fame.
- */
-export function displayName(name: string): string {
-  const trimmed = name.trim().replace(/\s+/g, " ");
-  const isSingleCase =
-    trimmed === trimmed.toLowerCase() || trimmed === trimmed.toUpperCase();
-  if (!isSingleCase) return trimmed;
-  return trimmed
-    .split(" ")
-    .map((w) =>
-      w
-        // Hyphenated and apostrophe'd parts each get their own capital
-        // (Anne-Marie, O'Neil).
-        .split(/([-'’])/)
-        .map((part) =>
-          /^[-'’]$/.test(part)
-            ? part
-            : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
-        )
-        .join("")
-    )
-    .join(" ");
-}
+export { displayName };
 
 export function normalizeNameKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z]/g, "");
