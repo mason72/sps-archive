@@ -7,7 +7,10 @@ export type ActivityAction =
   | "image_favorite"
   | "image_unfavorite"
   | "gallery_download"
-  | "share_created";
+  | "share_created"
+  // The guest-list spreadsheet names real people and their email addresses;
+  // who pulled it and when is part of handing that over responsibly.
+  | "guest_list_download";
 
 interface LogActivityParams {
   userId: string;
