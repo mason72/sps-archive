@@ -108,7 +108,7 @@ async function main() {
       .from("shares")
       .select("image_ids")
       .eq("event_id", eventId);
-    for (const r of (data ?? []) as { image_ids: string[] | null }) {
+    for (const r of (data ?? []) as unknown as { image_ids: string[] | null }[]) {
       for (const id of r.image_ids ?? []) inShare.add(id);
     }
   }
