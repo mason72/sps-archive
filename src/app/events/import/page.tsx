@@ -485,6 +485,22 @@ export default function ImportFromSpsPage() {
               </div>
             </div>
 
+            {/* SPS sends a 200px preview per photo. When it doesn't (rows that
+                predate variant generation), each tile costs a full camera file —
+                say so, because an unexplained crawl is how the review step gets
+                abandoned, and skipping review is what puts setup frames in the
+                archive. */}
+            {images.some((i) => i.previewIsFullSize) && (
+              <p className="mb-6 text-[13px] text-stone-500 flex items-start gap-2 max-w-2xl leading-[1.7]">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-stone-400" />
+                <span>
+                  Some of these have no small preview on SPS, so those tiles are
+                  loading the full-size photo. Scrolling will be slow — the
+                  import itself isn&apos;t affected.
+                </span>
+              </p>
+            )}
+
             {lossyCount > 0 && (
               <p className="mb-6 text-[13px] text-stone-500 flex items-start gap-2 max-w-2xl leading-[1.7]">
                 <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-500" />

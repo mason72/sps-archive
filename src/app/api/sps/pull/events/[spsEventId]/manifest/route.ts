@@ -52,7 +52,12 @@ export async function GET(
         quality: img.quality,
         alreadyPulled: img.alreadyPulled,
         previewUrl: img.thumbUrl || img.url,
-        /** True when the preview IS the full original — the grid throttles those. */
+        /**
+         * True when the preview IS the full camera file, because SPS sent no
+         * small variant for this row. The grid says so rather than just being
+         * slow — an unexplained crawl through a 6,000-frame review is how the
+         * review step gets abandoned.
+         */
         previewIsFullSize: !img.thumbUrl,
       })),
       nextOffset: page.nextOffset ?? null,
