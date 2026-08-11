@@ -19,7 +19,7 @@ async function verifySectionOwnership(
 ) {
   const { data: section } = await supabase
     .from("sections")
-    .select("id, event_id, name, site_scene_key, locked")
+    .select("id, event_id, name, site_scene_key, locked, sort_seed")
     .eq("id", sectionId)
     .single();
 
@@ -99,6 +99,27 @@ export async function PATCH(
       updates.site_scene_key = `${JOB_KEY_PREFIX}${body.jobSlug}`;
     }
 
+    // Per-section photo order. null clears back to the event default; the
+    // seed only means anything for "random" and is generated here so every
+    // client sees the SAME shuffle (a client-side seed would give each
+    // visitor a different gallery).
+    if (body.sortMode !== undefined) {
+      const VALID = ["upload", "filename", "date-taken", "manual", "random"];
+      if (body.sortMode !== null && !VALID.includes(body.sortMode)) {
+        return NextResponse.json({ error: "Invalid sortMode" }, { status: 400 });
+      }
+      updates.sort_mode = body.sortMode;
+      if (body.sortMode === "random") {
+        // Reshuffle when asked, or when switching into random with no seed.
+        updates.sort_seed =
+          body.reshuffle === true || section.sort_seed == null
+            ? Math.floor(Math.random() * 1e9)
+            : section.sort_seed;
+      } else {
+        updates.sort_seed = null;
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
@@ -137,6 +158,8 @@ export async function PATCH(
         locked: data.locked,
         siteSceneKey: data.site_scene_key ?? null,
         jobMeta: data.job_meta ?? null,
+        sortMode: data.sort_mode ?? null,
+        sortSeed: data.sort_seed ?? null,
       },
     });
   } catch (error) {

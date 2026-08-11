@@ -81,7 +81,7 @@ export interface GallerySettings {
   gridColumns?: number;
   gridGap?: "tight" | "normal" | "loose";
   /** The photographer's chosen sort — the public gallery's initial sort mode. */
-  gridSort?: "manual" | "upload" | "filename" | "date-taken";
+  gridSort?: "manual" | "upload" | "filename" | "date-taken" | "random";
   /** Group same-person photos (by filename) into rotating smart stacks. */
   smartStacks?: boolean;
   /** "You've loved N moments" toasts (event sharing setting; default on). */
@@ -98,6 +98,10 @@ export interface GallerySection {
   id: string;
   name: string;
   description: string | null;
+  /** Photo order the photographer set for THIS section (null = event default). */
+  sortMode?: "upload" | "filename" | "date-taken" | "manual" | "random" | null;
+  /** Stable shuffle seed when sortMode is "random". */
+  sortSeed?: number | null;
   imageIds: string[];
 }
 

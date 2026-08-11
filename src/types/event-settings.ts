@@ -173,7 +173,7 @@ export interface EventSettings {
     gap: GridGap;
     style: GridStyle;
     showFilenames?: boolean;
-    sortBy?: "upload" | "filename" | "date-taken" | "manual";
+    sortBy?: "upload" | "filename" | "date-taken" | "manual" | "random";
     /**
      * Group same-person photos (by filename) into stacks — ONE setting for the
      * editor and the guest gallery. There used to be a second, editor-only

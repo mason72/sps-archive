@@ -208,7 +208,7 @@ export async function GET(
     // 6. Fetch sections with their image assignments
     const { data: rawSections } = await supabase
       .from("sections")
-      .select("id, name, description")
+      .select("id, name, description, sort_mode, sort_seed")
       .eq("event_id", eventId)
       .order("sort_order", { ascending: true });
 
@@ -245,6 +245,8 @@ export async function GET(
         id: s.id,
         name: s.name,
         description: s.description,
+        sortMode: s.sort_mode ?? null,
+        sortSeed: s.sort_seed ?? null,
         imageIds: sectionImageMap.get(s.id) || [],
       }))
       .filter((s) => s.imageIds.length > 0);

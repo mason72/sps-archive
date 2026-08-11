@@ -240,7 +240,7 @@ export async function GET(
     // 5. Fetch sections with image counts
     const { data: rawSections, error: sectionsError } = await supabase
       .from("sections")
-      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta")
+      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta, sort_mode, sort_seed")
       .eq("event_id", eventId)
       // created_at is a stable tiebreaker so equal sort_orders never shuffle
       // between reloads.
@@ -268,6 +268,9 @@ export async function GET(
       locked: section.locked ?? false,
       // Job-sheet metadata (TDP Work gallery job sections), else null.
       jobMeta: section.job_meta ?? null,
+      // Per-section photo order (null = inherit the event default).
+      sortMode: section.sort_mode ?? null,
+      sortSeed: section.sort_seed ?? null,
       imageCount: sectionCounts.get(section.id) ?? 0,
       // Members in manual (sort_order) order — drives the "Manual" sort.
       imageIds: orderedImageIdsBySection.get(section.id) ?? [],

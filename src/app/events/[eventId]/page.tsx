@@ -32,13 +32,13 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
 import { detectStackable } from "@/lib/gallery/stackable";
-import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
+import { shuffleSeeded, sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
 import { findIntakeSectionId } from "@/lib/sections/intake";
 import type { EventSettings } from "@/types/event-settings";
@@ -82,6 +82,8 @@ interface SectionData {
   locked?: boolean;
   /** Job-sheet metadata (TDP Work gallery job sections), raw jsonb. */
   jobMeta?: unknown;
+  sortMode?: GallerySortMode | null;
+  sortSeed?: number | null;
 }
 
 /** Most frequent non-null value, or null. Used for job-form prefills. */
@@ -308,6 +310,13 @@ export default function EventPage({
   // Switching sections re-scopes the grid, so a selection carried across is a
   // trap: it looks empty but the toolbar still acts on now-hidden photos.
   // Clear it on any actual section change (sidebar clicks).
+  // Live mirrors for the section-switch callback (kept stable on purpose).
+  const sectionsRef = useRef<SectionData[]>([]);
+  const eventDefaultSortRef = useRef<GallerySortMode>("upload");
+  sectionsRef.current = sections;
+  eventDefaultSortRef.current =
+    (eventSettings.grid?.sortBy as GallerySortMode) ?? "upload";
+
   const handleSetActiveSection = useCallback(
     (id: string | null) => {
       if (id !== activeSectionRef.current) deselectAll();
@@ -315,6 +324,14 @@ export default function EventPage({
       // Picking a section is a deliberate context change — exit any active
       // search so you see the section, not stale filtered results.
       setSearchQuery("");
+      // Adopt THIS section's own order. Sort is per-section now, so carrying
+      // the previous section's mode across would misreport what's stored (and
+      // was the bug: one control, one global setting).
+      setSortByState((current) => {
+        if (!id) return eventDefaultSortRef.current;
+        const next = sectionsRef.current.find((s) => s.id === id)?.sortMode;
+        return next ?? eventDefaultSortRef.current ?? current;
+      });
     },
     [deselectAll]
   );
@@ -966,7 +983,13 @@ export default function EventPage({
   // (order-manual.ts); the other three use the shared comparator the public
   // gallery uses, so "Filename"/"Date taken"/"Latest" order identically in both.
   const manualMode = sortBy === "manual";
+  // Seed for "random": the ACTIVE section's stored seed, so the editor shows
+  // the exact order clients will see (a fresh seed here would preview an
+  // arrangement nobody else gets).
+  const activeSortSeed =
+    sections.find((s) => s.id === activeSection)?.sortSeed ?? 1;
   const sortedImages = useMemo(() => {
+    if (sortBy === "random") return shuffleSeeded(images, activeSortSeed);
     if (sortBy !== "manual") return sortImages(images, sortBy);
     if (activeSection) {
       const order =
@@ -982,7 +1005,7 @@ export default function EventPage({
       imageIds: manualOrderBySection[s.id] ?? s.imageIds ?? [],
     }));
     return orderByPrimarySection(images, manualSections);
-  }, [images, sortBy, activeSection, manualOrderBySection, sections]);
+  }, [images, sortBy, activeSection, manualOrderBySection, sections, activeSortSeed]);
 
   // Drag-to-reorder is available inside any real section (not "All Images",
   // search, or favorites — a filtered/cross-section subset can't be persisted to
@@ -1135,21 +1158,56 @@ export default function EventPage({
   // Grid settings from event settings
   const gridSettings = eventSettings.grid;
 
-  // Persist sort selection to event settings
-  const setSortBy = useCallback(async (value: GallerySortMode) => {
-    setSortByState(value);
-    const newGrid = { ...gridSettings, sortBy: value };
-    setEventSettings((prev) => ({ ...prev, grid: newGrid }));
-    try {
-      await fetch(`/api/events/${eventId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { grid: newGrid } }),
-      });
-    } catch {
-      /* non-critical */
-    }
-  }, [gridSettings, eventId]);
+  // Persist the sort choice.
+  //
+  // PER SECTION when a section is active — the control lives inside a section,
+  // so writing one event-wide setting silently re-sorted every other section
+  // (Justin, 2026-08-10: "we want random for Highlights and filename for the
+  // alphabetical sections"). Only "All Images" (no active section) writes the
+  // event default, which is what unset sections inherit.
+  const setSortBy = useCallback(
+    async (value: GallerySortMode, reshuffle = false) => {
+      setSortByState(value);
+
+      if (activeSection) {
+        // Optimistic: the seed comes back from the server (one shuffle for
+        // everyone), so refresh the section list after it lands.
+        try {
+          const res = await fetch(`/api/sections/${activeSection}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sortMode: value, reshuffle }),
+          });
+          if (res.ok) {
+            const { section } = await res.json();
+            setSections((prev) =>
+              prev.map((s) =>
+                s.id === activeSection
+                  ? { ...s, sortMode: section.sortMode, sortSeed: section.sortSeed }
+                  : s
+              )
+            );
+          }
+        } catch {
+          /* non-critical */
+        }
+        return;
+      }
+
+      const newGrid = { ...gridSettings, sortBy: value };
+      setEventSettings((prev) => ({ ...prev, grid: newGrid }));
+      try {
+        await fetch(`/api/events/${eventId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ settings: { grid: newGrid } }),
+        });
+      } catch {
+        /* non-critical */
+      }
+    },
+    [gridSettings, eventId, activeSection]
+  );
 
   // Persist a new manual order for the active section (optimistic + background).
   // Dragging while in a non-manual sort AUTO-SWITCHES to Manual, seeding the
@@ -1742,19 +1800,33 @@ export default function EventPage({
                         ["filename", "Filename"],
                         ["date-taken", "Date Taken"],
                         ["manual", "Manual"],
+                        ["random", "Randomize"],
                       ] as const).map(([value, label]) => {
                         // Manual is cross-section-incoherent while searching.
-                        const disabled = value === "manual" && isSearching;
+                        // Random is a stored per-section arrangement, so it
+                        // needs a section to belong to.
+                        const disabled =
+                          (value === "manual" && isSearching) ||
+                          (value === "random" && (isSearching || !activeSection));
                         return (
                           <button
                             key={value}
                             disabled={disabled}
                             title={
-                              disabled
-                                ? "Clear search to use manual order"
-                                : undefined
+                              !disabled
+                                ? value === "random" && sortBy === "random"
+                                  ? "Click to reshuffle"
+                                  : undefined
+                                : value === "random" && !activeSection
+                                  ? "Pick a section to shuffle"
+                                  : "Clear search to use manual order"
                             }
-                            onClick={() => { setSortBy(value); setSortOpen(false); }}
+                            onClick={() => {
+                              // Choosing Randomize while already random =
+                              // reshuffle (same idiom as the mosaic Shuffle).
+                              setSortBy(value, value === "random" && sortBy === "random");
+                              setSortOpen(false);
+                            }}
                             className={`w-full text-left px-3 py-2 text-[12px] flex items-center justify-between gap-3 transition-colors ${
                               disabled
                                 ? "text-stone-300 cursor-not-allowed"
@@ -1763,7 +1835,10 @@ export default function EventPage({
                                 : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"
                             }`}
                           >
-                            {label}
+                            <span className="flex items-center gap-1.5">
+                              {value === "random" && <Dices className="h-3.5 w-3.5" />}
+                              {label}
+                            </span>
                             {sortBy === value && !disabled && (
                               <Check className="h-3.5 w-3.5 text-accent" />
                             )}

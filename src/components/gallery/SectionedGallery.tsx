@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
 import { ArrowUpDown, Heart, Tag, Check } from "lucide-react";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
-import { sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
+import { shuffleSeeded, sortImages, type GallerySortMode } from "@/lib/gallery/sort-images";
 import { orderByPrimarySection } from "@/lib/gallery/order-manual";
 import type { GalleryStack } from "@/lib/gallery/stacks";
 import type { GalleryImage, GallerySection } from "@/types/gallery";
@@ -87,7 +87,9 @@ export function SectionedGallery({
   );
   // Seed from the photographer's chosen sort (event settings); visitors can
   // still re-sort via the dropdown. "manual" = the stored section arrangement.
-  const [sortBy, setSortBy] = useState<GallerySortMode>(defaultSort);
+  // null = "as arranged": each section renders in its own stored order. Set
+  // only when the VISITOR picks a sort, and then it applies across tabs.
+  const [sortBy, setSortBy] = useState<GallerySortMode | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -126,11 +128,24 @@ export function SectionedGallery({
   // per-section arrangement (tabImages already arrive in section.imageIds order;
   // the "All" tab reflects every section's order via primary-section). The other
   // modes use the shared comparator (same as the editor).
+  // The section being viewed decides its own order (sortMode), because the
+  // photographer arranges each section separately — Highlights can be random
+  // while an alphabetical section stays on filename. `sortBy` is the VISITOR's
+  // override and wins once they touch the dropdown; until then it's null and
+  // each tab renders as arranged.
+  const activeSectionData = sections.find((s) => s.id === activeTab);
+  const effectiveSort: GallerySortMode =
+    sortBy ?? activeSectionData?.sortMode ?? defaultSort;
+  const effectiveSeed = activeSectionData?.sortSeed ?? 1;
+
   const visibleImages = useMemo(() => {
     const filtered = favoritesOnly
       ? tabImages.filter((img) => favoriteIds.has(img.id))
       : tabImages;
-    if (sortBy === "manual") {
+    if (effectiveSort === "random") {
+      return shuffleSeeded(filtered, effectiveSeed);
+    }
+    if (effectiveSort === "manual") {
       if (activeTab === "all") {
         const manualSections = sections.map((s, i) => ({
           id: s.id,
@@ -142,8 +157,16 @@ export function SectionedGallery({
       // A section tab: filtered preserves section.imageIds order already.
       return filtered;
     }
-    return sortImages(filtered, sortBy);
-  }, [tabImages, favoritesOnly, favoriteIds, sortBy, activeTab, sections]);
+    return sortImages(filtered, effectiveSort);
+  }, [
+    tabImages,
+    favoritesOnly,
+    favoriteIds,
+    effectiveSort,
+    effectiveSeed,
+    activeTab,
+    sections,
+  ]);
 
   // Surface the visible list so the page's lightbox navigates what's on screen.
   useEffect(() => {
@@ -210,6 +233,7 @@ export function SectionedGallery({
     upload: "Latest",
     filename: "Filename",
     "date-taken": "Date taken",
+    random: "Shuffled",
   };
 
   // Edge fades are the only hint that the row scrolls — the scrollbar is
@@ -351,7 +375,7 @@ export function SectionedGallery({
               style={{ color: colors.secondary }}
             >
               <ArrowUpDown size={13} />
-              <span className="hidden sm:inline">{SORT_LABELS[sortBy]}</span>
+              <span className="hidden sm:inline">{SORT_LABELS[effectiveSort]}</span>
             </button>
             {sortOpen && (
               <div
@@ -369,7 +393,7 @@ export function SectionedGallery({
                     style={{ color: colors.primary }}
                   >
                     {SORT_LABELS[key]}
-                    {sortBy === key && <Check size={13} style={{ color: colors.accent }} />}
+                    {effectiveSort === key && <Check size={13} style={{ color: colors.accent }} />}
                   </button>
                 ))}
               </div>

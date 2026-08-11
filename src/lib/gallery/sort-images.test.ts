@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortImages, type SortableImage } from "./sort-images";
+import { shuffleSeeded, sortImages, type SortableImage } from "./sort-images";
 
 const mk = (
   originalFilename: string,
@@ -75,5 +75,42 @@ describe("sortImages — upload", () => {
     const input = [mk("b.jpg"), mk("a.jpg")];
     sortImages(input, "filename");
     expect(input.map((i) => i.originalFilename)).toEqual(["b.jpg", "a.jpg"]);
+  });
+});
+
+describe("shuffleSeeded", () => {
+  const items = Array.from({ length: 40 }, (_, i) => i);
+
+  it("is deterministic for a given seed", () => {
+    expect(shuffleSeeded(items, 12345)).toEqual(shuffleSeeded(items, 12345));
+  });
+
+  it("differs between seeds", () => {
+    expect(shuffleSeeded(items, 1)).not.toEqual(shuffleSeeded(items, 2));
+  });
+
+  it("is a true permutation — nothing lost or duplicated", () => {
+    const out = shuffleSeeded(items, 999);
+    expect(out).toHaveLength(items.length);
+    expect([...out].sort((a, b) => a - b)).toEqual(items);
+  });
+
+  it("actually reorders (not the identity)", () => {
+    expect(shuffleSeeded(items, 7)).not.toEqual(items);
+  });
+
+  it("does not mutate the input", () => {
+    const copy = [...items];
+    shuffleSeeded(items, 3);
+    expect(items).toEqual(copy);
+  });
+
+  it("handles empty and single-item lists", () => {
+    expect(shuffleSeeded([], 5)).toEqual([]);
+    expect(shuffleSeeded(["a"], 5)).toEqual(["a"]);
+  });
+
+  it("treats seed 0 as valid (no divide-by-zero identity)", () => {
+    expect(shuffleSeeded(items, 0)).toHaveLength(items.length);
   });
 });

@@ -14,7 +14,36 @@ export type SortBy = "upload" | "filename" | "date-taken";
  * (manual → orderBySectionManual, otherwise → sortImages). Kept separate from
  * SortBy so the comparator's contract stays exactly the three intrinsic modes.
  */
-export type GallerySortMode = SortBy | "manual";
+export type GallerySortMode = SortBy | "manual" | "random";
+
+/**
+ * Deterministic shuffle (mulberry32 + Fisher-Yates).
+ *
+ * "Random" order must be STABLE: the same seed yields the same order on every
+ * render, reload, and client. An unseeded shuffle would reorder the gallery on
+ * every re-render (favorites toggle, tab switch, resize) and show each visitor
+ * a different gallery — the photographer reshuffles deliberately by changing
+ * the stored seed, exactly like the mosaic cover.
+ *
+ * Ties are impossible (index-based), so the result is a true permutation.
+ */
+export function shuffleSeeded<T>(items: T[], seed: number): T[] {
+  let state = (seed || 1) >>> 0;
+  const rand = () => {
+    // mulberry32
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 /** Minimal shape needed to sort — both ImageData and GalleryImage satisfy it. */
 export interface SortableImage {

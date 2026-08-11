@@ -661,7 +661,9 @@ export type Database = {
           locked: boolean
           name: string
           site_scene_key: string | null
+          sort_mode: string | null
           sort_order: number
+          sort_seed: number | null
         }
         Insert: {
           created_at?: string
@@ -674,7 +676,9 @@ export type Database = {
           locked?: boolean
           name: string
           site_scene_key?: string | null
+          sort_mode?: string | null
           sort_order?: number
+          sort_seed?: number | null
         }
         Update: {
           created_at?: string
@@ -687,7 +691,9 @@ export type Database = {
           locked?: boolean
           name?: string
           site_scene_key?: string | null
+          sort_mode?: string | null
           sort_order?: number
+          sort_seed?: number | null
         }
         Relationships: [
           {
@@ -1141,7 +1147,9 @@ export type Database = {
           locked: boolean
           name: string
           site_scene_key: string | null
+          sort_mode: string | null
           sort_order: number
+          sort_seed: number | null
         }
         SetofOptions: {
           from: "*"
