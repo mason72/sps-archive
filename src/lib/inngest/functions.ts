@@ -24,11 +24,12 @@ import { deleteFromR2, objectExistsInR2 } from "@/lib/r2/client";
  *
  * Generates the thumbnail and marks the image complete. No Modal, no AI.
  *
- * Normal browser uploads never reach here — the proxy upload route
- * (/api/upload/[imageId]) generates thumbnails inline from the upload buffer,
- * and /api/upload/complete marks the row complete. This path exists for SPS
- * zero-copy imports, where the binary already lives in R2 (no upload buffer)
- * and the thumbnail still has to be produced server-side.
+ * Nothing in the normal write paths reaches here. Browser uploads generate
+ * thumbnails inline (proxy route, from the upload buffer) or in
+ * /api/upload/complete; the SPS pull generates them from the buffer it just
+ * downloaded. This is the REPAIR lane: /api/events/[eventId]/retry-processing
+ * fans `image/uploaded` out over rows whose binary is in R2 but whose display
+ * work never finished.
  */
 export const processUploadedImage = inngest.createFunction(
   {
@@ -172,53 +173,7 @@ export const processUploadedVideo = inngest.createFunction(
 );
 
 /**
- * Function 3: Process an imported event from SPS.
- *
- * Fans out a thumbnail job for each imported image (binaries are already in
- * R2 via zero-copy import; they just need thumbnails + a complete status).
- */
-export const processImportedEvent = inngest.createFunction(
-  {
-    id: "process-imported-event",
-    retries: 2,
-  },
-  { event: "event/imported" },
-  async ({ event, step }) => {
-    const { eventId } = event.data;
-
-    const pendingImages = await step.run("get-pending-images", async () => {
-      const supabase = createServiceClient();
-      const { data, error } = await supabase
-        .from("images")
-        .select("id, r2_key")
-        .eq("event_id", eventId)
-        .eq("processing_status", "pending");
-
-      if (error) throw error;
-      return data || [];
-    });
-
-    if (pendingImages.length > 0) {
-      await step.run("fan-out-processing", async () => {
-        const events = pendingImages.map((img) => ({
-          name: "image/uploaded" as const,
-          data: {
-            imageId: img.id,
-            eventId,
-            r2Key: img.r2_key,
-          },
-        }));
-
-        await inngest.send(events);
-      });
-    }
-
-    return { eventId, imageCount: pendingImages.length };
-  }
-);
-
-/**
- * Function 4: Favorites digest cron.
+ * Function 3: Favorites digest cron.
  *
  * Every 30 minutes, find shares whose favoriting has gone quiet for 2h with
  * undigested picks, and email the photographer a summary (preview strip +

@@ -1,56 +1,23 @@
 /**
- * SPS Integration Layer
+ * The SimplePhotoShare ↔ Pixeltrunk contract.
  *
- * Defines the contract between SimplePhotoShare (spsv2) and SPS Archive.
- * These types represent what we expect to receive from or send to SPS.
+ * Two directions, and they are not symmetrical:
  *
- * Integration strategy:
- *   1. Shared Supabase project (same auth, same user accounts)
- *   2. Shared R2 bucket (images stored once, referenced by both)
- *   3. One-click "Archive Event" button in SPS → sends event + images to Archive
- *   4. Archive enhances with AI, sends back stacks/sections/tags to SPS
+ *  - **Pull (SPS → archive).** Pixeltrunk asks SPS for a finished event's camera
+ *    files and moves the bytes. Types live in `pull-client.ts`, next to the
+ *    only code that speaks that protocol. Contract:
+ *    `tasks/sps-archive-pull-spec.md`.
+ *  - **Enhancements (archive → SPS).** After AI processing, SPS can read back
+ *    sections, stacks and per-image tags to enrich its own gallery. That is what
+ *    this file describes.
+ *
+ * This file used to also describe a PUSH import ("SPS sends event + image
+ * metadata, archive mints rows pointing at the same R2 keys") on the stated
+ * premise of a shared bucket. There is no shared bucket — SPS serves from
+ * `pub-7363d57d….r2.dev`, the archive stores in `sps-prism` — so those types
+ * described an import that could only produce unreadable tiles. Deleted
+ * 2026-08-11 along with the route and the importer that used them.
  */
-
-/** An event imported from SPS */
-export interface SPSEventImport {
-  /** SPS event ID (preserved for bidirectional sync) */
-  spsEventId: string;
-  name: string;
-  date?: string;
-  eventType?: string;
-  description?: string;
-  /** SPS gallery/collection structure */
-  collections?: SPSCollection[];
-  /** Images with their SPS metadata */
-  images: SPSImageImport[];
-}
-
-/** A collection/gallery from SPS */
-export interface SPSCollection {
-  id: string;
-  name: string;
-  sortOrder: number;
-  imageIds: string[];
-}
-
-/** An image imported from SPS */
-export interface SPSImageImport {
-  /** SPS image ID */
-  spsImageId: string;
-  /** R2 key (shared storage — no re-upload needed!) */
-  r2Key: string;
-  originalFilename: string;
-  fileSize: number;
-  width?: number;
-  height?: number;
-  mimeType: string;
-  /** Any metadata SPS already extracted */
-  metadata?: {
-    takenAt?: string;
-    camera?: string;
-    lens?: string;
-  };
-}
 
 /** What Archive sends back to SPS after processing */
 export interface ArchiveEnhancements {

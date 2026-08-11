@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateSPSRequest } from "@/lib/sps-integration/auth";
-import { generateEnhancements } from "@/lib/sps-integration/import";
+import { generateEnhancements } from "@/lib/sps-integration/enhancements";
 import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { createServiceClient } from "@/lib/supabase/server";
 

@@ -22,10 +22,15 @@ type Events = {
       r2Key: string;
     };
   };
-  "event/imported": {
+  /**
+   * Pull an SPS event's camera files into the archive. Carries only the job id —
+   * every other fact lives on the `sps_pull_jobs` row, so a re-send is always a
+   * resume rather than a second interpretation of the same import. The lane
+   * self-continues by re-sending this event when a run has used its step budget.
+   */
+  "sps/pull.requested": {
     data: {
-      eventId: string;
-      imageCount: number;
+      jobId: string;
     };
   };
   "event/processing.complete": {
