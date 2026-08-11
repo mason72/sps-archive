@@ -1549,7 +1549,14 @@ Built and live (`d777b32`, `9a00d07`, `ce54371`):
       revoke. Token is returned ONCE by POST — surface it immediately or it's
       unrecoverable.
 - [ ] **Link in the publish email** — only when a sheet is attached. Email
-      recipient only; never a gallery surface.
+      recipient only; never a gallery surface. Render as a BUTTON or anchor
+      text ("Download the guest list"), with an optional message line the
+      photographer can edit. The raw URL is never shown.
+      **Decision (2026-08-11): do NOT shorten it.** Shortening was considered
+      (Mason had done it by hand with Bitly) and rejected: the token's length
+      IS its security, a ~7-char shortener code is enumerable and routinely
+      scanned, and it would hand a third party a URL resolving to client PII.
+      Anchor text hides the length anyway, so there is nothing to gain.
 - [ ] **Replace the manual step with the SPS API** — see the design section
       above. Only swaps "where the CSV came from"; token, email, revocation
       and the download route all stay.
