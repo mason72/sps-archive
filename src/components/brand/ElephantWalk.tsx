@@ -3,363 +3,179 @@
 import { useId } from "react";
 
 /**
- * The loading elephant — a tracking shot.
+ * The walking elephant — a cut-out puppet rig of the real logo.
  *
- * The elephant is held in frame and the WORLD moves past: far treeline barely
- * drifting, mid trees at a middle rate, foreground grass whipping by. That
- * spread of speeds is what reads as depth, and holding the subject still is
- * what lets the loop run forever without it having to arrive anywhere.
+ * `scripts/cut-elephant.mjs` slices `public/logo.png` into seven parts (four
+ * legs, trunk, tail, body) straight from the alpha mask, so every tile is the
+ * ORIGINAL artwork — nothing is redrawn or approximated. Each part is placed
+ * back at its exact source coordinate and rotated about its own joint, which
+ * is how cut-out animation has always worked.
  *
- * Two rules shaped every decision here:
+ * The gait is the part that decides whether this reads as an elephant:
  *
- * 1. **The logo is never redrawn.** `/logo.png` is the real mark, used as a
- *    rigid body — it already stands mid-stride. The walk comes from a gentle
- *    bob and from a ground shadow that squashes in antiphase, which is the
- *    old animation trick of letting the shadow do the walking. Articulating
- *    its legs would mean approximating the logo, which we don't do.
- * 2. **The scenery speaks the logo's language.** Trees are built from the same
- *    rounded-rect tiles, in colors sampled from the mark itself — so the world
- *    is obviously *of* the elephant without copying it.
+ *  • **Lateral sequence** — left hind, left fore, right hind, right fore, at
+ *    quarter-cycle offsets. Elephants never trot and never gallop; give them a
+ *    horse's diagonal gait and it looks wrong in a way nobody can name.
+ *  • **Small angular excursion.** Their legs are columnar — they swing maybe
+ *    nine degrees, not the thirty a dog uses. Overdo it and you get a cartoon
+ *    dachshund.
+ *  • **Stance is slower than swing.** Each leg spends ~62% of the cycle
+ *    planted and rotating back, then whips forward in the remaining ~38%.
+ *    Even timing is the single most common tell of a fake walk cycle.
+ *  • **Trunk and tail lag.** They're damped pendulums driven by the body, so
+ *    they trail the gait by roughly a quarter cycle. That lag is what reads as
+ *    weight rather than as parts sliding on a timeline.
  *
- * Cadence is STOP-MOTION by default — the whole thing advances in held poses
- * at roughly 8fps, like a flip-book. The first draft ran smooth on the theory
- * that stepping would fight the mark's soft rounded geometry; that was the
- * wrong axis. Smooth reads as *computed*. Held frames read as *made by
- * someone*, and whimsy is the point of putting an elephant in a spinner at
- * all. `cadence="smooth"` keeps the original for comparison.
- *
- * The trick that makes it feel hand-cranked rather than merely low-framerate:
- * the three parallax bands step on DIFFERENT counts (13/11/7), so their jumps
- * drift in and out of sync instead of locking into one machine pulse.
- *
- * Everything is CSS transforms over inline SVG — no library, no raster,
- * GPU-composited, and it costs nothing on a phone. `prefers-reduced-motion`
- * stops the world and leaves the elephant breathing, because sustained
- * parallax is a real nausea trigger for some people.
+ * Cadence is stop-motion by default (`step-end`, eight held frames): whimsy is
+ * the point, and held frames read as hand-made where smooth reads as computed.
  */
 
-export type ElephantScene = "savanna" | "editorial" | "mosaic";
+/** Source geometry, all relative to the body crop's origin at (203, 350). */
+const FRAME = { w: 1180, h: 852 };
+const pct = (v: number, axis: "w" | "h") => `${(v / FRAME[axis]) * 100}%`;
 
-/** Sampled from logo.png — the mark's own spectrum, nothing invented. */
-const PALETTE = {
-  deepBlue: "#1b3a6b",
-  blue: "#2b6cb0",
-  skyBlue: "#4aa3df",
-  teal: "#2b7a78",
-  green: "#8cb369",
-  olive: "#c7cf5a",
-  amber: "#f0a92b",
-  orange: "#ef7724",
-  rose: "#e04f6e",
-  plum: "#5b4b8a",
-  sand: "#f0d9a8",
-};
-
-/** One tile — the logo's unit of construction. */
-function Tile({
-  x,
-  y,
-  w,
-  h,
-  fill,
-  opacity = 1,
-}: {
+interface Part {
+  file: string;
   x: number;
   y: number;
   w: number;
   h: number;
-  fill: string;
-  opacity?: number;
-}) {
-  return (
-    <rect x={x} y={y} width={w} height={h} rx={Math.min(w, h) * 0.22} fill={fill} opacity={opacity} />
-  );
+  z: number;
+  /** transform-origin — the joint this part rotates about. */
+  origin: string;
 }
 
-/**
- * A tree, assembled from tiles. `seed` varies the canopy so a repeating strip
- * doesn't read as wallpaper — the same three trees marching past is the thing
- * that breaks the illusion fastest.
- */
-function TileTree({
-  x,
-  scale,
-  seed,
-  colors,
-  opacity,
-}: {
-  x: number;
-  scale: number;
-  seed: number;
-  colors: string[];
-  opacity: number;
-}) {
-  // Deterministic pseudo-variation — no Math.random, so SSR and client agree.
-  const wobble = (n: number) => ((seed * 9301 + n * 49297) % 233280) / 233280;
-  // Short, sturdy trunk. The first pass gave these long thin stems and a
-  // canopy floating clear of the top, which read as lollipops rather than
-  // trees — the tiles have to OVERLAP the trunk to fuse into a mass.
-  const trunkH = 15 + wobble(1) * 7;
-  const canopy = [
-    { dx: -13, dy: -6, w: 15, h: 13 },
-    { dx: -2, dy: -9, w: 17, h: 15 },
-    { dx: 9, dy: -5, w: 14, h: 12 },
-    { dx: -6, dy: -17, w: 13, h: 12 },
-    { dx: 4, dy: -18, w: 12, h: 11 },
-  ];
-  return (
-    <g transform={`translate(${x} 0) scale(${scale})`} opacity={opacity}>
-      <Tile x={-3.5} y={-trunkH} w={7} h={trunkH} fill={colors[0]} />
-      {canopy.map((c, i) => (
-        <Tile
-          key={i}
-          x={c.dx + wobble(i + 2) * 3 - 1.5}
-          y={-trunkH + c.dy}
-          w={c.w}
-          h={c.h}
-          fill={colors[(i + seed) % colors.length]}
-          opacity={0.88 + wobble(i + 7) * 0.12}
-        />
-      ))}
-    </g>
-  );
-}
-
-/** One seamless parallax band: the strip is drawn twice and slid by exactly
- *  its own width, so the loop has no seam to spot. */
-function ParallaxBand({
-  animName,
-  timing,
-  duration,
-  y,
-  trees,
-  width,
-}: {
-  animName: string;
-  /** `steps(n, end)` for the flip-book cadence, or `linear` for smooth. */
-  timing: string;
-  duration: number;
-  y: number;
-  trees: { x: number; scale: number; seed: number; colors: string[]; opacity: number }[];
-  width: number;
-}) {
-  return (
-    <g style={{ animation: `${animName} ${duration}s ${timing} infinite` }}>
-      {[0, 1].map((copy) => (
-        <g key={copy} transform={`translate(${copy * width} ${y})`}>
-          {trees.map((t, i) => (
-            <TileTree key={i} {...t} />
-          ))}
-        </g>
-      ))}
-    </g>
-  );
-}
-
-const SCENES: Record<
-  ElephantScene,
-  {
-    sky: [string, string];
-    ground: string;
-    far: string[];
-    mid: string[];
-    near: string[];
-    label: string;
-  }
-> = {
-  savanna: {
-    sky: ["#fdf6ec", "#f7e2c0"],
-    ground: "#e8d4ae",
-    far: [PALETTE.deepBlue, PALETTE.plum, PALETTE.blue],
-    mid: [PALETTE.teal, PALETTE.green, PALETTE.blue],
-    near: [PALETTE.olive, PALETTE.amber, PALETTE.orange],
-    label: "Savanna — warm horizon, full spectrum",
-  },
-  editorial: {
-    sky: ["#ffffff", "#f5f5f4"],
-    ground: "#e7e5e4",
-    far: ["#d6d3d1", "#e7e5e4"],
-    mid: ["#a8a29e", "#d6d3d1"],
-    near: ["#10b981", "#78716c"],
-    label: "Editorial — stone and emerald, restrained",
-  },
-  mosaic: {
-    sky: ["#ffffff", "#eef2f7"],
-    ground: "#dde5ee",
-    far: [PALETTE.skyBlue, PALETTE.blue, PALETTE.plum],
-    mid: [PALETTE.rose, PALETTE.amber, PALETTE.teal],
-    near: [PALETTE.orange, PALETTE.green, PALETTE.rose],
-    label: "Mosaic — the mark's own spectrum, playful",
-  },
+const PARTS: Record<string, Part> = {
+  // Tail sits behind the rump; trunk in front of the head.
+  tail: { file: "tail", x: -3, y: 350, w: 82, h: 250, z: 1, origin: "50% 6%" },
+  legRearFar: { file: "leg-rear-far", x: 193, y: 530, w: 175, h: 322, z: 2, origin: "50% 20%" },
+  legFrontFar: { file: "leg-front-far", x: 757, y: 530, w: 168, h: 322, z: 2, origin: "50% 20%" },
+  body: { file: "body", x: 0, y: 0, w: 1180, h: 600, z: 3, origin: "50% 100%" },
+  legRearNear: { file: "leg-rear-near", x: 15, y: 530, w: 180, h: 322, z: 4, origin: "50% 20%" },
+  legFrontNear: { file: "leg-front-near", x: 537, y: 530, w: 150, h: 322, z: 4, origin: "50% 20%" },
+  trunk: { file: "trunk", x: 1027, y: 432, w: 132, h: 280, z: 5, origin: "50% 4%" },
 };
-
-const BAND_WIDTH = 420;
-
-function bandTrees(colors: string[], count: number, scale: number, opacity: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    x: (BAND_WIDTH / count) * i + (i % 3) * 11,
-    scale,
-    seed: i + 1,
-    colors,
-    opacity,
-  }));
-}
 
 export type ElephantCadence = "stopmotion" | "smooth";
 
 export function ElephantWalk({
-  scene = "savanna",
   cadence = "stopmotion",
+  /** Seconds per full gait cycle. Elephants are unhurried. */
+  cycle = 1.6,
   message,
   detail,
   className = "",
 }: {
-  scene?: ElephantScene;
   cadence?: ElephantCadence;
-  /** The primary line — e.g. Looking for "dancing"… */
+  cycle?: number;
   message?: string;
-  /** The quieter second line explaining the wait. */
   detail?: string;
   className?: string;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-  const s = SCENES[scene];
-  const far = `far${uid}`;
-  const mid = `mid${uid}`;
-  const near = `near${uid}`;
+  const ease = cadence === "stopmotion" ? "step-end" : "ease-in-out";
 
-  // Deliberately coprime step counts. Equal counts would make all three bands
-  // jump on the same tick, which reads as one mechanism; drifting counts read
-  // as three things being moved by hand.
-  const step = (n: number) => (cadence === "stopmotion" ? `steps(${n}, end)` : "linear");
-  // The body cycle holds discrete poses (step-end) rather than easing between
-  // them — this is the single biggest contributor to the flip-book feel.
-  const bodyEase = cadence === "stopmotion" ? "step-end" : "ease-in-out";
-  const bodyDur = cadence === "stopmotion" ? 0.96 : 1.15;
+  // Lateral sequence: LH → LF → RH → RF, each a quarter cycle apart. Negative
+  // delays start every leg already mid-stride instead of all planted at once.
+  const phase: Record<string, number> = {
+    legRearNear: 0,
+    legFrontNear: 0.25,
+    legRearFar: 0.5,
+    legFrontFar: 0.75,
+  };
 
   return (
     <div className={`w-full ${className}`}>
       <style>{`
-        @keyframes ${far}  { from { transform: translateX(0);            } to { transform: translateX(-${BAND_WIDTH}px); } }
-        @keyframes ${mid}  { from { transform: translateX(0);            } to { transform: translateX(-${BAND_WIDTH}px); } }
-        @keyframes ${near} { from { transform: translateX(0);            } to { transform: translateX(-${BAND_WIDTH}px); } }
-        /* Eight held poses. Uneven spacing (the dip lingers, the lift snaps)
-           is what keeps it from feeling like a metronome — a hand-cranked
-           camera never lands on exact eighths. */
-        /* The baseline 23% is not decoration: logo.png carries roughly that
-           much transparent padding below the elephant's feet, so an untranslated
-           mark hovers above the ground it is supposedly walking on. Percentages
-           resolve against the element's own height, so this stays correct at
-           every size. The bob varies around that baseline. */
-        @keyframes bob${uid} {
-          0%   { transform: translateY(23%)    rotate(-0.5deg); }
-          12%  { transform: translateY(22.4%)  rotate(-0.2deg); }
-          26%  { transform: translateY(21.8%)  rotate(0.3deg);  }
-          38%  { transform: translateY(22.1%)  rotate(0.5deg);  }
-          52%  { transform: translateY(23%)    rotate(0.2deg);  }
-          64%  { transform: translateY(22.3%)  rotate(-0.3deg); }
-          80%  { transform: translateY(21.8%)  rotate(-0.5deg); }
-          92%  { transform: translateY(22.7%)  rotate(-0.3deg); }
-          100% { transform: translateY(23%)    rotate(-0.5deg); }
+        /* Stance 0→62.5% (slow, rotating back), swing 62.5→100% (fast, forward). */
+        @keyframes step${uid} {
+          0%    { transform: rotate(-9deg); }
+          12.5% { transform: rotate(-5.4deg); }
+          25%   { transform: rotate(-1.8deg); }
+          37.5% { transform: rotate(1.8deg); }
+          50%   { transform: rotate(5.4deg); }
+          62.5% { transform: rotate(9deg); }
+          75%   { transform: rotate(3deg); }
+          87.5% { transform: rotate(-4deg); }
+          100%  { transform: rotate(-9deg); }
         }
-        /* Antiphase with the bob: the shadow tightens as the body lifts.
-           This is what sells the step — the elephant itself never deforms. */
-        @keyframes tread${uid} {
-          0%   { transform: scaleX(1);    opacity: .26; }
-          26%  { transform: scaleX(.86);  opacity: .15; }
-          52%  { transform: scaleX(1);    opacity: .26; }
-          80%  { transform: scaleX(.88);  opacity: .16; }
-          100% { transform: scaleX(1);    opacity: .26; }
+        /* Two rises per gait cycle — one per lateral pair taking the weight. */
+        @keyframes bodyBob${uid} {
+          0%    { transform: translateY(0)      rotate(0deg); }
+          12.5% { transform: translateY(-0.5%)  rotate(0.25deg); }
+          25%   { transform: translateY(-0.9%)  rotate(0.4deg); }
+          37.5% { transform: translateY(-0.4%)  rotate(0.15deg); }
+          50%   { transform: translateY(0)      rotate(0deg); }
+          62.5% { transform: translateY(-0.5%)  rotate(-0.25deg); }
+          75%   { transform: translateY(-0.9%)  rotate(-0.4deg); }
+          87.5% { transform: translateY(-0.4%)  rotate(-0.15deg); }
+          100%  { transform: translateY(0)      rotate(0deg); }
+        }
+        /* Pendulums. Wider arc than the legs, and lagging — see the note above. */
+        @keyframes trunkSwing${uid} {
+          0%    { transform: rotate(6deg); }
+          25%   { transform: rotate(1deg); }
+          50%   { transform: rotate(-6deg); }
+          75%   { transform: rotate(-1deg); }
+          100%  { transform: rotate(6deg); }
+        }
+        @keyframes tailSwing${uid} {
+          0%    { transform: rotate(-7deg); }
+          25%   { transform: rotate(-2deg); }
+          50%   { transform: rotate(7deg); }
+          75%   { transform: rotate(2deg); }
+          100%  { transform: rotate(-7deg); }
         }
         @media (prefers-reduced-motion: reduce) {
-          .pt-walk-${uid} * { animation-duration: 0s !important; animation-iteration-count: 1 !important; }
-          .pt-breathe-${uid} { animation: bob${uid} 4s ease-in-out infinite !important; }
+          .rig${uid} * { animation: none !important; }
         }
       `}</style>
 
-      <div className={`pt-walk-${uid} relative mx-auto w-full max-w-[420px]`}>
-        <svg viewBox="0 0 420 180" className="w-full" role="presentation">
-          <defs>
-            <linearGradient id={`sky${uid}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.sky[0]} />
-              <stop offset="100%" stopColor={s.sky[1]} />
-            </linearGradient>
-            <clipPath id={`frame${uid}`}>
-              <rect x="0" y="0" width="420" height="180" rx="2" />
-            </clipPath>
-          </defs>
-
-          <g clipPath={`url(#frame${uid})`}>
-            <rect x="0" y="0" width="420" height="180" fill={`url(#sky${uid})`} />
-
-            {/* Far treeline — barely moving, which is what makes it far. */}
-            <ParallaxBand
-              animName={far}
-              timing={step(13)}
-              duration={26}
-              y={132}
-              width={BAND_WIDTH}
-              trees={bandTrees(s.far, 7, 0.8, 0.35)}
-            />
-            {/* Mid trees */}
-            <ParallaxBand
-              animName={mid}
-              timing={step(11)}
-              duration={13}
-              y={143}
-              width={BAND_WIDTH}
-              trees={bandTrees(s.mid, 5, 1.15, 0.6)}
-            />
-
-            {/* Ground */}
-            <rect x="0" y="143" width="420" height="37" fill={s.ground} />
-
-            {/* Foreground grass — fastest, and cropped by the frame so it
-                reads as passing THROUGH the shot rather than sitting in it. */}
-            <ParallaxBand
-              animName={near}
-              timing={step(7)}
-              duration={5.5}
-              y={186}
-              width={BAND_WIDTH}
-              trees={bandTrees(s.near, 9, 0.42, 0.9)}
-            />
-          </g>
-        </svg>
-
-        {/* The mark itself — real file, rigid body, held in frame.
-            The wrapper's bottom edge IS the ground line (the SVG puts it at
-            y=143 of 180, i.e. 20.5% up from the bottom), and the bob's 23%
-            baseline drops the elephant's feet onto exactly that edge. */}
-        <div
-          className="pointer-events-none absolute inset-0 flex items-end justify-center"
-          style={{ paddingBottom: "20.5%" }}
-        >
-          <div className="relative w-[36%] min-w-[120px] max-w-[168px]">
-            {/* The shadow sits ON the ground line and never moves; only its
-                width and weight change, which is what reads as weight
-                transferring from foot to foot. */}
-            <div
-              className="absolute left-1/2 h-[7px] w-[70%] -translate-x-1/2 rounded-[50%] bg-stone-900"
+      <div
+        className={`rig${uid} relative mx-auto w-full max-w-[300px]`}
+        style={{ aspectRatio: `${FRAME.w} / ${FRAME.h}` }}
+      >
+        {Object.entries(PARTS).map(([key, p]) => {
+          const isLeg = key.startsWith("leg");
+          const anim = isLeg
+            ? `step${uid} ${cycle}s ${ease} infinite`
+            : key === "body"
+              ? `bodyBob${uid} ${cycle}s ${ease} infinite`
+              : key === "trunk"
+                ? `trunkSwing${uid} ${cycle}s ${ease} infinite`
+                : `tailSwing${uid} ${cycle}s ${ease} infinite`;
+          // Trunk and tail lag the gait by a quarter cycle.
+          const delay = isLeg
+            ? -phase[key] * cycle
+            : key === "trunk"
+              ? -0.25 * cycle
+              : key === "tail"
+                ? -0.6 * cycle
+                : 0;
+          return (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              key={key}
+              src={`/elephant/${p.file}.png`}
+              alt=""
+              className="absolute select-none"
               style={{
-                bottom: "-3px",
-                animation: `tread${uid} ${bodyDur}s ${bodyEase} infinite`,
-                filter: "blur(3px)",
+                left: pct(p.x, "w"),
+                top: pct(p.y, "h"),
+                width: pct(p.w, "w"),
+                height: pct(p.h, "h"),
+                zIndex: p.z,
+                transformOrigin: p.origin,
+                animation: anim,
+                animationDelay: `${delay}s`,
               }}
             />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.png"
-              alt=""
-              className={`pt-breathe-${uid} relative w-full select-none`}
-              style={{ animation: `bob${uid} ${bodyDur}s ${bodyEase} infinite` }}
-            />
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {(message || detail) && (
-        <div className="mt-5 text-center">
+        <div className="mt-6 text-center">
           {message && (
             <p className="animate-pulse text-[14px] italic text-stone-500">{message}</p>
           )}

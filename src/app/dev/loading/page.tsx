@@ -1,53 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import {
-  ElephantWalk,
-  type ElephantCadence,
-  type ElephantScene,
-} from "@/components/brand/ElephantWalk";
+import { ElephantWalk, type ElephantCadence } from "@/components/brand/ElephantWalk";
 
 /**
- * /dev/loading — the loading-elephant playground.
+ * /dev/loading — the walking-elephant playground.
  *
- * Same role as /dev/buttons: a preserved artifact for judging motion in the
- * browser, where it actually lives, instead of arguing about it in prose.
- * Three scenes × two cadences, side by side and full size.
+ * Same role as /dev/buttons: judge motion in the browser, where it lives.
+ * Cadence and speed are live controls because both are taste calls that are
+ * impossible to settle in prose.
  */
-const SCENES: { key: ElephantScene; label: string; note: string }[] = [
-  {
-    key: "savanna",
-    label: "Savanna",
-    note: "Warm horizon, the mark's full spectrum. The most 'story'.",
-  },
-  {
-    key: "editorial",
-    label: "Editorial",
-    note: "Stone and emerald only. Disappears into the app; never upstages a gallery.",
-  },
-  {
-    key: "mosaic",
-    label: "Mosaic",
-    note: "Cool spectrum, playful. Reads as the logo's world.",
-  },
-];
-
 export default function LoadingPlayground() {
   const [cadence, setCadence] = useState<ElephantCadence>("stopmotion");
+  const [cycle, setCycle] = useState(1.6);
 
   return (
     <div className="min-h-screen bg-white px-8 py-16 md:px-16">
-      <header className="mb-12">
+      <header className="mb-14">
         <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-tight text-stone-900">
-          Loading <span className="font-serif italic text-emerald-600">elephant</span>
+          Walking <span className="font-serif italic text-emerald-600">elephant</span>
         </h1>
         <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-stone-500">
-          A tracking shot: the elephant is held in frame while the world moves
-          past at three speeds. The logo is the real file, never redrawn — the
-          walk comes from the bob and from the shadow squashing underneath it.
+          A cut-out puppet rig: the logo sliced into seven parts straight from
+          its alpha mask, each rotating about its own joint. Every tile is the
+          original artwork — nothing redrawn. The gait is lateral sequence
+          (left hind, left fore, right hind, right fore) with a slow stance and
+          a fast swing; trunk and tail lag a quarter cycle behind.
         </p>
 
-        <div className="mt-6 flex items-center gap-4 text-[12px]">
+        <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3 text-[12px]">
           <span className="uppercase tracking-[0.12em] text-stone-400">Cadence</span>
           {(["stopmotion", "smooth"] as ElephantCadence[]).map((c) => (
             <button
@@ -60,37 +41,46 @@ export default function LoadingPlayground() {
               {c === "stopmotion" ? "Stop-motion" : "Smooth"}
             </button>
           ))}
-          <span className="text-stone-300">
-            {cadence === "stopmotion"
-              ? "· held poses, ~8fps, bands stepping on 13/11/7"
-              : "· continuous, the original take"}
-          </span>
+
+          <span className="ml-4 uppercase tracking-[0.12em] text-stone-400">Speed</span>
+          <input
+            type="range"
+            min={0.8}
+            max={3}
+            step={0.1}
+            value={cycle}
+            onChange={(e) => setCycle(parseFloat(e.target.value))}
+            className="w-40 accent-emerald-600"
+          />
+          <span className="tabular-nums text-stone-400">{cycle.toFixed(1)}s / stride</span>
         </div>
       </header>
 
-      <div className="grid gap-14 lg:grid-cols-2 2xl:grid-cols-3">
-        {SCENES.map((s) => (
-          <section key={s.key}>
-            <p className="label-caps mb-1">{s.label}</p>
-            <p className="mb-5 text-[12px] text-stone-400">{s.note}</p>
-            <div className="border border-stone-100 p-6">
-              <ElephantWalk
-                scene={s.key}
-                cadence={cadence}
-                message={'Looking for "dancing"…'}
-                detail="Reading the photos themselves — this can take a few seconds."
-              />
-            </div>
-          </section>
-        ))}
-      </div>
+      <div className="grid gap-16 lg:grid-cols-2">
+        <section>
+          <p className="label-caps mb-5">Full size</p>
+          <div className="border border-stone-100 p-10">
+            <ElephantWalk
+              cadence={cadence}
+              cycle={cycle}
+              message={'Looking for "dancing"…'}
+              detail="Reading the photos themselves — this can take a few seconds."
+            />
+          </div>
+        </section>
 
-      <section className="mt-16 border-t border-stone-100 pt-10">
-        <p className="label-caps mb-5">Inline — the size it would appear at</p>
-        <div className="max-w-md border border-stone-100 p-6">
-          <ElephantWalk scene="editorial" cadence={cadence} message="Building your people index…" />
-        </div>
-      </section>
+        <section>
+          <p className="label-caps mb-5">Inline — the size it ships at</p>
+          <div className="max-w-md border border-stone-100 p-8">
+            <ElephantWalk
+              cadence={cadence}
+              cycle={cycle}
+              className="[&>div]:max-w-[180px]"
+              message="Building your people index…"
+            />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

@@ -37,6 +37,26 @@ function relativeDay(iso: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+/**
+ * What the readiness chip means, in words. Says what is happening, when it
+ * runs, and — crucially for Queued — that nothing is wrong and nothing is
+ * blocked by it.
+ */
+function readinessTooltip(r: {
+  uploading: number;
+  indexed: number;
+  total: number;
+}): string {
+  const n = r.total.toLocaleString();
+  if (r.uploading > 0) {
+    return `${r.uploading.toLocaleString()} photo${r.uploading === 1 ? "" : "s"} still uploading. AI processing starts once every upload has landed.`;
+  }
+  if (r.indexed === 0) {
+    return `Queued — ${n} photos waiting. AI processing starts automatically once uploads settle, and runs in the background; nothing is stuck. You can share this gallery now, and search, faces and smart sections switch on when it finishes.`;
+  }
+  return `${r.indexed.toLocaleString()} of ${n} photos processed. Search, faces and smart sections improve as this fills in.`;
+}
+
 /** A ring that fills clockwise — no text, legible at 12px. */
 function ReadinessPie({ fraction, title }: { fraction: number; title: string }) {
   const r = 5;
@@ -99,18 +119,21 @@ export function GalleryStatusBadge({ status }: { status: EventStatus | null }) {
       )}
 
       {showReadiness && (
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-400">
-          <ReadinessPie
-            fraction={pct}
-            title={
-              readiness.uploading > 0
-                ? `${readiness.uploading} still uploading · ${readiness.indexed} of ${readiness.total} processed`
-                : `${readiness.indexed} of ${readiness.total} processed`
-            }
-          />
+        /* "Processing 0%" that never moves is indistinguishable from broken
+           (Mason, 2026-08-10: "stuck at 0% gives me anxiety"). Work that hasn't
+           STARTED is Queued; only work in flight shows a percentage. The
+           tooltip then says what Queued actually means, because a status word
+           nobody can interpret just relocates the anxiety. */
+        <span
+          className="inline-flex cursor-help items-center gap-1.5 text-[11px] text-stone-400"
+          title={readinessTooltip(readiness)}
+        >
+          <ReadinessPie fraction={pct} title="" />
           {readiness.uploading > 0
             ? "Uploading"
-            : `Processing ${Math.round(pct * 100)}%`}
+            : readiness.indexed === 0
+              ? "Queued"
+              : `Processing ${Math.round(pct * 100)}%`}
         </span>
       )}
     </div>
