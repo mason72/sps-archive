@@ -4,7 +4,20 @@ import { recordUsage } from "@/lib/usage/record";
 import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveShareCoverUrl } from "@/lib/cover/resolve-share-cover";
+import { hashToken, readGuestList } from "@/lib/guest-list/store";
+import { timingSafeEqual } from "node:crypto";
 
+// node:crypto + Buffer below. This is the default, but the guest-list token
+// comparison makes it a requirement rather than an accident.
+export const runtime = "nodejs";
+
+
+/** Hex digests are fixed-width, but never let a length mismatch throw. */
+function constantTimeEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
 
 /**
  * POST /api/emails/send
@@ -42,6 +55,17 @@ export async function POST(request: NextRequest) {
     // (Mason, 2026-08-11). Defaults ON: a PIN the guest will be ASKED for is
     // useless to withhold.
     const includePin = body.includePin !== false;
+    // The guest-list link. Opt-IN and, unlike the credentials above, the value
+    // CANNOT be re-read server-side: only the token's SHA-256 is stored, by
+    // design. So the composer presents the token it was handed at upload and
+    // we verify it against that hash — we can't mint the link, but we can
+    // prove the one offered is the live one, which is the same guarantee.
+    const guestListToken =
+      typeof body.guestListToken === "string" ? body.guestListToken.trim() : "";
+    const guestListMessage =
+      typeof body.guestListMessage === "string"
+        ? body.guestListMessage.slice(0, 300)
+        : null;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -172,6 +196,7 @@ export async function POST(request: NextRequest) {
     let coverImageUrl: string | null = null;
     let eventName: string | null = null;
     let emailPassword: string | null = null;
+    let guestListUrl: string | null = null;
     if (eventId) {
       const { data: event } = await supabase
         .from("events")
@@ -205,6 +230,29 @@ export async function POST(request: NextRequest) {
           emailPassword = eventPassword.trim();
         }
       }
+
+      // Same posture as the password: verified against the owner's own event,
+      // and only alongside a verified share — the download route requires a
+      // live share anyway, so a link sent without one is dead on arrival.
+      if (guestListToken && verifiedGalleryUrl) {
+        const meta = readGuestList((event as { settings?: unknown })?.settings);
+        if (meta && constantTimeEquals(hashToken(guestListToken), meta.tokenHash)) {
+          guestListUrl = `${new URL(verifiedGalleryUrl).origin}/api/guest-list/${encodeURIComponent(
+            guestListToken
+          )}`;
+        } else {
+          // Refuse rather than quietly drop it. A photographer who ticked the
+          // box and got an email with no sheet in it has been lied to, and
+          // won't find out until the client asks where the list is.
+          return NextResponse.json(
+            {
+              error:
+                "That guest-list link is no longer valid — re-attach the spreadsheet and try again",
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     // Wrap the composer's message in the branded HTML shell (clean layout +
@@ -217,6 +265,9 @@ export async function POST(request: NextRequest) {
       eventName,
       downloadPin: includePin ? shareDownloadPin : null,
       password: emailPassword,
+      guestList: guestListUrl
+        ? { url: guestListUrl, message: guestListMessage }
+        : null,
     });
 
     // Attempt to send via Resend if configured
@@ -278,7 +329,15 @@ export async function POST(request: NextRequest) {
         template_id: templateId || null,
         recipients: JSON.stringify(recipients),
         subject,
-        body_html: renderedHtml,
+        // The archived copy has the guest-list token stripped out. The whole
+        // point of storing only its SHA-256 is that the database never holds a
+        // working link to a client's PII; writing the rendered email verbatim
+        // would put one right back, in a table nobody thinks of as sensitive.
+        body_html: guestListUrl
+          ? renderedHtml
+              .split(encodeURIComponent(guestListToken))
+              .join("[redacted-token]")
+          : renderedHtml,
         status,
       })
       .select()

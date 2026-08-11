@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
+import { normalizeBodyForEmail } from "@/lib/email/shell";
 
 interface EmailPreviewProps {
   subject: string;
@@ -18,6 +19,12 @@ interface EmailPreviewProps {
    * the preview is lying about the email being sent.
    */
   password?: string | null;
+  /**
+   * Mirrors the guest-list card `renderEmailShell` emits. No URL: the preview
+   * shows what the client sees, and the client sees anchor text — printing the
+   * live token into an owner-facing pane would be the one place it leaks.
+   */
+  guestList?: { message?: string | null } | null;
 }
 
 /**
@@ -32,6 +39,7 @@ export function EmailPreview({
   logoUrl,
   coverImageUrl,
   password,
+  guestList,
 }: EmailPreviewProps) {
   // Hide the hero when the event has no cover (the cover route 404s).
   const [coverFailed, setCoverFailed] = useState(false);
@@ -98,9 +106,12 @@ export function EmailPreview({
           className="px-6 py-6 text-[14px] leading-relaxed email-body"
           style={{ color: branding.secondaryColor }}
           dangerouslySetInnerHTML={{
-            __html:
-              bodyHtml ||
-              '<p style="color: #a8a29e; font-style: italic;">Email body will appear here…</p>',
+            // Through the SAME normalizer the shell runs. Without it the
+            // preview silently swallowed typed blank lines exactly as the sent
+            // email did — consistent, and consistently wrong.
+            __html: bodyHtml
+              ? normalizeBodyForEmail(bodyHtml)
+              : '<p style="color: #a8a29e; font-style: italic;">Email body will appear here…</p>',
           }}
         />
 
@@ -114,6 +125,25 @@ export function EmailPreview({
               <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
                 {password}
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Guest-list card — mirrors guestListCard() in lib/email/shell.ts */}
+        {guestList && (
+          <div className="px-6 pb-6 -mt-2">
+            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
+                Guest List
+              </p>
+              {guestList.message?.trim() && (
+                <p className="text-[13px] text-stone-700 mb-2 leading-relaxed">
+                  {guestList.message.trim()}
+                </p>
+              )}
+              <span className="text-[14px] font-semibold text-accent underline">
+                Download the guest list
+              </span>
             </div>
           </div>
         )}

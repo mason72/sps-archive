@@ -110,6 +110,65 @@ export async function POST(
   }
 }
 
+/**
+ * PATCH — mint a fresh token for the sheet already attached, and return it once.
+ *
+ * Needed because the token is deliberately unrecoverable: it is handed back by
+ * POST and only its hash is kept. A photographer who attached the sheet last
+ * week and comes back to send a second email has no link and, without this,
+ * no way to get one except re-uploading a file they already uploaded. Rotating
+ * kills every link already sent — the same trade as re-uploading, minus the
+ * pointless round trip through their Downloads folder.
+ */
+export async function PATCH(
+  _request: NextRequest,
+  { params }: { params: Promise<{ eventId: string }> }
+) {
+  const { eventId } = await params;
+  try {
+    const { user, supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
+
+    const { data: event } = await supabase
+      .from("events")
+      .select("id, settings")
+      .eq("id", eventId)
+      .eq("user_id", user!.id)
+      .maybeSingle();
+    if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const settings = ((event as { settings: Record<string, unknown> | null }).settings ??
+      {}) as Record<string, unknown>;
+    const meta = readGuestList(settings);
+    if (!meta) {
+      return NextResponse.json({ error: "No guest list attached" }, { status: 404 });
+    }
+
+    const token = mintToken();
+    const { error: updateErr } = await supabase
+      .from("events")
+      .update({
+        settings: {
+          ...settings,
+          guestList: { ...meta, tokenHash: hashToken(token) },
+        } as never,
+      })
+      .eq("id", eventId)
+      .eq("user_id", user!.id);
+    if (updateErr) throw updateErr;
+
+    return NextResponse.json({
+      token,
+      filename: meta.filename,
+      sizeBytes: meta.sizeBytes,
+      uploadedAt: meta.uploadedAt,
+    });
+  } catch (error) {
+    await reportSystemError("guest-list.rotate", error, { eventId });
+    return NextResponse.json({ error: "Could not create a new link" }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }

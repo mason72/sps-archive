@@ -1544,26 +1544,76 @@ Built and live (`d777b32`, `9a00d07`, `ce54371`):
       HDC had no share yet).
 
 ### Remaining
-- [ ] **Upload control in the publish flow** — attach the sheet, show
-      filename/size/uploaded-at, re-upload (mints a new token, kills the old),
-      revoke. Token is returned ONCE by POST — surface it immediately or it's
-      unrecoverable.
-- [ ] **Link in the publish email** — only when a sheet is attached. Email
-      recipient only; never a gallery surface. Render as a BUTTON or anchor
-      text ("Download the guest list"), with an optional message line the
-      photographer can edit. The raw URL is never shown.
+- [x] **Upload control in the publish flow** — `GuestListAttachment`
+      (`src/components/email/GuestListAttachment.tsx`), rendered in the compose
+      step of the share page. Attach / replace / revoke, filename + size +
+      date, copy-link, and an editable message line.
+- [x] **Link in the publish email** — quiet card under the credentials, anchor
+      text "Download the guest list", optional message line, raw URL never
+      printed. Mirrored in `EmailPreview` so the preview can't lie.
       **Decision (2026-08-11): do NOT shorten it.** Shortening was considered
       (Mason had done it by hand with Bitly) and rejected: the token's length
       IS its security, a ~7-char shortener code is enumerable and routinely
       scanned, and it would hand a third party a URL resolving to client PII.
       Anchor text hides the length anyway, so there is nothing to gain.
+- [x] **`PATCH /api/events/[eventId]/guest-list`** — re-mint a token for the
+      sheet already attached. Not in the original plan, and unavoidable: the
+      token is returned once and stored only as a hash, so a sheet attached
+      last week is otherwise unusable without re-uploading the same file.
 - [ ] **Replace the manual step with the SPS API** — see the design section
       above. Only swaps "where the CSV came from"; token, email, revocation
       and the download route all stay.
 
-## Publish email — line breaks not reflected (2026-08-11, OPEN)
-Mason added blank lines between paragraphs; the preview/sent email doesn't
-space accordingly. Hypothesis (UNVERIFIED): empty `<p></p>` collapsed between
-the editor's HTML and the email shell's sanitiser. Diagnose by capturing the
-HTML at three points — editor output, what POSTs to /api/emails/send, and what
-the shell renders — rather than guessing at the sanitiser.
+### How the token survives a design that refuses to store it
+The one genuinely awkward constraint, and the reason several pieces look the
+way they do: **`POST` returns the token once and keeps only its SHA-256.**
+Nothing can read it back. So:
+- the composer holds it in React state and posts it to `/api/emails/send`;
+- the send route can't MINT the link, but it can PROVE the offered token is
+  the live one — `hashToken(presented) === meta.tokenHash`, constant-time.
+  Same guarantee as the password's server-side read, reached from the other
+  direction;
+- an invalid token **400s** rather than quietly sending an email with no
+  sheet in it;
+- the archived copy in `email_sends.body_html` has the token replaced with
+  `[redacted-token]`. Writing the rendered email verbatim would put a working
+  link to client PII straight back into the database that deliberately holds
+  only a hash;
+- `GuestListAttachment` takes an `initial` prop because stepping back to
+  template selection unmounts it, and an unrecoverable token must not die on
+  a stray click.
+
+## Publish email — line breaks not reflected (2026-08-11, FIXED)
+
+**The standing hypothesis was wrong.** There is no sanitiser anywhere in this
+path, so nothing was stripping the empty `<p></p>`. Captured at all three
+points with the real editor (probe: `/dev/email-html`, kept):
+
+| point | HTML |
+| --- | --- |
+| 1 · TipTap `getHTML()` | `<p>First.</p><p></p><p>Second.</p>` |
+| 2 · POST to `/api/emails/send` | identical (interpolate only touches `{word}`) |
+| 3 · `renderEmailShell` output | identical |
+
+The blank line arrived at the recipient perfectly intact. It was **CSS that
+deleted it**: an empty `<p>` has no content, so it measures 0px tall, and its
+top and bottom margins collapse through it and into its siblings. Measured in
+the browser: paragraph 1 ended at y=139, paragraph 2 began at y=154 — a 15px
+gap, the exact same gap as two paragraphs with no blank line between them. The
+empty paragraph was worth **0px**. Compounding it, the shell styled `<p>` not
+at all, so every gap was whatever the reader's mail client defaulted to.
+
+Fix — `normalizeBodyForEmail()` in `src/lib/email/shell.ts`:
+- an empty paragraph (`<p></p>`, `<p><br></p>`, `<p>&nbsp;</p>`) becomes
+  `<div style="line-height:16px;font-size:16px;">&nbsp;</div>` — content, so
+  it has real height and cannot collapse;
+- every other `<p>` carries `margin:0 0 16px` inline, merged into any existing
+  `style` (TextAlign writes one) rather than added as a second attribute.
+
+`EmailPreview` runs the SAME function, so the preview and the sent email agree
+by construction. Re-measured after the fix: spacer 16px, gap 15px → 32px.
+
+**Note the editor was never wrong** — ProseMirror puts a `<br>` in its empty
+paragraphs, so it showed the blank line at 21px all along. That mismatch is
+precisely why this read as a bug: what Mason typed and saw was real, and only
+the two downstream surfaces silently dropped it.

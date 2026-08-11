@@ -9,6 +9,10 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EmailPreview } from "@/components/email/EmailPreview";
 import { EmailEditor, type EmailEditorHandle } from "@/components/email/EmailEditor";
+import {
+  GuestListAttachment,
+  type GuestListSelection,
+} from "@/components/email/GuestListAttachment";
 import { interpolateTemplate } from "@/lib/email/interpolate";
 import { toast } from "sonner";
 import {
@@ -62,6 +66,17 @@ function ShareComposePage() {
    *  has one and not the other, and the PIN is one the guest gets ASKED for. */
   const [includePin, setIncludePin] = useState(true);
   const [includePassword, setIncludePassword] = useState(true);
+  /** The SPS guest-list sheet. `token` is non-null only when one was attached
+   *  in THIS session and the photographer wants it in this email. */
+  const [guestList, setGuestList] = useState<GuestListSelection>({
+    token: null,
+    message: "",
+  });
+  // Stable identity: the child reports upward from an effect, and an inline
+  // arrow here would make that effect fire on every render.
+  const handleGuestList = useCallback((sel: GuestListSelection) => {
+    setGuestList(sel);
+  }, []);
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const editorRef = useRef<EmailEditorHandle | null>(null);
@@ -213,6 +228,10 @@ function ShareComposePage() {
           includePassword: !!galleryPassword && includePassword,
           // Separate flag: a share can have a PIN and no password.
           includePin,
+          // The one credential the server CAN'T re-read — it stores only the
+          // hash — so the composer presents it and the server verifies it.
+          guestListToken: guestList.token,
+          guestListMessage: guestList.message,
         }),
       });
 
@@ -233,6 +252,11 @@ function ShareComposePage() {
     sendCopy,
     galleryPassword,
     includePassword,
+    // Both were missing: a stale closure here sends the PIN flag and the
+    // guest-list token as they were on first render, not as the photographer
+    // left them.
+    includePin,
+    guestList,
     router,
   ]);
 
@@ -486,6 +510,15 @@ function ShareComposePage() {
                         </div>
                       )}
 
+                      {/* ─── The SPS guest-list spreadsheet ─── */}
+                      {/* Lives here and nowhere else: the email recipient is
+                          the only person who ever gets a path to it. */}
+                      <GuestListAttachment
+                        eventId={eventId}
+                        initial={guestList}
+                        onChange={handleGuestList}
+                      />
+
                       {/* Send me a copy */}
                       <label className="flex items-center gap-2.5 cursor-pointer select-none">
                         <input
@@ -524,6 +557,11 @@ function ShareComposePage() {
                             shareSlug ? `/api/gallery/${shareSlug}/cover` : undefined
                           }
                           password={includePassword ? galleryPassword : null}
+                          guestList={
+                            guestList.token
+                              ? { message: guestList.message }
+                              : null
+                          }
                         />
                       </div>
                     </div>

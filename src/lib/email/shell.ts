@@ -55,6 +55,82 @@ function credentialCard(label: string, value: string): string {
   </table>`;
 }
 
+/**
+ * Paragraph spacing, stated outright.
+ *
+ * Two separate failures, both measured in a browser on 2026-08-11 rather than
+ * reasoned about (probe: /dev/email-html):
+ *
+ *  1. **A blank line was worth exactly 0px.** TipTap emits a typed blank line
+ *     as `<p></p>`, and it reaches the recipient untouched — there is no
+ *     sanitiser anywhere in this path, so the standing "something strips the
+ *     empty paragraph" theory was wrong. An empty `<p>` simply has no content,
+ *     so it measures 0px tall and its top and bottom margins collapse through
+ *     it and into its siblings. Three paragraphs with a blank line between two
+ *     of them rendered with the identical 15px gap as three with none. The
+ *     photographer's paragraph break was deleted by CSS, not by code.
+ *  2. **Nothing here styled `<p>` at all**, so every gap was whatever the
+ *     reader's mail client happened to default to. Outlook.com zeroes them.
+ *
+ * So an empty paragraph becomes a box with real height that cannot collapse,
+ * and every other paragraph carries its margin inline where no client can
+ * override it. Inline styles, not a `<style>` block: Gmail strips the latter.
+ */
+const PARA_MARGIN = "margin:0 0 16px;";
+
+/** A typed blank line. `&nbsp;` gives it content, so it cannot collapse away. */
+const BLANK_LINE = `<div style="line-height:16px;font-size:16px;">&nbsp;</div>`;
+
+export function normalizeBodyForEmail(html: string): string {
+  return (
+    html
+      // Any paragraph holding nothing but whitespace, a `<br>` or an `&nbsp;`
+      // is a blank line the photographer typed on purpose.
+      .replace(/<p\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, BLANK_LINE)
+      // Everything left is real copy. Merge into an existing style attribute
+      // rather than appending a second one — TextAlign writes `style` too, and
+      // a duplicate attribute is dropped wholesale by some clients.
+      .replace(/<p\b([^>]*)>/gi, (_match, attrs: string) => {
+        const withMargin = /\bstyle\s*=\s*["']/i.test(attrs)
+          ? attrs.replace(/\bstyle\s*=\s*(["'])/i, `style=$1${PARA_MARGIN}`)
+          : `${attrs} style="${PARA_MARGIN}"`;
+        return `<p${withMargin}>`;
+      })
+  );
+}
+
+/**
+ * The guest-list link.
+ *
+ * PII, and email-recipient-only by design (see src/lib/guest-list/store.ts):
+ * it exists on no gallery surface, so this card is the entire path to it. It
+ * is deliberately quiet — anchor text under the credentials, not a second
+ * emerald button competing with "View Gallery" — and the raw URL is never
+ * printed. The token is long on purpose, and a 200-character string sitting
+ * in the body invites someone to paste it somewhere it should not go.
+ */
+function guestListCard(url: string, message?: string | null): string {
+  const line = message?.trim()
+    ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:${INK};padding-bottom:10px;">${escapeHtml(
+        message.trim()
+      )}</div>`
+    : "";
+  return `
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 4px;">
+    <tr>
+      <td style="padding:16px 20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;">
+        <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};padding-bottom:8px;">
+          Guest List
+        </div>
+        ${line}
+        <a href="${url}" style="font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:${ACCENT};text-decoration:underline;">
+          Download the guest list
+        </a>
+      </td>
+    </tr>
+  </table>`;
+}
+
 export interface EmailShellOptions {
   /** The photographer's message — plain text or simple HTML. */
   body: string;
@@ -84,6 +160,13 @@ export interface EmailShellOptions {
    * ticket, so the credential travels with the link that needs it.
    */
   downloadPin?: string | null;
+  /**
+   * The SPS guest-list spreadsheet, when the photographer attached one and
+   * chose to include it. `url` must be the tokenized /api/guest-list/[token]
+   * link, built server-side from a token the send route has already verified
+   * against the event's stored hash — never a URL taken from the composer.
+   */
+  guestList?: { url: string; message?: string | null } | null;
 }
 
 export function renderEmailShell({
@@ -95,15 +178,20 @@ export function renderEmailShell({
   buttonLabel,
   password,
   downloadPin,
+  guestList,
 }: EmailShellOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
-  let content = looksHtml ? body : body.replace(/\n/g, "<br/>");
+  let content = looksHtml
+    ? normalizeBodyForEmail(body)
+    : body.replace(/\n/g, "<br/>");
 
   const button = galleryUrl ? galleryButton(galleryUrl, buttonLabel) : "";
   const credentials =
     (password ? credentialCard("Gallery Password", password) : "") +
-    (downloadPin ? credentialCard("Download PIN", downloadPin) : "");
+    (downloadPin ? credentialCard("Download PIN", downloadPin) : "") +
+    // Last: it's the one thing here the client reads after the photos.
+    (guestList ? guestListCard(guestList.url, guestList.message) : "");
 
   // Replace an explicit {gallery_button} token; otherwise append the button.
   // The password rides immediately behind the button either way — a client who
