@@ -38,6 +38,15 @@ export default async function PeoplePage() {
       heroUrl: p.heroKey
         ? await getPresignedDownloadUrl(getThumbnailKey(p.heroKey), 14400)
         : null,
+      // The podium renders ~600px wide; thumb-md (400px) visibly pixelates
+      // there. Small tiles keep the md rendition via srcset — serving 800px
+      // to a 180px tile would be 900 wasted large images on first paint.
+      heroUrlLg: p.heroKey
+        ? await getPresignedDownloadUrl(
+            getThumbnailKey(p.heroKey, "thumb-lg"),
+            14400
+          )
+        : null,
       events: await Promise.all(
         p.events.map(async (e) => ({
           eventId: e.eventId,

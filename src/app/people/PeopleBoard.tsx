@@ -18,6 +18,8 @@ export interface PersonCard {
   eventCount: number;
   imageCount: number;
   heroUrl: string | null;
+  /** 800px rendition — the podium is far too big for thumb-md. */
+  heroUrlLg?: string | null;
   events: PersonAppearance[];
 }
 
@@ -205,7 +207,13 @@ function PodiumCard({
         {person.heroUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={person.heroUrl}
+            src={person.heroUrlLg ?? person.heroUrl}
+            srcSet={
+              person.heroUrlLg
+                ? `${person.heroUrl} 400w, ${person.heroUrlLg} 800w`
+                : undefined
+            }
+            sizes="(max-width: 640px) 90vw, 33vw"
             alt={person.name}
             className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
             style={{ objectPosition: "center 25%" }}
@@ -280,6 +288,12 @@ function PersonTile({
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={person.heroUrl}
+            srcSet={
+              person.heroUrlLg
+                ? `${person.heroUrl} 400w, ${person.heroUrlLg} 800w`
+                : undefined
+            }
+            sizes="(max-width: 640px) 45vw, 16vw"
             alt={person.name}
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
