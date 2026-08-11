@@ -239,7 +239,15 @@ export function PersonSpotlight({
         {data && data.events.length > 0 && (
           <div className="flex shrink-0 flex-wrap gap-2 border-b border-stone-100 px-8 py-4">
             {data.events.map((e) => (
-              <EventChip key={e.eventId} event={e} personName={data.name} compact />
+              <EventChip
+                key={e.eventId}
+                // The chip's face is this shoot's best frame of THEM — the
+                // payload sorts each group best-first, so it's already at
+                // hand. Without it the chip renders an empty grey square.
+                event={{ ...e, heroUrl: e.images[0]?.thumbnailUrl ?? null }}
+                personName={data.name}
+                compact
+              />
             ))}
           </div>
         )}
