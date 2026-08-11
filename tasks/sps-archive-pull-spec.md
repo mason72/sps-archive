@@ -112,6 +112,33 @@ Notes that will bite if ignored:
 - `imageCount` on the event includes the excluded AI copies, so **never use it
   to decide whether the import is complete.** Page until `nextOffset` is absent.
 
+### Scope: going forward only (decided by Mason, 2026-08-11)
+
+**Do not build backfill of historical events into this.** The import is for
+events completed from the connection onward. Older events can still be pulled by
+hand if a specific need comes up, but the UI should not invite it.
+
+Why it's the right default rather than a limitation:
+
+- Pre-connection events have no separate archive copy — nothing was being kept —
+  so they return `quality: "lossy"`. Offering them makes the common path deliver
+  the worse copy.
+- It's the FoU26 failure mode by another name. That backfill re-imported 35
+  frames as degraded neighbours *and* four setup photos Mason had already
+  deleted, because it treated everything present in SPS as something the archive
+  was missing. A forward-only import never has to guess which.
+
+One fact to keep in your back pocket rather than act on: images uploaded between
+SPS `f406ee7` (2026-05-05) and `baa2f6f` (2026-08-11) very likely **are** camera
+files — passthrough was live — but SPS wasn't recording provenance yet, so their
+`original_is_camera_file` is `NULL` and the manifest honestly reports them
+`lossy`. That's roughly three months of events whose originals are better than
+the flag admits. It could be inferred retroactively from `mime_type`,
+`is_watermarked` and the event's overlay setting, but `overlay_enabled` reflects
+the event's state *now*, not at upload time, so the inference has a real failure
+mode. For an archive, under-promising is the safe direction — leave them `lossy`
+unless Mason asks for that window specifically.
+
 ### `POST /events/{eventId}/pulled`
 
 ```json
