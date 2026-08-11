@@ -141,8 +141,57 @@ export async function POST(request: NextRequest) {
       throw new Error("Could not resolve a target section for upload");
     }
 
+    // ── Duplicate guard ──────────────────────────────────────────────────
+    // Nothing used to stop the same folder being uploaded twice: every presign
+    // minted a fresh UUID key, so re-dragging a directory created a complete
+    // second copy — rows, R2 objects, thumbnails, and a second pass of GPU
+    // indexing. Hotel Data Conference 2026 ended up 34% duplicates (1,945
+    // extra rows) that way, purely from re-trying after a failed upload.
+    //
+    // Identity is (event, original_filename, file_size). Same name AND same
+    // bytes is the same photo; same name with a DIFFERENT size is a re-export
+    // the photographer actually made, and must still upload. Matching only
+    // against SETTLED rows means a failed or in-flight upload can always be
+    // retried — which is the exact flow that created the mess.
+    const dupKeys = new Set<string>();
+    {
+      const names = [...new Set(files.map((f) => f.name))];
+      // Chunked: a folder drop can be thousands of names, and PostgREST has to
+      // fit them in a URL.
+      for (let i = 0; i < names.length; i += 200) {
+        const { data: existing, error: dupErr } = await supabase
+          .from("images")
+          .select("original_filename, file_size")
+          .eq("event_id", eventId)
+          .eq("processing_status", "complete")
+          .in("original_filename", names.slice(i, i + 200));
+        if (dupErr) throw dupErr;
+        for (const row of (existing ?? []) as {
+          original_filename: string;
+          file_size: number | null;
+        }[]) {
+          if (row.file_size != null) {
+            dupKeys.add(`${row.original_filename}|${row.file_size}`);
+          }
+        }
+      }
+    }
+
+    const duplicates = files.filter((f) => dupKeys.has(`${f.name}|${f.size}`));
+    const fresh = files.filter((f) => !dupKeys.has(`${f.name}|${f.size}`));
+
+    // Everything in this batch is already here. Answer honestly rather than
+    // returning an empty upload list the client would read as a failure.
+    if (fresh.length === 0) {
+      return NextResponse.json({
+        uploads: [],
+        duplicatesSkipped: duplicates.length,
+        duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+      });
+    }
+
     // Build all records
-    const records = files.map((file) => {
+    const records = fresh.map((file) => {
       const id = randomUUID();
       const parsed = parseFilename(file.name);
       const uniqueFilename = `${id}.${parsed.extension}`;
@@ -207,7 +256,16 @@ export async function POST(request: NextRequest) {
       }))
     );
 
-    return NextResponse.json({ uploads, sectionId: targetSectionId });
+    return NextResponse.json({
+      uploads,
+      sectionId: targetSectionId,
+      // The client reports these so a skip never looks like a silent failure.
+      duplicatesSkipped: duplicates.length,
+      // name|size for every skip, so the client can mark exactly those entries
+      // rather than inferring from a short uploads array — which its own guard
+      // would otherwise read as server failures.
+      duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+    });
   } catch (error) {
     console.error("Upload error:", error);
     await reportSystemError("upload.presign", error, { eventId: eventIdForReport, fileCount: fileCountForReport });

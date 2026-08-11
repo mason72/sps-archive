@@ -535,6 +535,10 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       const batch = batchesRef.current.find((b) => b.id === batchId);
       if (!batch) return;
       const { eventId, sectionId } = batch;
+      // Files the archive already held, skipped at presign. Reported once at
+      // the end — a silent skip is indistinguishable from a lost upload, which
+      // is the anxiety this whole area keeps generating.
+      let duplicatesSkipped = 0;
 
       for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
         if (aborted.current.has(batchId)) break;
@@ -548,7 +552,7 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
         );
         if (aborted.current.has(batchId)) break;
 
-        const chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
+        let chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
         const chunk = chunkEntries.map((e) => e.file);
 
         let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
@@ -578,7 +582,29 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
             }
             continue;
           }
-          uploads = (await response.json()).uploads;
+          const presign = await response.json();
+          uploads = presign.uploads;
+          // Files the server already holds (same name AND size, settled). They
+          // are NOT failures and NOT re-uploaded — mark them done so the ring
+          // closes honestly, and drop them before the length check below,
+          // which would otherwise read a short uploads array as errors.
+          const dupKeys = new Set<string>(presign.duplicateKeys ?? []);
+          if (dupKeys.size > 0) {
+            const skipped = chunkEntries.filter((e) =>
+              dupKeys.has(`${e.file.name}|${e.file.size}`)
+            );
+            // The UI already has a "duplicate" state (from the per-section
+            // filename pre-check). This is the authoritative version of that
+            // check — name AND size, whole event, server-side, unskippable.
+            for (const e of skipped) {
+              updateFile(batchId, e.id, { status: "duplicate" });
+            }
+            duplicatesSkipped += skipped.length;
+            chunkEntries = chunkEntries.filter(
+              (e) => !dupKeys.has(`${e.file.name}|${e.file.size}`)
+            );
+            if (chunkEntries.length === 0) continue;
+          }
         } catch (err) {
           for (const e of chunkEntries) {
             const list = failedFiles.current.get(batchId) ?? [];
