@@ -87,6 +87,12 @@ async function main() {
           .select("parsed_name, original_filename")
           .eq("event_id", ev.eventId)
           .eq("media_type", "image")
+          // Same scope the index uses: a presigned row whose bytes never
+          // arrived is not a photo of anybody. The EDITOR still renders those
+          // (a photographer needs to see that something broke), so this is the
+          // one place the deep link's on-screen tile count can exceed the
+          // chip's — until the nightly reconciler clears the ghosts.
+          .eq("processing_status", "complete")
           .range(offset, offset + 999);
         if (error) throw error;
         if (!data?.length) break;

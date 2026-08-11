@@ -212,6 +212,11 @@ export async function buildPersonDetail(
       .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
       .in("event_id", [...eventById.keys()])
       .eq("media_type", "image")
+      // Presign-created rows exist BEFORE their bytes do. Counting them
+      // promises photos the gallery can't show — Jeff Roark's tile said 77
+      // when 9 were ghosts from a died-mid-upload session, and the spotlight
+      // rendered them as blank tiles.
+      .eq("processing_status", "complete")
       .or(`parsed_name.ilike.%${token}%,original_filename.ilike.%${token}%`)
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
@@ -307,6 +312,11 @@ export async function buildPeopleIndex(
       .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
       .in("event_id", [...eventById.keys()])
       .eq("media_type", "image")
+      // Presign-created rows exist BEFORE their bytes do. Counting them
+      // promises photos the gallery can't show — Jeff Roark's tile said 77
+      // when 9 were ghosts from a died-mid-upload session, and the spotlight
+      // rendered them as blank tiles.
+      .eq("processing_status", "complete")
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
