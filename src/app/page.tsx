@@ -81,6 +81,12 @@ async function DashboardView({
         >
           Search
         </Link>
+        <Link
+          href="/people"
+          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+        >
+          People
+        </Link>
         <Link href="/events/new">
           <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
         </Link>
