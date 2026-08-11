@@ -77,6 +77,35 @@ Space-named vs underscore-named siblings are NOT duplicates:
 
 Detect by subfolder signature and exclude the artwork variant.
 
+## Triage outcome (complete, 2026-08-11)
+
+All 1,763 collections decided via `scripts/triage`. 1,290 by hand, 473 auto-kept (2024+).
+
+| | collections | photos |
+|---|---|---|
+| **KEEP** | **1,371** | **1,582,122** |
+| TRASH | 392 | 298,119 |
+| ↳ keep, 2024+ (Dropbox-backed) | 514 | 926,436 |
+| ↳ **keep, pre-2024 (Pixieset only — the at-risk set)** | **857** | **655,686** |
+
+Trash is a manifest entry only. Nothing has been deleted anywhere.
+
+A leave-one-out audit (`audit.mjs`) then flipped 30 trashes back to keep
+(`via: "reconsider"`, +17,732 photos) where a client had 2+ keeps and no kept
+sibling within 2 days. Backup at `data/decisions.backup.json`.
+
+### Two patterns the audit found, worth remembering
+
+- **Booth vs event photos.** Many jobs produced TWO galleries on the same day — a
+  large booth gallery and a small "Event Photos" one. Mason consistently keeps the
+  small one and trashes the large one. A naive "you trashed a big gallery from a
+  client you like" check flags 13 of these as mistakes; they are deliberate. The
+  2-day sibling test is what separates them from real gaps.
+- **Criteria drift.** Keep-rate ran 69% → 49% → 84% across the session. Personal
+  events (birthdays, weddings, reunions) were kept early and trashed late, so the
+  model was averaging three different policies. Any future model trained on this
+  data inherits that.
+
 ## Open decisions
 
 1. **Storage tier for the 949k at-risk photos.** Full-res in R2 for all 1.88M is ~5.6 TB ≈
