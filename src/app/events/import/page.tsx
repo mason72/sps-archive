@@ -84,6 +84,8 @@ interface PullJob {
   landed: number;
   /** Photos SPS has been told about (not the same as ones it could release). */
   reported: number;
+  /** Thumbnails of what has landed. Only populated when asked for. */
+  thumbs?: string[];
 }
 
 type Stage = "pick" | "review" | "running";
@@ -129,8 +131,27 @@ export default function ImportFromSpsPage() {
   // Event-list search. 84 completed events is too many to scan by eye.
   const [eventQuery, setEventQuery] = useState("");
 
+  /**
+   * Read by the poll callback, which must NOT depend on `images` — rebuilding it
+   * on every manifest page would cancel and restart the poll mid-import.
+   */
+  const imagesRef = useRef<ManifestImage[]>([]);
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
   /** Which slice of the event's photos is currently drifting past the elephant. */
   const [photoWindow, setPhotoWindow] = useState(0);
+
+  /**
+   * Thumbnails of photos already imported, fetched only when the review grid was
+   * never loaded — the revisit case. Keeps the loader showing real photographs
+   * instead of an empty savanna, which is the state you land in if you come back
+   * to a long import from the event list.
+   */
+  const [landedThumbs, setLandedThumbs] = useState<string[]>([]);
+  /** Same reason as imagesRef: the poll callback must stay stable. */
+  const landedThumbsRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (!user) router.push("/login");
@@ -258,7 +279,8 @@ export default function ImportFromSpsPage() {
    */
   const passingPhotos = useMemo(() => {
     const kept = images.filter((i) => !deselected.has(i.id));
-    if (!kept.length) return [];
+    // Revisit: no manifest in memory, so walk him through what has already landed.
+    if (!kept.length) return landedThumbs;
     // Only four are on the road at a time (one per band per copy), so hand over
     // a small rotating window rather than the whole event — and rotate it, or a
     // 40-minute pull shows the same two frames for 40 minutes.
@@ -267,7 +289,7 @@ export default function ImportFromSpsPage() {
       const idx = ((photoWindow + i) * step) % kept.length;
       return kept[idx].previewUrl;
     });
-  }, [images, deselected, photoWindow]);
+  }, [images, deselected, photoWindow, landedThumbs]);
 
   // Advance the window on a SLOW clock. The bands loop every 15s (near) and 38s
   // (far), and a swap while a card is mid-screen is visible — the same class of
@@ -332,9 +354,15 @@ export default function ImportFromSpsPage() {
     };
 
     try {
-      const res = await fetch(`/api/sps/pull/jobs/${jobId}`, {
-        cache: "no-store",
-      });
+      // Ask for landed thumbnails only while we have no manifest previews — i.e.
+      // a revisit, where the review grid was never loaded. Once we have some,
+      // stop asking.
+      const wantThumbs =
+        imagesRef.current.length === 0 && landedThumbsRef.current.length === 0;
+      const res = await fetch(
+        `/api/sps/pull/jobs/${jobId}${wantThumbs ? "?thumbs=1" : ""}`,
+        { cache: "no-store" }
+      );
       if (!res.ok) {
         // Back off, but never give up while we still believe it's running.
         setPollStale(true);
@@ -344,6 +372,10 @@ export default function ImportFromSpsPage() {
       const { job: fresh } = (await res.json()) as { job: PullJob };
       setJob(fresh);
       setPollStale(false);
+      if (fresh.thumbs?.length) {
+        landedThumbsRef.current = fresh.thumbs;
+        setLandedThumbs(fresh.thumbs);
+      }
       if (fresh.status === "queued" || fresh.status === "running") {
         again(2500, 0);
       }

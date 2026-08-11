@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
@@ -16,7 +17,7 @@ import { reportSystemError } from "@/lib/monitoring/report";
  * in this flow. Stop means stop pulling more.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
@@ -62,8 +63,32 @@ export async function GET(
       .not("sps_pulled_at", "is", null);
     if (reportedError) throw reportedError;
 
+    // A few thumbnails of what has already landed, so the loader can walk the
+    // elephant through this event's own photos when the client has no manifest
+    // previews in memory — which is the NORMAL case for a revisit: coming back to
+    // a long import from the event list never loads the review grid, and without
+    // this the most likely way to watch a pull is the one with nothing to show.
+    //
+    // Only when asked (`?thumbs=1`), and the client asks once: presigning is
+    // memoized and cheap, but there is no reason to redo it every 2.5s poll.
+    let thumbs: string[] = [];
+    if (request.nextUrl.searchParams.get("thumbs") === "1") {
+      const { data: rows } = await supabase
+        .from("images")
+        .select("r2_key")
+        .eq("event_id", job.event_id)
+        .not("sps_image_id", "is", null)
+        .eq("thumbnail_generated", true)
+        .limit(4);
+      thumbs = await Promise.all(
+        (rows ?? []).map((r) =>
+          getCachedThumbnailUrl(getThumbnailKey(r.r2_key))
+        )
+      );
+    }
+
     return NextResponse.json({
-      job: { ...job, landed: landed ?? 0, reported: reported ?? 0 },
+      job: { ...job, landed: landed ?? 0, reported: reported ?? 0, thumbs },
     });
   } catch (error) {
     console.error("SPS pull job status error:", error);
