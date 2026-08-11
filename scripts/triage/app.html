@@ -128,7 +128,8 @@
 
 <header>
   <h1 class="serif">Archive Triage</h1>
-  <div class="stat"><b id="s-done">0</b> / <span id="s-total">0</span> decided</div>
+  <div class="stat"><b id="s-done">0</b> / <span id="s-total">0</span> triaged</div>
+  <div class="stat" id="s-auto"></div>
   <div class="bar"><span id="s-bar" style="width:0"></span></div>
   <div class="stat">keep <b id="s-keep">0</b> · <span id="s-keepimg">0</span> photos</div>
   <div class="stat">trash <b id="s-trash">0</b> · <span id="s-trashimg">0</span> photos</div>
@@ -181,6 +182,10 @@ let mode = "card";          // "card" | "batch"
 let batchItems = [];        // [{id, verdict}]
 let saveTimer = null;
 
+// 2024+ is already backed up in Dropbox _ARCHIVE and is never in question —
+// auto-keep it so triage only spends attention on the Pixieset-only years.
+const AUTO_KEEP_FROM = 2024;
+
 const STOP = new Set(["the","and","for","with","from","photos","photo","gallery","event",
   "day","final","edit","edits","images","pics","llc","inc","new","all"]);
 
@@ -213,6 +218,7 @@ function train() {
   const docs = { keep: 0, trash: 0 };
   const vocab = new Set();
   for (const [id, d] of Object.entries(DEC)) {
+    if (d.via === "auto") continue;   // 521 auto-keeps would swamp the priors
     const rec = byId.get(Number(id));
     if (!rec) continue;
     docs[d.verdict]++;
@@ -263,7 +269,8 @@ function explain(s) {
 // ---------------------------------------------------------------------------
 function reorder() {
   const undecided = INV.filter(r => !DEC[r[0]]).map(r => r[0]);
-  if (Object.keys(DEC).length < 24) {
+  const manual = Object.values(DEC).filter(d => d.via !== "auto").length;
+  if (manual < 24) {
     // spread across years so the model sees the whole space early
     const buckets = new Map();
     for (const id of undecided) {
@@ -329,20 +336,24 @@ const imgLarge = p => "https://images.pixieset.com/" + p.replace("-thumb.jpg", "
 const nf = n => n.toLocaleString();
 
 function stats() {
-  let keep = 0, trash = 0, keepImg = 0, trashImg = 0;
+  let keep = 0, trash = 0, keepImg = 0, trashImg = 0, auto = 0, manual = 0;
   for (const [id, d] of Object.entries(DEC)) {
     const rec = byId.get(Number(id));
     const p = rec ? rec[3] : 0;
     if (d.verdict === "keep") { keep++; keepImg += p; } else { trash++; trashImg += p; }
+    d.via === "auto" ? auto++ : manual++;
   }
-  const done = keep + trash;
-  document.getElementById("s-done").textContent = nf(done);
-  document.getElementById("s-total").textContent = nf(INV.length);
+  // progress is measured against the years that actually need a decision
+  const scope = INV.filter(r => +((r[2] || "").slice(0, 4)) < AUTO_KEEP_FROM).length;
+  document.getElementById("s-done").textContent = nf(manual);
+  document.getElementById("s-total").textContent = nf(scope);
+  document.getElementById("s-auto").textContent =
+    auto ? `+${nf(auto)} auto-kept (${AUTO_KEEP_FROM}+)` : "";
   document.getElementById("s-keep").textContent = nf(keep);
   document.getElementById("s-trash").textContent = nf(trash);
   document.getElementById("s-keepimg").textContent = nf(keepImg);
   document.getElementById("s-trashimg").textContent = nf(trashImg);
-  document.getElementById("s-bar").style.width = (done / Math.max(INV.length, 1) * 100) + "%";
+  document.getElementById("s-bar").style.width = (manual / Math.max(scope, 1) * 100) + "%";
   const conf = confidentPool().length;
   document.getElementById("s-model").textContent =
     model && model.n >= 6 ? `${conf} ready to batch` : "learning…";
@@ -551,7 +562,20 @@ async function start() {
   INV = j.inventory;
   DEC = j.decisions || {};
   for (const rec of INV) byId.set(rec[0], rec);
-  history = Object.keys(DEC).map(Number);
+
+  // Auto-keep the Dropbox-backed years. Only fills gaps — an explicit verdict
+  // you already gave on a 2024+ gallery is left exactly as you set it.
+  let auto = 0;
+  for (const rec of INV) {
+    const y = +((rec[2] || "").slice(0, 4));
+    if (y >= AUTO_KEEP_FROM && !DEC[rec[0]]) {
+      DEC[rec[0]] = { verdict: "keep", at: new Date().toISOString(), via: "auto" };
+      auto++;
+    }
+  }
+  if (auto) { console.log(`auto-kept ${auto} collections from ${AUTO_KEEP_FROM}+`); save(); }
+
+  history = Object.keys(DEC).filter(id => DEC[id].via !== "auto").map(Number);
   train(); reorder(); render();
 }
 </script>
