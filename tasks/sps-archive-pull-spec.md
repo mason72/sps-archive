@@ -51,10 +51,37 @@ every request:
 X-SPS-Archive-Token: spsa_...
 ```
 
-Store it as an env var / per-user secret on the Pixeltrunk side. Re-minting in
-SPS immediately invalidates the previous token. A revoked or unknown token gets
-`401`; a valid token pointed at another host's event gets `404` (not `403` —
-SPS deliberately refuses to confirm the event exists).
+Re-minting in SPS immediately invalidates the previous token. A revoked or
+unknown token gets `401`; a valid token pointed at another host's event gets
+`404` (not `403` — SPS deliberately refuses to confirm the event exists).
+
+### Where the token lives here — NOT an env var
+
+**This needs UI, and it is step 1 of the build.** SPS mints the token per user
+(`archive_connections` is keyed by `user_id`), so Pixeltrunk must store it per
+user too: a row in this database, entered by the photographer in
+**Settings → Connections**. An env var would pin the entire install to one SPS
+account, which holds only while Mason is the sole person connecting — and
+Pixeltrunk is a multi-tenant product with real photographers on it.
+
+Note the asymmetry, because it decides how carefully this is handled: SPS only
+ever *verifies* the token, so it stores a sha256 and can afford to. Pixeltrunk
+must *present* it on every request, so it has to retain the plaintext. That
+makes this a stored credential — service-role-only table, RLS enabled with no
+policies, never returned to the browser. Show a masked prefix (`spsa_AwOrxqN…`)
+the way SPS's own settings panel does.
+
+**Validate on save.** Take the pasted token, immediately call
+`GET /events` with it, and show the photographer how many events came back.
+The token is displayed exactly once on the SPS side, so a mistyped or truncated
+paste that only surfaces at the first import is a genuinely bad experience — and
+the failure would look like "the integration is broken" rather than "the paste
+was short".
+
+Until this screen exists there is nowhere to put a token, and any instruction to
+paste one is pointing at nothing. SPS's own Settings card is gated off behind
+`NEXT_PUBLIC_ENABLE_PIXELTRUNK` for exactly that reason; flip it on there once
+this ships.
 
 Base URL: `https://admin2.simplephotoshare.com/api/integrations/archive`
 
