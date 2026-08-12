@@ -26,11 +26,23 @@
  * Scope: the 1,371 KEEP collections, not all 1,763. Clearing PINs on the 392 being
  * trashed would expose client galleries for no migration benefit.
  */
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { load } from "./lib/store.mjs";
 
 const args = process.argv.slice(2);
 const atRiskOnly = args.includes("--at-risk");
 const restore = args.includes("--restore");
+/**
+ * `--clear-only` emits the destructive half alone, for when the backup has already
+ * been taken and VERIFIED on disk. It carries the small PROTECT list (collections
+ * being trashed, which keep their PINs) instead of the much larger KEEP list, and
+ * re-reads live state rather than trusting a stale id list — so a collection whose
+ * PIN was already cleared is skipped rather than written to twice.
+ */
+const clearOnly = args.includes("--clear-only");
+const BACKUP = join(homedir(), "Downloads", "pixieset-download-pins-backup.json");
 
 const queue = await load();
 if (!queue) {
@@ -70,6 +82,74 @@ if (restore) {
     console.log('restored', ok, '· failed', fail);
   };
   input.click();
+})();`);
+  process.exit(0);
+}
+
+if (clearOnly) {
+  // Refuse to emit a destructive payload unless a real backup is sitting on disk.
+  // A guard that only prints a warning is not a guard.
+  let backup;
+  try {
+    backup = JSON.parse(readFileSync(BACKUP, "utf8"));
+  } catch {
+    console.error(`no backup at ${BACKUP} — refusing to emit a clear-only payload.`);
+    console.error(`run the full payload first (it backs up before clearing):`);
+    console.error(`  node scripts/pixieset/emit-pin-clear.mjs | pbcopy`);
+    process.exit(1);
+  }
+  const withPin = Object.keys(backup).filter((k) => backup[k] && backup[k].pin);
+  if (withPin.length === 0) {
+    console.error(`the backup at ${BACKUP} records no PINs at all — refusing to clear blind.`);
+    process.exit(1);
+  }
+  const keep = new Set(Object.keys(queue.collections));
+  const protect = withPin.filter((id) => !keep.has(id)).map(Number);
+  const willClear = withPin.filter((id) => keep.has(id)).length;
+
+  console.error(`backup found: ${Object.keys(backup).length} collections, ${withPin.length} PINs`);
+  console.error(`will clear ${willClear} · protecting ${protect.length} trashed collections`);
+
+  console.log(`// Clear the download PIN across the KEEP set. Backup already taken and
+// verified at ~/Downloads/pixieset-download-pins-backup.json (${withPin.length} PINs).
+//
+// Paste on https://galleries.pixieset.com while signed in. Chrome blocks the FIRST
+// paste into a console: if it asks, type  allow pasting  then press Enter, and paste again.
+//
+// Re-reads live state, so it is safe to run twice — anything already cleared is skipped.
+(async () => {
+  const PROTECT = new Set(${JSON.stringify(protect)});   // being trashed; they keep their PINs
+  const xsrf = decodeURIComponent((document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [, ''])[1]);
+  if (!xsrf) return console.error('no XSRF-TOKEN cookie — are you signed in?');
+  const hdr = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': xsrf };
+
+  const targets = [];
+  for (let page = 1; page < 200; page++) {
+    const r = await fetch(\`/api/v1/dashboard_listings?page=\${page}\`, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    if (!r.ok) break;
+    const j = await r.json();
+    const cols = (j && j.data && j.data.data && j.data.data.collections) || [];
+    if (!cols.length) break;
+    for (const c of cols) {
+      const has = !!(c.download_pin && String(c.download_pin).trim());
+      if (has && !PROTECT.has(Number(c.id))) targets.push(Number(c.id));
+    }
+  }
+  console.log('clearing', targets.length, 'collections (protecting', PROTECT.size + ')');
+
+  let ok = 0, fail = 0;
+  for (const id of targets) {
+    try {
+      const r = await fetch(\`/api/v1/collections/\${id}/update_download_settings\`, {
+        method: 'PATCH', credentials: 'include', headers: hdr,
+        body: JSON.stringify({ id, download_pin: null }),
+      });
+      r.ok ? ok++ : fail++;
+    } catch { fail++; }
+    if ((ok + fail) % 50 === 0) console.log('  ', ok + fail, '/', targets.length);
+    await new Promise((s) => setTimeout(s, 120));
+  }
+  console.log('DONE —', ok, 'cleared ·', fail, 'failed');
 })();`);
   process.exit(0);
 }
