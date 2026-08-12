@@ -475,13 +475,24 @@ export default function EventPage({
   // so the plan preview is accurate while files are still uploading.
   const NUDGE_MIN_FILES = 50;
   useEffect(() => {
-    if (!uploadProgress.active || uploadProgress.total < NUDGE_MIN_FILES) return;
-    const targetIsIntake =
-      uploadTargetId === null || uploadTargetId === findIntakeSectionId(sections);
-    if (targetIsIntake) {
+    if (!uploadProgress.active) return;
+    // Arm from where the FILES WENT, not from where you happen to be looking.
+    //
+    // This used to test `uploadTargetId`, which is derived from the ACTIVE
+    // SECTION — so clicking into another section mid-upload silently disarmed
+    // it. Justin dropped 1,143 files into Unsorted and 78 into Highlights; the
+    // moment he viewed Highlights the nudge stopped arming, and he went hunting
+    // for the sort action himself and landed on the wrong feature
+    // (2026-08-11). A batch's destination is a property of the batch.
+    const intakeId = findIntakeSectionId(sections);
+    const intakeBatch =
+      (intakeId ? uploadProgress.bySection.get(intakeId) : null) ??
+      uploadProgress.bySection.get("__event__") ??
+      null;
+    if (intakeBatch && intakeBatch.total >= NUDGE_MIN_FILES) {
       setSortNudge((s) => (s === "dismissed" ? s : "shown"));
     }
-  }, [uploadProgress.active, uploadProgress.total, uploadTargetId, sections]);
+  }, [uploadProgress.active, uploadProgress.bySection, sections]);
 
   // The nudge's numbers, scoped to the INTAKE target's own batches (never the
   // event-wide sum — Justin watched a finished 42-file Highlights batch

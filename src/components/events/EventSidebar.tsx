@@ -30,7 +30,11 @@ import {
   FolderTree,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
-import { findIntakeSectionId } from "@/lib/sections/intake";
+import {
+  CURATED_SECTION_NAME,
+  INTAKE_SECTION_NAME,
+  findIntakeSectionId,
+} from "@/lib/sections/intake";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { sceneForKey } from "@/lib/site/scenes";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -421,8 +425,21 @@ function SectionsPanel({
   // badge; null shows the "→ Unsorted" hint (the intake is created on upload).
   const uploadTargetId = activeSection ?? findIntakeSectionId(sections) ?? null;
 
-  // AI_HIDDEN: hasAutoSections check disabled — AI backend not configured
-  // const hasAutoSections = sections.some((s) => s.isAuto);
+  /**
+   * Has this gallery actually been organised, or is it still one pile?
+   *
+   * "Organised" means a section that isn't the intake and isn't the empty
+   * Highlights placeholder every event ships with — i.e. somewhere the
+   * photographer's photos actually live. Decides whether the sort action calls
+   * itself "Rebuild" (something exists to rebuild) or "Sort into sections"
+   * (nothing does yet).
+   */
+  const hasOrganisedSections = sections.some(
+    (s) =>
+      s.imageCount > 0 &&
+      s.name.trim().toLowerCase() !== INTAKE_SECTION_NAME.toLowerCase() &&
+      s.name.trim().toLowerCase() !== CURATED_SECTION_NAME.toLowerCase()
+  );
 
   const handleCreate = useCallback(async () => {
     const trimmed = newName.trim();
@@ -761,11 +778,21 @@ function SectionsPanel({
             >
               <FolderTree size={14} className="mt-0.5 shrink-0 text-stone-400" />
               <span>
+                {/* "Rebuild" is right only when there is something to rebuild.
+                    On a gallery whose photos are still one big Unsorted pile it
+                    reads as a repair action, so the one control that organises a
+                    fresh dump doesn't look like the thing you want — Justin went
+                    hunting for it and landed on Smart section instead
+                    (2026-08-11). Same button, honest name for the state. */}
                 <span className="block text-[12px] font-medium text-stone-700">
-                  Rebuild all sections…
+                  {hasOrganisedSections
+                    ? "Rebuild all sections…"
+                    : "Sort into sections…"}
                 </span>
                 <span className="block text-[10px] leading-tight text-stone-400">
-                  Re-sorts the whole gallery · keeps your own sections
+                  {hasOrganisedSections
+                    ? "Re-sorts the whole gallery · keeps your own sections"
+                    : "Group these photos by person, name or size"}
                 </span>
               </span>
             </button>

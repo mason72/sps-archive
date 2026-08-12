@@ -14,6 +14,8 @@ interface Status {
   startedAt: string | null;
   perMinute: number | null;
   etaMinutes: number | null;
+  /** Forecast from known throughput, used only before a measured rate exists. */
+  forecastMinutes: number | null;
   complete: boolean;
   /**
    * An SPS import currently pulling photos into this event.
@@ -185,11 +187,15 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
           ) : status.indexed === 0 ? (
             <>
               <span className="font-medium">Queued for AI processing</span>
-              {/* State the real wait. "A few minutes" sent Mason back to refresh
-                  a page that could not have changed yet; the honest number is the
-                  debounce period, which is now 2 minutes from the last photo. */}
+              {/* Say when it starts AND roughly how long it runs. "Queued" with
+                  no scale is what sent Justin looking for another way to do the
+                  job while 1,142 photos sat 31 minutes from ready. The forecast
+                  is labelled as one ("about"), and a measured figure replaces it
+                  as soon as the first batch lands. */}
               <span className="text-stone-400">
                 — starts about 2 minutes after the last photo lands
+                {status.forecastMinutes !== null &&
+                  `, then about ${status.forecastMinutes} minute${status.forecastMinutes === 1 ? "" : "s"} for ${status.total.toLocaleString()} photos`}
               </span>
             </>
           ) : (

@@ -15,6 +15,9 @@ import { reportSystemError } from "@/lib/monitoring/report";
  */
 export const dynamic = "force-dynamic";
 
+/** Photos indexed per minute, from measured runs (see forecastMinutes below). */
+const INDEX_RATE_PER_MIN = 54;
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
@@ -138,6 +141,18 @@ export async function GET(
         if (perMinute > 0) etaMinutes = Math.ceil((total - indexed) / perMinute);
       }
     }
+    // Before the first batch there is no measured rate, and the banner used to
+    // say "Queued" with no sense of scale — Justin waited 31 minutes on 1,142
+    // photos with nothing on screen suggesting how long, and went looking for
+    // another way to do the job (2026-08-11). The throughput is known and
+    // stable, so estimate rather than shrug: Island HQ indexed 1,142 in 21
+    // minutes (54/min), and the pipeline's own shape agrees — 100 images per
+    // batch at ~107 GPU-seconds is ~56/min. Explicitly a FORECAST; the measured
+    // number replaces it the moment real work exists.
+    const forecastMinutes =
+      etaMinutes === null && total > indexed
+        ? Math.max(1, Math.ceil((total - indexed) / INDEX_RATE_PER_MIN))
+        : null;
 
     return NextResponse.json({
       total,
@@ -147,6 +162,8 @@ export async function GET(
       startedAt,
       perMinute,
       etaMinutes,
+      /** Estimate used only before a measured rate exists. */
+      forecastMinutes,
       importing,
       // Stalled rows must NOT keep this open forever — they're resolved by
       // dismissing the banner, not by waiting.
