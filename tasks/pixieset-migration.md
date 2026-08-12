@@ -173,6 +173,57 @@ Measured on `nachisheadshots` (48 photos): ZIP ready in **~2 seconds**, 68.2 MB,
 Archive layout is `All_Photos/*.jpg` — **Pixieset sets become folders**, which map
 directly onto Pixeltrunk sections. Multi-part naming is `-1of1`, so big galleries split.
 
+### The actual wire contract (probed live 2026-08-12 — do not re-derive)
+
+Pixieset runs Yii, so the field names are bracketed and unguessable. Measured on
+`nachisheadshots` by fetching each step in-page and reading the DOM:
+
+**Step 2 — the email gate.** `POST` back to the SAME `/download/auth/{slug}/?dt={token}` URL:
+
+| field | value |
+|---|---|
+| `DownloadLoginForm[email]` | the notify address |
+| `yt0` | `""` (Yii's submit marker) |
+
+**Step 2b — the "Existing File?" interstitial. NOT in the original spec, and the
+pipeline breaks without it.** If a download was already generated for that
+collection, the POST lands on a page offering **DOWNLOAD EXISTING** or **NEW
+DOWNLOAD** instead of the set picker. This is good news for the 7-day expiry —
+a still-live ZIP can be re-fetched without regenerating — but a driver that
+assumes the set picker will find no form and stall. Detect on the text
+"already generated a download".
+
+**Step 3 — set selection.** Lands on `/download/sets/{slug}/?filekey={key}`:
+
+| field | type | values |
+|---|---|---|
+| `Download[galleries]` | hidden | `""` (Yii array marker — send it) |
+| `Download[galleries][]` | checkbox | **per-collection set IDs** (e.g. `65655962` = All Photos, `65655970` = Your Favorites) |
+| `Download[download_size]` | radio | `1` = High Resolution, `4` = Web Size |
+| `download-destination` | radio | `0` = Save to My Device (DOM order is 0, 2, 1 — read the value, never the position) |
+| `Download[type_id]` | hidden | `0` |
+
+**The set IDs are per-collection and must be READ, never hardcoded.** And the
+set labelled "All Photos" is not guaranteed to exist — a collection with named
+sets (Ceremony / Reception) has none. So the resolver is: prefer a set labelled
+`All Photos`; otherwise select EVERY set and dedupe by filename after
+extraction; and **log which branch was taken**, the same rule as the Dropbox
+`Output` folder resolver, or collections vanish silently.
+
+This page also confirms the double-count directly: All Photos **48** + Your
+Favorites **32** = the 80 that `photo_count` reports for a 48-photo gallery.
+
+### Driving the browser: the tab-group trap
+
+The Claude Chrome extension will accept `navigate`, return **"Navigated to
+&lt;url&gt;"**, and leave the tab on `chrome://newtab/` forever if it is holding
+tabs from a **stale tab group** — which is what happens after `switch_browser`
+picks a different Chrome. Every later call then fails with "Cannot access a
+chrome:// URL", which reads exactly like a permissions or bot-detection problem
+and is neither. **Fix: discard the tabs and let `tabs_context_mcp` mint a fresh
+group.** A genuine permission block returns an error; this one returns success,
+so trust the URL, not the return value.
+
 ### `photo_count` DOUBLE-COUNTS — totals are an upper bound
 
 A photo in two sets is two photo records with two storage hashes but the SAME filename.
