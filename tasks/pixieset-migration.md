@@ -288,10 +288,13 @@ or Mason running the payload himself.
 The Download Settings pane offers High Resolution = **Original** or **3600px**. A
 collection set to 3600px hands back downsampled files while still calling them High
 Resolution — the fidelity guard would NOT catch it (3600 > the 2560 rendition
-threshold, and correctly so). `perkinelmereventphotos` reads `high_res_download_size:
-1` (Original). **Audit this field across the KEEP set before bulk downloading**; any
-collection not set to Original needs its setting changed first, or it silently archives
-derivatives. Web Size likewise varies per collection (2048px on `nachisheadshots`,
+threshold, and correctly so). Audited across all 1,763 (2026-08-12): **1,733 read `high_res_download_size: 1`
+(Original) and 30 read `0`** — high-res not offered at all, so those serve Web Size
+only. They cluster in 2014 and 2017, i.e. inside the at-risk set, and 30 of them are
+otherwise downloadable. Each needs its High Resolution setting turned on before it is
+pulled, or it archives derivatives. The width guard catches them either way, which is
+the point of having it — but catching them at verification wastes a download, so fix
+the setting first. Web Size likewise varies per collection (2048px on `nachisheadshots`,
 1024px here), which is why the guard keys on uniform narrow width rather than a
 specific number.
 
