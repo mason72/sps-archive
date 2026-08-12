@@ -2111,3 +2111,45 @@ to Supabase errors and to scripted counts vs SQL aggregates.
 - [ ] **Evict cold embeddings** — now much less urgent. An embedding costs
       $0.000101 and 0.6s to rebuild from bytes already in R2, so dropping them
       for cold events is safe and reversible whenever it is wanted.
+
+## Duplicates — recommendation, 2026-08-12: nothing more to build
+
+### The ingest guard works, and there is now evidence rather than hope
+Every duplicate group left in the archive was created BEFORE the guard shipped
+on 2026-08-11. Zero groups have formed since — across a month that included the
+SPS pull, the Island re-upload and heavy shooting.
+
+```
+era                      dupe_groups  extra_rows
+before the guard                 66          74
+after the guard shipped           0           0
+```
+
+### TDP Website's 71: leave PERMANENTLY, and the reason is not the one I gave
+I was about to recommend consolidating them into one row with two section links
+— the model the guard produces today, and the obvious-looking cleanup. Checked
+the crops first: **60 of 63 pairs have CONFLICTING focal points**, and 3 more
+have a crop on only one copy.
+
+`focal_x`/`focal_y` live on the image ROW, not on the `section_images` link. Two
+rows hold two framings of one photo; one row cannot. Those duplicates ARE how a
+photo is framed one way as a hero and another way in a BTS grid. Consolidating
+would silently re-crop up to 60 live positions on twodudesphoto.com — and since
+nothing distinguishes a deliberate crop from an auto-detected one, the damage
+could not even be reviewed afterwards.
+
+Check with `scripts/triage/tdp-consolidate-check.ts`.
+
+### The 3 blocked rows: leave
+Named directly by live client shares. They could be reclaimed by repointing each
+share to the surviving (byte-identical) row, which no client would see — but
+that edits three delivered galleries to recover three rows. The prize is smaller
+than the risk.
+
+### Orphaned R2 objects: delete after a soak
+- [ ] **~571 objects, ~4 cents/month, delete on or after 2026-09-11.** These are
+      the bytes behind the rows removed on 2026-08-12, left in place on purpose:
+      with `tasks/dedupe-removed-rows.json` they are the undo button, and
+      deleting them would have made the dedupe one-way. No hurry, but they must
+      not sit forever unexplained — a future audit finding unreferenced objects
+      with no note is exactly the kind of mystery that wastes a session.
