@@ -551,3 +551,63 @@ re-exported by the photographer. Two things that matter for the next time:
   headshot nobody can see it, and it beats bothering Justin. Provenance is
   stamped on the rows (`sps_image_id` / `sps_quality` / `sps_pulled_at`) so the
   difference is recorded rather than argued about later.
+
+## 90. A count is not content, and must not be able to take the page down with it
+
+**Symptom.** "Something went wrong. We couldn't load your events" on the archive
+dashboard, constantly, cured by two or three hard refreshes. Reported
+2026-08-12. Production logs named it in one line:
+
+    GET /api/events 500 — canceling statement due to statement timeout
+
+**Cause.** The list query was `events.select("*, images!images_event_id_fkey(count)")`.
+PostgREST turns an embedded `(count)` into a correlated subquery per parent row.
+`images` is written to constantly (uploads, AI indexing, SPS pulls), so its
+visibility map is never current and the index-only scan degrades to a heap fetch
+per row: **23,136 heap fetches for 26 events over 30,111 photos**. Warm it ran
+in 16ms — which is exactly why it looked innocent. Re-measured on a busy morning
+it took **2,641ms**, and under real write load it crossed the **8s
+statement_timeout**, which PostgREST inherits from the `authenticator` role.
+(`service_role` has no `rolconfig`, so using the service key buys no exemption —
+worth knowing before assuming a server-side query is unbounded.)
+
+**Three separate faults, only one of them the slow query:**
+
+1. **The count and the content were the same query.** One aggregate nobody would
+   miss took down 26 galleries, their covers, their statuses and their links.
+   A count is an ENHANCEMENT of a row you already hold. It now runs under
+   `Promise.allSettled` with the other enrichment legs, so a failure costs its
+   own feature and nothing else.
+2. **The failure was invisible.** The route had no try/catch and never called
+   `reportSystemError` — no `system_errors` row, no admin email. It had been
+   failing repeatedly and the only detector in the system was Mason noticing.
+   The rule ("API catch blocks call reportSystemError") was already in
+   CLAUDE.md; the file that most needed it was the one that skipped it.
+3. **The same rows were being counted twice per request.** `event_readiness`
+   already aggregated them in ONE grouped pass, in 166ms, for the status badges.
+   The expensive path existed alongside a cheap one that was already running.
+
+**The rules worth keeping.**
+
+- **A count over a hot table belongs in a grouped aggregate you already run,
+  never in a per-row embed.** 166ms vs 2,641ms for the identical numbers.
+- **Two counts with different definitions get two names.** `total` is settled
+  photos (the readiness denominator); `all_rows` is every row, which is what the
+  card's "N images" has always meant. Swapping one for the other would have
+  shrunk every number on the dashboard silently — the same "basis mismatch with
+  matching units" that made the FosterWealth email wrong for months. Proved
+  equivalence across all 26 galleries before shipping, 0 mismatches.
+- **A number you could not compute renders as NOTHING, not as 0.** "0 images"
+  under a full gallery is a number the app invented, and it is indistinguishable
+  from an empty event. Same family as lesson 86.
+- **`EXPLAIN (ANALYZE, BUFFERS)` earns its keep on intermittent failures.** Heap
+  Fetches was the whole diagnosis and is invisible in timing alone — a query
+  that is fast when you test it and slow in production is usually one whose cost
+  depends on table churn, not on row count.
+
+**Also found, and worth its own note:** `event_readiness` had been running in
+production since the readiness work shipped but existed in NO migration file
+anywhere in the repo — applied by hand and never checked in. The repo could not
+have rebuilt the database. Migration 047 is both the fix and that function's
+first definition under version control. Worth an audit of what else was applied
+by hand: `list_migrations` against the live project vs `supabase/migrations/`.

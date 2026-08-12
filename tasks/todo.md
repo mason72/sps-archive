@@ -1717,3 +1717,57 @@ event tag and all) while the white overlay label on the same card prints
 exactly what CLAUDE.md forbids. Route the caption through the same function.
 (Note it is genuinely a FILENAME for un-stacked images and a person name for
 stacks — decide which the row is meant to show before changing it.)
+
+## Dashboard 500s — the events list timed out on its own photo count (2026-08-12, FIXED)
+
+Reported live: "Something went wrong. We couldn't load your events", constantly,
+cured by two or three hard refreshes. Full write-up in `tasks/lessons.md` #90.
+
+- [x] **Root cause identified from production logs**, not guessed:
+      `canceling statement due to statement timeout` on `GET /api/events`.
+      The embedded `images(count)` is a per-row correlated subquery doing 23,136
+      heap fetches; measured 2,641ms on live data (16ms warm) against an 8s
+      statement_timeout inherited from `authenticator`.
+- [x] **Migration 047** — `event_readiness` returns `all_rows`. Also its FIRST
+      definition under version control: it had run in production for weeks with
+      no migration file in the repo.
+- [x] **Equivalence proved before shipping** — `scripts/triage/verify-readiness-count.ts`,
+      26 galleries, 0 mismatches vs the old embedded count.
+- [x] **Enrichment legs run under `Promise.allSettled`** + `reportSystemError`.
+      A slow count can no longer blank the dashboard, and can no longer fail
+      silently — there was no `system_errors` row for ANY of these.
+- [x] **Missing count renders as no line, never "0 images."**
+- [x] **Verified live in production** on the account that was failing: 3/3 runs
+      200 OK, 26 events, nothing degraded, Island reading its true 1,141.
+
+### Follow-ups this turned up
+- [ ] **Audit for other hand-applied database objects.** `event_readiness` was
+      in production and in no migration file. Compare `list_migrations` on the
+      live project against `supabase/migrations/` and check for functions,
+      indexes and constraints the repo cannot rebuild.
+- [ ] **`event_readiness` grants EXECUTE to `anon`.** Only the server's service
+      client calls it. Recreated as-found deliberately (narrowing access inside
+      a performance fix would make a rollback ambiguous), but it should be
+      narrowed on purpose.
+- [ ] **The event DETAIL page is the same shape, unfixed** — one payload of
+      images + stacks + sections, 15–20s on the big galleries. It is the next
+      candidate for exactly this failure, and the worst perf problem in the app.
+- [ ] **`EventList` still throws away the response status.** `catch {}` treats a
+      401, a 500 and a dropped connection identically. The route now returns a
+      named `degraded` object; the client should say which part is missing.
+
+## Find my photos on a curated share (2026-08-12, Mason's observation — not built)
+
+He sent a client ~12 selected images and the gallery still offered face search.
+His read: unnecessary on a partial gallery, maybe weird. Agreed, and the reason
+is sharper than "unnecessary" — on a curated delivery YOU already did the
+finding, so offering it implies there are more photos of them somewhere they
+haven't been given.
+
+- [ ] Hang it on **share type, not face count**. `resolveShareImageScope()`
+      already knows a selection share is narrowed; face count is a proxy that
+      gets it wrong both ways (a couple's 12-image set has two faces and still
+      doesn't need it). One capability flag on `GalleryExperience`, NOT a fork
+      (lesson 70).
+- [ ] Consider hiding the whole search row under ~24 photos. On a 12-photo
+      delivery, "try 'dancing' or a name" is noise — everything is on screen.
