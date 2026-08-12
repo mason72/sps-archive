@@ -1954,3 +1954,43 @@ removal from it.
 - [ ] Execute, once approved: delete the 642 rows AND their `section_images`
       links, in one transaction per gallery, after writing the removed ids to a
       file so it is reversible. Re-run the SQL aggregate before and after.
+
+### EXECUTED 2026-08-12 — 571 rows removed, TDP Website deliberately excluded
+
+**TDP Website is NOT dedupable, and the check that proved it is worth keeping:
+`scripts/triage/tdp-dedupe-impact.ts`.** Mason asked to confirm it wouldn't
+break the site. It would have — all 71 candidates came back CHANGES PAGE.
+
+In that gallery membership IS publication, and **the same photo published to
+several scenes exists as several ROWS**. Verified on a pair: identical
+filename+size, one in `slot/hero/headshot-booth`, the other in
+`bts/headshot-booth`. Identical name+size there does not mean redundant, it
+means published in two places, so every "duplicate" removal would have stripped
+a photo off a live page — across heroes, BTS grids, service slices and ordered
+scenes. Excluded by name in `dedupe-apply.ts`, not left to judgement.
+
+Applied to the other 7 galleries:
+
+| gallery | before → after |
+| --- | --- |
+| Jessica & Koji's Big Day | 1,020 → **552** |
+| Appfolio // Jul 2026 | 2,050 → 2,000 |
+| Appfolio Goleta | 793 → 755 |
+| PG&E HEADSHOTS | 240 → 234 |
+| Two Dudes Sample Images | 1,019 → 1,013 |
+| eBay HEADSHOTS | 1,064 → 1,062 |
+| Future of Us Festival | 413 → 412 |
+
+571 image rows + 571 section links. Verified after with the authoritative SQL
+aggregate: the only remaining same-name/same-size rows archive-wide are TDP
+Website's 71 (excluded) and the 3 named directly by live selection shares
+(blocked). Jessica's live guest gallery now serves **552 images with 0 duplicate
+filenames** — it had been showing the client every photo twice since delivery.
+twodudesphoto.com still 200s and TDP Website still holds all 1,264 rows.
+
+**R2 objects were deliberately NOT deleted.** That is what makes this
+reversible: `tasks/dedupe-removed-rows.json` holds all 571 full rows and their
+bytes are still in the bucket under their own keys. Deleting bytes would have
+made it one-way.
+- [ ] Reclaim the ~571 orphaned R2 objects once this has soaked and nobody
+      wants a row back. Storage only, no urgency.
