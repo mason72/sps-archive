@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { reportSystemError } from "@/lib/monitoring/report";
 import {
   applySliceResult,
+  countExpectedTotal,
   dispatchPullSettlement,
   finishJob,
   importSlice,
@@ -69,6 +70,20 @@ export const spsPull = inngest.createFunction(
     await step.run("mark-running", async () => {
       await markJobRunning(createServiceClient(), jobId);
     });
+
+    // Establish the denominator, once, from the manifest itself. The client
+    // cannot supply it: it only knows how many pages it has scrolled through, so
+    // on a 9,000-photo event the total depended on whether the photographer
+    // happened to reach the bottom of the grid. A multi-hour import with no total
+    // is the "looks stalled" failure by another route.
+    if (snapshot.expected_total === null) {
+      await step.run("count-total", async () => {
+        const supabase = createServiceClient();
+        const job = await loadPullJob(supabase, jobId);
+        if (!job) throw new NonRetriableError(`Pull job ${jobId} vanished`);
+        return { expectedTotal: await countExpectedTotal(supabase, job) };
+      });
+    }
 
     let offset = snapshot.next_offset;
     let slicesUsed = 0;

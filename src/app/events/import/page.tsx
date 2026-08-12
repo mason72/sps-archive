@@ -301,6 +301,9 @@ export default function ImportFromSpsPage() {
     return () => clearInterval(t);
   }, [stage]);
 
+  /** Manifest pages are still arriving, so no count on screen can be the total. */
+  const stillLoading = nextOffset !== null;
+
   const selectedCount = images.length - deselected.size;
   const lossyCount = images.filter(
     (i) => i.quality === "lossy" && !deselected.has(i.id)
@@ -628,19 +631,46 @@ export default function ImportFromSpsPage() {
         {stage === "review" && chosen && (
           <>
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-6 border-b border-stone-100">
+              {/* While pages are still arriving, the client does NOT know the
+                  total — and the import is an EXCLUSION set, so it will pull
+                  everything regardless of how far this grid got. Printing
+                  "500 of 500 selected" and "Import 500 photos" on a 9,107-photo
+                  event stated a number that was simply false (Mason, on DAIS 26).
+                  Say "everything" until we can say a real number. */}
               <div className="text-[14px] text-stone-600">
-                <span className="text-stone-900 font-medium">
-                  {selectedCount}
-                </span>{" "}
-                of {images.length} selected
-                {nextOffset !== null && (
-                  <span className="text-stone-400"> · still loading</span>
-                )}
-                {lossyCount > 0 && (
-                  <span className="text-stone-400">
-                    {" "}
-                    · {lossyCount} unverified origin
-                  </span>
+                {stillLoading ? (
+                  <>
+                    <span className="text-stone-900 font-medium">
+                      Everything selected
+                    </span>
+                    <span className="text-stone-400">
+                      {" "}
+                      · {images.length.toLocaleString()}
+                      {chosen.imageCount
+                        ? ` of about ${chosen.imageCount.toLocaleString()}`
+                        : ""}{" "}
+                      loaded so far
+                    </span>
+                    {deselected.size > 0 && (
+                      <span className="text-stone-400">
+                        {" "}
+                        · {deselected.size} unchecked
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-stone-900 font-medium">
+                      {selectedCount.toLocaleString()}
+                    </span>{" "}
+                    of {images.length.toLocaleString()} selected
+                    {lossyCount > 0 && (
+                      <span className="text-stone-400">
+                        {" "}
+                        · {lossyCount.toLocaleString()} unverified origin
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -659,7 +689,13 @@ export default function ImportFromSpsPage() {
                 >
                   {isStarting
                     ? "Starting…"
-                    : `Import ${selectedCount} photo${selectedCount === 1 ? "" : "s"}`}
+                    : stillLoading
+                      ? // No number: the count is unknown until the manifest ends,
+                        // and the import takes everything not unchecked.
+                        deselected.size > 0
+                        ? `Import all but ${deselected.size}`
+                        : "Import every photo"
+                      : `Import ${selectedCount.toLocaleString()} photo${selectedCount === 1 ? "" : "s"}`}
                 </BrandButton>
               </div>
             </div>
@@ -692,12 +728,13 @@ export default function ImportFromSpsPage() {
               <p className="mb-6 text-[13px] text-stone-500 flex items-start gap-2 max-w-2xl leading-[1.7]">
                 <AlertTriangle size={14} className="shrink-0 mt-0.5 text-stone-400" />
                 <span>
-                  SPS can&apos;t vouch for {lossyCount} of these as camera
-                  originals — it only started recording that on 11 Aug. They
-                  copy across byte-for-byte exactly as SPS holds them, and for
-                  anything shot since May that is almost certainly your original
-                  file. They&apos;re marked simply because it isn&apos;t
-                  guaranteed the way a labelled one is.
+                  SPS can&apos;t vouch for{" "}
+                  {stillLoading ? "these" : `${lossyCount.toLocaleString()} of these`}{" "}
+                  as camera originals — it only started recording that on 11 Aug.
+                  They copy across byte-for-byte exactly as SPS holds them, and
+                  for anything shot since May that is almost certainly your
+                  original file. They&apos;re marked simply because it
+                  isn&apos;t guaranteed the way a labelled one is.
                 </span>
               </p>
             )}

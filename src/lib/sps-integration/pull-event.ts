@@ -317,6 +317,58 @@ export interface SliceResult {
   alreadyFolded?: boolean;
 }
 
+/** Pages walked while counting before giving up and running without a total. */
+const COUNT_PAGE_CAP = 60;
+
+/**
+ * Count what this import will actually move, and store it as the denominator.
+ *
+ * Runs inside the job rather than at kickoff, so pressing Import stays instant on
+ * a 9,000-photo event — the number appears a minute later, and the UI already
+ * handles not having it yet.
+ *
+ * This exists because the client cannot be the source of the total. It only knows
+ * how many images it has PAGED IN, and the review grid pages as you scroll — so on
+ * a big event the denominator depended on whether the photographer happened to
+ * scroll to the end. A 3.5-hour import showing a bar with no total is the
+ * "looks stalled" failure all over again.
+ *
+ * Counts the manifest, not `event.imageCount`: that includes the AI copies the
+ * manifest excludes. Subtracts the exclusion set, so it matches what will land.
+ */
+export async function countExpectedTotal(
+  supabase: SupabaseDB,
+  job: SpsPullJob
+): Promise<number | null> {
+  const token = await getSpsToken(supabase, job.user_id);
+  if (!token) return null;
+
+  const excluded = new Set(job.deselected ?? []);
+  let total = 0;
+  let offset = 0;
+
+  for (let page = 0; page < COUNT_PAGE_CAP; page++) {
+    const p = await fetchManifestPage(token, job.sps_event_id, offset);
+    total += p.images.filter((i) => !excluded.has(i.id)).length;
+    if (p.nextOffset === undefined) {
+      const { error } = await supabase
+        .from("sps_pull_jobs")
+        .update({ expected_total: total, updated_at: new Date().toISOString() })
+        .eq("id", job.id);
+      if (error) throw error;
+      return total;
+    }
+    offset = p.nextOffset;
+  }
+
+  // Bigger than anything real. Better to run with no denominator than to store a
+  // number that is quietly a floor rather than a total.
+  console.warn(
+    `SPS pull ${job.id}: manifest exceeded ${COUNT_PAGE_CAP} pages while counting; running without a total.`
+  );
+  return null;
+}
+
 export async function loadPullJob(
   supabase: SupabaseDB,
   jobId: string
