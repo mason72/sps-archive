@@ -612,10 +612,18 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
         );
         if (aborted.current.has(batchId)) break;
 
+        // NOTE: there is deliberately no parallel `files` array here. There used
+        // to be (`const chunk = chunkEntries.map(e => e.file)`), and when the
+        // duplicate/linked filters below started REASSIGNING chunkEntries, that
+        // copy silently kept the unfiltered order — so the row minted for file N
+        // received file N-1's bytes. 805 of 1,142 photos in a live client
+        // gallery ended up filed under the wrong person's name. Read the file
+        // off the entry you are actually looking at, never off a snapshot of it.
         let chunkEntries = entries.slice(start, start + PRESIGN_CHUNK);
-        const chunk = chunkEntries.map((e) => e.file);
 
-        let uploads: Array<{ imageId: string; uploadUrl: string }> | undefined;
+        let uploads:
+          | Array<{ imageId: string; uploadUrl: string; originalFilename?: string }>
+          | undefined;
         try {
           const response = await fetch("/api/upload", {
             method: "POST",
@@ -623,10 +631,10 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
             body: JSON.stringify({
               eventId,
               sectionId: sectionId || undefined,
-              files: chunk.map((f) => ({
-                name: f.name,
-                type: f.type,
-                size: f.size,
+              files: chunkEntries.map((e) => ({
+                name: e.file.name,
+                type: e.file.type,
+                size: e.file.size,
               })),
             }),
           });
@@ -722,11 +730,28 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
 
         const q = queues.current.get(batchId) ?? [];
         (uploads ?? []).forEach((u, i) => {
-          if (!chunkEntries[i]) return;
+          const entry = chunkEntries[i];
+          if (!entry) return;
+          // The row and the bytes must be the same file. The server tells us
+          // which filename it minted this row for, so ASSERT it rather than
+          // trusting two lists to have stayed in the same order — that trust is
+          // exactly what silently mislabelled a whole gallery. A mismatch here
+          // is a bug, so fail the file loudly instead of uploading the wrong
+          // photo under someone else's name.
+          if (u.originalFilename && u.originalFilename !== entry.file.name) {
+            const list = failedFiles.current.get(batchId) ?? [];
+            list.push(entry.file);
+            failedFiles.current.set(batchId, list);
+            updateFile(batchId, entry.id, {
+              status: "error",
+              error: "Upload slot mismatch — not sent (please retry)",
+            });
+            return;
+          }
           q.push({
             batchId,
-            fileId: chunkEntries[i].id,
-            file: chunk[i],
+            fileId: entry.id,
+            file: entry.file,
             imageId: u.imageId,
             uploadUrl: u.uploadUrl,
           });
