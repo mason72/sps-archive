@@ -70,7 +70,6 @@ export function SmartStack({
           allSelected={allSelected}
           selectedCount={selectedCount}
           hasSelection={hasSelection}
-          showFilename={showFilename}
           onSingleClick={() => {
             // Toggle all images in stack
             images.forEach((img) => onToggleSelect?.(img.id));
@@ -179,7 +178,6 @@ function CollapsedStack({
   allSelected,
   selectedCount,
   hasSelection,
-  showFilename,
   onSingleClick,
   onDoubleClick,
   onExpand,
@@ -190,7 +188,6 @@ function CollapsedStack({
   allSelected: boolean;
   selectedCount: number;
   hasSelection?: boolean;
-  showFilename?: boolean;
   onSingleClick: () => void;
   onDoubleClick: () => void;
   /** Explicit "click into the stack" affordance (the count badge). */
@@ -300,11 +297,13 @@ function CollapsedStack({
           </div>
         )}
       </div>
-      {showFilename && (cover.parsedName || cover.originalFilename) && (
-        <p className="text-[10px] text-stone-400 truncate px-1.5 py-1 bg-white">
-          {cover.parsedName || cover.originalFilename}
-        </p>
-      )}
+      {/* No filename row on a COLLAPSED stack. A stack is many files, so there
+          is no one filename to show — this fell back to parsedName and printed
+          "Vlad Vagner Island" directly under the "Vlad Vagner" overlay two
+          pixels above it, event tag and all. Grey-on-grey and offset, it read
+          as a drop shadow rather than a label. Filenames still show on flat
+          images (GridImage) and on the individual frames inside an EXPANDED
+          stack, where they identify one specific file and are useful. */}
     </button>
   );
 }
