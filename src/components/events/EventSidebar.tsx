@@ -124,6 +124,17 @@ interface EventSidebarProps {
   isWorkGallery?: boolean;
   /** Fired after a section is created (the work gallery opens the job form). */
   onSectionCreated?: (section: SectionItem) => void;
+  /**
+   * Why Smart section can't run yet, or null when it can.
+   *
+   * Rendered as a DISABLED item with this reason attached, never hidden. A
+   * control that disappears teaches nothing and leaves people hunting for it;
+   * a greyed one with a wait explains itself and points at the option that does
+   * work right now. Justin clicked Smart section on a freshly-uploaded gallery,
+   * hit the AI requirement, and concluded he was blocked — when four of the five
+   * sorting modes needed no AI at all.
+   */
+  smartSectionWait?: string | null;
   /** Opens the "Sort into sections" modal — owned by the page, so the same
    *  instance serves this button and the post-upload nudge. */
   onRequestSort?: () => void;
@@ -188,6 +199,7 @@ export function EventSidebar({
   onSectionCreated,
   onRequestSort,
   onRequestSmartSection,
+  smartSectionWait,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -301,6 +313,7 @@ export function EventSidebar({
             onSectionCreated={onSectionCreated}
             onRequestSort={onRequestSort}
             onRequestSmartSection={onRequestSmartSection}
+            smartSectionWait={smartSectionWait}
           />
         )}
         {activePanel === "design" && (
@@ -380,8 +393,10 @@ function SectionsPanel({
   onSectionCreated,
   onRequestSort,
   onRequestSmartSection,
+  smartSectionWait,
 }: {
   eventId: string;
+  smartSectionWait?: string | null;
   sections: SectionItem[];
   uploadProgressBySection?: Map<
     string,
@@ -758,15 +773,26 @@ function SectionsPanel({
           {onRequestSmartSection && (
             <button
               onClick={onRequestSmartSection}
-              className="flex w-full items-start gap-2 px-4 py-2.5 text-left transition-colors hover:bg-emerald-50/50"
+              disabled={!!smartSectionWait}
+              title={smartSectionWait ?? undefined}
+              className={`flex w-full items-start gap-2 px-4 py-2.5 text-left transition-colors ${
+                smartSectionWait
+                  ? "cursor-default opacity-60"
+                  : "hover:bg-emerald-50/50"
+              }`}
             >
-              <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+              <Sparkles
+                size={14}
+                className={`mt-0.5 shrink-0 ${smartSectionWait ? "text-stone-300" : "text-emerald-500"}`}
+              />
               <span>
-                <span className="block text-[12px] font-medium text-emerald-700">
+                <span
+                  className={`block text-[12px] font-medium ${smartSectionWait ? "text-stone-500" : "text-emerald-700"}`}
+                >
                   Smart section…
                 </span>
                 <span className="block text-[10px] leading-tight text-stone-400">
-                  Describe it — we&apos;ll find the photos
+                  {smartSectionWait ?? "Describe it — we'll find the photos"}
                 </span>
               </span>
             </button>

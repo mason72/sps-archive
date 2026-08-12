@@ -5,7 +5,7 @@ import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useEventUploadProgress } from "@/components/upload/UploadManager";
 
-interface Status {
+export interface Status {
   total: number;
   indexed: number;
   uploading: number;
@@ -49,7 +49,18 @@ interface Status {
  *
  * It polls only while there's work in flight, then disappears for good.
  */
-export function ProcessingBanner({ eventId }: { eventId: string }) {
+export function ProcessingBanner({
+  eventId,
+  onStatus,
+}: {
+  eventId: string;
+  /**
+   * Report each poll upward, so AI-dependent controls elsewhere on the page can
+   * say whether they're usable yet WITHOUT starting a second poller against the
+   * same endpoint. One fetch, one source of truth about readiness.
+   */
+  onStatus?: (status: Status | null) => void;
+}) {
   const [status, setStatus] = useState<Status | null>(null);
   const [clearing, setClearing] = useState(false);
 
@@ -80,6 +91,7 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
         const data = (await res.json()) as Status;
         if (cancelled) return;
         setStatus(data);
+        onStatus?.(data);
         // Stop polling the moment there's nothing left to watch. An import in
         // flight gets a much tighter cadence than AI indexing: photos land every
         // couple of seconds, and a 20s refresh on a number that visibly should
@@ -96,6 +108,9 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
+    // onStatus is a stable callback from the page; re-subscribing on identity
+    // change would restart the poll loop on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   // Stay up while there are ghosts to clear, even if indexing has finished —

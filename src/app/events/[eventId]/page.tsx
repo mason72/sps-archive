@@ -29,7 +29,10 @@ import {
 } from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
 import { HighlightsPanel } from "@/components/events/HighlightsPanel";
-import { ProcessingBanner } from "@/components/events/ProcessingBanner";
+import {
+  ProcessingBanner,
+  type Status as ProcessingStatus,
+} from "@/components/events/ProcessingBanner";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { PassingPhotos } from "@/components/brand/passing-photos";
 import { useSelection } from "@/hooks/useSelection";
@@ -485,6 +488,30 @@ export default function EventPage({
    * mutation the user can no longer see.
    */
   const [scheduledSort, setScheduledSort] = useState<SortParams | null>(null);
+
+  /**
+   * Latest AI-processing status, reported by the banner's existing poll.
+   *
+   * Drives whether AI-dependent controls announce themselves as usable. They are
+   * DISABLED WITH A REASON rather than hidden: a control that vanishes teaches
+   * nothing and leaves "where did Smart section go?", while a greyed one with a
+   * wait attached explains itself AND points at the option that does work now —
+   * which is the confusion Justin actually hit (2026-08-11).
+   */
+  const [aiStatus, setAiStatus] = useState<ProcessingStatus | null>(null);
+  const aiReady =
+    aiStatus === null ||
+    (aiStatus.total > 0 && aiStatus.indexed >= aiStatus.total);
+  const aiWaitLabel = (() => {
+    if (aiReady || !aiStatus) return null;
+    const mins = aiStatus.etaMinutes ?? aiStatus.forecastMinutes;
+    if (aiStatus.indexed === 0 && aiStatus.uploading > 0) {
+      return "available once these photos finish uploading";
+    }
+    return mins
+      ? `available in about ${mins} minute${mins === 1 ? "" : "s"}`
+      : "available once AI processing finishes";
+  })();
   const wasUploadingRef = useRef(false);
 
   const NUDGE_MIN_FILES = 50;
@@ -1515,6 +1542,7 @@ export default function EventPage({
           }
           onRequestSort={() => setShowSort(true)}
           onRequestSmartSection={() => setShowSmartSection(true)}
+          smartSectionWait={aiWaitLabel}
         />
       )}
 
@@ -1636,7 +1664,7 @@ export default function EventPage({
         </div>
 
         {/* ─── AI processing, live ─── */}
-        <ProcessingBanner eventId={eventId} />
+        <ProcessingBanner eventId={eventId} onStatus={setAiStatus} />
 
         {/* ─── Loading skeleton ─── */}
         {isLoading && (
