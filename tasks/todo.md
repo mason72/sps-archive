@@ -1994,3 +1994,57 @@ bytes are still in the bucket under their own keys. Deleting bytes would have
 made it one-way.
 - [ ] Reclaim the ~571 orphaned R2 objects once this has soaked and nobody
       wants a row back. Storage only, no urgency.
+
+## Migration audit — DONE, repo now describes production (2026-08-12)
+
+Tool: `scripts/triage/schema-audit.ts`. Enumerates live objects and checks each
+against the migration corpus. Re-runnable; it should stay at zero.
+
+### Before
+| object | live | unversioned |
+| --- | --- | --- |
+| tables | 25 | 2 (`stripe_events`, `subscriptions`) |
+| indexes | 58 | 3 |
+| functions | 18 | 6 |
+| policies | 35 | 5 |
+| columns | 269 | 1 (`images.last_error`) |
+
+Plus **12 ledger entries applied with no file** — migrations 012–018
+(2026-05-17) and five later ad-hoc changes.
+
+### The audit's own bugs, both caught by disagreement
+1. **A name-match said `subscriptions` was covered.** The only mention of it in
+   the whole repo is a `drop index if exists` line in 033 — the table is created
+   nowhere. Tightened to require a CREATE statement, which immediately found 5
+   more objects. A check loose enough to be satisfied by any mention will always
+   report that everything is fine.
+2. **It only looked at `public` triggers**, so the signup triggers on
+   `auth.users` were invisible — including a DUPLICATE pair. Now covers `auth`.
+
+### Fixed
+- [x] **048_reconstruct_unversioned_objects.sql** — every unversioned object,
+      dumped FROM the live database (`pg_get_functiondef`, `pg_indexes`,
+      `pg_policies`, `information_schema`), not written from memory. One file,
+      not fake `012_…`–`018_…` files that would claim to be originals. Fully
+      idempotent, so applying it to production was a verifying no-op.
+- [x] **049_restrict_function_execute.sql** — the `anon` EXECUTE grant raised
+      while writing 047. Verified first that EVERY `.rpc()` call site is
+      server-side on the SERVICE client (including `record_auth_attempt`, which
+      fires during login), and that the browser client calls no functions at
+      all. Proven after: `service_role` ok, `anon` → *permission denied for
+      function event_readiness*. Signup trigger functions deliberately excluded.
+- [x] Audit re-run clean: **0 unversioned tables, indexes, functions, policies
+      and columns.** Galleries (12 / 723 / 552 images) and gallery search all
+      still 200 after the grant change.
+
+### Left deliberately
+- [ ] **`on_auth_user_subscription` is a DUPLICATE trigger** — it and
+      `on_auth_user_created_subscription` both fire
+      `handle_new_user_subscription()` on every signup. Harmless (the insert is
+      `on conflict do nothing`) but redundant, and it is the one object still
+      unversioned. Dropping it is a one-line migration; not done today because
+      signup is the alpha's front door, it had already been touched once by 048,
+      and there is no way to rehearse a real signup first. Mason's call.
+- [ ] The 12 fileless ledger entries stay as history. Their surviving EFFECTS
+      are now covered by 048 + 001–047; the entries themselves are a record that
+      something ran, and rewriting the ledger would be fiction.
