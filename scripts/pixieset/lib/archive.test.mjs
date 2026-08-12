@@ -120,11 +120,17 @@ test("photoCount is an upper bound — a half-size result is flagged, not failed
   assert.equal(r.suspicious, true, "but it is worth a human look");
 });
 
-test("more files than the inventory claims is impossible and reported", async () => {
+test("more files than the inventory claims is flagged, NOT failed", async () => {
+  // This test previously asserted that exceeding photo_count was "impossible" and
+  // therefore a failure. Real data disproved it on 2026-08-12:
+  // `perkinelmereventphotos` reports photo_count 903 while its seven sets add up to
+  // 1,016, so a complete every-set download of a healthy gallery exceeds the
+  // inventory's number. The old assertion would have failed that download and every
+  // multi-set gallery like it. photo_count is now a soft signal, never a ceiling.
   const zip = await makeZip("over-1of1.zip", { All_Photos: 10 });
   const r = await verifyArchive([zip], { expectedPhotos: 4 });
-  assert.equal(r.ok, false);
-  assert.match(r.problems.join(" "), /exceeds/);
+  assert.equal(r.ok, true, "exceeding photo_count is not evidence of a bad archive");
+  assert.equal(r.suspicious, true, "but it is worth a human look");
 });
 
 test("an archive with no JPEGs does not pass as a gallery", async () => {
@@ -203,4 +209,29 @@ test("the set picker's count is an equality target, unlike photo_count", async (
   // The same archive against the double-counted inventory figure must NOT fail.
   const upper = await verifyArchive([z], { expectedPhotos: 48 });
   assert.equal(upper.ok, true, "photo_count is an upper bound and must never be asserted as equality");
+});
+
+test("a complete every-set download may legitimately EXCEED photo_count", async () => {
+  // Measured on perkinelmereventphotos (2026-08-12): photo_count reports 903, but its
+  // seven sets add up to 1,016. A gallery with no "All Photos" set is downloaded by
+  // taking every set, so a healthy archive genuinely holds more files than the
+  // inventory's number. Treating photo_count as a ceiling fails that download.
+  const z = await makeSizedZip("everyset-1of1.zip", [[4800, 3200], [4700, 3100], [4600, 3000], [4500, 2900]]);
+  const r = await verifyArchive([z], { expectedPhotos: 3, expectedFiles: 4 });
+  assert.equal(r.ok, true, `4 files against photo_count 3 must pass when the picker promised 4 — got: ${r.problems.join("; ")}`);
+});
+
+test("without the picker's count, exceeding photo_count is flagged but not failed", async () => {
+  const z = await makeSizedZip("noexpect-1of1.zip", [[4800, 3200], [4700, 3100], [4600, 3000]]);
+  const r = await verifyArchive([z], { expectedPhotos: 2 });
+  assert.equal(r.ok, true, "a soft flag, not a failure — we have no better evidence to judge it against");
+  assert.equal(r.suspicious, true, "but it must still be surfaced for a human look");
+});
+
+test("the picker's count still fails a genuinely short download", async () => {
+  // The check that matters must survive the fix above.
+  const z = await makeSizedZip("stillshort-1of1.zip", [[4800, 3200], [4700, 3100]]);
+  const r = await verifyArchive([z], { expectedPhotos: 903, expectedFiles: 1016 });
+  assert.equal(r.ok, false);
+  assert.match(r.problems.join(" "), /set picker promised 1016/);
 });

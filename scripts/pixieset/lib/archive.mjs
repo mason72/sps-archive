@@ -234,10 +234,19 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedF
     problems.push(`${files} JPEGs but the set picker promised ${expectedFiles}`);
   }
 
+  // photo_count is only consulted when the set picker gave us nothing better.
+  //
+  // It is NOT a reliable ceiling. `perkinelmereventphotos` reports photo_count 903
+  // while its seven sets add up to 1,016 — so a complete every-set download of a
+  // perfectly healthy gallery EXCEEDS it. Asserting it as an upper bound alongside
+  // expectedFiles would fail that download and every one like it. Two checks derived
+  // from sources that disagree is not two checks; it is one good check plus a
+  // false alarm, and the false alarm is what teaches you to ignore the guard.
   let suspicious = false;
-  if (expectedPhotos != null && expectedPhotos > 0) {
+  if (expectedFiles == null && expectedPhotos != null && expectedPhotos > 0) {
     if (files > expectedPhotos) {
-      problems.push(`${files} files exceeds the inventory's ${expectedPhotos} — photoCount is an upper bound, so this should be impossible`);
+      // Still worth surfacing without expectedFiles, but as a flag, not a failure.
+      suspicious = true;
     } else if (files / expectedPhotos < SUSPICIOUS_RATIO) {
       // Not fatal: heavy set-overlap legitimately produces a low ratio.
       suspicious = true;

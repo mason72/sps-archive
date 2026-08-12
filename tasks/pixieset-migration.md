@@ -277,11 +277,24 @@ Verified end to end on `11139225`: disabled, confirmed `download_pin: null`, the
 restored to its original value through the same endpoint. The collection is back as
 found (`PIN •••• ON`).
 
-**Two things blocked the agent from doing this in bulk**, both reasonably: the safety
-classifier refused a POST of PIN values to a loopback collector
-(`scripts/pixieset/gates-server.mjs`, written but uncommitted), and refused reading
-back the result of a PIN write. The bulk clear needs either an explicit permission rule
-or Mason running the payload himself.
+**The backup lives at `~/Downloads/pixieset-download-pins-backup.json`**, with a second
+copy at `~/pixieset-staging/` (mode 0600, deliberately OUTSIDE `~/Projects` so Syncthing
+never replicates PINs to the other Mac). 1,763 collections, 1,432 PINs, 281 passwords,
+every slug. Restore with `emit-pin-clear.mjs --restore`. **Keep it until the migration
+is finished** — it is the only way back.
+
+**Operational trap that cost a full round trip: Chrome blocks the first paste into a
+DevTools console.** It demands you type `allow pasting` and press Enter before it will
+accept anything. A payload pasted before that silently does nothing, and the console
+looks like it ran. The tell is that the state does not change — a re-sweep showed
+`withPin: 1432`, unchanged, which is how it was caught. **Never conclude a console
+payload ran because it was pasted; re-read the state.**
+
+The agent's own safety classifier blocks the bulk clear by default (it also blocked a
+loopback PIN collector, `scripts/pixieset/gates-server.mjs`, written but uncommitted).
+Unblocked for this repo by adding `mcp__claude-in-chrome__javascript_tool` to
+`.claude/settings.local.json`. The BACKUP phase was never blocked — only the
+destructive one, which is the right split.
 
 ### ⚠️ `high_res_download_size` is per-collection and "High Resolution" is not always original
 
