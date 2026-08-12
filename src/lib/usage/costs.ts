@@ -64,6 +64,50 @@ export const PLATFORM_OVERHEAD_MONTHLY: { label: string; monthly: number }[] = [
   { label: "Modal free credit offset", monthly: -30 },
 ];
 
+/**
+ * Supabase compute add-on tiers (supabase.com/pricing, checked 2026-08-12).
+ *
+ * This is the price of RAM, and RAM is the expensive resource in this system:
+ * roughly $13/GB/month here against $0.125/GB for database disk and $0.015 for
+ * R2. Moving BYTES between those stores saves pennies; what moves the bill is
+ * how much has to be held in memory.
+ *
+ * What has to be held in memory is the vector index, because similarity search
+ * walks it. Everything else pages off disk acceptably.
+ */
+export const SUPABASE_COMPUTE_TIERS: { name: string; ramGb: number; monthly: number }[] = [
+  { name: "Micro", ramGb: 1, monthly: 10 },
+  { name: "Small", ramGb: 2, monthly: 15 },
+  { name: "Medium", ramGb: 4, monthly: 60 },
+  { name: "Large", ramGb: 8, monthly: 110 },
+  { name: "XL", ramGb: 16, monthly: 210 },
+  { name: "2XL", ramGb: 32, monthly: 410 },
+  { name: "4XL", ramGb: 64, monthly: 960 },
+];
+
+/**
+ * How much of an instance's RAM the vector index may occupy before the tier is
+ * considered outgrown.
+ *
+ * Not 100%: Postgres also needs room for the rest of the working set, its
+ * shared buffers and connection memory. 60% is a planning heuristic, not a hard
+ * limit — an index above it still WORKS, it just starts paging from disk and
+ * searches get slower rather than failing. That is why /ops labels this
+ * "comfortable", not "maximum".
+ */
+export const VECTOR_INDEX_RAM_BUDGET = 0.6;
+
+/** $/GB-month for Supabase database disk (General Purpose tier). */
+export const SUPABASE_DISK_GB_MONTH = 0.125;
+
+/**
+ * Compute credit included with the Pro plan, which PLATFORM_OVERHEAD_MONTHLY
+ * already bills as "Supabase Pro $25". Without subtracting it, /ops would count
+ * the first $10 of compute twice — once in the overhead line and again in the
+ * tier line. An estimate: correct it when a real invoice says otherwise.
+ */
+export const SUPABASE_INCLUDED_COMPUTE_CREDIT = 10;
+
 /** Cost in dollars for one usage_events row's quantity. */
 export function costOf(kind: UsageKind, quantity: number): number {
   return KIND_UNIT_COST[kind] * quantity;

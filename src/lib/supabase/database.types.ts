@@ -1265,6 +1265,19 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      database_footprint: {
+        Args: never
+        Returns: {
+          db_bytes: number
+          faces_indexed: number
+          other_index_bytes: number
+          photos_indexed: number
+          photos_last_30d: number
+          photos_last_90d: number
+          table_bytes: number
+          vector_index_bytes: number
+        }[]
+      }
       event_image_status_counts: {
         Args: { p_event_id: string }
         Returns: {

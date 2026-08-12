@@ -2,6 +2,7 @@ import { assertAdminPage } from "@/lib/auth/admin";
 import { createServiceClient } from "@/lib/supabase/server";
 import { PLATFORM_OVERHEAD_MONTHLY } from "@/lib/usage/costs";
 import { getUsageOverview, type UserUsageSummary } from "@/lib/usage/summary";
+import { getDatabaseFootprint } from "@/lib/usage/database";
 import type { UsageKind } from "@/lib/usage/record";
 import { InvitePanel, type InviteRow } from "./InvitePanel";
 import { WaitlistPanel, type WaitlistRow } from "./WaitlistPanel";
@@ -12,6 +13,12 @@ export const dynamic = "force-dynamic";
 /* ── formatting ─────────────────────────────────────────────── */
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(2)} GB`;
+const mb = (bytes: number) =>
+  bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${Math.round(bytes / 1e6)} MB`;
+/** Bytes per photo, at the scale that number actually lands (hundreds of bytes
+ *  since the fingerprint change, kilobytes before it). */
+const bytesEach = (bytes: number) =>
+  bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${Math.round(bytes)} B`;
 
 function dollars(n: number): string {
   if (n === 0) return "$0";
@@ -56,8 +63,11 @@ export default async function OpsPage() {
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-  const [overview, invitesRes, waitlistRes, errorsRes, activityRes] = await Promise.all([
+  const [overview, footprint, invitesRes, waitlistRes, errorsRes, activityRes] = await Promise.all([
     getUsageOverview(supabase, monthStart),
+    // Returns null rather than throwing — a gauge must not be able to take down
+    // the page it is reporting on.
+    getDatabaseFootprint(supabase),
     supabase
       .from("allowed_signups")
       .select("email, invited_at, joined_at, note")
@@ -86,8 +96,13 @@ export default async function OpsPage() {
   const dayOfMonth = now.getUTCDate();
   const projectedFlows = (overview.totalFlowCost / dayOfMonth) * daysInMonth;
   const overheadTotal = PLATFORM_OVERHEAD_MONTHLY.reduce((s, o) => s + o.monthly, 0);
+  // The database tier is a real monthly cost and belongs in the projection.
+  // Leaving it out of the total is what let it grow unwatched in the first place.
+  const dbMonthly = footprint
+    ? footprint.computeMonthlyNet + footprint.diskMonthly
+    : 0;
   const projectedMonth =
-    projectedFlows + overview.totalStorageCostMonthly + overheadTotal;
+    projectedFlows + overview.totalStorageCostMonthly + overheadTotal + dbMonthly;
 
   const maxDaily = Math.max(...overview.dailyFlowCosts.map((d) => d.cost), 0.000001);
 
@@ -114,6 +129,73 @@ export default async function OpsPage() {
           accent
         />
       </div>
+
+      {/* Database — the cost that had no gauge until 2026-08-12, which is
+          exactly how it grew unnoticed toward $410/mo. The headline is the
+          VECTOR INDEX, not the database size: search walks that structure in
+          memory, and memory is what Supabase charges for. */}
+      {footprint && (
+        <section className="rounded-xl border border-stone-200/80 bg-white p-6">
+          <SectionHead title="Database" />
+          <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="font-editorial text-3xl text-stone-900">
+                {mb(footprint.vectorIndexBytes)}
+              </p>
+              <p className="mt-1 text-[13px] text-stone-500">Search index</p>
+              <p className="mt-0.5 text-[11px] text-stone-400">
+                must sit in memory · {bytesEach(footprint.indexBytesPerPhoto)}/photo
+              </p>
+            </div>
+            <div>
+              <p className="font-editorial text-3xl text-stone-900">
+                {footprint.tier.name}
+              </p>
+              <p className="mt-1 text-[13px] text-stone-500">
+                Smallest comfortable tier
+              </p>
+              <p className="mt-0.5 text-[11px] text-stone-400">
+                {footprint.tier.ramGb} GB RAM · {dollars(footprint.tier.monthly)}/mo
+                {footprint.computeMonthlyNet < footprint.tier.monthly &&
+                  ` (${dollars(footprint.computeMonthlyNet)} after Pro credit)`}
+              </p>
+            </div>
+            <div>
+              <p className="font-editorial text-3xl text-stone-900">
+                {footprint.photoHeadroom === null
+                  ? "—"
+                  : footprint.photoHeadroom.toLocaleString()}
+              </p>
+              <p className="mt-1 text-[13px] text-stone-500">Photos of headroom</p>
+              <p className="mt-0.5 text-[11px] text-stone-400">
+                {footprint.nextTier
+                  ? `before ${footprint.nextTier.name} at ${dollars(footprint.nextTier.monthly)}/mo`
+                  : "largest modelled tier"}
+              </p>
+            </div>
+            <div>
+              <p className="font-editorial text-3xl text-stone-900">
+                {gb(footprint.dbBytes)}
+              </p>
+              <p className="mt-1 text-[13px] text-stone-500">Database on disk</p>
+              <p className="mt-0.5 text-[11px] text-stone-400">
+                {dollars(footprint.diskMonthly)}/mo · {footprint.photosIndexed.toLocaleString()} photos indexed
+              </p>
+            </div>
+          </div>
+          {/* Headroom, not a countdown: a months-remaining figure needs a growth
+              RATE, and one migration or backfill dwarfs a month of real
+              shooting. The recent count is shown for context and labelled as
+              what it is, rather than being quietly turned into a forecast. */}
+          <p className="mt-5 border-t border-stone-100 pt-4 text-[12px] text-stone-400">
+            {footprint.photosLast30d.toLocaleString()} photos added in 30 days
+            {footprint.photosLast90d > 0 &&
+              `, ${footprint.photosLast90d.toLocaleString()} in 90`}
+            . Uploads, imports and backfills all count here, so treat it as
+            activity rather than as a shooting rate.
+          </p>
+        </section>
+      )}
 
       {/* 30-day sparkline */}
       <section className="rounded-xl border border-stone-200/80 bg-white p-6">
