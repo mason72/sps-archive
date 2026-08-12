@@ -168,10 +168,18 @@ export async function sweep({ dryRun = false } = {}) {
 
     if (dryRun) { done.push({ slug, ok: result.ok, files: result.files, problems: result.problems }); continue; }
 
-    // The queue may be at `queued` if a run was interrupted; walk it forward
-    // through the states the machine requires rather than jumping.
+    // Walk the machine forward from WHEREVER this collection actually is, rather
+    // than assuming it is queued.
+    //
+    // The state that broke this: `failed`. A collection that failed once and was
+    // then re-requested and downloaded is the ordinary retry path — it is how
+    // every transient error recovers — and `failed → downloaded` is illegal, so
+    // the sweep threw and processed nothing else in the run. Found on the first
+    // real retry (11139225, failed at the PIN gate, downloaded after the gate was
+    // cleared). `failed` exits only to `queued`, so that is the first hop.
     const step = (to, patch) => { if (get(queue, collection.id).state !== to) transition(queue, collection.id, to, patch); };
-    if (collection.state === "queued") step("requested", { requestedAt: new Date().toISOString() });
+    if (get(queue, collection.id).state === "failed") step("queued");
+    if (get(queue, collection.id).state === "queued") step("requested", { requestedAt: new Date().toISOString() });
     if (get(queue, collection.id).state === "requested") step("ready");
     step("downloaded", { files: result.files, bytes: result.bytes });
 

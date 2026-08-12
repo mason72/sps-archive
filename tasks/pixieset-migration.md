@@ -401,6 +401,37 @@ signature is 403.
 - Peak disk is ONE collection (~a few GB), never the full 1.13 TB.
 - Post-processing is ordinary Node and can run anywhere.
 
+## Measured throughput — and why the driver must stop blocking (2026-08-12)
+
+| collection | photos | ZIP build | size | MB/photo |
+|---|---|---|---|---|
+| `nachisheadshots` (2022) | 48 | **~2 s** | 68 MB | 1.42 |
+| `perkinelmereventphotos` (2018) | 1,016 | **~25 min** | **3.54 GB** | **3.66** |
+
+**Generation time does not scale gently.** A 1,000-photo collection took ~25 minutes to
+build server-side. The driver polls synchronously (request → wait → download, one
+collection at a time), which at that rate makes 857 at-risk collections roughly **six
+days of wall clock spent waiting on Pixieset's ZIP builder**, with the machine idle
+almost the whole time.
+
+**The fix is to split request from collect**, which the queue already models:
+`requested` → `ready` are separate states, and `requestedAt` exists precisely so the
+7-day expiry can be tracked across a gap. Request a batch (Pixieset builds them in
+parallel), then collect each as it becomes ready — the Gmail label "Pixieset Downloads"
+is the ready signal for the large ones, and polling the file page works for the rest.
+Batch size is bounded by the 7-day window and by disk, not by patience.
+
+**The size estimate may be materially low.** The fidelity table above records 2018 at a
+mean 0.88 MB/photo, sampled 24 frames deep. This collection came back at **3.66
+MB/photo — 4× that**. One collection is not a re-estimate, but if it generalises, the
+at-risk set is nearer 2.4 TB than 1.13 TB, and the R2 bill roughly doubles. Worth
+re-sampling across years before committing to a storage number.
+
+**`photo_count` can UNDERCOUNT, not only double-count.** This collection reports 903;
+its seven sets are disjoint and hold 1,016 real files. So it is neither a ceiling nor a
+floor — see the verifier note above. `nachisheadshots` (80 reported, 48 real) and this
+one (903 reported, 1,016 real) are the two directions.
+
 ## Pilot status (2026-08-12)
 
 - **Pilot 1 — `nachisheadshots` (47301077, 80 photo_count): COMPLETE and VERIFIED.**
