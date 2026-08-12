@@ -533,3 +533,21 @@ slot list. Their rows record the CORRECT filename and CORRECT `file_size`, so
 re-dropping those files hits the (name, size) duplicate guard and is silently
 skipped. The rows must be deleted before the re-upload, or nothing happens and
 it looks like it worked.
+
+### Addendum — repairing from a sister product
+
+Island's 72 unrecoverable frames were pulled from the SPS gallery rather than
+re-exported by the photographer. Two things that matter for the next time:
+
+- **Isolate the question you are actually asking.** Comparing SPS's bytes to the
+  archive's "proved" SPS was lossy — but the photographer had adjusted crops and
+  re-exported between the two uploads, so that diff measured HIM, not SPS. The
+  test that isolates SPS is entirely internal to SPS: `images.file_size`
+  (recorded at upload) vs the Content-Length of `original_url` (what it serves).
+  8 of 8 served ~73% of recorded. Same shape as the guard rule — a comparison
+  whose two sides share a confounder is one measurement, not two.
+- **"Lossy" is a product decision, not an engineering one.** SPS's copies are a
+  lighter rendition than the photographer's export. Mason's call: at 4800px on a
+  headshot nobody can see it, and it beats bothering Justin. Provenance is
+  stamped on the rows (`sps_image_id` / `sps_quality` / `sps_pulled_at`) so the
+  difference is recorded rather than argued about later.
