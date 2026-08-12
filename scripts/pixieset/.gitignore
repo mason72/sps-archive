@@ -2,3 +2,9 @@ node_modules/
 profile/
 data/
 package-lock.json
+
+# Belt and braces: data/ already covers these, but gates.json holds the download
+# PINs and gallery passwords for 1,432 live collections. It must never become
+# committable because someone moved the directory rule.
+data/gates.json
+**/gates.json

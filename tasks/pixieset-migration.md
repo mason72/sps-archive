@@ -213,6 +213,90 @@ extraction; and **log which branch was taken**, the same rule as the Dropbox
 This page also confirms the double-count directly: All Photos **48** + Your
 Favorites **32** = the 80 that `photo_count` reports for a 48-photo gallery.
 
+### ⛔ THE BLOCKER: 81% of collections require a download PIN (measured 2026-08-12)
+
+The client-facing gate asks for `DownloadLoginForm[download_pin]` on most collections.
+Swept live across all 1,763 via `dashboard_listings`:
+
+| | collections | share |
+|---|---|---|
+| **require a download PIN** | **1,432** | **81%** |
+| have a gallery password | 281 | 16% |
+| have both | 272 | 15% |
+| **`collection_download` disabled** | **22** | 1% |
+
+Per-year PIN counts: 2014:25 · 2015:17 · 2016:57 · 2017:168 · 2018:161 · 2019:196 ·
+2020:33 · 2021:39 · 2022:119 · 2023:162 · 2024:204 · 2025:159 · 2026:92 — i.e. the
+at-risk pre-2024 set is almost entirely PIN-gated.
+
+**This invalidates the earlier note that "owner view needs no PIN."** That was
+generalised from `nachisheadshots`, which happens to sit in the ~19% without one —
+the same shape of error as the old SPS "lossy source" claim: measured honestly on one
+sample, then stated as a general rule. The pilot worked *because* the pilot collection
+was the exception.
+
+The PIN values are NOT in `scripts/triage/data/inventory.json` (that file keeps only 6
+columns: id, name, event_date, photo_count, thumb, url_key). They live on the
+dashboard API — `GET /api/v1/collections/{id}` and the `dashboard_listings` pages both
+return `download_pin`, `password`, `collection_download`.
+
+The 22 download-disabled collections cannot use the ZIP path at all and need the
+per-photo API repair route (or a settings change on the account).
+
+### Corrections to the wire contract (probed live 2026-08-12, second pass)
+
+The contract above is right about the field names. These five things it got wrong or
+did not cover, each of which stalls a driver:
+
+1. **The "Existing File?" interstitial has its OWN PATH: `/download/exist/{slug}/`.**
+   Branch on the landed pathname, never on the copy ("already generated a download") —
+   the path is structural, the wording is not. It appears in two places, not one: after
+   the email-gate POST *and* on a GET of the `/download/file/` status page.
+2. **The branch is not stable across runs.** The same collection lands on the set
+   picker one minute and the interstitial the next, depending on server-side state. The
+   driver re-reads the path every hop rather than assuming a sequence.
+3. **"NEW DOWNLOAD" is a link back through the email gate.** A GET of
+   `/download/sets/{slug}/` without a live filekey bounces to `/download/auth/`. To
+   force a fresh generation, just re-POST the auth gate.
+4. **There is no JS poller and no meta-refresh on the "preparing" page.** Readiness is
+   discovered by re-fetching the file URL. Small galleries are ready in ~2–5s.
+5. **The ready page links `/download/filestart/…`**, labelled with the filename and
+   size: `nachisheadshots-photo-download-1of1.zip  68.2 MB`. Clicking an injected
+   `<a download>` makes Chrome save it to ~/Downloads unattended — no save dialog.
+
+**The extension redacts what the driver may report.** Anything key-shaped comes back as
+`[BLOCKED: Sensitive key]`, and a single query-string-shaped field poisons the ENTIRE
+tool result (`[BLOCKED: Cookie/query string data]`) — you lose the whole run's report,
+not just that field. `driver.js` consumes tokens in-page and reports only counts,
+labels, filenames and states. Keep it that way.
+
+### ⚠️ The ZIP filename does NOT encode fidelity — dimensions are the only tell
+
+Measured 2026-08-12 by downloading `nachisheadshots` twice, High Resolution and Web
+Size. The two archives are **indistinguishable** by every check the verifier had:
+
+| | High Resolution | Web Size |
+|---|---|---|
+| filename | `nachisheadshots-photo-download-1of1.zip` | **identical** |
+| JPEG count | 48 | **48** |
+| parts | 1of1 | **1of1** |
+| `unzip -t` CRC | passes | **passes** |
+| bytes | 71,516,295 | 21,482,223 |
+| **frame width** | **4800 / 3583 / 3301 / 4669 (varies)** | **2048 on every frame** |
+
+Chrome saved the second one beside the first as `…-1of1 (1).zip`. So:
+
+- **Web Size renders every frame to exactly 2048px wide.** The LONG EDGE is useless as
+  a discriminator (web-size long edges run 2048–3072, overlapping genuine 2015–2016
+  originals at 3840 and 2014 frames at 1,844). Uniform narrow *width* is the signature.
+  `sampleDimensions()` in `lib/archive.mjs` implements it; negative-tested both ways.
+- **This matters because "DOWNLOAD EXISTING" may hand back a ZIP a CLIENT generated**,
+  at whatever size they chose. `driver.js` therefore prefers a fresh High Resolution
+  generation and flags `fidelity: "existing-unknown"` when it cannot force one.
+- **The set picker reports per-set photo counts** ("All Photos 48 photos"). That is an
+  INDEPENDENT, non-double-counted source, so unlike `photo_count` it can be asserted as
+  an equality. Carry it through as `expectedFiles`.
+
 ### Driving the browser: the tab-group trap
 
 The Claude Chrome extension will accept `navigate`, return **"Navigated to
@@ -248,6 +332,25 @@ signature is 403.
 - **Chrome saves ZIPs to ~/Downloads**; a plain Node watcher extracts → R2 → rows → delete.
 - Peak disk is ONE collection (~a few GB), never the full 1.13 TB.
 - Post-processing is ordinary Node and can run anywhere.
+
+## Pilot status (2026-08-12)
+
+- **Pilot 1 — `nachisheadshots` (47301077, 80 photo_count): COMPLETE and VERIFIED.**
+  Requested, generated in ~2s, downloaded by Chrome unattended, 71,516,295 bytes,
+  48 JPEGs in `All_Photos/`, CRC clean, parts complete, median long edge 4,800px.
+  48 files vs 80 `photo_count` confirms the double-count exactly. Staged at
+  `~/pixieset-staging/verified/`.
+- **Pilots 2 and 3 — BLOCKED on the PIN gate**, not on the tooling: both
+  `perkinelmereventphotos` (903) and `uspartnerloungeheadshots…` (3,002) stop at
+  `/download/auth/` because the driver has no PIN to supply. They failed loudly,
+  which is the intended behaviour.
+- Throughput and Modal AI indexing cost are therefore **still unmeasured** — both
+  needed pilots 2 and 3.
+
+Staging lives at `~/pixieset-staging/` — deliberately OUTSIDE `~/Projects`, which is
+Syncthing-replicated between the two Macs. Terabytes of transient ZIPs must not sync.
+Disk floor: `MIN_FREE_GB = 25` in `watch.mjs`; this machine had 101 GB free, which is
+fine for one-collection-at-a-time staging and nowhere near the 1.13 TB total.
 
 ## Open decisions
 

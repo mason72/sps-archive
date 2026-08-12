@@ -20,10 +20,11 @@
  * Sets become top-level folders in the archive (`All_Photos/…`), which is what
  * maps onto Pixeltrunk sections downstream.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
+import { jpegSize, longEdge } from "./jpeg.mjs";
 
 const run = promisify(execFile);
 
@@ -82,12 +83,101 @@ export async function listEntries(zipPath) {
 }
 
 /**
+ * Read one entry's JPEG header out of a ZIP without extracting it.
+ *
+ * `unzip -p` streams to stdout; we kill it once we have enough bytes for the SOF
+ * marker. Reading a 6 MB photo to learn two integers would make sampling cost
+ * more than the verification it supports.
+ */
+export function headerBytes(zipPath, entry, bytes = 65536) {
+  return new Promise((resolve) => {
+    const child = spawn("unzip", ["-p", zipPath, entry]);
+    const chunks = [];
+    let total = 0, settled = false;
+    const done = (buf) => { if (settled) return; settled = true; child.kill("SIGKILL"); resolve(buf); };
+    child.stdout.on("data", (c) => {
+      chunks.push(c);
+      total += c.length;
+      if (total >= bytes) done(Buffer.concat(chunks));
+    });
+    child.stdout.on("end", () => done(chunks.length ? Buffer.concat(chunks) : null));
+    child.on("error", () => done(null));
+    child.on("close", () => done(chunks.length ? Buffer.concat(chunks) : null));
+  });
+}
+
+/**
+ * The signature of Pixieset's "Web Size" rendition: a fixed pixel WIDTH.
+ *
+ * MEASURED 2026-08-12 by downloading `nachisheadshots` twice, once at High
+ * Resolution and once at Web Size, and comparing frame by frame:
+ *
+ *   originals   4800x3362  3583x4620  3301x4800  4669x3578  4375x3454   (widths vary)
+ *   web size    2048x….    2048x….    2048x….    2048x….    2048x….     (width ALWAYS 2048)
+ *
+ * The long edge is NOT a usable discriminator and an earlier guess that it was
+ * would have been worse than no guard: web-size long edges run 2048–3072, which
+ * overlaps genuine originals (2015–2016 medians are 3840, and 2014 holds frames
+ * as small as 1,844). Any long-edge threshold either never fires or fires on real
+ * archive material. The uniform width is the thing that actually separates them.
+ */
+export const WEB_SIZE_WIDTH = 2048;
+
+/** Uniform width at or below this, across every sample, reads as a rendition not a camera. */
+export const RENDITION_WIDTH_MAX = 2560;
+
+/**
+ * Sample pixel dimensions across an archive to prove it holds ORIGINALS.
+ *
+ * This is the ONLY check that can tell an original from Pixieset's Web Size
+ * rendition — CRC passes, filenames match and the file count is identical for
+ * both. It matters because "DOWNLOAD EXISTING" may hand back a ZIP a CLIENT
+ * generated at Web Size, and archiving those would silently destroy the very
+ * thing this migration exists to preserve.
+ *
+ * Derived from the decoded pixels, deliberately NOT from the byte size or the
+ * inventory's `size` field: a guard that reads the same source as the thing it
+ * is guarding can only ever agree with it.
+ */
+export async function sampleDimensions(zipPath, entries, { sample = 5 } = {}) {
+  const jpegs = entries.filter((e) => JPEG.test(e));
+  if (!jpegs.length) return { sampled: 0, longEdges: [], medianLongEdge: null };
+  // Spread the sample across the archive — a burst from the front would miss a
+  // gallery that changes camera (or rendition) partway through.
+  const step = Math.max(1, Math.floor(jpegs.length / sample));
+  const picks = [];
+  for (let i = 0; i < jpegs.length && picks.length < sample; i += step) picks.push(jpegs[i]);
+
+  const longEdges = [];
+  const widths = [];
+  for (const entry of picks) {
+    const buf = await headerBytes(zipPath, entry);
+    const size = buf ? jpegSize(buf) : null;
+    if (!size) continue;
+    longEdges.push(longEdge(size));
+    widths.push(size.width);
+  }
+  const sorted = [...longEdges].sort((a, b) => a - b);
+  // A camera crops to varying widths across a shoot; a renderer does not. Uniform
+  // narrow width across every sample is the rendition tell — see WEB_SIZE_WIDTH.
+  const uniformWidth = widths.length >= 3 && widths.every((w) => w === widths[0]) ? widths[0] : null;
+  return {
+    sampled: longEdges.length,
+    longEdges,
+    widths,
+    uniformWidth,
+    isRendition: uniformWidth != null && uniformWidth <= RENDITION_WIDTH_MAX,
+    medianLongEdge: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
+  };
+}
+
+/**
  * Verify one collection's full set of ZIP parts.
  *
  * `expectedPhotos` is the inventory's photoCount — an UPPER bound, never an
  * equality target. See the note at the top of this file.
  */
-export async function verifyArchive(zipPaths, { expectedPhotos = null } = {}) {
+export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedFiles = null, checkFidelity = true } = {}) {
   const problems = [];
   if (!zipPaths.length) return { ok: false, problems: ["no archive files"], files: 0, bytes: 0, sets: {} };
 
@@ -99,6 +189,8 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null } = {}) {
   const sets = {};
   let files = 0;
 
+  let widest = { path: null, entries: [], count: 0 };
+
   for (const p of zipPaths) {
     const integrity = await testIntegrity(p);
     if (!integrity.ok) {
@@ -106,17 +198,41 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null } = {}) {
       continue;
     }
     bytes += (await stat(p)).size;
-    for (const entry of await listEntries(p)) {
+    const entries = await listEntries(p);
+    let inThis = 0;
+    for (const entry of entries) {
       if (!JPEG.test(entry)) continue;
       files++;
+      inThis++;
       // Top-level folder = the Pixieset set, which becomes a Pixeltrunk section.
       const slash = entry.indexOf("/");
       const set = slash === -1 ? "(root)" : entry.slice(0, slash);
       sets[set] = (sets[set] || 0) + 1;
     }
+    if (inThis > widest.count) widest = { path: p, entries, count: inThis };
   }
 
   if (files === 0) problems.push("archive contains no JPEGs");
+
+  // Fidelity. The ONLY check that separates originals from Pixieset's Web Size
+  // rendition — CRC, filenames, part counts and file counts are identical for both.
+  let dimensions = null;
+  if (checkFidelity && widest.path) {
+    dimensions = await sampleDimensions(widest.path, widest.entries);
+    if (dimensions.isRendition) {
+      problems.push(
+        `looks like a Web Size rendition, not originals: every sampled frame is ${dimensions.uniformWidth}px wide ` +
+        `(median long edge ${dimensions.medianLongEdge}). Re-request this collection at High Resolution.`
+      );
+    }
+  }
+
+  // The set picker reports each set's photo count. That is an INDEPENDENT source
+  // from the inventory's photo_count, and unlike it, it is not double-counted — so
+  // here an exact match is meaningful rather than guaranteed to fail.
+  if (expectedFiles != null && expectedFiles > 0 && files !== expectedFiles) {
+    problems.push(`${files} JPEGs but the set picker promised ${expectedFiles}`);
+  }
 
   let suspicious = false;
   if (expectedPhotos != null && expectedPhotos > 0) {
@@ -128,5 +244,5 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null } = {}) {
     }
   }
 
-  return { ok: problems.length === 0, problems, files, bytes, sets, parts, suspicious };
+  return { ok: problems.length === 0, problems, files, bytes, sets, parts, suspicious, dimensions };
 }

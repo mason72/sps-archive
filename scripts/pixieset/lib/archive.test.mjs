@@ -143,3 +143,64 @@ test("no files at all is a failure, not an empty success", async () => {
   assert.equal(r.ok, false);
   assert.equal(r.files, 0);
 });
+
+// --- fidelity -------------------------------------------------------------
+// A Web Size rendition is IDENTICAL to the originals in filename, part count and
+// file count. These are the only tests that can tell them apart, so they are the
+// ones standing between the archive and a silent, permanent loss of resolution.
+
+/** A JPEG carrying a real SOF0 frame of the given dimensions. */
+function sofJpeg(width, height) {
+  return Buffer.from([
+    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08,
+    (height >> 8) & 0xff, height & 0xff, (width >> 8) & 0xff, width & 0xff,
+    0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9,
+  ]);
+}
+
+async function makeSizedZip(name, dims) {
+  const staging = join(dir, `stage-${name}`);
+  await mkdir(join(staging, "All_Photos"), { recursive: true });
+  let i = 0;
+  for (const [w, h] of dims) await writeFile(join(staging, "All_Photos", `img_${++i}.jpg`), sofJpeg(w, h));
+  const zipPath = join(dir, name);
+  await run("zip", ["-rq", zipPath, ".", "-i", "*"], { cwd: staging });
+  return zipPath;
+}
+
+test("a Web Size rendition is REJECTED even though it is otherwise perfect", async () => {
+  // Measured signature: Pixieset renders every web-size frame to exactly 2048 wide.
+  const z = await makeSizedZip("web-1of1.zip", [[2048, 2896], [2048, 1387], [2048, 3072], [2048, 1455], [2048, 2813]]);
+  const r = await verifyArchive([z], { expectedFiles: 5 });
+  assert.equal(r.ok, false, "uniform 2048px width must not pass as originals");
+  assert.equal(r.dimensions.uniformWidth, 2048);
+  assert.match(r.problems.join(" "), /Web Size rendition/);
+});
+
+test("genuine originals pass — varying widths are the camera's signature", async () => {
+  const z = await makeSizedZip("orig-1of1.zip", [[4800, 3362], [3583, 4620], [3301, 4800], [4669, 3578], [4375, 3454]]);
+  const r = await verifyArchive([z], { expectedFiles: 5 });
+  assert.equal(r.ok, true, r.problems.join("; "));
+  assert.equal(r.dimensions.uniformWidth, null, "varying widths must not read as a rendition");
+  // long edges 4800, 4620, 4800, 4669, 4375 → median 4669
+  assert.equal(r.dimensions.medianLongEdge, 4669);
+});
+
+test("the fidelity guard does not fire on a uniform LARGE width", async () => {
+  // An unedited shoot straight off one body genuinely has uniform width. Only a
+  // uniform NARROW width is a rendition — a guard that cried wolf here would be
+  // switched off on the day it was right.
+  const z = await makeSizedZip("uniform-big-1of1.zip", [[6000, 4000], [6000, 4000], [6000, 4000], [6000, 4000]]);
+  const r = await verifyArchive([z], { expectedFiles: 4 });
+  assert.equal(r.ok, true, r.problems.join("; "));
+});
+
+test("the set picker's count is an equality target, unlike photo_count", async () => {
+  const z = await makeSizedZip("short-1of1.zip", [[4800, 3200], [4700, 3100]]);
+  const short = await verifyArchive([z], { expectedFiles: 48 });
+  assert.equal(short.ok, false);
+  assert.match(short.problems.join(" "), /set picker promised 48/);
+  // The same archive against the double-counted inventory figure must NOT fail.
+  const upper = await verifyArchive([z], { expectedPhotos: 48 });
+  assert.equal(upper.ok, true, "photo_count is an upper bound and must never be asserted as equality");
+});
