@@ -485,3 +485,51 @@ That trade is backwards. A ring that closes is cosmetic; a total you can reconci
 **Design gap** (same day). Presign is deliberately throttled to a 60-task high-water mark — the fix for HDC, where 3,839 rows were minted in three minutes for a queue draining at 40/min and a dead tab took 404 photos with it. Correct, tested, documented. But the "Sort into sections" preview plans from DATABASE ROWS, and rows now appear at upload pace: Justin's 1,142 files took FIFTY MINUTES to fully register. So the modal's promise — "every file is already counted below" — was false for the entire useful window, and its author had no reason to suspect it.
 The fix needed neither waiting nor loosening the throttle: `planAutoSections` is pure over filenames, and the browser has held every name since the drop.
 **Rule**: when you add backpressure, list what reads the thing you are slowing down. A throttle changes the *timing contract* of everything downstream, and the downstream code usually states its assumption in a comment that was true when written.
+
+## 89. A filter that reassigns one list orphans every snapshot taken of it
+
+`UploadManager` held two views of the same 50-file chunk: `chunkEntries` (the
+rows) and `const chunk = chunkEntries.map(e => e.file)` (the bytes). When
+presign dedupe started REASSIGNING `chunkEntries` to a filtered copy, the
+snapshot kept the unfiltered order. The zip at the bottom then paired row N with
+file N-1. **805 of 1,142 photos in a live client gallery were filed under the
+wrong person's name**, with no error, a correct count, and a ring that closed at
+100%.
+
+- **Never take a snapshot of a list you are going to filter.** Read the field off
+  the element you are already holding (`entry.file`), not off a parallel array
+  indexed the same way. Two arrays that must stay in lockstep are one bug away
+  from not being.
+- **`let` on a list is a warning sign.** The reassignments were four lines below
+  the snapshot and looked completely local. Grep for other readers of the name
+  before making a `const` list mutable.
+- **Cross the boundary with an identity, not a position.** The presign response
+  already carried `originalFilename` for every slot and nothing checked it. The
+  fix asserts name-matches-entry and fails the file loudly. A protocol that
+  ships an identifier and then indexes by position is not using its own protocol.
+
+**The detector generalises: find a field written on one side of the boundary and
+re-read it from the other.** `images.file_size` is written at presign from the
+correct File, before any bytes move; the R2 object has its own true
+Content-Length. Comparing them shares no assumption with the buggy code, so it
+could not agree with the bug — 805 mismatches, each holding the size of the
+photo immediately before it. Inspecting thumbnails would have shown plausible
+headshots forever.
+
+**A human confirming an AI suggestion can launder corruption into the one field
+that was still correct.** The People view asked "Is this William Pashby?" about
+a file named `Zaid Haq_458`. The picture genuinely was William Pashby, so
+confirming was right on the evidence — but the picture was the corruption and
+the name was the only sound part. 64 `fix-label` overrides renamed correctly
+named rows to match wrong pictures, and they SURVIVED the byte repair because
+they live in `parsed_name`, which the repair had no reason to touch. **After
+repairing data, list every human decision that was made while the data was
+wrong, and check whether it is still true.** Derived data (thumbs, embeddings,
+faces) is obvious; a human's confirmation looks like intent, not derivation.
+
+**Repair order matters, and the guard fights you.** The 71 files at the tails of
+each chunk were never uploaded at all — the loop ran only as far as the shorter
+slot list. Their rows record the CORRECT filename and CORRECT `file_size`, so
+re-dropping those files hits the (name, size) duplicate guard and is silently
+skipped. The rows must be deleted before the re-upload, or nothing happens and
+it looks like it worked.
