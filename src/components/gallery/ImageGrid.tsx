@@ -23,7 +23,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { reorderWithStacks } from "@/lib/gallery/reorder";
 import { SmartStack } from "./SmartStack";
-import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
+import {
+  distributeBalanced,
+  tileHeightUnit,
+  useResponsiveColumns,
+} from "@/lib/gallery/grid-layout";
 import type { ImageData, StackData } from "@/types/image";
 
 /** How long a "pending" row counts as an upload-in-progress (placeholder tile,
@@ -35,6 +39,7 @@ const SETTLE_WINDOW_MS = 15 * 60 * 1000;
  *  trickle-heal, never stampede (the amplifier in the eBay incident). */
 let regenInFlight = 0;
 const REGEN_MAX_CONCURRENT = 3;
+
 
 interface ImageGridProps {
   images: ImageData[];
@@ -206,10 +211,9 @@ export function ImageGrid({
   // three seconds of that.
   const visibleItems = gridItems.slice(0, revealed);
 
-  const columns = distributeBalanced(visibleItems, colCount, (item) => {
-    const d = item.type === "image" ? item.data : item.data.images[0];
-    return d && d.width && d.height ? d.height / d.width : 4 / 3;
-  });
+  const columns = distributeBalanced(visibleItems, colCount, (item) =>
+    tileHeightUnit(item, style === "uniform")
+  );
 
   const renderItem = (item: (typeof gridItems)[number]) => {
     const key =
@@ -446,10 +450,13 @@ function SortableImageGrid({
     );
   }
 
-  const columns = distributeBalanced(items, colCount, (item) => {
-    const d = item.type === "image" ? item.data : item.data.images[0];
-    return d && d.width && d.height ? d.height / d.width : 4 / 3;
-  });
+  // Same rule as the plain grid — the packer models the RENDERED tile. In this
+  // (Manual-sort) mode the caller has already expanded stacks into loose tiles
+  // so each maps to one section_images row, but the branch stays correct rather
+  // than relying on that staying true.
+  const columns = distributeBalanced(items, colCount, (item) =>
+    tileHeightUnit(item, style === "uniform")
+  );
   const activeItem = activeId ? itemById.get(activeId) : null;
   const activeImage = activeItem
     ? activeItem.type === "image"

@@ -56,6 +56,46 @@ export function distributeIntoColumns<T>(items: T[], numCols: number): T[][] {
 }
 
 /**
+ * A tile's rendered height per unit column width — the number `distributeBalanced`
+ * balances on. It must describe what the tile ACTUALLY RENDERS AS, not what its
+ * source image is.
+ *
+ * That distinction was the bug behind the editor's ragged columns. A collapsed
+ * stack renders its cover inside a FIXED `aspect-[3/4]` box (CollapsedStack in
+ * SmartStack.tsx), but the packer was handed the cover photo's NATURAL aspect,
+ * so every stack tile was mis-sized by however far that photo differed from 3:4.
+ * Measured across the live archive the mean error runs 18%–79% per gallery, and
+ * — this is the part that shows — it varies tile to tile with the
+ * portrait/landscape mix, so the errors never cancel. Columns accumulate
+ * invisible height, overshoot, keep being fed, and end at very different points.
+ *
+ * Two things this is NOT:
+ * - **Not the filename strip.** That renders `absolute bottom-0` INSIDE the
+ *   tile and adds zero height. An earlier diagnosis blamed it and proposed a
+ *   per-item caption constant; that would have stacked a second, opposite error
+ *   on top of this one.
+ * - **Not for the PUBLIC grid.** `GalleryGrid` renders a stack tile at its
+ *   cover's natural aspect, so its own inline estimate is already correct and
+ *   routing it through here would BREAK it. The two grids genuinely render
+ *   stacks differently; this function describes the editor's tile only.
+ */
+export const STACK_TILE_HEIGHT_UNIT = 4 / 3; // CollapsedStack's aspect-[3/4]
+export const UNKNOWN_DIMS_HEIGHT_UNIT = 4 / 3; // GridImage's "3 / 4" fallback
+
+export function tileHeightUnit(
+  item:
+    | { type: "stack" }
+    | { type: "image"; data: { width?: number | null; height?: number | null } },
+  uniform: boolean
+): number {
+  // Uniform style renders every tile 1:1, stacks included.
+  if (uniform) return 1;
+  if (item.type === "stack") return STACK_TILE_HEIGHT_UNIT;
+  const d = item.data;
+  return d && d.width && d.height ? d.height / d.width : UNKNOWN_DIMS_HEIGHT_UNIT;
+}
+
+/**
  * Distribute items into N columns using shortest-column-first packing, so column
  * HEIGHTS stay balanced. Round-robin above balances item COUNTS but not heights,
  * which leaves one column far taller when tall (portrait) tiles cluster —

@@ -1239,6 +1239,12 @@ export default function EventPage({
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
+  // Whether the Filenames toggle can change anything on screen. Only UNSTACKED
+  // tiles carry a filename row — a collapsed stack is many files, so it has no
+  // single filename to print — which means a fully-stacked grid (every headshot
+  // day) gave the toggle nothing to act on and it read as broken.
+  const filenamesHaveEffect = standalone.length > 0;
+
   // Per-tile slot badges for TDP Website scenes: which live-site position each
   // photo fills. Only truthful in Manual drag order (positions map to
   // section_images.sort_order), so it's computed there and nowhere else.
@@ -2065,12 +2071,34 @@ export default function EventPage({
 
                 <div className="w-px h-4 bg-stone-200" />
 
-                {/* Filename overlay toggle */}
+                {/* Filename overlay toggle.
+                    DISABLED WITH A REASON when every tile in view is a collapsed
+                    stack. A stack is many files, so it carries no filename row —
+                    which left this button flipping a setting with nothing on
+                    screen to act on, reading as broken. The house rule for a
+                    control that can't do its job is to grey it and say why, never
+                    to hide it: hiding teaches nothing and sends people hunting.
+                    It still governs the frames INSIDE an expanded stack, hence
+                    "expand a stack" as the second way out rather than just
+                    "turn Stacks off". */}
                 <button
                   onClick={toggleFilenames}
-                  className={`p-1.5 transition-colors ${gridSettings?.showFilenames ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  disabled={!filenamesHaveEffect}
+                  className={`p-1.5 transition-colors ${
+                    !filenamesHaveEffect
+                      ? "text-stone-200 cursor-not-allowed"
+                      : gridSettings?.showFilenames
+                        ? "text-stone-900"
+                        : "text-stone-300 hover:text-stone-500"
+                  }`}
                   aria-label="Toggle filenames"
-                  title={gridSettings?.showFilenames ? "Hide filenames" : "Show filenames"}
+                  title={
+                    !filenamesHaveEffect
+                      ? "Every photo here is in a stack, and a stack has no one filename. Turn Stacks off, or expand a stack, to see filenames."
+                      : gridSettings?.showFilenames
+                        ? "Hide filenames"
+                        : "Show filenames"
+                  }
                 >
                   {gridSettings?.showFilenames ? (
                     <Eye className="h-4 w-4" />

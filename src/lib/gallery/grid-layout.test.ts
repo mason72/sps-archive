@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { distributeIntoColumns, distributeBalanced } from "./grid-layout";
+import {
+  distributeIntoColumns,
+  distributeBalanced,
+  tileHeightUnit,
+} from "./grid-layout";
 
 describe("distributeIntoColumns — left-to-right reading order", () => {
   it("places item i in column i % n (reads across the first row, then wraps)", () => {
@@ -79,5 +83,53 @@ describe("distributeBalanced — shortest-column-first (height-balanced)", () =>
     const cols = distributeBalanced([{ h: 1 }, { h: 1 }], 0, (i) => i.h);
     expect(cols.length).toBe(1);
     expect(cols[0].length).toBe(2);
+  });
+});
+
+describe("tileHeightUnit", () => {
+  const portrait = { width: 2000, height: 3000 }; // h/w = 1.5
+  const landscape = { width: 3000, height: 2000 }; // h/w = 0.667
+
+  it("gives a stack the height it actually renders at, not its cover's aspect", () => {
+    // The regression: a collapsed stack renders in a fixed aspect-[3/4] box, so
+    // its cover being portrait or landscape must make no difference at all.
+    expect(tileHeightUnit({ type: "stack" }, false)).toBeCloseTo(4 / 3);
+  });
+
+  it("uses natural aspect for a flat image", () => {
+    expect(tileHeightUnit({ type: "image", data: portrait }, false)).toBeCloseTo(1.5);
+    expect(tileHeightUnit({ type: "image", data: landscape }, false)).toBeCloseTo(2 / 3);
+  });
+
+  it("is 1 for every tile in uniform style, stacks included", () => {
+    expect(tileHeightUnit({ type: "image", data: portrait }, true)).toBe(1);
+    expect(tileHeightUnit({ type: "image", data: landscape }, true)).toBe(1);
+    expect(tileHeightUnit({ type: "stack" }, true)).toBe(1);
+  });
+
+  it("falls back to the same 3:4 box GridImage renders when dimensions are unknown", () => {
+    expect(tileHeightUnit({ type: "image", data: {} }, false)).toBeCloseTo(4 / 3);
+    expect(
+      tileHeightUnit({ type: "image", data: { width: null, height: null } }, false)
+    ).toBeCloseTo(4 / 3);
+    // A zero dimension is corrupt data, not a 0-height tile.
+    expect(
+      tileHeightUnit({ type: "image", data: { width: 0, height: 0 } }, false)
+    ).toBeCloseTo(4 / 3);
+  });
+
+  it("balances a mixed stack/image grid on rendered heights", () => {
+    // Two stacks with wildly different covers must pack as equal-height tiles.
+    const items = [
+      { type: "stack" as const },
+      { type: "stack" as const },
+      { type: "image" as const, data: portrait },
+      { type: "image" as const, data: portrait },
+    ];
+    const cols = distributeBalanced(items, 2, (i) => tileHeightUnit(i, false));
+    expect(cols).toHaveLength(2);
+    const height = (col: typeof items) =>
+      col.reduce((sum, i) => sum + tileHeightUnit(i, false), 0);
+    expect(height(cols[0])).toBeCloseTo(height(cols[1]));
   });
 });
