@@ -23,7 +23,10 @@ import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { CurationModal } from "@/components/gallery/CurationModal";
 import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
-import { SortSectionsModal } from "@/components/events/SortSectionsModal";
+import {
+  SortSectionsModal,
+  type SortParams,
+} from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
 import { HighlightsPanel } from "@/components/events/HighlightsPanel";
 import { ProcessingBanner } from "@/components/events/ProcessingBanner";
@@ -473,6 +476,17 @@ export default function EventPage({
   // Arm the sort nudge when a big session dumps into the Unsorted intake —
   // the moment it starts, not after: rows register ahead of their binaries,
   // so the plan preview is accurate while files are still uploading.
+  /**
+   * A sort chosen during an upload, waiting for the queue to drain.
+   *
+   * Applying mid-flight could race a retry against a deleted Unsorted section,
+   * so execution has to wait — but the DECISION doesn't. Held in memory only: a
+   * reload loses it, which is the honest tradeoff for not persisting a pending
+   * mutation the user can no longer see.
+   */
+  const [scheduledSort, setScheduledSort] = useState<SortParams | null>(null);
+  const wasUploadingRef = useRef(false);
+
   const NUDGE_MIN_FILES = 50;
   useEffect(() => {
     if (!uploadProgress.active) return;
@@ -1061,6 +1075,49 @@ export default function EventPage({
     [handleSetActiveSection, fetchEvent]
   );
 
+  useEffect(() => {
+    const draining = wasUploadingRef.current && !uploadProgress.active;
+    wasUploadingRef.current = uploadProgress.active;
+    if (!draining || !scheduledSort) return;
+
+    const params = scheduledSort;
+    setScheduledSort(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/auto-sections`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            params.mode === "scenes"
+              ? { mode: params.mode, taxonomy: params.taxonomy }
+              : {
+                  mode: params.mode,
+                  target: params.target,
+                  stacks: params.stacks,
+                }
+          ),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || "Failed to create sections");
+        }
+        const data = (await res.json()) as {
+          sections: Parameters<typeof handleSortApplied>[0];
+          created: number;
+        };
+        handleSortApplied(data.sections);
+        toast.success(
+          `Upload finished — sorted into ${data.created} section${data.created === 1 ? "" : "s"}`
+        );
+      } catch (e) {
+        // Never silent: the user asked for this and walked away.
+        toast.error(
+          e instanceof Error ? e.message : "Couldn't sort after the upload"
+        );
+      }
+    })();
+  }, [uploadProgress.active, scheduledSort, eventId, handleSortApplied]);
+
   // Sort images based on user selection. "manual" is per-section drag order
   // (order-manual.ts); the other three use the shared comparator the public
   // gallery uses, so "Filename"/"Date taken"/"Latest" order identically in both.
@@ -1485,6 +1542,10 @@ export default function EventPage({
           // Files the browser holds that have no row yet — the plan needs them
           // or it covers only what presign has reached so far.
           pendingImages={uploadProgress.unregistered}
+          onSchedule={(params) => {
+            setScheduledSort(params);
+            toast.success("Sorting queued — it runs when the upload finishes");
+          }}
           uploading={
             uploadProgress.active
               ? {

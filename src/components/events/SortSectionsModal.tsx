@@ -43,6 +43,23 @@ interface SortSectionsModalProps {
    * browser has had them since the drop.
    */
   pendingImages?: { id: string; originalFilename: string }[];
+  /**
+   * Commit the choice now, run it when the upload drains.
+   *
+   * Applying mid-flight could race a retry against a deleted Unsorted section,
+   * so Apply stays gated — but "Waiting for upload…" was a dead button that made
+   * the photographer come back later and do it by hand. The decision is
+   * available at drop time; only the execution has to wait.
+   */
+  onSchedule?: (params: SortParams) => void;
+}
+
+/** Exactly what the apply call sends — scheduled or immediate, one shape. */
+export interface SortParams {
+  mode: UiMode;
+  target: number;
+  stacks: boolean;
+  taxonomy?: string | null;
 }
 
 /** The modal's modes: the pure name-based planners + the AI scene planner. */
@@ -75,6 +92,7 @@ export function SortSectionsModal({
   onApplied,
   uploading,
   pendingImages,
+  onSchedule,
 }: SortSectionsModalProps) {
   const [loading, setLoading] = useState(true);
   const [images, setImages] = useState<PlanImage[]>([]);
@@ -321,8 +339,8 @@ export function SortSectionsModal({
                     </span>{" "}
                     uploaded — all{" "}
                     {uploading.total.toLocaleString()} are counted in the plan
-                    below, including the ones still waiting to start. Sorting
-                    runs when the upload finishes.
+                    below, including the ones still waiting to start. Choose now
+                    and it runs the moment the upload finishes.
                   </span>
                 </div>
               )}
@@ -512,12 +530,23 @@ export function SortSectionsModal({
                   Cancel
                 </button>
                 <button
-                  onClick={apply}
+                  onClick={
+                    uploadActive && onSchedule
+                      ? () => {
+                          onSchedule(
+                            mode === "scenes"
+                              ? { mode, target, stacks: countPeople, taxonomy: sceneTaxonomy }
+                              : { mode, target, stacks: countPeople }
+                          );
+                          onClose();
+                        }
+                      : apply
+                  }
                   disabled={
                     applying ||
                     tooMany ||
                     previewSections.length === 0 ||
-                    uploadActive ||
+                    (uploadActive && !onSchedule) ||
                     (mode === "scenes" && (sceneLoading || !!sceneError))
                   }
                   className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[13px] font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
@@ -526,8 +555,10 @@ export function SortSectionsModal({
                   {applying
                     ? "Sorting…"
                     : uploadActive
-                    ? "Waiting for upload…"
-                    : `Sort into ${previewSections.length} section${previewSections.length === 1 ? "" : "s"}`}
+                      ? onSchedule
+                        ? "Sort when the upload finishes"
+                        : "Waiting for upload…"
+                      : `Sort into ${previewSections.length} section${previewSections.length === 1 ? "" : "s"}`}
                 </button>
               </div>
             </div>
