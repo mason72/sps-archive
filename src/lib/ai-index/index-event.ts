@@ -89,6 +89,29 @@ export async function countPendingUploads(
  * Index one batch of unindexed images for an event.
  * Returns how many were indexed, per-image errors, and how many remain.
  */
+/**
+ * Raise a Supabase error as a real Error, naming the write that failed.
+ *
+ * `if (err) throw err` raises PostgREST's plain object, and anything that
+ * stringifies it gets "[object Object]" — which is exactly what two ai-index
+ * alerts said on 2026-08-11, with no way to tell a batch-select failure from a
+ * face-insert failure. The `where` label is the part that turns an alert into a
+ * diagnosis.
+ */
+function dbFail(
+  where: string,
+  err: { message?: string; code?: string; details?: string; hint?: string }
+): Error {
+  const parts = [
+    err.code ? `code ${err.code}` : null,
+    err.details || null,
+    err.hint || null,
+  ].filter(Boolean);
+  return new Error(
+    `ai-index ${where}: ${err.message ?? "unknown"}${parts.length ? ` (${parts.join("; ")})` : ""}`
+  );
+}
+
 export async function indexEventBatch(
   supabase: SupabaseDB,
   eventId: string
@@ -102,7 +125,7 @@ export async function indexEventBatch(
     .eq("media_type", "image")
     .order("id", { ascending: true })
     .limit(AI_INDEX_BATCH);
-  if (batchErr) throw batchErr;
+  if (batchErr) throw dbFail("batch select", batchErr);
   if (!batch?.length) return { indexed: 0, faces: 0, errors: {}, remaining: 0 };
 
   const payload = {
@@ -165,7 +188,7 @@ export async function indexEventBatch(
   // sweep redoes it — the replace makes that idempotent.
   if (indexedIds.length) {
     const { error: delErr } = await supabase.from("faces").delete().in("image_id", indexedIds);
-    if (delErr) throw delErr;
+    if (delErr) throw dbFail("faces delete", delErr);
 
     const faceRows = indexedIds.flatMap((imageId) =>
       out.results[imageId].faces.map((f) => ({
@@ -182,7 +205,7 @@ export async function indexEventBatch(
     faceCount = faceRows.length;
     if (faceRows.length) {
       const { error: insErr } = await supabase.from("faces").insert(faceRows);
-      if (insErr) throw insErr;
+      if (insErr) throw dbFail("faces insert", insErr);
     }
   }
 
@@ -200,7 +223,7 @@ export async function indexEventBatch(
         ai_indexed_at: indexedAt,
       })
       .eq("id", imageId);
-    if (updErr) throw updErr;
+    if (updErr) throw dbFail("image update", updErr);
   }
 
   const { count } = await supabase

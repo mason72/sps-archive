@@ -14,6 +14,45 @@ import { createServiceClient } from "@/lib/supabase/server";
  *  - Never throws, never blocks the caller's response path for long — await it
  *    or fire-and-forget, both are safe.
  */
+/**
+ * Turn anything throwable into a message worth reading.
+ *
+ * `String(error)` on a plain object yields **"[object Object]"** — which is what
+ * two `ai-index` alerts said on 2026-08-11, making them structurally incapable of
+ * explaining themselves. The cause is everywhere in this codebase: a Supabase
+ * error is a plain object with `message`/`code`/`details`/`hint`, and
+ * `if (err) throw err` raises it verbatim. An alarm that cannot say what broke is
+ * an alarm that costs a debugging session every time it fires.
+ */
+export function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const e = error as {
+      message?: unknown;
+      code?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+    // Supabase/PostgREST shape: message plus the parts that actually locate it.
+    if (typeof e.message === "string" && e.message) {
+      const extras = [
+        e.code ? `code ${String(e.code)}` : null,
+        typeof e.details === "string" && e.details ? e.details : null,
+        typeof e.hint === "string" && e.hint ? e.hint : null,
+      ].filter(Boolean);
+      return extras.length ? `${e.message} (${extras.join("; ")})` : e.message;
+    }
+    // Unknown object: serialize rather than surrender to [object Object].
+    try {
+      return JSON.stringify(error).slice(0, 500);
+    } catch {
+      return Object.prototype.toString.call(error);
+    }
+  }
+  return String(error ?? "unknown");
+}
+
 export async function reportSystemError(
   context: string,
   error: unknown,
@@ -21,8 +60,7 @@ export async function reportSystemError(
 ): Promise<void> {
   try {
     const supabase = createServiceClient();
-    const message =
-      error instanceof Error ? error.message : String(error ?? "unknown");
+    const message = describeError(error);
 
     // Throttle: has this context already alerted in the last hour?
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
