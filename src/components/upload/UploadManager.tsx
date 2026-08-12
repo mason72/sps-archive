@@ -289,6 +289,23 @@ export function useEventUploadProgress(eventId: string) {
       settled: files.filter(
         (f) => f.status === "duplicate" || f.status === "linked"
       ).length,
+      /**
+       * Dropped files that have NO database row yet — presign hasn't reached
+       * them.
+       *
+       * Presign is throttled on purpose (a 60-task high-water mark, after the
+       * HDC incident where 3,839 rows were minted in three minutes for a queue
+       * draining at 40/min and a dead tab took 404 photos with it). The
+       * consequence is that rows appear at upload pace: Justin's 1,142 files
+       * took FIFTY MINUTES to fully register. Anything planning from the
+       * database mid-upload is therefore planning over a fraction of the drop
+       * — which is why the sort preview's "every file is already counted"
+       * was untrue. The browser has known every filename since the drop, so it
+       * can supply the rest.
+       */
+      unregistered: files
+        .filter((f) => !f.imageId && f.status !== "error")
+        .map((f) => ({ id: f.id, originalFilename: f.file.name })),
       inFlight,
       bySection,
     };

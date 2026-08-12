@@ -32,6 +32,17 @@ interface SortSectionsModalProps {
    * against the deleted Unsorted section).
    */
   uploading?: { active: boolean; uploaded: number; total: number };
+  /**
+   * Dropped files with no database row yet (presign hasn't reached them).
+   *
+   * Without these the preview plans over whatever has registered so far, which
+   * mid-upload is a fraction of the drop — rows arrive at upload pace, so
+   * Justin's 1,142 files took fifty minutes to fully appear. Merging them in is
+   * what makes this modal's promise ("every file is already counted") actually
+   * true, and it costs nothing: the planner is pure over filenames and the
+   * browser has had them since the drop.
+   */
+  pendingImages?: { id: string; originalFilename: string }[];
 }
 
 /** The modal's modes: the pure name-based planners + the AI scene planner. */
@@ -58,7 +69,13 @@ interface ScenePlanPreview {
  * images once, then runs the SAME pure planner the server uses so the section
  * list updates live as you drag the slider. Apply POSTs the chosen config.
  */
-export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: SortSectionsModalProps) {
+export function SortSectionsModal({
+  eventId,
+  onClose,
+  onApplied,
+  uploading,
+  pendingImages,
+}: SortSectionsModalProps) {
   const [loading, setLoading] = useState(true);
   const [images, setImages] = useState<PlanImage[]>([]);
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
@@ -205,10 +222,23 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
 
   // Live plan — the same function the server applies (scene mode previews
   // server-side instead; the pure planners don't know about embeddings).
+  /**
+   * Registered rows PLUS the files still waiting on presign, so the plan covers
+   * the whole drop from the moment it lands rather than growing over the next
+   * fifty minutes. No double counting: a file leaves `pendingImages` the instant
+   * presign gives it a row, which is exactly when it appears in `images`.
+   */
+  const planInput = useMemo(
+    () => (pendingImages?.length ? [...images, ...pendingImages] : images),
+    [images, pendingImages]
+  );
+
+  // Live plan — the same function the server applies (scene mode previews
+  // server-side instead; the pure planners don't know about embeddings).
   const planned = useMemo(() => {
-    if (mode === "scenes" || !images.length) return [];
-    return planAutoSections(images, { mode, target, stacks: countPeople });
-  }, [images, mode, target, countPeople]);
+    if (mode === "scenes" || !planInput.length) return [];
+    return planAutoSections(planInput, { mode, target, stacks: countPeople });
+  }, [planInput, mode, target, countPeople]);
 
   const previewSections: { name: string; count: number; people?: number }[] =
     mode === "scenes"
@@ -289,8 +319,10 @@ export function SortSectionsModal({ eventId, onClose, onApplied, uploading }: So
                       {uploading.uploaded.toLocaleString()} of{" "}
                       {uploading.total.toLocaleString()}
                     </span>{" "}
-                    uploaded — every file is already counted below. Sorting
-                    unlocks when the upload finishes.
+                    uploaded — all{" "}
+                    {uploading.total.toLocaleString()} are counted in the plan
+                    below, including the ones still waiting to start. Sorting
+                    runs when the upload finishes.
                   </span>
                 </div>
               )}

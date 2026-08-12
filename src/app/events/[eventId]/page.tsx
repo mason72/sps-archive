@@ -1482,6 +1482,9 @@ export default function EventPage({
           eventId={eventId}
           onClose={() => setShowSort(false)}
           onApplied={handleSortApplied}
+          // Files the browser holds that have no row yet — the plan needs them
+          // or it covers only what presign has reached so far.
+          pendingImages={uploadProgress.unregistered}
           uploading={
             uploadProgress.active
               ? {
