@@ -61,3 +61,24 @@ export function shareScopeIdFilter(scope: ShareImageScope): Set<string> | null {
 export function shareScopeIsEmpty(scope: ShareImageScope): boolean {
   return scope.kind === "none";
 }
+
+/**
+ * True when the photographer hand-picked what this share contains, rather than
+ * handing over the whole gallery.
+ *
+ * Guest-facing surfaces use this to drop features that only make sense when
+ * there is something to FIND. On a curated set the photographer already did the
+ * finding, so offering face search there re-asks a question that is already
+ * answered — and worse, implies there are more photos of you somewhere you
+ * weren't given (Mason, 2026-08-12: "I sent this woman her ~12 images… it seems
+ * unnecessary and maybe even weird").
+ *
+ * Deliberately derived from the SCOPE, not from a face count. Face count is a
+ * proxy that gets it wrong in both directions: a couple's 12-image selection has
+ * two faces and still needs no search, while a full gallery of one person's
+ * headshot session has one face and is a genuine archive. Curation is the
+ * photographer's explicit signal; that is the thing worth reading.
+ */
+export function shareScopeIsCurated(scope: ShareImageScope): boolean {
+  return scope.kind === "images";
+}

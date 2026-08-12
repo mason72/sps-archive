@@ -13,7 +13,10 @@ import {
 import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
 import { detectStackable } from "@/lib/gallery/stackable";
-import { resolveShareImageScope } from "@/lib/gallery/share-scope";
+import {
+  resolveShareImageScope,
+  shareScopeIsCurated,
+} from "@/lib/gallery/share-scope";
 
 /**
  * GET /api/gallery/[slug]
@@ -486,6 +489,9 @@ export async function GET(
       shareId: share.id,
       branding,
       settings: gallerySettings,
+      // Read from the SAME scope resolver that decides what this share exposes,
+      // so "is this curated" can never disagree with "what do you get".
+      curated: shareScopeIsCurated(scope),
     });
   } catch (error) {
     console.error("Gallery error:", error);

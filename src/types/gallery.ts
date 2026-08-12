@@ -122,4 +122,11 @@ export interface GalleryData {
   shareId: string;
   branding: GalleryBranding | null;
   settings?: GallerySettings;
+  /**
+   * The photographer hand-picked these photos rather than handing over the
+   * whole gallery (a "selection" share). Guest surfaces drop find-my-photos on
+   * these — see shareScopeIsCurated(). Absent on the owner's preview, which
+   * always renders the full event.
+   */
+  curated?: boolean;
 }

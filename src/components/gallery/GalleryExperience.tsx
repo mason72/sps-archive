@@ -1148,8 +1148,14 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
 
       {/* ─── Search + Sort + Gallery grid ─── */}
       <main className="px-8 md:px-16 pt-6 pb-24">
-        {/* Toolbar: search + sort */}
-        {gallery.images.length > 8 && (
+        {/* Toolbar: search + find-my-photos.
+            A curated share needs a bigger set before search earns its place: on
+            a hand-picked dozen every photo is already on screen, so a box
+            offering to search them (and suggesting "dancing" as a term) is
+            noise. Full galleries keep the old threshold — measured on the live
+            archive, no full share is under 25 photos, so this changes nothing
+            for them. */}
+        {gallery.images.length > (gallery.curated ? 24 : 8) && (
           <div className="flex items-end justify-between gap-6 mb-8">
             {/* Search bar */}
             <div className="relative max-w-sm flex-1">
@@ -1185,7 +1191,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               )}
             </div>
 
-            {gallery.settings?.selfieSearch && (
+            {gallery.settings?.selfieSearch && !gallery.curated && (
               <button
                 onClick={() => setSelfieOpen(true)}
                 className="inline-flex items-center gap-2 px-3.5 py-2 border text-[12px] tracking-wide transition-colors hover:opacity-70"

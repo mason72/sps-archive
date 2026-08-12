@@ -3,6 +3,7 @@ import {
   resolveShareImageScope,
   shareScopeIdFilter,
   shareScopeIsEmpty,
+  shareScopeIsCurated,
 } from "./share-scope";
 
 describe("resolveShareImageScope", () => {
@@ -70,5 +71,37 @@ describe("shareScopeIsEmpty", () => {
     expect(shareScopeIsEmpty({ kind: "none" })).toBe(true);
     expect(shareScopeIsEmpty({ kind: "event" })).toBe(false);
     expect(shareScopeIsEmpty({ kind: "images", imageIds: ["a"] })).toBe(false);
+  });
+});
+
+describe("shareScopeIsCurated", () => {
+  it("is true only when the photographer picked the images", () => {
+    expect(
+      shareScopeIsCurated(
+        resolveShareImageScope({ share_type: "selection", image_ids: ["a", "b"] })
+      )
+    ).toBe(true);
+  });
+
+  it("is false for a whole-gallery share", () => {
+    expect(
+      shareScopeIsCurated(resolveShareImageScope({ share_type: "full", image_ids: null }))
+    ).toBe(false);
+  });
+
+  it("is false for a selection of nothing — that share exposes no images at all", () => {
+    // kind: "none". Not curated, because there is nothing curated IN it; the
+    // caller's job there is the empty/404 branch, not hiding a search box.
+    expect(
+      shareScopeIsCurated(resolveShareImageScope({ share_type: "selection", image_ids: [] }))
+    ).toBe(false);
+  });
+
+  it("is false for an unknown share type, matching the fail-closed scope", () => {
+    expect(
+      shareScopeIsCurated(
+        resolveShareImageScope({ share_type: "section" as never, image_ids: null })
+      )
+    ).toBe(false);
   });
 });
