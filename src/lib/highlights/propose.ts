@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { groupIntoMoments, selectMoments, type Moment } from "./moments";
+import {
+  findCrew,
+  groupIntoMoments,
+  selectMoments,
+  type Moment,
+} from "./moments";
 import {
   countTrainablePicks,
   MIN_PICKS_TO_TRAIN,
@@ -150,6 +155,8 @@ export interface ProposeResult {
   /** How the ordering was produced — surfaced so the UI never over-claims. */
   ranker: "learned" | "unranked";
   trainedOnPicks: number;
+  /** People treated as crew and capped in the set. */
+  crewFound: number;
 }
 
 /**
@@ -164,7 +171,13 @@ export async function proposeHighlights(
 ): Promise<ProposeResult> {
   const images = await allEventImages(supabase, eventId, ownerUserId);
   if (!images.length) {
-    return { proposals: [], totalMoments: 0, ranker: "unranked", trainedOnPicks: 0 };
+    return {
+      proposals: [],
+      totalMoments: 0,
+      ranker: "unranked",
+      trainedOnPicks: 0,
+      crewFound: 0,
+    };
   }
 
   const direction = await trainHighlightDirection(supabase, ownerUserId, eventId);
@@ -222,11 +235,36 @@ export async function proposeHighlights(
     }))
   );
 
+  // Crew: present across the whole day rather than for one booth visit. On the
+  // first live run 29 of 40 picks contained a crew member — the direction is
+  // fitted mostly on corporate headshots, so at a kids' activation the people
+  // who look most like "a highlight" are the staff in uniform.
+  const appearances = new Map<string, number[]>();
+  for (const img of images) {
+    const t = img.taken_at ? new Date(img.taken_at).getTime() : NaN;
+    if (!Number.isFinite(t)) continue;
+    for (const p of personByImage.get(img.id) ?? []) {
+      const arr = appearances.get(p) ?? [];
+      arr.push(t);
+      appearances.set(p, arr);
+    }
+  }
+  const allTimes = images
+    .map((i) => (i.taken_at ? new Date(i.taken_at).getTime() : NaN))
+    .filter((t) => Number.isFinite(t));
+  const eventSpanMs = allTimes.length
+    ? Math.max(...allTimes) - Math.min(...allTimes)
+    : 0;
+  const crewIds = findCrew(appearances, eventSpanMs);
+
   const poolSize = Math.min(
     moments.length,
     opts.count + (opts.poolExtra ?? Math.max(20, Math.round(opts.count * 0.75)))
   );
-  const picked = selectMoments(moments, poolSize, { coverage: opts.coverage });
+  const picked = selectMoments(moments, poolSize, {
+    coverage: opts.coverage,
+    crewIds,
+  });
 
   const toFrame = (id: string): ProposedFrame => {
     const r = byId.get(id)!;
@@ -256,5 +294,6 @@ export async function proposeHighlights(
     totalMoments: moments.length,
     ranker: direction ? "learned" : "unranked",
     trainedOnPicks: direction?.trainedOnPicks ?? 0,
+    crewFound: crewIds.size,
   };
 }

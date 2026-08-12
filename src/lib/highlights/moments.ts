@@ -88,7 +88,17 @@ export function groupIntoMoments<T extends MomentInput>(images: T[]): Moment<T>[
 export function selectMoments<T extends MomentInput>(
   moments: Moment<T>[],
   count: number,
-  opts: { coverage?: boolean } = {}
+  opts: {
+    coverage?: boolean;
+    /**
+     * People who work the event rather than attend it — see `findCrew`. A
+     * guest gallery is about the guests, so crew are capped rather than
+     * banned: a couple of team shots belong, twenty-nine do not.
+     */
+    crewIds?: Set<string>;
+    /** Share of the set crew may occupy. */
+    maxCrewFraction?: number;
+  } = {}
 ): Moment<T>[] {
   const want = Math.max(0, Math.min(count, moments.length));
   if (!want) return [];
@@ -100,18 +110,49 @@ export function selectMoments<T extends MomentInput>(
   const chosen = new Set<string>();
   const out: Moment<T>[] = [];
   const personCount = new Map<string, number>();
-  // Allow a subject to recur, but not to dominate: a 40-pick reel tolerates
-  // ~3 of any one person before it starts reading as a portfolio of one kid.
-  const maxPerPerson = Math.max(2, Math.ceil(want / 12));
+  /**
+   * How often one subject may recur, scaled to how many subjects EXIST.
+   * A fixed `count/12` allowed four appearances each — fine for a wedding with
+   * a dozen key people, absurd for an activation where 87 people passed the
+   * booth and only 40 slots exist. With more people than slots nobody needs to
+   * appear twice; with few people the cap opens up automatically.
+   */
+  const distinctPersons = new Set(moments.flatMap((m) => m.personIds)).size;
+  const maxPerPerson = Math.max(
+    2,
+    Math.ceil(want / Math.max(1, distinctPersons)) + 1
+  );
+  const crewIds = opts.crewIds ?? new Set<string>();
+  const crewCap = Math.max(1, Math.round(want * (opts.maxCrewFraction ?? 0.15)));
+  let crewTaken = 0;
+
+  const isCrewMoment = (m: Moment<T>) =>
+    m.personIds.length > 0 && m.personIds.some((p) => crewIds.has(p));
 
   const take = (m: Moment<T>) => {
     chosen.add(m.key);
     out.push(m);
+    if (isCrewMoment(m)) crewTaken++;
     for (const p of m.personIds) personCount.set(p, (personCount.get(p) ?? 0) + 1);
   };
-  const overExposed = (m: Moment<T>) =>
-    m.personIds.length > 0 &&
-    m.personIds.every((p) => (personCount.get(p) ?? 0) >= maxPerPerson);
+
+  /**
+   * A moment is over-exposed when MOST of its subjects have already been seen
+   * enough. `every` was the original test and it never fired: a group shot
+   * almost always contains one fresh face, so a five-person crew photo sailed
+   * through however many times those five had already appeared. That is what
+   * produced repeated near-identical staff pairs in the first live run.
+   */
+  const overExposed = (m: Moment<T>) => {
+    if (!m.personIds.length) return false;
+    const seen = m.personIds.filter(
+      (p) => (personCount.get(p) ?? 0) >= maxPerPerson
+    ).length;
+    return seen * 2 > m.personIds.length;
+  };
+
+  /** Skip while the crew budget is spent; the final fallback ignores this. */
+  const crewBlocked = (m: Moment<T>) => isCrewMoment(m) && crewTaken >= crewCap;
 
   if (timed.length >= want) {
     const first = timed[0].at!;
@@ -124,7 +165,9 @@ export function selectMoments<T extends MomentInput>(
     }
     for (const bucket of buckets) {
       const best = bucket
-        .filter((m) => !chosen.has(m.key) && !overExposed(m))
+        .filter(
+          (m) => !chosen.has(m.key) && !overExposed(m) && !crewBlocked(m)
+        )
         .sort((a, b) => b.score - a.score)[0];
       if (best) take(best);
     }
@@ -135,7 +178,7 @@ export function selectMoments<T extends MomentInput>(
     for (const m of byScore) {
       if (out.length >= want) break;
       if (chosen.has(m.key)) continue;
-      if (pass && overExposed(m)) continue;
+      if (pass && (overExposed(m) || crewBlocked(m))) continue;
       take(m);
     }
     if (out.length >= want) break;
@@ -143,4 +186,34 @@ export function selectMoments<T extends MomentInput>(
 
   // Deliver in rank order — the reel reads best-first, not chronologically.
   return out.sort((a, b) => b.score - a.score).slice(0, want);
+}
+
+/**
+ * Who is working the event rather than attending it.
+ *
+ * A guest visits the booth once: their faces cluster into a few minutes. Crew
+ * are present all day, so their appearances span a large share of the shoot.
+ * On the Foot Locker activation this separates 16 staff from 71 guests.
+ *
+ * Deliberately a SHAPE test, not a look test — it needs no model and no
+ * training data. It is scoped to events with many short-lived subjects: a
+ * wedding's couple also spans the whole day, which is why callers pass a
+ * `minPersons` floor and why crew are capped rather than excluded.
+ */
+export function findCrew(
+  appearances: Map<string, number[]>,
+  eventSpanMs: number,
+  opts: { spanFraction?: number; minMoments?: number; minPersons?: number } = {}
+): Set<string> {
+  const crew = new Set<string>();
+  if (eventSpanMs <= 0) return crew;
+  if (appearances.size < (opts.minPersons ?? 12)) return crew;
+  const spanFraction = opts.spanFraction ?? 0.25;
+  const minMoments = opts.minMoments ?? 4;
+  for (const [person, times] of appearances) {
+    if (times.length < minMoments) continue;
+    const span = Math.max(...times) - Math.min(...times);
+    if (span / eventSpanMs > spanFraction) crew.add(person);
+  }
+  return crew;
 }
