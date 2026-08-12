@@ -62,7 +62,17 @@ export type FileStatus =
   | "uploading"
   | "complete"
   | "error"
-  | "duplicate";
+  /** Same name AND size already in THIS section. Offers replace-or-skip. */
+  | "duplicate"
+  /**
+   * Already in the event but not in this section, so it was LINKED here — one
+   * image, now in both places, no second copy of the bytes.
+   *
+   * Deliberately NOT "duplicate": that status feeds the replace-or-skip panel,
+   * and offering to "replace" a photo that was just correctly added would delete
+   * the original to re-upload an identical one.
+   */
+  | "linked";
 
 export interface UploadFile {
   id: string;
@@ -258,7 +268,7 @@ export function useEventUploadProgress(eventId: string) {
         // "Settled" covers already-present photos: linked into this section or
         // genuinely nothing to do. No bytes move, but they ARE resolved, so
         // they count as finished rather than as work still outstanding.
-        if (f.status === "duplicate") {
+        if (f.status === "duplicate" || f.status === "linked") {
           entry.settled += 1;
           entry.completed += 1;
           continue;
@@ -276,7 +286,9 @@ export function useEventUploadProgress(eventId: string) {
       uploaded: files.filter((f) => f.status === "complete").length,
       failed: files.filter((f) => f.status === "error").length,
       /** Already in the event — linked into the section, or nothing to do. */
-      settled: files.filter((f) => f.status === "duplicate").length,
+      settled: files.filter(
+        (f) => f.status === "duplicate" || f.status === "linked"
+      ).length,
       inFlight,
       bySection,
     };
@@ -629,7 +641,7 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
               linkKeys.has(`${e.file.name}|${e.file.size}`)
             );
             for (const e of linked) {
-              updateFile(batchId, e.id, { status: "duplicate" });
+              updateFile(batchId, e.id, { status: "linked" });
             }
             linkedToSection += linked.length;
             chunkEntries = chunkEntries.filter(
@@ -646,8 +658,19 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
             // The UI already has a "duplicate" state (from the per-section
             // filename pre-check). This is the authoritative version of that
             // check — name AND size, whole event, server-side, unskippable.
+            const dupIds = (presign.duplicateImageIds ?? {}) as Record<
+              string,
+              string
+            >;
             for (const e of skipped) {
-              updateFile(batchId, e.id, { status: "duplicate" });
+              // Carry the existing image id through, or "Replace all" has
+              // nothing to delete: it would re-upload, the server would skip it
+              // as a duplicate again, and the button would silently do nothing.
+              const existingId = dupIds[`${e.file.name}|${e.file.size}`];
+              updateFile(batchId, e.id, {
+                status: "duplicate",
+                ...(existingId ? { existingImageIds: [existingId] } : {}),
+              });
             }
             duplicatesSkipped += skipped.length;
             chunkEntries = chunkEntries.filter(

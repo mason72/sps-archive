@@ -130,6 +130,13 @@ export function UploadZone({
     [allRows]
   );
   const duplicateCount = duplicateRows.length;
+  /**
+   * Already in the gallery, added to THIS section as a link — one image now in
+   * two places rather than a second copy of the bytes. Counted apart from
+   * duplicates because something DID happen and it needs no decision from you,
+   * where a same-section duplicate needs replace-or-skip.
+   */
+  const linkedCount = allRows.filter((f) => f.status === "linked").length;
   const inFlight = allRows.filter(
     (f) => f.status === "pending" || f.status === "uploading"
   ).length;
@@ -282,9 +289,9 @@ export function UploadZone({
     // Settled files (already here, linked or nothing-to-do) and failures are
     // both RESOLVED — no bytes are owed for them. Counting them keeps the bar
     // able to reach 100% now that the denominator no longer retreats to meet it.
-    const resolved = completedCount + duplicateCount + errorCount;
+    const resolved = completedCount + duplicateCount + linkedCount + errorCount;
     return Math.min(100, ((resolved + inFlightSum / 100) / totalCount) * 100);
-  }, [allRows, completedCount, duplicateCount, errorCount, totalCount]);
+  }, [allRows, completedCount, duplicateCount, linkedCount, errorCount, totalCount]);
 
   const etaLabel = useMemo(() => {
     if (!speedMbps || speedMbps < 0.05) return null;
@@ -576,12 +583,31 @@ export function UploadZone({
                 named rather than silently deducted, so the arithmetic on screen
                 always reconciles with the folder you dragged in. */}
             Uploading {completedCount} of {totalCount}
-            {duplicateCount > 0 && ` · ${duplicateCount} already here`}
+            {linkedCount > 0 &&
+              ` · ${linkedCount} added from elsewhere in this gallery`}
+            {duplicateCount > 0 && ` · ${duplicateCount} already in this section`}
             {errorCount > 0 && ` · ${errorCount} failed`} — keep adding files, or
             switch sections and keep working
           </p>
         )}
       </div>
+
+      {/* ─── Linked from elsewhere: reported, no decision needed ───
+           These were already in the gallery and are now in this section too —
+           one image, two places. They must NOT appear in the replace-or-skip
+           panel below: "replace" there deletes the existing image to re-upload
+           an identical one, which for a correctly-linked photo is destructive
+           for no reason. */}
+      {linkedCount > 0 && (
+        <div className="border border-stone-200 bg-stone-50 p-3">
+          <span className="flex items-center gap-2 text-[13px] text-stone-600">
+            <Copy className="h-3.5 w-3.5 text-stone-400" />
+            {linkedCount} {linkedCount === 1 ? "photo was" : "photos were"}{" "}
+            already in this gallery — added to{" "}
+            {sectionName || "this section"} without a second copy
+          </span>
+        </div>
+      )}
 
       {/* ─── Duplicates held for a decision ─── */}
       {duplicateCount > 0 && (

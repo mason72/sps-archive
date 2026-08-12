@@ -48,7 +48,10 @@ export function UploadDock() {
             // state — uploaded, or already present and linked/skipped. All of
             // them are accounted for; none is still owed to the photographer.
             done: b.files.filter(
-              (f) => f.status === "complete" || f.status === "duplicate"
+              (f) =>
+                f.status === "complete" ||
+                f.status === "duplicate" ||
+                f.status === "linked"
             ).length,
             // The DENOMINATOR IS WHAT YOU DROPPED, and it never moves.
             // It used to exclude duplicates, so the total shrank as the server
@@ -58,7 +61,9 @@ export function UploadDock() {
             // one thing a progress bar is for: knowing that what you handed
             // over is all accounted for.
             total: b.files.length,
-            settled: b.files.filter((f) => f.status === "duplicate").length,
+            settled: b.files.filter(
+              (f) => f.status === "duplicate" || f.status === "linked"
+            ).length,
             // Fractional bytes of in-flight files, so the bar creeps.
             fractional: inFlight.reduce(
               (a, f) => a + (f.status === "uploading" ? f.progress / 100 : 0),

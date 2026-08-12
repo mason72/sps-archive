@@ -258,6 +258,12 @@ export async function POST(request: NextRequest) {
         uploads: [],
         duplicatesSkipped: duplicates.length,
         duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+        duplicateImageIds: Object.fromEntries(
+          duplicates.map((f) => [
+            `${f.name}|${f.size}`,
+            existingByKey.get(`${f.name}|${f.size}`)!,
+          ])
+        ),
         linkedToSection: linkedCount,
         linkedKeys: linkable.map((l) => `${l.file.name}|${l.file.size}`),
       });
@@ -338,6 +344,15 @@ export async function POST(request: NextRequest) {
       // rather than inferring from a short uploads array — which its own guard
       // would otherwise read as server failures.
       duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+      // The image each duplicate collides with, so "Replace" has something to
+      // delete. Without it the client re-uploads, the server skips it as a
+      // duplicate again, and the button silently does nothing.
+      duplicateImageIds: Object.fromEntries(
+        duplicates.map((f) => [
+          `${f.name}|${f.size}`,
+          existingByKey.get(`${f.name}|${f.size}`)!,
+        ])
+      ),
       // Already in the event but NOT in this section, so we linked them here
       // instead of dropping them. Reported separately from duplicates because
       // "added to this section" and "nothing to do" are different answers.
