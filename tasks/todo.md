@@ -1906,3 +1906,51 @@ is the number to price before committing — and it is recurring, unlike the AI.
       re-run the preservation-vs-search split against it. The plan's
       "display-res derivatives for all 1.88M ≈ $85/yr in R2" only ever counted
       storage.
+
+## Dedupe dry run — PLANNED, awaiting approval (2026-08-12)
+
+`scripts/triage/dedupe-plan.ts` → `tasks/dedupe-manifest.json`. Nothing deleted.
+
+**The dry run caught two bugs in my own measurement before anything was
+touched, which is the entire argument for running one.**
+
+1. **The first safety rule blocked 100% of candidates.** It treated ANY
+   reference as disqualifying, including `section_images` — but a duplicate
+   that shows as a tile is a section member by definition, so the rule blocked
+   every row it was meant to triage (669 blocked, 0 removable). Membership is
+   what gets removed WITH the row; the dangerous references are the ones naming
+   a row specifically: `shares.image_ids`, `favorites`, the event cover.
+2. **Paginating with `.order("created_at")` invented duplicates.** Galleries
+   bulk-uploaded in one burst share timestamps, so rows shuffled across page
+   boundaries and were fetched twice — reported as 7 phantom duplicates in
+   Island and 6 in HDC, both of which SQL says have **zero**. Ordering by `id`
+   (unique) fixed it and the script now agrees exactly with the authoritative
+   aggregate. **Rule: paginate on a unique key, never on a timestamp — and
+   check a scripted count against a single SQL aggregate before believing it.**
+
+### The plan, after both corrections (645 rows total)
+
+| gallery | rows | remove | note |
+| --- | --- | --- | --- |
+| Jessica & Koji's Big Day | 1,020 | **468** | whole gallery uploaded twice |
+| TDP Website | 1,264 | 71 | |
+| Appfolio // Jul 2026 | 2,050 | 50 | |
+| Appfolio Goleta | 793 | 38 | +2 blocked |
+| Two Dudes Sample / PG&E | — | 6 each | |
+| eBay HEADSHOTS / Future of Us / NASAI | — | 2 / 1 / 0 | NASAI's 1 is blocked |
+
+**642 safe to remove, 3 blocked.** The 3 blocked rows are named directly by
+selection shares (`Sg3o4kBF5H`, `v1xwsArEUu`, `he3xOx-Ts4`, `tEKyF84tIs`,
+`ORFJGkjDnV`) — deleting them would silently shrink a delivered gallery.
+Island HQ and HDC are NOT in the plan; they have no duplicates at all.
+
+### Jessica & Koji reframed
+The share is **full and active** (12 views), and every one of the 468 filenames
+exists exactly twice — the gallery was uploaded twice end to end. The client is
+currently scrolling a gallery in which **every photo appears twice**. Deduping
+takes it 1,020 → 552, each photo once. That is a repair of what they see, not a
+removal from it.
+
+- [ ] Execute, once approved: delete the 642 rows AND their `section_images`
+      links, in one transaction per gallery, after writing the removed ids to a
+      file so it is reversible. Re-run the SQL aggregate before and after.
