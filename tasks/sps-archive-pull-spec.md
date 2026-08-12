@@ -35,8 +35,30 @@ are two sources, because it explains the API:
 
 Passthrough covers most uploads at zero extra storage. The separate copy is
 written only for test-mode events, branded events (12 of 192 as of writing), and
-HEIC/PNG/WebP uploads — and, in future, anything the SPS desktop app downsizes
-because venue wifi was bad.
+HEIC/PNG/WebP uploads.
+
+> **CORRECTED 2026-08-11.** This paragraph used to end "— and, in future,
+> anything the SPS desktop app downsizes because venue wifi was bad."
+> **That is impossible and must not be built from.** The separate copy exists for
+> images SPS *receives* whole and then re-encodes for display. If the desktop app
+> downsized before uploading, SPS would never receive the camera file, so there
+> would be nothing to keep — you cannot archive bytes that never arrived. Such an
+> event would be permanently `lossy` with no recovery path.
+>
+> Two further facts, measured rather than assumed (2026-08-11): the desktop app
+> does **no** downsizing today — it uploads the original verbatim ("no compression
+> needed since we bypass Vercel") — and the booth's real demand is **under
+> 1 Mbps** (2.3–3.2 uploads/min at ~2.4 MB across DAIS 26, HDC 2026 and Island
+> HQ), which no venue connection fails to meet. Flakiness, not throughput, is the
+> venue problem, and the desktop queue already answers it with retry, per-upload
+> timeouts and bounded concurrency.
+>
+> If a venue ever does defeat that queue, the correct design is **fast lane +
+> deferred original** — upload a small copy so guests aren't waiting, then the
+> camera file in the background, with SPS marking the image archive-grade only
+> once the original lands. Note what that is: an automated two-pass upload, i.e.
+> the workflow this integration exists to eliminate, moved into the app. Worth
+> building only against a real failure, never pre-emptively.
 
 `quality` in the manifest already combines both. **Trust the field.** An image
 reporting `archive` is a camera file regardless of which route produced it.
