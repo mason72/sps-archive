@@ -1089,7 +1089,16 @@ export default function EventPage({
   // Headshot days stack; photo booth dumps and weddings must not (a wedding's
   // two filename prefixes would collapse 1,000 photos into two tiles — see
   // detectStackable). An explicit setting always wins.
-  const stackDetection = useMemo(() => detectStackable(images), [images]);
+  // Detected from the WHOLE EVENT, never the filtered view.
+  //
+  // This read `images` — the section/search/person-filtered set — so the answer
+  // changed with whatever you were looking at. Justin saw stacks OFF inside
+  // section A–B while Mason saw them ON elsewhere in the same gallery, with
+  // neither having touched the toggle (2026-08-11); switching sections could
+  // flip it for one person on its own. "Does this event stack?" is a property of
+  // the event's filenames (detectStackable weighs people count and shots per
+  // person), so it has to be asked of the event's images.
+  const stackDetection = useMemo(() => detectStackable(allImages), [allImages]);
   const showStacks = eventSettings.grid?.smartStacks ?? stackDetection.stackable;
   /** True while the value is coming from the filenames rather than a choice. */
   const stacksAreAuto = eventSettings.grid?.smartStacks === undefined;

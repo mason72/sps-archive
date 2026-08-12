@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { useEventUploadProgress } from "@/components/upload/UploadManager";
 
 interface Status {
   total: number;
@@ -50,6 +51,20 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [clearing, setClearing] = useState(false);
 
+  /**
+   * The live upload session in THIS tab, when there is one.
+   *
+   * The server's `uploading` count is pending image rows, which during a browser
+   * upload is the PRESIGN-AHEAD WINDOW — rows minted for the next chunk, not the
+   * work remaining. It hovers around fifty and ticks DOWN as each chunk drains,
+   * so Justin watched "85 photos still uploading" count toward zero with 728
+   * files still to go (2026-08-11). Only the client knows how many files were
+   * dropped, so when a local session exists it is the authority; the server
+   * number is the fallback for a reload or another device, where we honestly
+   * cannot state a total.
+   */
+  const localUpload = useEventUploadProgress(eventId);
+
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -86,19 +101,31 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
   // flight also keeps it up even at total === 0, which is the first minute of a
   // pull into a brand-new event: the moment there is most to explain.
   if (!status) return null;
-  if (status.total === 0 && !status.importing) return null;
-  if (status.complete && status.stalled === 0) return null;
+  // A local upload keeps this up even before any row is complete — the first
+  // minute of a big drop is when there is most to explain.
+  if (status.total === 0 && !status.importing && !localUpload.active) return null;
+  if (status.complete && status.stalled === 0 && !localUpload.active) return null;
 
   const imp = status.importing;
   // While importing, the bar tracks the IMPORT, not indexing — that is the work
   // actually happening, and it has a real denominator.
-  const pct = imp
-    ? imp.expectedTotal
-      ? Math.min(1, imp.landed / imp.expectedTotal)
+  // The bar tracks whatever work is actually happening, in priority order:
+  // a live upload, then an import, then indexing. Each has a real denominator.
+  const pct = localUpload.active
+    ? localUpload.total > 0
+      ? Math.min(
+          1,
+          (localUpload.uploaded + localUpload.settled + localUpload.failed) /
+            localUpload.total
+        )
       : 0
-    : status.total > 0
-      ? status.indexed / status.total
-      : 0;
+    : imp
+      ? imp.expectedTotal
+        ? Math.min(1, imp.landed / imp.expectedTotal)
+        : 0
+      : status.total > 0
+        ? status.indexed / status.total
+        : 0;
   const eta = status.etaMinutes;
   const etaLabel =
     eta === null
@@ -114,7 +141,21 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <p className="flex items-center gap-2 text-[13px] text-stone-700">
           <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-          {imp ? (
+          {localUpload.active ? (
+            <>
+              <span className="font-medium">
+                Uploading {localUpload.uploaded.toLocaleString()} of{" "}
+                {localUpload.total.toLocaleString()}
+              </span>
+              <span className="text-stone-400">
+                {localUpload.settled > 0 &&
+                  ` · ${localUpload.settled.toLocaleString()} already here`}
+                {localUpload.failed > 0 &&
+                  ` · ${localUpload.failed.toLocaleString()} failed`}
+                {" — AI processing starts once they land"}
+              </span>
+            </>
+          ) : imp ? (
             <>
               <span className="font-medium">
                 Importing from SimplePhotoShare —{" "}
@@ -130,9 +171,12 @@ export function ProcessingBanner({ eventId }: { eventId: string }) {
             </>
           ) : status.uploading > 0 ? (
             <>
+              {/* No local session — a reload, or another device. We know rows are
+                  outstanding but NOT how many files were chosen, so this claims
+                  no total rather than presenting the pending window as one. */}
               <span className="font-medium">
                 {status.uploading.toLocaleString()} photo
-                {status.uploading === 1 ? "" : "s"} still uploading
+                {status.uploading === 1 ? "" : "s"} still finishing
               </span>
               <span className="text-stone-400">
                 — AI processing starts once they land

@@ -1128,6 +1128,8 @@ function SplitPersonModal({
 
   const groupA = (faces ?? []).filter((f) => !inB.has(f.faceId));
   const groupB = (faces ?? []).filter((f) => inB.has(f.faceId));
+  /** A split needs photos on BOTH sides; otherwise nothing would be split. */
+  const splitPossible = groupA.length > 0 && groupB.length > 0;
 
   const apply = async () => {
     if (!groupA.length || !groupB.length) return;
@@ -1239,18 +1241,29 @@ function SplitPersonModal({
             >
               Filenames
             </button>
+            {/* The primary button says what will ACTUALLY happen.
+                Emptying one side used to leave a greyed-out "Confirm split" —
+                a control naming an action it could no longer perform, with no
+                hint of the one that made sense (Justin, 2026-08-11: "the primary
+                CTA button should change to Merge since all the splits are
+                gone"). With every photo on one side these ARE one person, so
+                keeping them as one is the action. */}
             <button
-              onClick={onDismiss}
+              onClick={splitPossible ? onDismiss : onClose}
               className="px-4 py-2 text-[13px] text-stone-400 hover:text-stone-600 transition-colors"
             >
-              {card.key ? "Keep as one" : "Cancel"}
+              {splitPossible && card.key ? "Keep as one" : "Cancel"}
             </button>
             <button
-              onClick={apply}
-              disabled={applying || !groupA.length || !groupB.length}
+              onClick={splitPossible ? apply : onDismiss}
+              disabled={applying}
               className="px-5 py-2 text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-700 transition-colors disabled:opacity-40"
             >
-              {applying ? "Splitting…" : "Confirm split"}
+              {applying
+                ? "Splitting…"
+                : splitPossible
+                  ? "Confirm split"
+                  : "Keep as one person"}
             </button>
             <button
               onClick={onClose}

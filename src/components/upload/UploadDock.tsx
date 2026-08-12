@@ -44,8 +44,21 @@ export function UploadDock() {
             eventName: b.eventName,
             sectionName: b.sectionName,
             remaining: inFlight.length,
-            done: b.files.filter((f) => f.status === "complete").length,
-            total: b.files.filter((f) => f.status !== "duplicate").length,
+            // "Done" counts every file that reached a terminal, successful
+            // state — uploaded, or already present and linked/skipped. All of
+            // them are accounted for; none is still owed to the photographer.
+            done: b.files.filter(
+              (f) => f.status === "complete" || f.status === "duplicate"
+            ).length,
+            // The DENOMINATOR IS WHAT YOU DROPPED, and it never moves.
+            // It used to exclude duplicates, so the total shrank as the server
+            // discovered them chunk by chunk — Justin watched 1,106 become
+            // 1,090 mid-upload and reasonably read it as broken arithmetic
+            // (2026-08-11). A total that changes while you watch destroys the
+            // one thing a progress bar is for: knowing that what you handed
+            // over is all accounted for.
+            total: b.files.length,
+            settled: b.files.filter((f) => f.status === "duplicate").length,
             // Fractional bytes of in-flight files, so the bar creeps.
             fractional: inFlight.reduce(
               (a, f) => a + (f.status === "uploading" ? f.progress / 100 : 0),

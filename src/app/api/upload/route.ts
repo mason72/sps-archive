@@ -153,7 +153,21 @@ export async function POST(request: NextRequest) {
     // the photographer actually made, and must still upload. Matching only
     // against SETTLED rows means a failed or in-flight upload can always be
     // retried — which is the exact flow that created the mess.
-    const dupKeys = new Set<string>();
+    // The guard has to know WHICH SECTION it is protecting, not just the event.
+    // Event-scoped skipping silently dropped files the photographer was
+    // deliberately placing somewhere new: Justin put 78 photos in Highlights and
+    // the same files inside 1,143 going to Unsorted, and the second batch
+    // vanished without a word (verified: the event held 1,142 rows and no
+    // Highlights copies). Section membership is a LINK table — one image can
+    // belong to several sections — so "already in this event, but not in the
+    // section you are pointing at" is a request to LINK, never to skip.
+    //
+    // Three outcomes now, and each is reported separately because they mean
+    // different things to the person watching:
+    //   fresh      → upload it
+    //   linkable   → already here, add it to this section (no bytes move)
+    //   duplicate  → already in THIS section; genuinely nothing to do
+    const existingByKey = new Map<string, string>();
     {
       const names = [...new Set(files.map((f) => f.name))];
       // Chunked: a folder drop can be thousands of names, and PostgREST has to
@@ -161,24 +175,81 @@ export async function POST(request: NextRequest) {
       for (let i = 0; i < names.length; i += 200) {
         const { data: existing, error: dupErr } = await supabase
           .from("images")
-          .select("original_filename, file_size")
+          .select("id, original_filename, file_size")
           .eq("event_id", eventId)
           .eq("processing_status", "complete")
           .in("original_filename", names.slice(i, i + 200));
         if (dupErr) throw dupErr;
         for (const row of (existing ?? []) as {
+          id: string;
           original_filename: string;
           file_size: number | null;
         }[]) {
           if (row.file_size != null) {
-            dupKeys.add(`${row.original_filename}|${row.file_size}`);
+            existingByKey.set(`${row.original_filename}|${row.file_size}`, row.id);
           }
         }
       }
     }
 
-    const duplicates = files.filter((f) => dupKeys.has(`${f.name}|${f.size}`));
-    const fresh = files.filter((f) => !dupKeys.has(`${f.name}|${f.size}`));
+    // Which of those are already IN the target section? Only those are true
+    // no-ops. (A cover upload has no section, so nothing is linkable.)
+    const alreadyInSection = new Set<string>();
+    if (targetSectionId && existingByKey.size > 0) {
+      const ids = [...existingByKey.values()];
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: linked, error: linkErr } = await supabase
+          .from("section_images")
+          .select("image_id")
+          .eq("section_id", targetSectionId)
+          .in("image_id", ids.slice(i, i + 200));
+        if (linkErr) throw linkErr;
+        for (const row of linked ?? []) alreadyInSection.add(row.image_id);
+      }
+    }
+
+    const duplicates: typeof files = [];
+    const linkable: { file: (typeof files)[number]; imageId: string }[] = [];
+    const fresh: typeof files = [];
+    for (const f of files) {
+      const existingId = existingByKey.get(`${f.name}|${f.size}`);
+      if (!existingId) fresh.push(f);
+      else if (alreadyInSection.has(existingId)) duplicates.push(f);
+      else linkable.push({ file: f, imageId: existingId });
+    }
+
+    // Link the ones that just need to join this section. No bytes move, so this
+    // happens here rather than costing the client a round trip per file.
+    let linkedCount = 0;
+    if (linkable.length && targetSectionId && !skipSection) {
+      const { data: tail } = await supabase
+        .from("section_images")
+        .select("sort_order")
+        .eq("section_id", targetSectionId)
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      let nextSort = (tail?.[0]?.sort_order ?? -1) + 1;
+      const { error: linkInsertErr } = await supabase
+        .from("section_images")
+        .insert(
+          linkable.map((l) => ({
+            section_id: targetSectionId,
+            image_id: l.imageId,
+            sort_order: nextSort++,
+          }))
+        );
+      // Non-fatal: a failed link must not fail the upload of everything else.
+      if (linkInsertErr) {
+        console.error("Section link for existing images failed:", linkInsertErr);
+        await reportSystemError("upload.link-existing", linkInsertErr, {
+          eventId,
+          sectionId: targetSectionId,
+          count: linkable.length,
+        });
+      } else {
+        linkedCount = linkable.length;
+      }
+    }
 
     // Everything in this batch is already here. Answer honestly rather than
     // returning an empty upload list the client would read as a failure.
@@ -187,6 +258,8 @@ export async function POST(request: NextRequest) {
         uploads: [],
         duplicatesSkipped: duplicates.length,
         duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+        linkedToSection: linkedCount,
+        linkedKeys: linkable.map((l) => `${l.file.name}|${l.file.size}`),
       });
     }
 
@@ -265,6 +338,11 @@ export async function POST(request: NextRequest) {
       // rather than inferring from a short uploads array — which its own guard
       // would otherwise read as server failures.
       duplicateKeys: duplicates.map((f) => `${f.name}|${f.size}`),
+      // Already in the event but NOT in this section, so we linked them here
+      // instead of dropping them. Reported separately from duplicates because
+      // "added to this section" and "nothing to do" are different answers.
+      linkedToSection: linkedCount,
+      linkedKeys: linkable.map((l) => `${l.file.name}|${l.file.size}`),
     });
   } catch (error) {
     console.error("Upload error:", error);

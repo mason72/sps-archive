@@ -133,7 +133,10 @@ export function UploadZone({
   const inFlight = allRows.filter(
     (f) => f.status === "pending" || f.status === "uploading"
   ).length;
-  const totalCount = allRows.filter((f) => f.status !== "duplicate").length;
+  // What you dropped, unchanging. Excluding duplicates made this shrink as the
+  // server discovered them mid-upload (1,106 → 1,090 in front of Justin,
+  // 2026-08-11); every file is accounted for in one terminal state instead.
+  const totalCount = allRows.length;
   const isUploading = inFlight > 0;
 
   // ─── Drop ───
@@ -276,8 +279,12 @@ export function UploadZone({
       (acc, f) => acc + (f.status === "uploading" ? f.progress : 0),
       0
     );
-    return Math.min(100, ((completedCount + inFlightSum / 100) / totalCount) * 100);
-  }, [allRows, completedCount, totalCount]);
+    // Settled files (already here, linked or nothing-to-do) and failures are
+    // both RESOLVED — no bytes are owed for them. Counting them keeps the bar
+    // able to reach 100% now that the denominator no longer retreats to meet it.
+    const resolved = completedCount + duplicateCount + errorCount;
+    return Math.min(100, ((resolved + inFlightSum / 100) / totalCount) * 100);
+  }, [allRows, completedCount, duplicateCount, errorCount, totalCount]);
 
   const etaLabel = useMemo(() => {
     if (!speedMbps || speedMbps < 0.05) return null;
@@ -565,7 +572,11 @@ export function UploadZone({
         )}
         {isUploading && (
           <p className="mt-3 text-[11px] text-stone-400">
+            {/* The denominator is what you dropped. Every subtraction from it is
+                named rather than silently deducted, so the arithmetic on screen
+                always reconciles with the folder you dragged in. */}
             Uploading {completedCount} of {totalCount}
+            {duplicateCount > 0 && ` · ${duplicateCount} already here`}
             {errorCount > 0 && ` · ${errorCount} failed`} — keep adding files, or
             switch sections and keep working
           </p>

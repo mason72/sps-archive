@@ -199,11 +199,21 @@ export function useUploadManager(): UploadManagerValue {
 export interface SectionUploadProgress {
   sectionId: string | null;
   sectionName: string | null;
-  /** Denominator: files bound for this section, excluding duplicates AND
-   *  hard failures — a failed file leaves the total so the ring can close. */
+  /**
+   * Denominator: every file bound for this section, as dropped.
+   *
+   * It used to exclude duplicates and hard failures so the ring could close at
+   * 100%. That bought a tidy ring at the cost of the number meaning anything —
+   * the total shrank while the upload ran, which is the single thing a progress
+   * count must never do. The ring closes because everything reaches a terminal
+   * state, not because the denominator retreats to meet it.
+   */
   total: number;
+  /** Reached a good terminal state: uploaded, or already present (settled). */
   completed: number;
   failed: number;
+  /** Already in the event — linked into this section, or nothing to do. */
+  settled: number;
   inFlight: number;
 }
 
@@ -213,7 +223,12 @@ export function useEventUploadProgress(eventId: string) {
   return useMemo(() => {
     const mine = batches.filter((b) => b.eventId === eventId);
     const files = mine.flatMap((b) => b.files);
-    const counted = files.filter((f) => f.status !== "duplicate");
+    // THE DENOMINATOR IS WHAT YOU DROPPED. It used to exclude duplicates, and
+    // the per-section loop below also dropped failures, so the total shrank as
+    // the upload ran — 1,106 became 1,090 while Justin watched (2026-08-11).
+    // Every file lands in exactly one terminal state and every one of them is
+    // accounted for; none of them stops being a file you handed over.
+    const counted = files;
     const inFlight = files.filter(
       (f) => f.status === "pending" || f.status === "uploading"
     ).length;
@@ -229,15 +244,25 @@ export function useEventUploadProgress(eventId: string) {
           total: 0,
           completed: 0,
           failed: 0,
+          settled: 0,
           inFlight: 0,
         } satisfies SectionUploadProgress);
       for (const f of b.files) {
-        if (f.status === "duplicate") continue;
+        // Everything counts toward the total, including failures and files that
+        // were already here — the section still owes an account of each one.
+        entry.total += 1;
         if (f.status === "error") {
           entry.failed += 1;
-          continue; // failures leave the denominator
+          continue;
         }
-        entry.total += 1;
+        // "Settled" covers already-present photos: linked into this section or
+        // genuinely nothing to do. No bytes move, but they ARE resolved, so
+        // they count as finished rather than as work still outstanding.
+        if (f.status === "duplicate") {
+          entry.settled += 1;
+          entry.completed += 1;
+          continue;
+        }
         if (f.status === "complete") entry.completed += 1;
         if (f.status === "pending" || f.status === "uploading")
           entry.inFlight += 1;
@@ -250,6 +275,8 @@ export function useEventUploadProgress(eventId: string) {
       total: counted.length,
       uploaded: files.filter((f) => f.status === "complete").length,
       failed: files.filter((f) => f.status === "error").length,
+      /** Already in the event — linked into the section, or nothing to do. */
+      settled: files.filter((f) => f.status === "duplicate").length,
       inFlight,
       bySection,
     };
@@ -539,6 +566,10 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       // the end — a silent skip is indistinguishable from a lost upload, which
       // is the anxiety this whole area keeps generating.
       let duplicatesSkipped = 0;
+      // Existing photos added to this section rather than skipped. Distinct
+      // from a duplicate: something DID happen, and the photographer should be
+      // told what, or the batch looks like it silently lost files.
+      let linkedToSection = 0;
 
       for (let start = 0; start < entries.length; start += PRESIGN_CHUNK) {
         if (aborted.current.has(batchId)) break;
@@ -588,6 +619,25 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
           // are NOT failures and NOT re-uploaded — mark them done so the ring
           // closes honestly, and drop them before the length check below,
           // which would otherwise read a short uploads array as errors.
+          // Already in the event but not in this section — the server linked
+          // them here rather than dropping them. Same terminal state for the
+          // ring (nothing to upload), different meaning, so they are counted
+          // and reported apart from true duplicates.
+          const linkKeys = new Set<string>(presign.linkedKeys ?? []);
+          if (linkKeys.size > 0) {
+            const linked = chunkEntries.filter((e) =>
+              linkKeys.has(`${e.file.name}|${e.file.size}`)
+            );
+            for (const e of linked) {
+              updateFile(batchId, e.id, { status: "duplicate" });
+            }
+            linkedToSection += linked.length;
+            chunkEntries = chunkEntries.filter(
+              (e) => !linkKeys.has(`${e.file.name}|${e.file.size}`)
+            );
+            if (chunkEntries.length === 0) continue;
+          }
+
           const dupKeys = new Set<string>(presign.duplicateKeys ?? []);
           if (dupKeys.size > 0) {
             const skipped = chunkEntries.filter((e) =>
