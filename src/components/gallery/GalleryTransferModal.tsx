@@ -8,7 +8,8 @@ import { toast } from "sonner";
 interface GalleryOption {
   id: string;
   name: string;
-  imageCount: number;
+  /** Null when the count was unavailable — render nothing, never "0 images". */
+  imageCount: number | null;
   coverThumbnailUrl: string | null;
   isWebsite: boolean;
 }
@@ -68,7 +69,7 @@ export function GalleryTransferModal({
           id: string;
           name: string;
           settings?: Record<string, unknown> | null;
-          images?: Array<{ count: number }>;
+          images?: Array<{ count: number }> | null;
           coverThumbnailUrl?: string | null;
         };
         const list = ((data.events ?? []) as EventRow[])
@@ -76,7 +77,7 @@ export function GalleryTransferModal({
           .map((e) => ({
             id: e.id,
             name: e.name,
-            imageCount: e.images?.[0]?.count ?? 0,
+            imageCount: e.images?.[0]?.count ?? null,
             coverThumbnailUrl: e.coverThumbnailUrl ?? null,
             isWebsite:
               e.settings?.website === true || e.settings?.work === true,
@@ -268,9 +269,11 @@ export function GalleryTransferModal({
                       <span className="block truncate text-[13px] font-medium text-stone-900">
                         {g.name}
                       </span>
-                      <span className="block text-[11px] tabular-nums text-stone-400">
-                        {g.imageCount} {g.imageCount === 1 ? "image" : "images"}
-                      </span>
+                      {g.imageCount !== null && (
+                        <span className="block text-[11px] tabular-nums text-stone-400">
+                          {g.imageCount} {g.imageCount === 1 ? "image" : "images"}
+                        </span>
+                      )}
                     </span>
                     {selectedGallery?.id === g.id && (
                       <Check className="h-4 w-4 shrink-0 text-accent" />

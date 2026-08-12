@@ -28,7 +28,8 @@ interface Event {
   slug: string;
   event_type: string | null;
   event_date: string | null;
-  images: { count: number }[];
+  /** Null when the count could not be read — never coerce it to 0 (see below). */
+  images: { count: number }[] | null;
   coverThumbnailUrl?: string | null;
   /** Face-derived crop anchor (0–100) for the card thumbnail, if any. */
   coverFocal?: { x: number; y: number } | null;
@@ -317,7 +318,10 @@ function EventCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const imageCount = event.images?.[0]?.count ?? 0;
+  // `?? null`, deliberately not `?? 0`. When the count is unavailable the honest
+  // render is no line at all — "0 images" on a full gallery is a number the app
+  // made up, and it reads exactly like an empty event.
+  const imageCount = event.images?.[0]?.count ?? null;
 
   // Close menu on outside click
   useEffect(() => {
@@ -543,10 +547,12 @@ function EventCard({
               })}
             </span>
           )}
-          <span className="flex items-center gap-1.5">
-            <ImageIcon className="h-3 w-3" />
-            {imageCount} {imageCount === 1 ? "image" : "images"}
-          </span>
+          {imageCount !== null && (
+            <span className="flex items-center gap-1.5">
+              <ImageIcon className="h-3 w-3" />
+              {imageCount} {imageCount === 1 ? "image" : "images"}
+            </span>
+          )}
         </div>
 
         <GalleryStatusBadge status={event.status ?? null} />

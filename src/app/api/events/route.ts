@@ -1,58 +1,115 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { enrichEvents } from "@/lib/events/enrich";
+import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveEventStatuses } from "@/lib/events/status";
 import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
 
-/** GET /api/events — List all events for the authenticated user */
+/**
+ * GET /api/events — List all events for the authenticated user.
+ *
+ * The list query deliberately does NOT embed `images(count)`. PostgREST turns
+ * that into a correlated subquery per event row, and on a table written to as
+ * constantly as `images` (uploads, AI indexing, SPS pulls) the visibility map
+ * is never current, so the "index-only" scan degrades to a heap fetch per row —
+ * 23,136 of them for 26 events. Warm that was 16ms; under write load it went
+ * past the 8s statement_timeout PostgREST inherits from `authenticator`,
+ * Postgres cancelled the statement, and the ENTIRE dashboard 500'd. Three times
+ * in one 45-minute window on 2026-08-12, cured only by hard refreshing until
+ * the database was quiet enough.
+ *
+ * The count now comes from `event_readiness` (migration 047), which was already
+ * being called on this same request and aggregates the same rows in ONE grouped
+ * pass. Same number, one fewer scan, and the events list no longer touches
+ * `images` at all.
+ *
+ * The enrichment legs are also no longer allowed to take the page down with
+ * them: a dashboard that renders 26 galleries without their status badges is
+ * far better than an empty page reading "Something went wrong", which is what
+ * every one of these failures produced.
+ */
 export async function GET(request: NextRequest) {
-  const { user, supabase, error: authError } = await getAuthUser();
-  if (authError) return authError;
+  try {
+    const { user, supabase, error: authError } = await getAuthUser();
+    if (authError) return authError;
 
-  const { searchParams } = new URL(request.url);
-  const limit = parseInt(searchParams.get("limit") || "50", 10);
-  const offset = parseInt(searchParams.get("offset") || "0", 10);
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const offset = parseInt(searchParams.get("offset") || "0", 10);
 
-  const { data, error, count } = await supabase
-    .from("events")
-    .select("*, images!images_event_id_fkey(count)", { count: "exact" })
-    .eq("user_id", user!.id)
-    // Pinned galleries (e.g. TDP workspaces) stay above the chronological list
-    .order("pinned_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    const { data, error, count } = await supabase
+      .from("events")
+      .select("*", { count: "exact" })
+      .eq("user_id", user!.id)
+      // Pinned galleries (e.g. TDP workspaces) stay above the chronological list
+      .order("pinned_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
-  if (error) {
-    console.error("GET /api/events: query error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // This one IS fatal — it is the page's content, and there is nothing to
+    // render without it.
+    if (error) throw new Error(`events list: ${error.message}`);
+
+    // Enrich cover thumbnails + share slugs with a FIXED number of batched
+    // queries (the old per-event fan-out was an N+1 — ~3 queries per event — that
+    // made the dashboard crawl for photographers with many events).
+    //
+    // allSettled, not all: each leg is an ENHANCEMENT of a row we already hold,
+    // so one failing costs its own feature and nothing else.
+    const events = data || [];
+    const [enrichmentRes, statusRes] = await Promise.allSettled([
+      enrichEvents(supabase, events),
+      // Delivery stage + pipeline readiness + the row count, same batched
+      // discipline.
+      resolveEventStatuses(supabase, events.map((e) => e.id)),
+    ]);
+
+    if (enrichmentRes.status === "rejected") {
+      void reportSystemError("events.list.enrich", enrichmentRes.reason);
+    }
+    if (statusRes.status === "rejected") {
+      void reportSystemError("events.list.status", statusRes.reason);
+    }
+
+    const enrichment =
+      enrichmentRes.status === "fulfilled" ? enrichmentRes.value : null;
+    const statuses = statusRes.status === "fulfilled" ? statusRes.value : null;
+
+    const enriched = events.map((event) => {
+      const status = statuses?.get(event.id) ?? null;
+      return {
+        ...event,
+        ...(enrichment?.get(event.id) ?? {
+          coverThumbnailUrl: null,
+          coverFocal: null,
+          activeShareSlug: null,
+        }),
+        status,
+        // The card's "N images" in the shape the client has always read. NULL
+        // rather than 0 when the count is unavailable: a card silently reading
+        // "0 images" over a full gallery is a worse failure than an absent
+        // line, because it is indistinguishable from an empty event.
+        images: status ? [{ count: status.readiness.rows }] : null,
+      };
+    });
+
+    return NextResponse.json({
+      events: enriched,
+      total: count,
+      limit,
+      offset,
+      // Named so the client can say WHICH part is missing instead of guessing.
+      degraded: {
+        status: statusRes.status === "rejected",
+        covers: enrichmentRes.status === "rejected",
+      },
+    });
+  } catch (error) {
+    console.error("GET /api/events:", error);
+    void reportSystemError("events.list", error);
+    return NextResponse.json({ error: "Failed to load events" }, { status: 500 });
   }
-
-  // Enrich cover thumbnails + share slugs with a FIXED number of batched
-  // queries (the old per-event fan-out was an N+1 — ~3 queries per event — that
-  // made the dashboard crawl for photographers with many events).
-  const events = data || [];
-  const [enrichment, statuses] = await Promise.all([
-    enrichEvents(supabase, events),
-    // Delivery stage + pipeline readiness, same batched discipline.
-    resolveEventStatuses(supabase, events.map((e) => e.id)),
-  ]);
-  const enriched = events.map((event) => ({
-    ...event,
-    ...(enrichment.get(event.id) ?? {
-      coverThumbnailUrl: null,
-      coverFocal: null,
-      activeShareSlug: null,
-    }),
-    status: statuses.get(event.id) ?? null,
-  }));
-
-  return NextResponse.json({
-    events: enriched,
-    total: count,
-    limit,
-    offset,
-  });
 }
 
 /** POST /api/events — Create a new event */

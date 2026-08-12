@@ -41,6 +41,17 @@ export interface Readiness {
   uploading: number;
   indexed: number;
   total: number;
+  /**
+   * EVERY row in the event — videos, pending uploads and failures included —
+   * as opposed to `total`, which is settled photos only.
+   *
+   * Two counts, deliberately, because they answer different questions: `total`
+   * is the denominator of the readiness ring ("how much is indexed"), while
+   * this is what the archive card's "N images" has always meant ("how much did
+   * I put here"). They are computed in the SAME database pass so they cannot
+   * drift, and the wider one is not a machinery number — it is the row count.
+   */
+  rows: number;
   /** Every settled photo carries an AI index. */
   ready: boolean;
 }
@@ -138,8 +149,12 @@ export async function resolveEventStatuses(
     indexed: number;
     uploading: number;
     stalled: number;
+    all_rows: number;
   };
-  const imgAgg = new Map<string, { uploading: number; indexed: number; total: number }>();
+  const imgAgg = new Map<
+    string,
+    { uploading: number; indexed: number; total: number; rows: number }
+  >();
   for (const row of (imagesRes.data ?? []) as ReadinessRow[]) {
     imgAgg.set(row.event_id, {
       total: Number(row.total),
@@ -147,12 +162,13 @@ export async function resolveEventStatuses(
       // Only RECENT pending rows count as in-flight; stale ones are ghosts and
       // must not keep an event reading "Uploading" forever.
       uploading: Number(row.uploading),
+      rows: Number(row.all_rows),
     });
   }
 
   for (const eventId of eventIds) {
     const share = shareAgg.get(eventId);
-    const img = imgAgg.get(eventId) ?? { uploading: 0, indexed: 0, total: 0 };
+    const img = imgAgg.get(eventId) ?? { uploading: 0, indexed: 0, total: 0, rows: 0 };
 
     let stage: DeliveryStage = "draft";
     if (share?.live) {
@@ -175,6 +191,7 @@ export async function resolveEventStatuses(
         uploading: img.uploading,
         indexed: img.indexed,
         total: img.total,
+        rows: img.rows,
         // An event with no settled photos isn't "ready", it's empty — callers
         // show nothing rather than a green tick on an empty gallery.
         ready: img.total > 0 && img.indexed >= img.total && img.uploading === 0,

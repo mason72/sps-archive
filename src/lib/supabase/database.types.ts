@@ -1278,6 +1278,7 @@ export type Database = {
       event_readiness: {
         Args: { p_event_ids: string[] }
         Returns: {
+          all_rows: number
           event_id: string
           indexed: number
           stalled: number
