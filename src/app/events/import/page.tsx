@@ -235,7 +235,26 @@ export default function ImportFromSpsPage() {
     setNextOffset(0);
     setLoadError(null);
     setStage("review");
+    setManifestTotal(null);
+    setCountPending(true);
     loadPage(ev.id, 0);
+
+    // Count the whole manifest in parallel with the first page, so the screen can
+    // state a real total instead of describing how far the grid has scrolled.
+    (async () => {
+      try {
+        const res = await fetch(`/api/sps/pull/events/${ev.id}/count`);
+        if (res.ok) {
+          const { total, complete } = await res.json();
+          if (complete) setManifestTotal(total);
+        }
+      } catch {
+        /* Non-fatal: the screen falls back to "everything", and the job counts
+           the total itself once the import starts. */
+      } finally {
+        setCountPending(false);
+      }
+    })();
   };
 
   // Auto-page as the photographer scrolls the grid.
@@ -301,10 +320,25 @@ export default function ImportFromSpsPage() {
     return () => clearInterval(t);
   }, [stage]);
 
+  /**
+   * The REAL number of photos in the SPS event, counted server-side across every
+   * manifest page. The grid's own length is a scroll position, not a total —
+   * showing it beside the import button read as the scope of the import.
+   */
+  const [manifestTotal, setManifestTotal] = useState<number | null>(null);
+  const [countPending, setCountPending] = useState(false);
+
   /** Manifest pages are still arriving, so no count on screen can be the total. */
   const stillLoading = nextOffset !== null;
 
-  const selectedCount = images.length - deselected.size;
+  /**
+   * What the import will actually move: the counted manifest total minus the
+   * exclusion set, or null while the count is still in flight. NOT derived from
+   * `images.length`, which is only how far the grid has been scrolled.
+   */
+  const importCount =
+    manifestTotal !== null ? manifestTotal - deselected.size : null;
+
   const lossyCount = images.filter(
     (i) => i.quality === "lossy" && !deselected.has(i.id)
   ).length;
@@ -322,7 +356,8 @@ export default function ImportFromSpsPage() {
           deselected: [...deselected],
           // Display-only denominator. The server decides completion from the
           // manifest, never from this.
-          expectedTotal: nextOffset === null ? selectedCount : null,
+          // The counted total, not the scrolled-through count.
+          expectedTotal: importCount,
         }),
       });
       const data = await res.json();
@@ -637,40 +672,29 @@ export default function ImportFromSpsPage() {
                   "500 of 500 selected" and "Import 500 photos" on a 9,107-photo
                   event stated a number that was simply false (Mason, on DAIS 26).
                   Say "everything" until we can say a real number. */}
+              {/* Say WHAT WILL BE IMPORTED, first and plainly.
+                  This line has now misled Mason twice on DAIS 26: first as
+                  "500 of 500 selected" beside "Import 500 photos" (a flatly false
+                  number), then as "500 of about 9,107 loaded so far" — "which
+                  makes me think I'm only importing 500". Both times the failure
+                  was the same: a SCROLL POSITION sitting where a SCOPE belongs.
+                  The real total is counted server-side across every manifest page;
+                  until it arrives we say "everything", never a partial count. */}
               <div className="text-[14px] text-stone-600">
-                {stillLoading ? (
-                  <>
-                    <span className="text-stone-900 font-medium">
-                      Everything selected
-                    </span>
-                    <span className="text-stone-400">
-                      {" "}
-                      · {images.length.toLocaleString()}
-                      {chosen.imageCount
-                        ? ` of about ${chosen.imageCount.toLocaleString()}`
-                        : ""}{" "}
-                      loaded so far
-                    </span>
-                    {deselected.size > 0 && (
-                      <span className="text-stone-400">
-                        {" "}
-                        · {deselected.size} unchecked
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <span className="text-stone-900 font-medium">
-                      {selectedCount.toLocaleString()}
-                    </span>{" "}
-                    of {images.length.toLocaleString()} selected
-                    {lossyCount > 0 && (
-                      <span className="text-stone-400">
-                        {" "}
-                        · {lossyCount.toLocaleString()} unverified origin
-                      </span>
-                    )}
-                  </>
+                <span className="text-stone-900 font-medium">
+                  {manifestTotal !== null
+                    ? `${(manifestTotal - deselected.size).toLocaleString()} of ${manifestTotal.toLocaleString()} photos`
+                    : "Every photo in this event"}
+                </span>{" "}
+                will be imported
+                {deselected.size > 0 && (
+                  <span className="text-stone-400">
+                    {" "}
+                    · {deselected.size.toLocaleString()} unchecked
+                  </span>
+                )}
+                {manifestTotal === null && countPending && (
+                  <span className="text-stone-400"> · counting…</span>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -685,17 +709,21 @@ export default function ImportFromSpsPage() {
                 <BrandButton
                   onClick={startImport}
                   color="emerald"
-                  disabled={isStarting || selectedCount === 0}
+                  disabled={
+                    isStarting ||
+                    // Nothing to import: either the counted total is fully
+                    // unchecked, or no page has loaded yet at all.
+                    (importCount !== null ? importCount === 0 : images.length === 0)
+                  }
                 >
                   {isStarting
                     ? "Starting…"
-                    : stillLoading
-                      ? // No number: the count is unknown until the manifest ends,
-                        // and the import takes everything not unchecked.
+                    : importCount !== null
+                      ? `Import ${importCount.toLocaleString()} photo${importCount === 1 ? "" : "s"}`
+                      : // Counting still in flight. Never a partial number here.
                         deselected.size > 0
                         ? `Import all but ${deselected.size}`
-                        : "Import every photo"
-                      : `Import ${selectedCount.toLocaleString()} photo${selectedCount === 1 ? "" : "s"}`}
+                        : "Import every photo"}
                 </BrandButton>
               </div>
             </div>
