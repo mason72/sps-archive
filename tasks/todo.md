@@ -2153,3 +2153,38 @@ than the risk.
       deleting them would have made the dedupe one-way. No hurry, but they must
       not sit forever unexplained — a future audit finding unreferenced objects
       with no note is exactly the kind of mystery that wastes a session.
+
+## /ops database gauge — SHIPPED (2026-08-12)
+
+`/ops` metered Modal and R2 from the start and never the database. That is why
+its trajectory went unnoticed until it was worked out by hand today, heading for
+$410/month within four years of ordinary shooting.
+
+- [x] **Migration 052 `database_footprint()`** — sizes, counts and recent
+      activity in ONE scan, so the page can never show a size and a rate
+      measured at different moments. Vector indexes are found by ACCESS METHOD
+      (`hnsw`/`ivfflat`), never a name pattern, so a future index cannot drop
+      silently out of the one number this exists to report.
+- [x] **`src/lib/usage/database.ts`** — tier + headroom. Prices live in
+      `costs.ts` per the one-home rule (`SUPABASE_COMPUTE_TIERS`,
+      `SUPABASE_DISK_GB_MONTH`, `VECTOR_INDEX_RAM_BUDGET`,
+      `SUPABASE_INCLUDED_COMPUTE_CREDIT`).
+- [x] **Panel on /ops**, and the tier is added to the projected month — leaving
+      it out of the total is precisely what let it grow unwatched.
+
+Reading live at ship time: **27.7 MB index, 939 B/photo, Micro tier at 4.6% of
+budget, 609,734 photos of headroom** before Small at $15/mo. That per-photo
+figure was 11.2 KB this morning.
+
+### Three deliberate choices
+1. **Headroom in PHOTOS, not months.** A countdown needs a growth rate and the
+   measured rate lies: 20,589 photos landed in 30 days, nearly all migrations
+   and backfills. Headroom needs only bytes-per-photo, measured directly. The
+   recent count is still displayed, labelled as activity rather than quietly
+   promoted into a forecast — the same error that produced a 6x-wrong pace
+   estimate earlier today.
+2. **The gauge cannot break the page.** `getDatabaseFootprint` returns null on
+   error and the panel disappears, rather than a monitoring widget taking down
+   the dashboard it monitors.
+3. **Netted against the Pro plan's $10 compute credit**, which the overhead line
+   already bills, so the first $10 is not counted twice.
