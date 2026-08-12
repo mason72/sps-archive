@@ -69,6 +69,7 @@ export function HighlightsEmptyState({
   busy = false,
   onPreview,
   onManual,
+  manualLabel = "or add them yourself",
 }: {
   /** null while the event is still being read. */
   plan: HighlightsPlan | null;
@@ -77,6 +78,8 @@ export function HighlightsEmptyState({
   busy?: boolean;
   onPreview: (opts: { count: number; coverage: boolean }) => void;
   onManual?: () => void;
+  /** Label for the secondary escape — differs on a re-run, where it cancels. */
+  manualLabel?: string;
 }) {
   const [count, setCount] = useState<number | null>(null);
   const [coverage, setCoverage] = useState(true);
@@ -235,7 +238,7 @@ export function HighlightsEmptyState({
             onClick={onManual}
             className="text-[13px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-600 hover:underline"
           >
-            or add them yourself
+            {manualLabel}
           </button>
         )}
       </div>

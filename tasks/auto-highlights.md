@@ -72,6 +72,53 @@ the *spread* ("anywhere from 9 to 64 on an event this size"), not the median —
 an earlier version cited "about 5%" while defaulting to 40, so the copy and the
 control disagreed, which reads as the product not believing itself.
 
+## Eval result: a learned direction beats random, weakly but really (2026-08-11)
+
+`scripts/triage/eval-highlight-ranker.ts` — leave-one-event-out over the 13
+events with hand-picked Highlights (782 picks). Train a "highlight direction"
+in SigLIP space on 12 events (mean picked minus mean unpicked), score the
+held-out event, measure precision@k where k is that photographer's real pick
+count.
+
+**Embeddings are centered per event before anything is learned.** Uncentered,
+the model learns *which event is this* — SigLIP encodes the scene — and scores
+well for entirely the wrong reason.
+
+Excluding two special cases (eBay National Interns Day, where 108 of 135 images
+are "highlights" so the base rate is 80% and nothing can be measured; and Foot
+Locker, whose picks are Claude's not a photographer's), across the remaining 11:
+
+| Ranker | Mean precision@k | vs random |
+| --- | --- | --- |
+| Random | 9.6% | 1.00x |
+| `aesthetic_score` | ~10% | ~1.0x |
+| Learned direction | **16.8%** | **1.74x** |
+
+Beats random on 10 of 13 events, up to 2.7x (Hotel Data Conference). Aesthetic
+score stays at chance, confirming the earlier finding.
+
+**Two caveats that matter more than the number:**
+
+1. **17% precision is not "solved".** A top-40 would contain ~7 of the
+   photographer's actual 40.
+2. **Exact-match may be the wrong bar.** Many defensible reels exist in one
+   event — pressing Refresh already produces a different-feeling set from the
+   same 358 moments. "Not the same 40" is not "a bad 40". A preference test
+   (would you rather deliver reel A or reel B) would measure the thing we
+   actually care about; precision@k measures agreement with one person's one
+   pass.
+
+**The interesting failure:** on Foot Locker the direction scores **0.42x — worse
+than random** against Claude's 40 picks. A model trained on 12 photographers'
+taste actively disagrees with them. Either the picks are idiosyncratic, or a
+photobooth activation is a different kind of event from headshots and
+conferences (11 of the 12 training events are one or the other). Joey's picks
+for the same event will separate those two explanations.
+
+This is a floor, not a ceiling: a centroid difference is the simplest model
+available. Logistic regression, per-photographer training, or a VLM judge all
+have room above it.
+
 ## Algorithm shape
 
 Mirrors an actual cull, not a leaderboard:
@@ -122,6 +169,40 @@ will start.
 
 **This matters more once Highlights ships:** indexing latency is invisible today,
 but the moment there's a generate button gated on it, every photographer feels it.
+
+## Wired end to end (2026-08-11)
+
+- **`src/lib/highlights/direction.ts`** — fits the highlight direction from the
+  photographer's OWN past Highlights sections, excluding the target event
+  (training on the event being ranked would leak the answer). Centers per event
+  before differencing; scores raw, because measuring both ways showed raw is
+  marginally better (22.2% vs 20.8%) — which means the existing
+  `score_images_by_embedding` RPC serves it with **no migration**.
+  `countTrainablePicks()` answers "is a direction available" from counts alone:
+  fitting one just to answer that cost 17s cold, counting costs one round trip.
+- **`src/lib/highlights/moments.ts`** — grouping (exact capture time) and
+  `selectMoments()`, which buckets the timeline into `count` slices and caps any
+  one person at `max(2, count/12)` so a reel can't become a portfolio of one kid.
+  `coverage: false` degrades to plain top-N.
+- **`src/lib/highlights/propose.ts`** — plan + propose. Every read owner-scoped;
+  the `images`↔`events` join must name its constraint
+  (`events!images_event_id_fkey`) because `cover_image_id` makes it ambiguous.
+- **Routes**: `GET .../highlights/plan`, `POST .../highlights/propose`,
+  `POST .../highlights/apply`. Apply is the one write path: it replaces
+  membership, refuses ids that aren't in the event, respects `locked`, and
+  invalidates the direction cache so the next event learns from this accept.
+- **`HighlightsPanel.tsx`** owns the whole flow; the editor page only decides
+  *when* to show it (`isHighlightsEmpty`).
+
+Verified on the live event: plan 3.1s (679 photos → 358 moments → 272 collapsed
+→ 87 people), propose 783ms warm, `ranker: "learned"`, trained on 742 picks.
+Cross-tenant probe: a foreign user id returns 0 photos and 0 proposals from both
+entry points. Unauthenticated requests 307 to /login.
+
+**Known gap:** the only entry point is an EMPTY Highlights section, so once a
+set is accepted the generator disappears. The re-run affordance (a mode beside
+"By scene" / "Smart section", or an action on a populated Highlights section)
+is not built.
 
 ## Built so far (2026-08-11)
 

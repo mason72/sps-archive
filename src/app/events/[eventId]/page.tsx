@@ -25,6 +25,7 @@ import { JobDetailsModal } from "@/components/gallery/JobDetailsModal";
 import { EventSidebar, type Panel } from "@/components/events/EventSidebar";
 import { SortSectionsModal } from "@/components/events/SortSectionsModal";
 import { SmartSectionModal } from "@/components/events/SmartSectionModal";
+import { HighlightsPanel } from "@/components/events/HighlightsPanel";
 import { ProcessingBanner } from "@/components/events/ProcessingBanner";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { PassingPhotos } from "@/components/brand/passing-photos";
@@ -504,6 +505,21 @@ export default function EventPage({
   // Active website section's registry entry: drives the focal-point action
   // (slots) and the "extras are ignored" hints (slots + position-mapped).
   const activeSectionData = sections.find((s) => s.id === activeSection) ?? null;
+  /** Re-run requested on a Highlights section that already has photos. */
+  const [highlightsRerun, setHighlightsRerun] = useState(false);
+  /** Highlights, active, genuinely empty, and not mid-search. */
+  const isHighlightsEmpty =
+    !isSearching &&
+    activeSectionData?.name === "Highlights" &&
+    (activeSectionData.imageIds?.length ?? 0) === 0;
+  /** Highlights is active and already populated — offer a re-run. */
+  const isHighlightsPopulated =
+    !isSearching &&
+    activeSectionData?.name === "Highlights" &&
+    (activeSectionData.imageIds?.length ?? 0) > 0;
+  /** Show the generator: empty section, or an explicit re-run. */
+  const showHighlightsPanel =
+    isHighlightsEmpty || (isHighlightsPopulated && highlightsRerun);
   const activeScene = activeSectionData?.siteSceneKey
     ? sceneForKey(activeSectionData.siteSceneKey)
     : undefined;
@@ -1789,6 +1805,17 @@ export default function EventPage({
                 )}
               </span>
               <div className="flex items-center gap-3">
+                {/* Once a set is accepted the section is populated and the
+                    generator's front door (the empty state) is gone — without
+                    this the feature would vanish after first use. */}
+                {isHighlightsPopulated && !highlightsRerun && (
+                  <button
+                    onClick={() => setHighlightsRerun(true)}
+                    className="text-[12px] text-stone-400 transition-colors hover:text-stone-700"
+                  >
+                    Re-run highlights
+                  </button>
+                )}
                 {/* Focal sweep — set focal points for the whole section, no
                     selection needed. Starts at the first image without one. */}
                 {images.length > 0 && (
@@ -2233,6 +2260,24 @@ export default function EventPage({
                       detail="Reading the photos themselves — this can take a few seconds."
                     />
                   )}
+                  {/* An empty Highlights section is the generator's front
+                      door — every event ships one, so this is the single place
+                      guaranteed to exist wherever the output lands. Only when
+                      it is genuinely empty and not being searched: once it has
+                      photos it is an ordinary section again. */}
+                  {showHighlightsPanel ? (
+                    <HighlightsPanel
+                      eventId={eventId}
+                      columnCount={gridSettings?.columns}
+                      gap={gridSettings?.gap}
+                      existingCount={activeSectionData?.imageIds?.length ?? 0}
+                      onApplied={() => {
+                        setHighlightsRerun(false);
+                        fetchEvent();
+                      }}
+                      onDismiss={() => setHighlightsRerun(false)}
+                    />
+                  ) : (
                   <ImageGrid
                     images={images}
                     stacks={gridStacks}
@@ -2266,6 +2311,7 @@ export default function EventPage({
                         : undefined
                     }
                   />
+                  )}
                   {/* Bottom-of-results escape hatch: widen a section search to
                       the whole event without losing the query. */}
                   {isSearching && activeSection && (

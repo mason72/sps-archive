@@ -50,6 +50,7 @@ export function HighlightsReview({
   gap = "normal",
   busy = false,
   refreshing = false,
+  replacingCount = 0,
   onApply,
   onRefresh,
   onCancel,
@@ -63,6 +64,12 @@ export function HighlightsReview({
   gap?: "tight" | "normal" | "loose";
   busy?: boolean;
   refreshing?: boolean;
+  /**
+   * Photos already in the section. Accepting REPLACES them, and a re-run that
+   * quietly discarded hand-curation would be the worst thing this feature
+   * could do — so the count is stated before the button, not after.
+   */
+  replacingCount?: number;
   onApply: (picks: { momentId: string; imageId: string }[]) => void;
   /**
    * Propose a different set. The parent re-runs the generator and hands back a
@@ -133,8 +140,10 @@ export function HighlightsReview({
               {shown.length} highlights proposed
             </p>
             <p className="mt-0.5 text-[12px] text-stone-500">
-              from {totalMoments.toLocaleString()} moments · nothing is saved
-              until you accept
+              from {totalMoments.toLocaleString()} moments ·{" "}
+              {replacingCount > 0
+                ? `accepting replaces the ${replacingCount} already in Highlights`
+                : "nothing is saved until you accept"}
             </p>
           </div>
 
