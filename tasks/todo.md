@@ -1,5 +1,39 @@
 # Pixeltrunk - Build Plan
 
+## NEXT: Route uploads into their planned section on arrival [deferred 2026-08-11]
+
+**Status: designed, deliberately not built.** Everything around it shipped; this is
+the last step and the one that touches the hot path.
+
+Today the sort plan is chosen up front and applied when the upload drains
+(`SortSectionsModal` → `onSchedule` → the page fires `auto-sections` on drain). So
+photos still land in `Unsorted` and get re-sorted afterwards. The better version
+routes each file to its planned section as it is presigned, so the intake never
+fills and the sidebar populates live.
+
+Why it is not done yet: it means PER-FILE section assignment inside
+`/api/upload`, which currently links a whole batch to one section. That route is
+where every upload incident in this repo originated — ghost rows (lessons
+#21–23), the eBay 413 storm, HDC's 404 lost photos. It deserves fresh context and
+a day with no client uploads in flight, not the tail of a long session.
+
+Design, already worked out:
+- The assignment unit is the **person key, not the file** — store
+  `{ mode, target, stacks, assignments: { personKey → sectionName } }` (roughly 500
+  entries for a 9,000-photo event, not 9,000). `planAutoSections` is pure, so the
+  same function resolves a filename to its section at presign time.
+- `letter` and `per-person` route cleanly. `full-set` is trivial. **`even` is
+  order-dependent** and cannot be derived per file — it keeps today's
+  apply-on-drain behaviour.
+- Store the plan on the event; clear it when the session ends or the user cancels.
+- Rows that already landed in the intake get linked at apply time (they have ids).
+- Watch the invariants: no orphan images, the intake is consumed not deleted while
+  a retry could still arrive, and a locked target section still refuses writes.
+
+Prerequisite already in place: the preview plans over the WHOLE drop (client
+filenames merged with registered rows), so the plan being routed is complete from
+the moment the files land.
+
 ## ACTIVE: Alpha access + ops.pixeltrunk.com cost dashboard [2026-08-10]
 
 Open the platform to whitelisted team alpha testers (unpaid) with per-user cost

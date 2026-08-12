@@ -153,6 +153,23 @@ the manifest proxy, so a row with no variant still renders (from the original)
 and the UI says why scrolling is slow. No Pixeltrunk-side resize proxy was
 needed.
 
+## Proven at scale — DAIS 26, 2026-08-11
+
+**9,104 photos · 21.7 GB · zero failures · 218 minutes.** Both multi-run handoffs
+fired (4,000 and 8,000) and resumed at exactly the right offset; an 8-image
+sha256 sample came back byte-identical. Throughput was flat at 0.70 photos/sec
+across every event imported, regardless of file size — the cost is per-photo
+sharp thumbnailing, not bandwidth, which is the number to plan against.
+
+One frame of 9,104 lost its thumbnail to a transient R2 error and behaved as
+designed: bytes safe, row complete, AI pipeline unblocked, self-healing on view.
+Notably the alert named the failure instead of `[object Object]` — that fix
+landed hours earlier and paid for itself on its first real fault.
+
+Deselection verified separately on eBay Intern Photo Booth: 199 captures, 4
+unchecked, 195 imported, and **none of the four leaked in**. SPS was told about
+exactly the 195 that landed.
+
 ## State — 2026-08-11
 
 **Shipped and verified live.** Pixeltrunk `70b0774` on app.pixeltrunk.com (all
