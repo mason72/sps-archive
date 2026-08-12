@@ -432,6 +432,31 @@ its seven sets are disjoint and hold 1,016 real files. So it is neither a ceilin
 floor — see the verifier note above. `nachisheadshots` (80 reported, 48 real) and this
 one (903 reported, 1,016 real) are the two directions.
 
+## Ingest lands, but settlement cannot fire from a laptop (2026-08-12)
+
+`scripts/pixieset-ingest.ts` dispatches `focal/auto.suggest` and `ai/index.requested`
+when it finishes. **That dispatch fails locally with `401 Event key not found`** —
+`.env.local` carries no `INNGEST_*` keys at all (they live only in Vercel). The ingest
+itself is unaffected; the images land complete.
+
+**It self-heals, so this is not a hole.** The nightly `upload-reconciler` (cron
+`43 9 * * *` = 2:43am PT, `src/lib/inngest/functions.ts`) queries images with
+`ai_indexed_at IS NULL AND thumbnail_generated = true AND media_type = 'image'` and
+nudges `ai/index.requested` for the events it finds. Ingested photos match that
+predicate the moment they complete, so they get indexed on the next nightly run.
+
+**But it nudges at most 25 events per run** (`.slice(0, 25)`). The migration creates
+~1,371 events, so relying on the nudge alone is **~55 days before every event has even
+been offered to the indexer**. Before bulk ingest, pick one:
+ - put `INNGEST_EVENT_KEY` in `.env.local` so ingest dispatches directly (simplest), or
+ - raise the nudge cap for the duration, or
+ - fire `reconciler/run` repeatedly, which re-runs the same capped sweep.
+
+Verification tool: `npx tsx scripts/verify-pixieset-ingest.ts <collectionId>`. It does
+a **sha256 round trip** — frame out of the staged ZIP, object back down from R2, digests
+compared — because counts agreeing is not proof that the right bytes are in the bucket.
+Run it before deleting any archive.
+
 ## Pilot status (2026-08-12)
 
 - **Pilot 1 — `nachisheadshots` (47301077, 80 photo_count): COMPLETE and VERIFIED.**
