@@ -275,9 +275,22 @@ function MosaicLayer({
         <div
           className="absolute inset-0 flex items-center justify-center"
           style={{
-            backgroundColor: hexWithOpacity(mosaic.overlay.color, mosaic.overlay.opacity),
-            backdropFilter: mosaic.overlay.blur ? "blur(6px)" : undefined,
-            WebkitBackdropFilter: mosaic.overlay.blur ? "blur(6px)" : undefined,
+            // One colour = flat wash, 2+ = gradient. Opacity is baked into each
+            // stop rather than applied to the layer, so the logo sitting on top
+            // stays fully opaque — and it matches gradientSvg() in raster.ts,
+            // which is what the email hero and OG card composite.
+            background:
+              mosaic.overlay.colors.length > 1
+                ? `linear-gradient(${mosaic.overlay.angle}deg, ${mosaic.overlay.colors
+                    .map((c) => hexWithOpacity(c, mosaic.overlay.opacity))
+                    .join(", ")})`
+                : hexWithOpacity(mosaic.overlay.colors[0], mosaic.overlay.opacity),
+            backdropFilter: mosaic.overlay.blur
+              ? `blur(${mosaic.overlay.blurAmount}px)`
+              : undefined,
+            WebkitBackdropFilter: mosaic.overlay.blur
+              ? `blur(${mosaic.overlay.blurAmount}px)`
+              : undefined,
           }}
         >
           {mosaic.logoUrl && (

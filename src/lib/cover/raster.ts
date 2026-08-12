@@ -65,10 +65,17 @@ async function mapLimit<T, R>(
 }
 
 /** CSS linear-gradient(angle, stops) as an SVG — parity with the live cover. */
-function gradientSvg(colors: string[], angleDeg: number, w: number, h: number): Buffer {
+function gradientSvg(
+  colors: string[],
+  angleDeg: number,
+  w: number,
+  h: number,
+  opacity = 1
+): Buffer {
+  const op = Math.min(1, Math.max(0, opacity));
   if (colors.length === 1) {
     return Buffer.from(
-      `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${colors[0]}"/></svg>`
+      `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${colors[0]}" fill-opacity="${op}"/></svg>`
     );
   }
   // CSS angle: 0deg points up, clockwise. Direction vector → gradient line
@@ -79,7 +86,7 @@ function gradientSvg(colors: string[], angleDeg: number, w: number, h: number): 
   const stops = colors
     .map(
       (c, i) =>
-        `<stop offset="${(i / (colors.length - 1)) * 100}%" stop-color="${c}"/>`
+        `<stop offset="${(i / (colors.length - 1)) * 100}%" stop-color="${c}" stop-opacity="${op}"/>`
     )
     .join("");
   return Buffer.from(
@@ -257,11 +264,19 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
 
     if (m.logoMode === "overlay") {
       if (m.overlay.blur) {
-        canvas = await sharp(canvas).blur(8).toBuffer();
+        canvas = await sharp(canvas).blur(m.overlay.blurAmount).toBuffer();
       }
       const wash: sharp.OverlayOptions[] = [
         {
-          input: colorRectSvg(RASTER_W, RASTER_H, m.overlay.color, m.overlay.opacity),
+          // Same helper the solid cover uses, so one colour stays a flat wash
+          // and 2+ become a gradient with identical angle maths to the CSS.
+          input: gradientSvg(
+            m.overlay.colors,
+            m.overlay.angle,
+            RASTER_W,
+            RASTER_H,
+            m.overlay.opacity
+          ),
         },
       ];
       const logo = await prepareLogo(m.logoKey, RASTER_H * 0.38, RASTER_W * 0.7);

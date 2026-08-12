@@ -42,9 +42,21 @@ interface Event {
  * EventList — Fetches and displays the user's events on the homepage.
  * Includes search, event type filtering, image thumbnails, and action menus.
  */
+/**
+ * Last successful list, kept for the lifetime of the tab.
+ *
+ * The fetch below stays `no-store` on purpose — readiness is live data, and a
+ * cached response once showed a 5,787-photo event as "Queued" while it was 19%
+ * through. So this is NOT a response cache: it is the previous render, shown
+ * immediately so returning to the archive paints instantly instead of staring
+ * at a skeleton for ~3s, while the real request runs behind it and corrects
+ * anything that moved. Stale for one frame, never stale at rest.
+ */
+let lastEvents: Event[] | null = null;
+
 export function EventList() {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [events, setEvents] = useState<Event[]>(lastEvents ?? []);
+  const [isLoaded, setIsLoaded] = useState(lastEvents !== null);
   const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
@@ -57,7 +69,8 @@ export function EventList() {
       const res = await fetch("/api/events?limit=100", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load events");
       const data = await res.json();
-      setEvents(data.events || []);
+      lastEvents = data.events || [];
+      setEvents(lastEvents ?? []);
     } catch {
       setLoadError(true);
     } finally {
@@ -390,7 +403,12 @@ function EventCard({
       style={{ animationDelay: `${0.1 + index * 0.05}s` }}
     >
       {/* Thumbnail */}
-      <Link href={`/events/${event.id}`} className="block">
+      {/* prefetch={false}: Next prefetches every card that enters the viewport,
+          and each prefetch server-renders the (heavy) event page. On an archive
+          with 55 events that measured as 17 prefetches / 9.0s of server work
+          just to LOAD the list — for events nobody clicked. A click costs one
+          render either way; prefetching 55 of them to save one is a bad trade. */}
+      <Link href={`/events/${event.id}`} className="block" prefetch={false}>
         {event.coverThumbnailUrl ? (
           <div className="aspect-[16/9] bg-stone-100 overflow-hidden">
             <img
@@ -508,7 +526,7 @@ function EventCard({
       </div>
 
       {/* Card content */}
-      <Link href={`/events/${event.id}`} className="block p-5">
+      <Link href={`/events/${event.id}`} className="block p-5" prefetch={false}>
         <h3 className="font-editorial text-[20px] text-stone-900 group-hover:text-accent transition-colors duration-300 leading-tight">
           {event.name}
         </h3>

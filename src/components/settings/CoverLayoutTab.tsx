@@ -292,15 +292,98 @@ export function CoverLayoutTab({
 
               {mosaic.logoMode === "overlay" && (
                 <div className="space-y-4">
-                  <ColorRow
-                    label="Overlay color"
-                    value={mosaic.overlay.color}
-                    onChange={(color) =>
-                      onChange({
-                        mosaic: { ...mosaic, overlay: { ...mosaic.overlay, color } },
-                      })
-                    }
-                  />
+                  <div>
+                    <p className="text-[12px] font-medium text-stone-600 mb-2">
+                      Overlay color
+                    </p>
+                    <div className="space-y-2">
+                      {mosaic.overlay.colors.map((c, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <ColorRow
+                            value={c}
+                            onChange={(next) => {
+                              const colors = mosaic.overlay.colors.slice();
+                              colors[i] = next;
+                              onChange({
+                                mosaic: {
+                                  ...mosaic,
+                                  overlay: { ...mosaic.overlay, colors },
+                                },
+                              });
+                            }}
+                          />
+                          {mosaic.overlay.colors.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onChange({
+                                  mosaic: {
+                                    ...mosaic,
+                                    overlay: {
+                                      ...mosaic.overlay,
+                                      colors: mosaic.overlay.colors.filter(
+                                        (_, j) => j !== i
+                                      ),
+                                    },
+                                  },
+                                })
+                              }
+                              className="p-1 text-stone-300 hover:text-stone-600 transition-colors cursor-pointer"
+                              aria-label="Remove color"
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {mosaic.overlay.colors.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChange({
+                            mosaic: {
+                              ...mosaic,
+                              overlay: {
+                                ...mosaic.overlay,
+                                colors: [
+                                  ...mosaic.overlay.colors,
+                                  mosaic.overlay.colors[
+                                    mosaic.overlay.colors.length - 1
+                                  ],
+                                ],
+                              },
+                            },
+                          })
+                        }
+                        className="mt-2 flex items-center gap-1 text-[11px] font-medium text-stone-500 hover:text-stone-900 transition-colors cursor-pointer"
+                      >
+                        <Plus size={12} />
+                        Add color
+                        {mosaic.overlay.colors.length === 1 ? " for a gradient" : ""}
+                      </button>
+                    )}
+                  </div>
+
+                  {mosaic.overlay.colors.length > 1 && (
+                    <SliderRow
+                      label="Gradient angle"
+                      valueLabel={`${mosaic.overlay.angle}°`}
+                      min={0}
+                      max={360}
+                      step={15}
+                      value={mosaic.overlay.angle}
+                      onChange={(angle) =>
+                        onChange({
+                          mosaic: {
+                            ...mosaic,
+                            overlay: { ...mosaic.overlay, angle },
+                          },
+                        })
+                      }
+                    />
+                  )}
+
                   <SliderRow
                     label="Overlay strength"
                     valueLabel={`${Math.round(mosaic.overlay.opacity * 100)}%`}
@@ -326,6 +409,24 @@ export function CoverLayoutTab({
                       })
                     }
                   />
+                  {mosaic.overlay.blur && (
+                    <SliderRow
+                      label="Blur amount"
+                      valueLabel={`${mosaic.overlay.blurAmount}px`}
+                      min={1}
+                      max={40}
+                      step={1}
+                      value={mosaic.overlay.blurAmount}
+                      onChange={(blurAmount) =>
+                        onChange({
+                          mosaic: {
+                            ...mosaic,
+                            overlay: { ...mosaic.overlay, blurAmount },
+                          },
+                        })
+                      }
+                    />
+                  )}
                 </div>
               )}
 

@@ -73,12 +73,25 @@ describe("normalizeCoverSettings", () => {
     const c = normalizeCoverSettings({
       type: "mosaic",
       mosaic: {
-        overlay: { color: "url(javascript:x)\"/><script>", opacity: 0.5 },
+        overlay: {
+          // Legacy single-colour field, and the array that replaced it. BOTH
+          // end up inside an SVG string in raster.ts, so every entry has to
+          // come back a safe hex — the gradient widened this from one
+          // interpolation to five.
+          color: "url(javascript:x)\"/><script>",
+          colors: ["#AABBCC ", "</style><script>alert(1)</script>", "#GG0000"],
+          opacity: 0.5,
+          blurAmount: 9999,
+        },
         insert: { fill: "red; }" },
       },
       solid: { colors: ["#GGGGGG", "not-a-color", "#AABBCC "] },
     });
-    expect(c.mosaic?.overlay.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    for (const c0 of c.mosaic?.overlay.colors ?? []) {
+      expect(c0).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+    expect(c.mosaic?.overlay.colors).toEqual(["#AABBCC"]);
+    expect(c.mosaic?.overlay.blurAmount).toBeLessThanOrEqual(40);
     expect(c.mosaic?.insert.fill).toMatch(/^#[0-9a-fA-F]{6}$/);
     expect(c.solid?.colors).toEqual(["#AABBCC"]);
   });

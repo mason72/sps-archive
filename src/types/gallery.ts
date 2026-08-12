@@ -1,4 +1,6 @@
 /** Types for the public-facing gallery (client view) */
+import type { MosaicCoverSettings } from "./event-settings";
+
 
 export interface GalleryImage {
   id: string;
@@ -55,7 +57,9 @@ export interface GallerySettings {
     seed: number;
     logoMode: "none" | "overlay" | "insert";
     logoUrl?: string;
-    overlay: { color: string; opacity: number; blur: boolean };
+    /** Derived from the canonical settings type — a second inline copy of this
+     *  shape is how the gallery payload silently drifts from the editor. */
+    overlay: MosaicCoverSettings["overlay"];
     insert: { padding: number; fill: string };
   };
   coverSolid?: {

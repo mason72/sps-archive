@@ -106,8 +106,21 @@ export interface MosaicCoverSettings {
   logoMode: MosaicLogoMode;
   /** R2 key of the per-event client logo (distinct from photographer branding). */
   logoKey?: string;
-  /** Overlay mode: color wash across all tiles, logo centered on top. */
-  overlay: { color: string; opacity: number; blur: boolean };
+  /**
+   * Overlay mode: colour wash across all tiles, logo centered on top.
+   * `colors` mirrors SolidCoverSettings — 1 colour is a flat wash, 2+ is a
+   * linear gradient at `angle`. Legacy events stored a single `color`; the
+   * normaliser migrates it, so nothing downstream reads that field.
+   */
+  overlay: {
+    colors: string[];
+    /** Gradient angle in degrees; ignored for a single colour. */
+    angle: number;
+    opacity: number;
+    blur: boolean;
+    /** Blur radius in px when `blur` is on. */
+    blurAmount: number;
+  };
   /** Insert mode: empty box in the mosaic's center holding the logo. */
   insert: { padding: number; fill: string };
 }
@@ -229,7 +242,13 @@ export const DEFAULT_MOSAIC_SETTINGS: MosaicCoverSettings = {
   rows: 3,
   seed: 1,
   logoMode: "none",
-  overlay: { color: "#1C1917", opacity: 0.75, blur: false },
+  overlay: {
+    colors: ["#1C1917"],
+    angle: 135,
+    opacity: 0.75,
+    blur: false,
+    blurAmount: 8,
+  },
   insert: { padding: 15, fill: "#FFFFFF" },
 };
 
@@ -309,9 +328,31 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
         : DEFAULT_MOSAIC_SETTINGS.logoMode,
       logoKey: typeof rawMosaic.logoKey === "string" ? rawMosaic.logoKey : undefined,
       overlay: {
-        color: hexOr(rawOverlay.color, DEFAULT_MOSAIC_SETTINGS.overlay.color),
+        // Migration lives here and only here: events saved before the gradient
+        // existed carry a single `color`. Read it once, hand back `colors`, and
+        // no renderer ever has to know both shapes.
+        colors: (() => {
+          const valid = Array.isArray(rawOverlay.colors)
+            ? (rawOverlay.colors as unknown[])
+                .filter((x) => typeof x === "string" && /^#[0-9a-fA-F]{6}$/.test(x.trim()))
+                .map((x) => (x as string).trim())
+                .slice(0, 5)
+            : [];
+          if (valid.length > 0) return valid;
+          const legacy = hexOr(rawOverlay.color, "");
+          return legacy ? [legacy] : DEFAULT_MOSAIC_SETTINGS.overlay.colors;
+        })(),
+        angle:
+          typeof rawOverlay.angle === "number" && Number.isFinite(rawOverlay.angle)
+            ? ((rawOverlay.angle % 360) + 360) % 360
+            : DEFAULT_MOSAIC_SETTINGS.overlay.angle,
         opacity: clamp01(rawOverlay.opacity, DEFAULT_MOSAIC_SETTINGS.overlay.opacity),
         blur: rawOverlay.blur === true,
+        blurAmount:
+          typeof rawOverlay.blurAmount === "number" &&
+          Number.isFinite(rawOverlay.blurAmount)
+            ? Math.min(40, Math.max(1, rawOverlay.blurAmount))
+            : DEFAULT_MOSAIC_SETTINGS.overlay.blurAmount,
       },
       insert: {
         padding:
