@@ -210,22 +210,39 @@
     transform-origin: left;
   }
 
-  /* Reveal animations */
+  /* Reveal animations.
+     fill-mode is `backwards`, NEVER `both`.
+
+     `both` retains the final keyframe forever. Every one of these ends on a
+     transform, and a retained transform — even the identity matrix — creates a
+     PERMANENT stacking context. Two `.reveal` siblings then paint in DOM
+     order, so a z-50 popover inside the first cannot rise above the second.
+     That is what put the new-event date picker underneath the "Import it with
+     the camera files" link: the calendar looked transparent (the link painting
+     over it, opacity was genuinely 1) and clicks landed on the link (Justin,
+     2026-08-11). Verified on production: hit-testing the overlap returned the
+     anchor before, and a calendar day button after.
+
+     Writing `to { transform: none }` does NOT fix it — interpolating toward
+     `none` resolves to the identity matrix, which is what gets retained.
+     `backwards` applies the FROM state during the delay, so nothing flashes
+     in, then hands the element back to its own styles, which carry no
+     transform at all. Visually identical; inert at rest. */
   .reveal {
-    animation: editorial-reveal 0.7s ease-out both;
+    animation: editorial-reveal 0.7s ease-out backwards;
   }
 
   .reveal-line {
     transform-origin: left;
-    animation: editorial-line 0.8s ease-out both;
+    animation: editorial-line 0.8s ease-out backwards;
   }
 
   .fade-in {
-    animation: editorial-fade 0.8s ease-out both;
+    animation: editorial-fade 0.8s ease-out backwards;
   }
 
   .scale-in {
-    animation: editorial-scale 0.6s ease-out both;
+    animation: editorial-scale 0.6s ease-out backwards;
   }
 
   /* Photo card hover */
