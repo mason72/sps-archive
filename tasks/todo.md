@@ -1831,3 +1831,78 @@ alone deliberately.
       crude `clear()` at 20,000 entries, and HDC alone needs 7,882 — two big
       galleries in one lambda instance wipe it and re-sign everything. An LRU
       eviction would help; ~1.1s is not currently worth the change.
+
+## Find my photos on curated shares — SHIPPED (2026-08-12)
+
+- [x] `shareScopeIsCurated()` joins the existing resolver in `share-scope.ts`, so
+      "is this curated" reads from the SAME switch that decides what the share
+      exposes. Driven by share TYPE, not face count — face count gets it wrong
+      both ways (a couple's 12-image set has two faces and still needs no
+      search; a one-person headshot archive has one face and is a real archive).
+- [x] Payload carries `curated`; the guest gallery hides find-my-photos on it.
+- [x] Toolbar threshold is 24 on a curated share vs 8 on a full one. Measured
+      across all 28 active shares BEFORE changing it: every share under 25
+      photos is a selection, and no FULL share is under 25 — so full galleries
+      are provably untouched.
+- [x] Verified on production: Wesley Sang (12, `curated:true`) renders wordmark,
+      name, photos, nothing else; FM Headshots (723, `curated:false`) keeps both
+      controls.
+
+## Duplicate detection at ingest — ALREADY SHIPPED; the note was stale
+
+The uploader has compared `(event, original_filename, file_size)` at presign
+since 2026-08-11, with link/duplicate/skip semantics and an "N skipped" report
+(`src/app/api/upload/route.ts`). Nothing to build.
+
+**The 34% / 1,945-duplicate figure for HDC is also stale.** Census run today with
+the exact identity the ingest guard uses:
+
+| gallery | rows | exact dupes | re-edits (kept) |
+| --- | --- | --- | --- |
+| Jessica & Koji's Big Day | 1,020 | **468 (45.9%)** | 0 |
+| TDP Website | 1,264 | 77 (6.1%) | 17 |
+| Appfolio // Jul 2026 | 2,050 | 50 (2.4%) | 0 |
+| Appfolio Headshots // Goleta | 793 | 40 (5.0%) | 0 |
+| Hotel Data Conference 2026 | 3,941 | **6 (0.2%)** | 98 |
+
+**Archive-wide: 658 removable of 30,111 rows (2.2%); 478 same-name re-edits
+preserved.** Script: `scripts/triage/duplicate-census.ts`.
+
+- [ ] **Dedupe the existing archive — DESTRUCTIVE, needs Mason's go-ahead.**
+      658 rows, ~71% of them in one delivered wedding gallery whose share is
+      live. Deleting duplicate tiles from a gallery a client is already browsing
+      is a visible change even though every removed row is a byte-identical
+      copy. Keep newest of each identical set; never touch a same-name/
+      different-size row.
+
+## Pixieset — two of the three open questions now have numbers (2026-08-12)
+
+Measured from the archive's own history. No new spend, no pilot needed.
+
+**Q2, AI indexing cost — ANSWERED: ~$190 for 1.88M images.**
+`usage_events` records 18,594 GPU-seconds of `ai_index` across 30,098 indexed
+images = **$0.000101/image, 0.618s each** (T4 at costs.ts prices).
+- 949,000 (the at-risk set): **$96**, ~163 GPU-hours
+- 1,880,000 (everything): **$190**, ~323 GPU-hours
+Caveats: seconds are wall-clock measured around the fetch, so this errs
+honest-high; Modal's $30/mo credit makes it near-zero if spread over months; and
+323 GPU-hours is a scheduling question as much as a money one.
+Script: `scripts/triage/ai-cost-per-image.ts`.
+
+**Q3, pgvector at ~1.9M embeddings — SIZED, and it is the real cost.**
+Today: 30,098 image embeddings (HNSW `idx_images_siglip_embedding`, 226 MB),
+45,028 face embeddings (103 MB), images table 422 MB, database 680 MB.
+Extrapolated to 1.88M images (62×):
+- image HNSW index ≈ **14 GB**
+- images table ≈ **26 GB**
+- faces (at ~1.5 faces/image, ~2.8M rows) ≈ **6 GB**
+- **database ≈ 45–50 GB**, and the HNSW index wants to live in RAM
+
+**So the gating cost is the DATABASE INSTANCE, not the AI.** $190 of GPU is
+noise next to the Supabase compute tier needed to keep a 14 GB index hot. That
+is the number to price before committing — and it is recurring, unlike the AI.
+
+- [ ] Price the Supabase tier for a ~50 GB database with a 14 GB hot index, and
+      re-run the preservation-vs-search split against it. The plan's
+      "display-res derivatives for all 1.88M ≈ $85/yr in R2" only ever counted
+      storage.
