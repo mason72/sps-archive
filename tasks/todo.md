@@ -2048,3 +2048,66 @@ Plus **12 ledger entries applied with no file** — migrations 012–018
 - [ ] The 12 fileless ledger entries stay as history. Their surviving EFFECTS
       are now covered by 048 + 001–047; the entries themselves are a record that
       something ran, and rewriting the ledger would be fiction.
+
+## Search runs on fingerprints now — 12x less memory (2026-08-12)
+
+**Why this mattered.** Mason's real pace is ~370,000 photos/year (from the
+Pixieset inventory: 2024 = 362,832, 2025 = 380,686 — NOT the 65k I first
+extrapolated from an archive he isn't using yet). At that rate the vector index
+reaches 17 GB in four years and forces a $410/month Supabase instance, before
+Pixieset's 1.88M are considered. That does not close as a product: a
+photographer cannot be charged $200/month to cover search.
+
+**What changed.** `binary_quantize` reduces each vector to one bit per dimension
+— a 144-byte fingerprint instead of 4,608 bytes. The fingerprint index picks a
+generous shortlist by Hamming distance; the REAL vectors then rank only those.
+Cheap structure narrows, exact one ranks.
+
+| | before | after |
+| --- | --- | --- |
+| images index | 226 MB | 13 MB |
+| faces index | 103 MB | 14 MB |
+| **total** | **329 MB** | **27 MB (12x)** |
+| 44 A/B cases | — | **99.70% mean overlap**, worst 90% |
+| selfie search (8 cases) | — | **100% overlap, zero rows lost** |
+| harness wall-clock | 18,426 ms | 4,559 ms |
+
+Projected: ~1.1 GB at 1.5M photos instead of 17 GB, so a $60–110 instance
+carries the whole Pixieset catalogue plus four more years of shooting.
+
+### Three things the verification caught that reading the code would not
+1. **First attempt silently broke event-scoped search.** Overlap 78%, worst 0%,
+   and event-scoped searches returned 8 rows where they returned 30. Cause:
+   `hnsw.ef_search` (how many candidates the index walk examines) defaults to
+   40, so a shortlist asking for 200+ came back short, and filtering to one
+   event cut it further. Both functions now `set hnsw.ef_search to 800`.
+   **Rule: ef_search must be >= the shortlist size, or the walk truncates and
+   nothing errors.**
+2. **The old selfie search was ALREADY truncating.** One case returned 40 rows
+   where the app asked for 100 — the same default ef_search, capping results
+   before this work started. Guests were being shown fewer of their own photos
+   than existed. The new version returns all 100.
+3. **`score_images_by_embedding` must NOT get a shortlist.** It has no ORDER BY
+   and no LIMIT: it scores every photo in an event for the section planner and
+   highlights ranker. Adding a shortlist would change "score all" into "score
+   some" behind an unchanged name. Left alone deliberately.
+
+### And twice my own probe reported a failure that wasn't real
+- Compared baseline `image_id` against new `face_id` → "0% overlap" on every
+  selfie case. The IDs were fine; the field was wrong.
+- Parsed the gallery search response as `.images` when the route returns
+  `.results` → "0 results" on a gallery that was working correctly.
+
+**A probe that reads a field the API does not return reports zero, and zero is
+indistinguishable from a real failure.** Check the shape against one known-good
+case before believing a scripted verdict — the same discipline already applied
+to Supabase errors and to scripted counts vs SQL aggregates.
+
+### Left open
+- [ ] **Database cost gauge on /ops** — index size, growth rate, projected
+      instance tier, beside the existing Modal and R2 lines. Mason asked to
+      watch spend closely; this is the one cost with no gauge, which is exactly
+      why it crept up unnoticed.
+- [ ] **Evict cold embeddings** — now much less urgent. An embedding costs
+      $0.000101 and 0.6s to rebuild from bytes already in R2, so dropping them
+      for cold events is safe and reversible whenever it is wanted.
