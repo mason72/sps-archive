@@ -1663,3 +1663,57 @@ by construction. Re-measured after the fix: spacer 16px, gap 15px → 32px.
 paragraphs, so it showed the blank line at 21px all along. That mismatch is
 precisely why this read as a bug: what Mason typed and saw was real, and only
 the two downstream surfaces silently dropped it.
+
+## Shifted-bytes incident — CLOSED, with three items handed off (2026-08-11)
+
+**What happened.** `e688083` (dedupe at presign) made the server return fewer
+upload slots than files sent. `UploadManager` filtered `chunkEntries` but kept a
+`const chunk` snapshot taken before the filter, then zipped slot[i] with
+chunk[i] — so row N got file N-1's bytes. Island HQ: **805 of 1,142 photos filed
+under the wrong person's name**, silently, with a correct count and a ring that
+closed at 100%. Full write-up in `tasks/lessons.md` #89.
+
+**Shipped and verified:**
+- [x] `bf570cc` — delete the parallel array; assert the presign response's
+      `originalFilename` against the entry and fail the file loudly on mismatch.
+- [x] `92d39ce` — repair toolchain (`scripts/triage/repair-shifted-bytes.ts`,
+      `regen-thumbnails.ts`, `revert-fix-label.ts`) + lesson 89.
+- [x] `ff44f8a` — backfill the never-uploaded frames from the SPS gallery.
+- [x] Every gallery that uploaded after the bug FULLY scanned (not sampled):
+      DAIS 26 9,104/9,104 clean, Jordan 679, ebay 195, Clario/CEA/Joe/HDC 277.
+      Island was the only one hit — the bug cannot fire without a skip in the
+      chunk, and Island was the only overlapping upload.
+- [x] Island final: **1,141 rows, 1,141 holding their own bytes, 0 mislabel
+      suggestions.** Detector: `scripts/triage/byte-name-mismatch.ts`.
+
+### 1. Restore focal points for 804 Island photos (MY REGRESSION — do first)
+`repair-shifted-bytes.ts` nulls `focal_x`/`focal_y` because they were computed
+against the wrong pictures. Correct to null them; wrong to leave them null. The
+AI re-index does NOT restore them — focal is its own lane, and per
+`src/lib/inngest/functions.ts:657` it is an **opt-in chore**, not automatic.
+- Lane: Inngest `focal/auto.suggest` → `ensureAutoFocal` in
+  `src/lib/faces/ensure-focal.ts`; selects `.is("focal_x", null)`.
+- Drive it directly from a script (mirror `scripts/backfill-ai-index.ts`, which
+  calls the same module the job calls) rather than waiting on the event.
+- Event `4ac80a42-88ee-4042-ab56-1d7962e72032`; verify with
+  `scripts/triage/island-dims.ts` (prints the no-focal count; currently 804).
+
+### 2. Masonry columns ignore the caption/chrome height
+`src/components/gallery/ImageGrid.tsx:209` packs shortest-column-first but
+estimates height as `d.height / d.width` — pure image aspect. The filename
+caption strip (~40px) and stack chrome are invisible to the packer, so a column
+holding more tiles accumulates unseen height, overshoots, and keeps being fed.
+Columns end at wildly different points; Mason saw a large gap at the page bottom.
+- **Test the diagnosis first:** toggle Filenames OFF. If the raggedness mostly
+  collapses, confirmed. If it does not, the estimate is wrong for another reason
+  and this note is a lead, not an answer.
+- Fix: add a per-item constant for caption + chrome into `getHeightUnit`.
+  `GalleryGrid.tsx:109` has the same shape — check whether it needs it too.
+
+### 3. The filename caption re-derives the person's name
+The caption under each tile prints raw `parsed_name` ("Tyler Haney Island" —
+event tag and all) while the white overlay label on the same card prints
+"Tyler Haney" via `personNameFromParts`. Two name sources on one card, which is
+exactly what CLAUDE.md forbids. Route the caption through the same function.
+(Note it is genuinely a FILENAME for un-stacked images and a person name for
+stacks — decide which the row is meant to show before changing it.)
