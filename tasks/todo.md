@@ -1771,3 +1771,63 @@ haven't been given.
       (lesson 70).
 - [ ] Consider hiding the whole search row under ~24 photos. On a 12-photo
       delivery, "try 'dancing' or a name" is noise — everything is on screen.
+
+## Grid + focal round (2026-08-12)
+
+### 1. Island's 804 focal points — RESTORED
+`scripts/triage/backfill-focal.ts` drives the same `ensureAutoFocal` the Inngest
+job calls, so there is one definition of what a focal point is.
+- [x] Checked the face rows were re-detected AFTER the byte-shift repair
+      (05:29–05:59 UTC 2026-08-12) before trusting them — the repair deleted the
+      old ones precisely because they described the wrong person's pixels, and
+      reusing stale boxes would have rebuilt the same class of error.
+- [x] 804/804 written, 0 remaining. Sanity: 989 distinct values in a 1,000-row
+      sample, x median 54.1, y median 23.5, none out of range — per-image eye
+      level in the upper quarter, not a constant someone could mistake for one.
+
+### 2. Ragged masonry columns — FIXED, and the old diagnosis was WRONG
+**The handoff blamed the filename caption strip. That was wrong**, and the test
+it proposed (toggle Filenames off) would have shown nothing: the strip renders
+`absolute bottom-0` INSIDE the tile and adds zero height. Adding the suggested
+per-item caption constant would have put a second, opposite error on top of the
+real one.
+
+The real cause: a collapsed stack renders in a FIXED `aspect-[3/4]` box while
+`distributeBalanced` was handed the cover PHOTO's natural aspect. Mean error
+18%–79% per gallery, varying with each cover's orientation so it never cancels.
+- [x] Measured before, on Island (77 stacks, 5 columns): heights
+      4736 / 4440 / 4144 / 4440 / 5032 px = **888px spread**. Every tile there
+      renders at the same height, so columns should differ by at most one tile;
+      the packer put 14 in one and 17 in another.
+- [x] `tileHeightUnit()` in `grid-layout.ts` (tested) returns what the tile
+      RENDERS as — 4/3 for a stack, natural for a flat image, 1 for uniform
+      style, which renders 1:1 and had the same bug.
+- [x] Its doc names the trap: `GalleryGrid` renders stacks at natural aspect, so
+      the PUBLIC grid's own estimate is already correct and must NOT be routed
+      through this function.
+
+### 3. Filenames toggle did nothing with Stacks on — FIXED
+Correct that a collapsed stack has no filename row (a stack is many files), but
+a control that silently does nothing is worse than no control.
+- [x] Disabled with a reason when every tile in view is a collapsed stack,
+      naming both ways out — turn Stacks off, or expand a stack, since it still
+      governs the frames inside an expanded one. Greyed, never hidden.
+
+### 4. Event page "15–20s" — STALE, measured and closed
+The note was written 2026-08-10 (late); `51e8599` (progressive grid reveal,
+2026-08-10 21:47) landed after it. Measured against production today:
+- HDC (3,941 images — also not the 5,787 the note claims): count 202ms +
+  4 parallel pages 731ms + presign 2×3,941 1,133ms = **2.1s cold**.
+- Island (1,141): **975ms cold**.
+- Initial mount is capped at `REVEAL_FIRST = 180` tiles, not the whole event —
+  mounting every tile was the 15–20s, and that is what the reveal fixed.
+- Island's editor loaded with tiles already present and interactive.
+
+Remaining cost is the presigning, and it is NOT waste: `thumbnailLgUrl` is the
+800w entry in each tile's `srcset`, so it is needed by the grid itself, not just
+the lightbox. Deferring it would cost tile sharpness on wide columns. Left
+alone deliberately.
+- [ ] If this ever needs to get cheaper: `getCachedThumbnailUrl`'s memo does a
+      crude `clear()` at 20,000 entries, and HDC alone needs 7,882 — two big
+      galleries in one lambda instance wipe it and re-sign everything. An LRU
+      eviction would help; ~1.1s is not currently worth the change.
