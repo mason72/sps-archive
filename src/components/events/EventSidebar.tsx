@@ -1101,6 +1101,81 @@ function DetailsPanel({
     void savePassword(next);
   };
 
+  // The PIN field is local while it is being typed, then committed — same shape
+  // as the password above. It matters more here: every save writes through to
+  // each active share, so a fetch per keystroke would rewrite every live link
+  // four times to set one PIN.
+  const [pin, setPin] = useState(sharing.downloadPin);
+  const savedPinRef = useRef(sharing.downloadPin);
+
+  useEffect(() => {
+    if (sharing.downloadPin !== savedPinRef.current) {
+      savedPinRef.current = sharing.downloadPin;
+      setPin(sharing.downloadPin);
+    }
+  }, [sharing.downloadPin]);
+
+  /**
+   * The ONE way this sidebar changes a PIN. Goes to the dedicated route so the
+   * event and every active share move together — `updateSharing` would PATCH
+   * the event alone, which is the split that left a delivered gallery ungated.
+   *
+   * Adopts the SERVER's resolved values rather than the requested ones: the
+   * route re-applies normalizeDownloadPins (bulk off ⇒ individual off; no PIN ⇒
+   * no gates), so the client must render what was actually stored.
+   */
+  const savePin = useCallback(
+    async (partial: {
+      downloadPin?: string;
+      requirePinBulk?: boolean;
+      requirePinIndividual?: boolean;
+    }) => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/download-pin`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(partial),
+        });
+        if (!res.ok) throw new Error("save failed");
+        const data = (await res.json()) as {
+          downloadPin: string;
+          requirePinBulk: boolean;
+          requirePinIndividual: boolean;
+          sharesUpdated: number;
+        };
+
+        savedPinRef.current = data.downloadPin;
+        setPin(data.downloadPin);
+        if (settings && onSettingsChange) {
+          // Keep the in-memory blob honest — the sidebar's other toggles PATCH
+          // the whole thing, and a stale PIN here would undo this save.
+          onSettingsChange({
+            ...settings,
+            sharing: {
+              ...sharing,
+              downloadPin: data.downloadPin,
+              requirePinBulk: data.requirePinBulk,
+              requirePinIndividual: data.requirePinIndividual,
+            },
+          });
+        }
+
+        // Say what actually happened to the links already in clients' inboxes.
+        const links =
+          data.sharesUpdated === 1 ? "1 live link" : `${data.sharesUpdated} live links`;
+        toast.success(data.requirePinBulk ? "Download PIN set" : "Download PIN removed", {
+          description: data.sharesUpdated
+            ? `Applied to ${links}`
+            : "No live share links yet — new links will use it",
+        });
+      } catch {
+        setPin(savedPinRef.current);
+        toast.error("Failed to save the download PIN");
+      }
+    },
+    [eventId, settings, sharing, onSettingsChange]
+  );
+
   const updateSharing = useCallback(
     (partial: Partial<SharingSettings>) => {
       if (!settings || !onSettingsChange) return;
@@ -1467,10 +1542,9 @@ function DetailsPanel({
               type="button"
               onClick={() => {
                 const next = !sharing.requirePinBulk;
-                const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
-                updateSharing({
+                void savePin({
                   requirePinBulk: next,
-                  downloadPin: pin,
+                  downloadPin: next && !sharing.downloadPin ? generatePin() : sharing.downloadPin,
                   ...(next ? {} : { requirePinIndividual: false }),
                 });
               }}
@@ -1498,8 +1572,10 @@ function DetailsPanel({
                 type="button"
                 onClick={() => {
                   const next = !sharing.requirePinIndividual;
-                  const pin = next && !sharing.downloadPin ? generatePin() : sharing.downloadPin;
-                  updateSharing({ requirePinIndividual: next, downloadPin: pin });
+                  void savePin({
+                    requirePinIndividual: next,
+                    downloadPin: next && !sharing.downloadPin ? generatePin() : sharing.downloadPin,
+                  });
                 }}
                 className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
                   sharing.requirePinIndividual ? "bg-stone-900" : "bg-stone-200"
@@ -1525,10 +1601,20 @@ function DetailsPanel({
                     type={showPin ? "text" : "password"}
                     inputMode="numeric"
                     maxLength={4}
-                    value={sharing.downloadPin}
-                    onChange={(e) =>
-                      updateSharing({ downloadPin: e.target.value.replace(/\D/g, "").slice(0, 4) })
-                    }
+                    value={pin}
+                    onChange={(e) => {
+                      const next = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      setPin(next);
+                      // Four digits is the only valid length, so commit as soon
+                      // as it is reached rather than waiting for a blur the
+                      // photographer may never give it.
+                      if (next.length === 4 && next !== savedPinRef.current) {
+                        void savePin({ downloadPin: next });
+                      }
+                    }}
+                    onBlur={() => {
+                      if (pin !== savedPinRef.current) void savePin({ downloadPin: pin });
+                    }}
                     placeholder="4-digit"
                     className="w-full border border-stone-200 bg-transparent pl-8 pr-2 py-1.5 text-[12px] text-stone-900 font-mono tracking-[0.3em] placeholder:text-stone-300 placeholder:tracking-normal placeholder:font-sans focus:border-stone-900 outline-none transition-colors"
                   />
@@ -1543,7 +1629,7 @@ function DetailsPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateSharing({ downloadPin: generatePin() })}
+                  onClick={() => void savePin({ downloadPin: generatePin() })}
                   className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
                   title="Generate new PIN"
                 >

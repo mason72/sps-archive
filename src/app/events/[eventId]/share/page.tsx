@@ -62,6 +62,7 @@ function ShareComposePage() {
   // The event's gallery password, if one is set. Owner-only screen — showing
   // the real value is the point (this is the email he's about to send).
   const [galleryPassword, setGalleryPassword] = useState("");
+  const [downloadPin, setDownloadPin] = useState("");
   /** Include the download PIN. Independent of the password — a gallery often
    *  has one and not the other, and the PIN is one the guest gets ASKED for. */
   const [includePin, setIncludePin] = useState(true);
@@ -113,6 +114,13 @@ function ShareComposePage() {
           setEventName(data.event?.name || "Untitled Event");
           const pw = data.event?.settings?.sharing?.password;
           if (typeof pw === "string" && pw.trim()) setGalleryPassword(pw.trim());
+          // Only surface the PIN when a gate actually asks for one — a PIN
+          // sitting in settings with both flags off protects nothing, and
+          // offering to email it would be noise.
+          const sharing = data.event?.settings?.sharing;
+          const gated = !!(sharing?.requirePinBulk || sharing?.requirePinIndividual);
+          const p = sharing?.downloadPin;
+          if (gated && typeof p === "string" && p.trim()) setDownloadPin(p.trim());
         }
 
         // Templates
@@ -510,6 +518,56 @@ function ShareComposePage() {
                         </div>
                       )}
 
+                      {/* ─── Include the download PIN ─── */}
+                      {/* Same rule as the password above: only shown when the
+                          gallery actually has a PIN gate. The toggle existed in
+                          state but had no control, so includePin was pinned to
+                          true with no way to turn it off. */}
+                      {downloadPin && (
+                        <div className="border border-stone-200 p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Lock size={13} className="text-stone-400 shrink-0" />
+                                <span className="text-[13px] text-stone-700">
+                                  Include the download PIN
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                                Downloads from this gallery ask for a PIN. Add it
+                                to the email so your client can save their photos.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIncludePin((v) => !v)}
+                              role="switch"
+                              aria-checked={includePin}
+                              aria-label="Include the download PIN in this email"
+                              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
+                                includePin ? "bg-emerald-500" : "bg-stone-200"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                                  includePin ? "translate-x-4" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          {includePin && (
+                            <div className="mt-3 pt-3 border-t border-stone-100 flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                                PIN
+                              </span>
+                              <span className="font-mono text-[13px] tracking-[0.1em] text-stone-900 truncate">
+                                {downloadPin}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* ─── The SPS guest-list spreadsheet ─── */}
                       {/* Lives here and nowhere else: the email recipient is
                           the only person who ever gets a path to it. */}
@@ -557,6 +615,7 @@ function ShareComposePage() {
                             shareSlug ? `/api/gallery/${shareSlug}/cover` : undefined
                           }
                           password={includePassword ? galleryPassword : null}
+                          downloadPin={includePin ? downloadPin : null}
                           guestList={
                             guestList.token
                               ? { message: guestList.message }

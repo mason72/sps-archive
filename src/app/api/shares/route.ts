@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { hashPassword } from "@/lib/shares/hash";
 import { logActivity } from "@/lib/analytics/log";
-import { DEFAULT_SHARING_SETTINGS, normalizeDownloadPins } from "@/types/event-settings";
+import { DEFAULT_SHARING_SETTINGS, resolveSharePins } from "@/types/event-settings";
 import type { SharingSettings } from "@/types/event-settings";
 
 /**
@@ -91,20 +91,17 @@ export async function POST(request: NextRequest) {
     const resolvedAllowFavorites = useEventDefaults ? sharing.allowFavorites : (allowFavorites ?? true);
     const resolvedExpiresAt = useEventDefaults ? sharing.expiresAt : expiresAt;
     const resolvedCustomMessage = useEventDefaults ? sharing.customMessage : customMessage;
-    // The per-image PIN is an escalation of the bulk PIN, not a peer, and
-    // neither survives without a PIN to check. Normalized HERE rather than
-    // trusted from the body: the sidebar enforces the same rule, but a share
-    // can also be created by the email composer or a direct API call.
+    // A PIN on the EVENT is a security posture, exactly like the password
+    // above. `resolveSharePins` is the single home for that rule (and for the
+    // bulk/individual escalation), shared by every path that mints a share.
     const {
       downloadPin: resolvedDownloadPin,
       requirePinBulk: resolvedRequirePinBulk,
       requirePinIndividual: resolvedRequirePinIndividual,
-    } = normalizeDownloadPins({
-      downloadPin: useEventDefaults ? sharing.downloadPin : downloadPin,
-      requirePinBulk: useEventDefaults ? sharing.requirePinBulk : (requirePinBulk ?? false),
-      requirePinIndividual: useEventDefaults
-        ? sharing.requirePinIndividual
-        : (requirePinIndividual ?? false),
+    } = resolveSharePins({
+      useEventDefaults,
+      event: (eventSettings.sharing ?? {}) as Partial<SharingSettings>,
+      body: { downloadPin, requirePinBulk, requirePinIndividual },
     });
 
     const slug = nanoid(10);

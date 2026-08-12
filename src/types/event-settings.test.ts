@@ -6,6 +6,7 @@ import {
   coverShowsTitle,
   coverNeedsRaster,
   normalizeDownloadPins,
+  resolveSharePins,
   selfieSearchEnabled,
 } from "./event-settings";
 
@@ -254,5 +255,76 @@ describe("selfieSearchEnabled", () => {
   it("respects an explicit opt-out and only an explicit opt-out", () => {
     expect(selfieSearchEnabled({ selfieSearch: false })).toBe(false);
     expect(selfieSearchEnabled({ selfieSearch: true })).toBe(true);
+  });
+});
+
+describe("resolveSharePins", () => {
+  const gatedEvent = {
+    downloadPin: "1234",
+    requirePinBulk: true,
+    requirePinIndividual: false,
+  };
+
+  it("inherits the event's PIN when the caller asks for event defaults", () => {
+    const r = resolveSharePins({ useEventDefaults: true, event: gatedEvent });
+    expect(r).toEqual({ downloadPin: "1234", requirePinBulk: true, requirePinIndividual: false });
+  });
+
+  it("inherits the event's PIN even WITHOUT useEventDefaults", () => {
+    // The regression that shipped: the email composer creates a share without
+    // that flag, so the gallery went out ungated in the email announcing it.
+    const r = resolveSharePins({ event: gatedEvent });
+    expect(r.downloadPin).toBe("1234");
+    expect(r.requirePinBulk).toBe(true);
+  });
+
+  it("reproduces the live share that was minted with a null PIN", () => {
+    // A share created while the event already had requirePinBulk on, by a
+    // caller that passed no PIN fields at all, must now come out gated.
+    const r = resolveSharePins({ event: gatedEvent, body: {} });
+    expect(r.requirePinBulk).toBe(true);
+    expect(r.downloadPin).toBe("1234");
+  });
+
+  it("lets an explicit PIN in the body override the event's", () => {
+    const r = resolveSharePins({
+      event: gatedEvent,
+      body: { downloadPin: "9876", requirePinBulk: true },
+    });
+    expect(r.downloadPin).toBe("9876");
+  });
+
+  it("lets the body explicitly decline the bulk gate", () => {
+    const r = resolveSharePins({ event: gatedEvent, body: { requirePinBulk: false } });
+    expect(r.requirePinBulk).toBe(false);
+    expect(r.requirePinIndividual).toBe(false);
+  });
+
+  it("an ungated event produces an ungated share", () => {
+    const r = resolveSharePins({ event: {} });
+    expect(r).toEqual({ downloadPin: "", requirePinBulk: false, requirePinIndividual: false });
+  });
+
+  it("never returns a gate with no secret behind it", () => {
+    // authorizeShareDownload fails closed, so this would lock out everyone
+    // including the owner.
+    const r = resolveSharePins({ event: { requirePinBulk: true, downloadPin: "" } });
+    expect(r.requirePinBulk).toBe(false);
+    expect(r.requirePinIndividual).toBe(false);
+  });
+
+  it("keeps individual as an escalation of bulk, never a peer", () => {
+    const r = resolveSharePins({
+      event: { downloadPin: "1234", requirePinBulk: false, requirePinIndividual: true },
+    });
+    expect(r.requirePinBulk).toBe(false);
+    expect(r.requirePinIndividual).toBe(false);
+  });
+
+  it("carries the individual escalation through inheritance", () => {
+    const r = resolveSharePins({
+      event: { downloadPin: "1234", requirePinBulk: true, requirePinIndividual: true },
+    });
+    expect(r.requirePinIndividual).toBe(true);
   });
 });

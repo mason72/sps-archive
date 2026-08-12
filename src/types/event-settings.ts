@@ -86,6 +86,58 @@ export function normalizeDownloadPins<
   };
 }
 
+/**
+ * What PIN a NEWLY CREATED share gets.
+ *
+ * A PIN on the event is a security POSTURE, not a preference — the same rule
+ * the gallery password already follows. So it applies to every new share
+ * whether or not the caller asked for event defaults, and only an explicit PIN
+ * in the request body overrides it.
+ *
+ * That distinction is the whole bug this function exists to prevent: shares are
+ * created from three places (the share sidebar, the email composer, a direct
+ * API call) and only the first passes `useEventDefaults`. When inheritance was
+ * gated on that flag, the share the email composer mints inherited nothing — so
+ * a gallery the photographer had just gated went out ungated, in the very email
+ * announcing it. One live share was created while its event already had
+ * requirePinBulk on and still stored download_pin = null.
+ *
+ * The result is normalized, so a caller can never persist a gate with no secret
+ * behind it (which fails closed and locks out everyone, including the owner).
+ */
+export function resolveSharePins(args: {
+  useEventDefaults?: boolean;
+  /** The event's own sharing settings. */
+  event: Partial<SharingSettings>;
+  /** PIN fields as supplied by the request body, if any. */
+  body?: {
+    downloadPin?: string;
+    requirePinBulk?: boolean;
+    requirePinIndividual?: boolean;
+  };
+}): { downloadPin: string; requirePinBulk: boolean; requirePinIndividual: boolean } {
+  const { useEventDefaults, event, body = {} } = args;
+  const resolved = normalizeDownloadPins(
+    useEventDefaults
+      ? {
+          downloadPin: event.downloadPin ?? "",
+          requirePinBulk: event.requirePinBulk ?? false,
+          requirePinIndividual: event.requirePinIndividual ?? false,
+        }
+      : {
+          downloadPin: body.downloadPin || event.downloadPin || "",
+          requirePinBulk: body.requirePinBulk ?? event.requirePinBulk ?? false,
+          requirePinIndividual:
+            body.requirePinIndividual ?? event.requirePinIndividual ?? false,
+        }
+  );
+  return {
+    downloadPin: resolved.downloadPin ?? "",
+    requirePinBulk: resolved.requirePinBulk,
+    requirePinIndividual: resolved.requirePinIndividual,
+  };
+}
+
 export type CoverType = "image" | "mosaic" | "solid" | "crossfade";
 
 /** Normalized crop anchor, 0–1 in both axes. {0.5, 0.5} = center. */

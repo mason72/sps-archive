@@ -20,6 +20,13 @@ interface EmailPreviewProps {
    */
   password?: string | null;
   /**
+   * Download PIN, when the sender chose to include it. Mirrors the second
+   * `credentialCard` in `renderEmailShell` — the shell has always emitted this
+   * card and this preview never drew it, so the preview under-reported the
+   * email it was previewing.
+   */
+  downloadPin?: string | null;
+  /**
    * Mirrors the guest-list card `renderEmailShell` emits. No URL: the preview
    * shows what the client sees, and the client sees anchor text — printing the
    * live token into an owner-facing pane would be the one place it leaks.
@@ -39,6 +46,7 @@ export function EmailPreview({
   logoUrl,
   coverImageUrl,
   password,
+  downloadPin,
   guestList,
 }: EmailPreviewProps) {
   // Hide the hero when the event has no cover (the cover route 404s).
@@ -124,6 +132,21 @@ export function EmailPreview({
               </p>
               <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
                 {password}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* PIN card — mirrors credentialCard("Download PIN", …) in shell.ts,
+            and sits after the password there too. */}
+        {downloadPin && (
+          <div className="px-6 pb-6 -mt-2">
+            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
+                Download PIN
+              </p>
+              <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
+                {downloadPin}
               </p>
             </div>
           </div>
