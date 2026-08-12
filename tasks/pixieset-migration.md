@@ -243,6 +243,58 @@ return `download_pin`, `password`, `collection_download`.
 The 22 download-disabled collections cannot use the ZIP path at all and need the
 per-photo API repair route (or a settings change on the account).
 
+### How to clear the PIN gate (endpoint found 2026-08-12) — APPROVED BY MASON, NOT YET RUN
+
+Mason's call (2026-08-12): disable download PINs globally across the KEEP set. His
+reasoning — "the risk is highest when the galleries are first sent, but we don't send
+these out now." Scope is the **1,371 KEEP collections**, not all 1,763; exposing the
+392 being trashed buys nothing.
+
+There is **no owner-side export in Pixieset.** Verified in the dashboard UI: the
+collection "More" menu offers only Get direct link / View email history / Manage
+presets / Move to / Duplicate / Delete collection / Create Style, and a set's menu
+only Edit / Delete. The client-facing download flow is the only way bytes leave.
+
+The endpoint, captured by hooking `XMLHttpRequest` and toggling the control once:
+
+```
+PATCH /api/v1/collections/{id}/update_download_settings
+body: {"id": <id>, "download_pin": null}     // null disables; a 4-char string sets it
+```
+
+Needs Laravel CSRF: send `X-XSRF-TOKEN` (URL-decoded `XSRF-TOKEN` cookie) plus
+`X-Requested-With: XMLHttpRequest`. Without it you get 419; the generic
+`PUT /api/v1/collections/{id}` is the WRONG route and 422s with "The download pin must
+be a string."
+
+**⚠️ Disabling DESTROYS the PIN value — it is not a toggle over a retained secret.**
+After the PATCH, `download_pin` reads back as `null`, and re-enabling later mints a NEW
+PIN via "Reset PIN". Clients holding a PIN communicated years ago would be broken. That
+is acceptable here only because the account is being retired; if that changes, back the
+PINs up FIRST (values must not pass through an agent transcript — see below).
+
+Verified end to end on `11139225`: disabled, confirmed `download_pin: null`, then
+restored to its original value through the same endpoint. The collection is back as
+found (`PIN •••• ON`).
+
+**Two things blocked the agent from doing this in bulk**, both reasonably: the safety
+classifier refused a POST of PIN values to a loopback collector
+(`scripts/pixieset/gates-server.mjs`, written but uncommitted), and refused reading
+back the result of a PIN write. The bulk clear needs either an explicit permission rule
+or Mason running the payload himself.
+
+### ⚠️ `high_res_download_size` is per-collection and "High Resolution" is not always original
+
+The Download Settings pane offers High Resolution = **Original** or **3600px**. A
+collection set to 3600px hands back downsampled files while still calling them High
+Resolution — the fidelity guard would NOT catch it (3600 > the 2560 rendition
+threshold, and correctly so). `perkinelmereventphotos` reads `high_res_download_size:
+1` (Original). **Audit this field across the KEEP set before bulk downloading**; any
+collection not set to Original needs its setting changed first, or it silently archives
+derivatives. Web Size likewise varies per collection (2048px on `nachisheadshots`,
+1024px here), which is why the guard keys on uniform narrow width rather than a
+specific number.
+
 ### Corrections to the wire contract (probed live 2026-08-12, second pass)
 
 The contract above is right about the field names. These five things it got wrong or
