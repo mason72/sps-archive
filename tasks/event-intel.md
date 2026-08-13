@@ -91,11 +91,38 @@ silent bug:**
    and the evening at the Smithsonian. Group calendar events into a *gig* first (same
    client, contiguous dates), then match the gig to the collection. A 1:1 matcher would
    pick one arbitrarily and drop the crew who only appear on the others.
-2. **One person has several email addresses.** `joey@twodudesphoto.com` and
-   `joeynags@gmail.com` are both attendees on the *same* event — one human. Email is the
-   right canonical key but it needs its own alias merging, or Joey is two crew members.
-   Newer records use `@twodudesphoto.com`, older ones personal addresses, which is also
-   a usable `staff` vs `local` signal.
+2. **One person has several email addresses, and one of them is current.**
+   `joey@twodudesphoto.com` and `joeynags@gmail.com` are both attendees on the *same*
+   event — one human. Mason (2026-08-13): the `@twodudesphoto.com` address is the
+   up-to-date one, personal Gmail is legacy and being phased out, and **the same is true
+   for Stretch, Jerrick and Justin** — staff who used personal addresses before getting
+   company ones. So a person needs a `primary_email` (prefer `@twodudesphoto.com`) plus
+   `aliases[]`, not just a set of equal addresses.
+
+   **⚠️ This kills the "work domain ⇒ staff" shortcut, which an earlier draft of this
+   doc proposed.** The classification belongs to the PERSON, not the address. Applied
+   per-record it would read Joey as a local hire in 2018 and staff in 2023 — the same
+   human, reclassified by the year, which would quietly corrupt every "which staff worked
+   this venue" answer. Classify after merging, once, on the person.
+
+   Known seed merges (Mason, 2026-08-13) — start the identity pass with these already
+   proposed, and expect more of the same shape:
+
+   | person | current | legacy seen in the calendars |
+   |---|---|---|
+   | Joey Nagoshiner | `joey@twodudesphoto.com` | `joeynags@gmail.com` |
+   | Jerrick Mitra | `jerrick@twodudesphoto.com` | `jerrickmitra@gmail.com` |
+   | Stretch | `@twodudesphoto.com` | personal address, to confirm |
+   | Justin (Heller?) | `@twodudesphoto.com` | `isteratter@gmail.com` seen 2018 |
+
+   **Nicknames are first-class.** "Stretch" is what the team calls him and therefore what
+   Mason will search for, and it matches neither an email local-part nor a legal name.
+   The registry needs a `display_name` (what we call them) alongside `full_name` — the
+   pivot should show and search the former.
+
+   Merges get **proposed and confirmed, never applied automatically.** Co-attendance on
+   one event plus a local-part/display-name resemblance is strong evidence, not proof —
+   two different people can legitimately both be on a gig.
 3. **The onsite-contact email resolves the payer.** The Axos record carries
    `mtran@axosbank.com`, and `axosbank.com` has 19 invoices in the PandaDoc export. That
    is the join between the calendar and the money.
