@@ -55,6 +55,10 @@ interface Event {
  */
 let lastEvents: Event[] | null = null;
 
+/** Events per request. Small enough that the first paint is fast with a
+ *  twelve-year archive behind it, large enough to fill the 3-column grid. */
+const PAGE_SIZE = 60;
+
 export function EventList() {
   const [events, setEvents] = useState<Event[]>(lastEvents ?? []);
   const [isLoaded, setIsLoaded] = useState(lastEvents !== null);
@@ -62,56 +66,90 @@ export function EventList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
 
+  const [total, setTotal] = useState<number | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  /**
+   * One page of events. Search and type filtering happen SERVER-side.
+   *
+   * They were client-side over whatever had been fetched, which was fine while
+   * every event arrived in one request. The Pixieset archive ends that: with
+   * ~1,400 galleries, filtering the loaded page would report "No matching
+   * events" for anything past it — a wrong answer that looks exactly like a
+   * right one. Paging without moving the filter to the database would make
+   * search worse, not just slower.
+   */
+  const loadPage = useCallback(
+    async (offset: number, q: string, type: string | null) => {
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+      });
+      if (q.trim()) params.set("q", q.trim());
+      if (type) params.set("type", type);
+
+      // no-store: the readiness ring is live data. A cached response showed a
+      // 5,787-photo event as "Queued" while it was already 19% through.
+      const res = await fetch(`/api/events?${params}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load events");
+      return (await res.json()) as {
+        events: Event[];
+        total: number | null;
+        types?: string[];
+      };
+    },
+    []
+  );
+
   const loadEvents = useCallback(async () => {
     setLoadError(false);
     try {
-      // no-store: the readiness ring is live data. A cached response showed a
-      // 5,787-photo event as "Queued" while it was already 19% through.
-      const res = await fetch("/api/events?limit=100", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load events");
-      const data = await res.json();
+      const data = await loadPage(0, searchQuery, activeTypeFilter);
       lastEvents = data.events || [];
       setEvents(lastEvents ?? []);
+      setTotal(data.total ?? null);
+      if (data.types) setEventTypes(data.types);
     } catch {
       setLoadError(true);
     } finally {
       setIsLoaded(true);
     }
-  }, []);
+  }, [loadPage, searchQuery, activeTypeFilter]);
 
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const data = await loadPage(events.length, searchQuery, activeTypeFilter);
+      // Append by id so a row arriving in two pages (an edit reshuffling the
+      // sort mid-scroll) renders once rather than throwing a duplicate-key.
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        const merged = [...prev, ...(data.events || []).filter((e) => !seen.has(e.id))];
+        lastEvents = merged;
+        return merged;
+      });
+      setTotal(data.total ?? null);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, loadPage, events.length, searchQuery, activeTypeFilter]);
+
+  // Debounced so typing does not fire a request per keystroke.
   useEffect(() => {
-    loadEvents();
-  }, [loadEvents]);
+    const t = setTimeout(() => { loadEvents(); }, searchQuery ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [loadEvents, searchQuery]);
 
   // Extract unique event types for filter chips
-  const eventTypes = useMemo(() => {
-    const types = new Set<string>();
-    events.forEach((e) => {
-      if (e.event_type) types.add(e.event_type);
-    });
-    return Array.from(types).sort();
-  }, [events]);
+  // Supplied by the server for the WHOLE archive, not derived from the loaded
+  // page — otherwise selecting a filter removes the chip needed to clear it.
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
 
-  // Client-side search + filter
-  const filteredEvents = useMemo(() => {
-    let result = events;
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) ||
-          (e.event_type && e.event_type.toLowerCase().includes(q)) ||
-          (e.event_date && e.event_date.includes(q))
-      );
-    }
-
-    if (activeTypeFilter) {
-      result = result.filter((e) => e.event_type === activeTypeFilter);
-    }
-
-    return result;
-  }, [events, searchQuery, activeTypeFilter]);
+  // The server has already applied search and type filter; this is the page.
+  const filteredEvents = events;
 
   // Pinned galleries (workspaces like TDP Website) render in their own strip
   // above the chronological grid — the API already sorts them first.
@@ -288,6 +326,25 @@ export function EventList() {
               />
             ))}
           </div>
+
+          {/* Paging. The count is stated rather than implied: with a twelve-year
+              archive behind it, "showing 60" with no total reads as "that is
+              all there is". */}
+          {total !== null && events.length < total && (
+            <div className="max-w-5xl mt-10 flex flex-col items-center gap-3">
+              <div className="h-px w-full bg-stone-100" />
+              <button
+                onClick={loadMore}
+                disabled={isLoadingMore}
+                className="label-caps text-[10px] tracking-[0.14em] text-stone-500 hover:text-stone-900 disabled:text-stone-300 border border-stone-200 hover:border-stone-300 px-5 py-2.5 transition-colors"
+              >
+                {isLoadingMore ? "Loading…" : "Load more"}
+              </button>
+              <p className="text-[11px] text-stone-400 tabular-nums">
+                {events.length.toLocaleString()} of {total.toLocaleString()}
+              </p>
+            </div>
+          )}
         </>
       )}
 

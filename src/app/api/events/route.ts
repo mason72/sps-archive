@@ -37,13 +37,50 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
+    const q = (searchParams.get("q") || "").trim();
+    const eventType = (searchParams.get("type") || "").trim();
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from("events")
       .select("*", { count: "exact" })
-      .eq("user_id", user!.id)
+      .eq("user_id", user!.id);
+
+    /**
+     * Search and type filter run in the DATABASE, not on the loaded page.
+     *
+     * They used to be client-side over whatever the list had fetched, which was
+     * correct only while every event fit in one request. With the Pixieset
+     * archive that stops being true, and a client-side filter over a paged list
+     * does not degrade — it LIES: typing a gallery's name returns nothing
+     * whenever that gallery happens to sit past the loaded page, with no
+     * indication that the search was partial.
+     */
+    if (q) {
+      const safe = q.replace(/[%,()]/g, " ").trim();
+      if (safe) query = query.or(`name.ilike.%${safe}%,event_type.ilike.%${safe}%`);
+    }
+    if (eventType) query = query.eq("event_type", eventType);
+
+    const { data, error, count } = await query
       // Pinned galleries (e.g. TDP workspaces) stay above the chronological list
       .order("pinned_at", { ascending: false, nullsFirst: false })
+      /**
+       * Order by the day the work HAPPENED, not the day the row was written.
+       *
+       * `created_at` was equivalent while every event was created near its own
+       * date. The Pixieset import breaks that completely: 1,371 galleries
+       * spanning 2014–2023 all get today's `created_at`, so ordering by it would
+       * stack twelve years of back-catalogue ON TOP of the live client work —
+       * the current galleries do not just sink, they leave the first page
+       * entirely.
+       *
+       * `nullsFirst: false` matters: `event_date` is NULL on a meaningful share
+       * of hand-created events, and those belong at the end rather than above
+       * everything. `created_at` remains the tiebreak so same-day events keep a
+       * stable, deterministic order — without it, paging can show or skip a row
+       * as the sort shuffles between requests.
+       */
+      .order("event_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -94,7 +131,27 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    /**
+     * The distinct type list for the filter chips, from the WHOLE archive.
+     *
+     * The client used to derive these from the events it had loaded. Once the
+     * list is paged that is wrong twice over: types only present on later pages
+     * vanish, and selecting a filter collapses the chip row to the one type
+     * still on screen — removing the control needed to undo the filter.
+     * Cheap query: one column, no joins.
+     */
+    let types: string[] = [];
+    {
+      const { data: typeRows } = await supabase
+        .from("events")
+        .select("event_type")
+        .eq("user_id", user!.id)
+        .not("event_type", "is", null);
+      types = [...new Set((typeRows ?? []).map((r) => r.event_type as string).filter(Boolean))].sort();
+    }
+
     return NextResponse.json({
+      types,
       events: enriched,
       total: count,
       limit,
