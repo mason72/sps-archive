@@ -59,12 +59,62 @@ let lastEvents: Event[] | null = null;
  *  twelve-year archive behind it, large enough to fill the 3-column grid. */
 const PAGE_SIZE = 60;
 
+/**
+ * A small labelled select in the editorial chrome: small-caps label, hairline
+ * rule, no heavy browser chrome. Deliberately a native <select> — it is
+ * keyboard- and touch-correct for free, and a custom popover here would be
+ * pure cost.
+ */
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string; disabled?: boolean }[];
+}) {
+  const active = value !== "" && value !== "date-desc";
+  return (
+    <label className="group inline-flex items-center gap-2">
+      <span className="label-caps text-[10px] tracking-[0.14em] text-stone-400">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`appearance-none bg-transparent pr-5 py-1 text-[12px] border-b transition-colors cursor-pointer focus:outline-none ${
+          active
+            ? "border-stone-900 text-stone-900"
+            : "border-stone-200 text-stone-500 hover:border-stone-400"
+        }`}
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23a8a29e' stroke-width='1.5'/></svg>\")",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "right center",
+        }}
+      >
+        {options.map((o, i) => (
+          <option key={`${o.value}-${i}`} value={o.value} disabled={o.disabled}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function EventList() {
   const [events, setEvents] = useState<Event[]>(lastEvents ?? []);
   const [isLoaded, setIsLoaded] = useState(lastEvents !== null);
   const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [sortMode, setSortMode] = useState<string>("date-desc");
 
   const [total, setTotal] = useState<number | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -87,6 +137,8 @@ export function EventList() {
       });
       if (q.trim()) params.set("q", q.trim());
       if (type) params.set("type", type);
+      if (statusFilter) params.set("status", statusFilter);
+      if (sortMode) params.set("sort", sortMode);
 
       // no-store: the readiness ring is live data. A cached response showed a
       // 5,787-photo event as "Queued" while it was already 19% through.
@@ -98,7 +150,7 @@ export function EventList() {
         types?: string[];
       };
     },
-    []
+    [statusFilter, sortMode]
   );
 
   const loadEvents = useCallback(async () => {
@@ -162,7 +214,8 @@ export function EventList() {
     [filteredEvents]
   );
 
-  const hasFilters = searchQuery.trim() !== "" || activeTypeFilter !== null;
+  const hasFilters =
+    searchQuery.trim() !== "" || activeTypeFilter !== null || statusFilter !== "";
 
   // Still loading — show skeleton grid matching the real layout
   if (!isLoaded) {
@@ -237,36 +290,57 @@ export function EventList() {
           )}
         </div>
 
-        {/* Event type filter chips */}
-        {eventTypes.length > 1 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setActiveTypeFilter(null)}
-              className={`px-3 py-1 text-[11px] uppercase tracking-[0.12em] font-medium border transition-all duration-300 ${
-                !activeTypeFilter
-                  ? "border-stone-900 bg-stone-900 text-white"
-                  : "border-stone-200 text-stone-400 hover:border-stone-400"
-              }`}
-            >
-              All
-            </button>
-            {eventTypes.map((type) => (
-              <button
-                key={type}
-                onClick={() =>
-                  setActiveTypeFilter(activeTypeFilter === type ? null : type)
-                }
-                className={`px-3 py-1 text-[11px] uppercase tracking-[0.12em] font-medium border transition-all duration-300 ${
-                  activeTypeFilter === type
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-400 hover:border-stone-400"
-                }`}
-              >
-                {type}
-              </button>
-            ))}
+        {/* Status · Type · Sort.
+            Dropdowns rather than chips: the type row was already showing six
+            values and Location and Staff are coming once event intel lands.
+            A chip row does not survive that; a toolbar does. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: "", label: "All statuses" },
+              // The two rollups partition the ladder, so nothing hides between them.
+              { value: "needs-attention", label: "Needs attention" },
+              { value: "delivered", label: "Delivered" },
+              { value: "", label: "───────────", disabled: true },
+              { value: "draft", label: "Draft" },
+              { value: "published", label: "Published" },
+              { value: "sent", label: "Sent" },
+              { value: "opened", label: "Opened" },
+              { value: "downloaded", label: "Downloaded" },
+            ]}
+          />
+
+          {eventTypes.length > 1 && (
+            <Select
+              label="Type"
+              value={activeTypeFilter ?? ""}
+              onChange={(v) => setActiveTypeFilter(v || null)}
+              options={[
+                { value: "", label: "All types" },
+                ...eventTypes.map((t) => ({
+                  value: t,
+                  label: t.charAt(0).toUpperCase() + t.slice(1),
+                })),
+              ]}
+            />
+          )}
+
+          <div className="ml-auto">
+            <Select
+              label="Sort"
+              value={sortMode}
+              onChange={setSortMode}
+              options={[
+                { value: "date-desc", label: "Date — newest first" },
+                { value: "date-asc", label: "Date — oldest first" },
+                { value: "status", label: "Status — least finished first" },
+              ]}
+            />
           </div>
-        )}
+        </div>
       </div>
 
       {/* ─── Event grid ─── */}
@@ -281,6 +355,7 @@ export function EventList() {
               onClick={() => {
                 setSearchQuery("");
                 setActiveTypeFilter(null);
+                setStatusFilter("");
               }}
               className="text-stone-600 hover:text-stone-900 underline transition-colors"
             >

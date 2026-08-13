@@ -1281,6 +1281,14 @@ export type Database = {
           vector_index_bytes: number
         }[]
       }
+      delivery_rank: {
+        Args: { e: Database["public"]["Tables"]["events"]["Row"] }
+        Returns: number
+      }
+      delivery_stage: {
+        Args: { e: Database["public"]["Tables"]["events"]["Row"] }
+        Returns: string
+      }
       event_image_status_counts: {
         Args: { p_event_id: string }
         Returns: {

@@ -85,6 +85,8 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get("offset") || "0", 10);
     const q = (searchParams.get("q") || "").trim();
     const eventType = (searchParams.get("type") || "").trim();
+    const status = (searchParams.get("status") || "").trim();
+    const sort = (searchParams.get("sort") || "date-desc").trim();
 
     let query = supabase
       .from("events")
@@ -124,9 +126,38 @@ export async function GET(request: NextRequest) {
     }
     if (eventType) query = query.eq("event_type", eventType);
 
-    const { data, error, count } = await query
-      // Pinned galleries (e.g. TDP workspaces) stay above the chronological list
-      .order("pinned_at", { ascending: false, nullsFirst: false })
+    /**
+     * Status filter, via the `delivery_stage` computed column (migration 055).
+     *
+     * Status is derived from shares, emails and download activity, so it cannot
+     * be filtered in the client once the list is paged — you would only ever be
+     * filtering the page you already had, which is how the old client-side
+     * search silently returned nothing.
+     *
+     * The two rollups PARTITION the ladder deliberately: every event is in
+     * exactly one of them, so neither can hide work in a gap between the two.
+     * "Needs attention" is the half where the next move is Mason's.
+     */
+    const STAGE_GROUPS: Record<string, string[]> = {
+      "needs-attention": ["draft", "published"],
+      delivered: ["sent", "opened", "downloaded"],
+    };
+    if (status) {
+      const stages = STAGE_GROUPS[status] ?? [status];
+      query = query.in("delivery_stage", stages);
+    }
+
+    /**
+     * Pinned galleries stay above the list in every sort — they are workspaces,
+     * not chronology, and burying them under an ordering choice would make the
+     * pin useless.
+     */
+    let ordered = query.order("pinned_at", { ascending: false, nullsFirst: false });
+    if (sort === "status") {
+      // Ascending rank = least finished first, which is the point of the sort.
+      ordered = ordered.order("delivery_rank", { ascending: true });
+    }
+    const { data, error, count } = await ordered
       /**
        * Order by the day the work HAPPENED, not the day the row was written.
        *
@@ -146,8 +177,8 @@ export async function GET(request: NextRequest) {
        * deterministic order — without it, paging can show or skip a row as the
        * sort shuffles between requests.
        */
-      .order("sort_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
+      .order("sort_date", { ascending: sort === "date-asc", nullsFirst: false })
+      .order("created_at", { ascending: sort === "date-asc" })
       .range(offset, offset + limit - 1);
 
     // This one IS fatal — it is the page's content, and there is nothing to
