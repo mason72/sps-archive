@@ -50,6 +50,12 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/* Structural shapes for the helper below — the app's own generics are not
+   importable at module scope here, and this file only ever holds the service
+   client. */
+type SupabaseLike = Awaited<ReturnType<typeof import("../src/lib/supabase/server").createServiceClient>>;
+type ResolveSharePins = typeof import("../src/types/event-settings").resolveSharePins;
+
 for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
@@ -95,13 +101,18 @@ const n = (x: number) => x.toLocaleString("en-US");
 const mb = (b: number) => `${(b / 1048576).toFixed(1)} MB`;
 
 /** Every ZIP part staged for a collection, in part order. */
+/** Staged ZIPs for a collection, from either staging directory.
+ *  `ingested/` is included so a re-run can still read the source it already
+ *  consumed — which is what makes republishing or filling a gap possible. */
 function zipsFor(slug: string): string[] {
-  if (!fs.existsSync(VERIFIED)) return [];
-  return fs
-    .readdirSync(VERIFIED)
-    .filter((f) => f.startsWith(`${slug}-photo-download-`) && f.endsWith(".zip"))
-    .map((f) => path.join(VERIFIED, f))
-    .sort();
+  const out: string[] = [];
+  for (const dir of [VERIFIED, INGESTED]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith(`${slug}-photo-download-`) && f.endsWith(".zip")) out.push(path.join(dir, f));
+    }
+  }
+  return out.sort();
 }
 
 async function listEntries(zipPath: string): Promise<string[]> {
@@ -156,6 +167,74 @@ function planEntries(byZip: { zipPath: string; entries: string[] }[]) {
 /** Pixieset writes folder names with underscores; the archive shows them to humans. */
 const prettySet = (s: string) => s.replace(/_/g, " ").trim();
 
+/**
+ * Publish a gallery — i.e. mint a live share for it.
+ *
+ * Mason, 2026-08-13: imported galleries should arrive Published. His reasoning
+ * settles the exposure question I raised — these are ALREADY public galleries on
+ * Pixieset, so a Pixeltrunk share preserves the status quo rather than creating
+ * new exposure, and it keeps the links working once Pixieset is cancelled. The
+ * prompt was a real failure: a link went to a client for a gallery that had
+ * never been published, and they could not download.
+ *
+ * "Published" is not a flag on the event; it is DERIVED from a live share
+ * (`shares.is_active` — see lib/events/status.ts), so publishing means inserting
+ * one.
+ *
+ * PINs go through `resolveSharePins()` and nothing else. CLAUDE.md is explicit
+ * that shares are minted from several places, and that re-inlining inheritance
+ * at a call site is exactly what broke the download PIN before. This script is
+ * now one more of those places.
+ *
+ * Idempotent, and reachable from BOTH ingest paths — including the one where
+ * every photo was already present, so a collection imported before this existed
+ * does not stay a draft merely because it had no new photos to move.
+ */
+async function publishGallery(
+  supabase: SupabaseLike,
+  eventId: string,
+  resolveSharePins: ResolveSharePins,
+  nanoid: (size?: number) => string
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from("shares")
+    .select("id, slug")
+    .eq("event_id", eventId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (existing) {
+    console.log(`already published: /gallery/${existing.slug}`);
+    return;
+  }
+
+  const { data: ev } = await supabase
+    .from("events")
+    .select("settings")
+    .eq("id", eventId)
+    .single();
+  const sharing = ((ev?.settings as Record<string, unknown>)?.sharing ?? {}) as never;
+  const pins = resolveSharePins({ useEventDefaults: true, event: sharing });
+
+  const slug = nanoid(10);
+  const { error } = await supabase.from("shares").insert({
+    event_id: eventId,
+    slug,
+    is_active: true,
+    share_type: "full",
+    allow_download: true,
+    allow_favorites: true,
+    download_quality: "original",
+    download_pin: pins.downloadPin || null,
+    require_pin_bulk: pins.requirePinBulk,
+    require_pin_individual: pins.requirePinIndividual,
+  });
+  // Not fatal. The photos are in and the gallery can be published by hand;
+  // losing an import over a share row would be the wrong trade.
+  if (error) console.error("could not publish (photos are safe):", error.message);
+  else console.log(`published: /gallery/${slug}`);
+}
+
 async function main() {
   const { createServiceClient } = await import("../src/lib/supabase/server");
   const { buildImageKey, uploadToR2, deleteFromR2 } = await import("../src/lib/r2/client");
@@ -163,6 +242,8 @@ async function main() {
   const { parseFilename, extractExif } = await import("../src/lib/upload/parse-filename");
   const { INTAKE_SECTION_NAME } = await import("../src/lib/sections/intake");
   const { inngest } = await import("../src/lib/inngest/client");
+  const { resolveSharePins } = await import("../src/types/event-settings");
+  const { nanoid } = await import("nanoid");
 
   if (!fs.existsSync(QUEUE_PATH)) {
     console.error(`no queue at ${QUEUE_PATH} — run: node scripts/pixieset/queue.mjs build`);
@@ -199,7 +280,12 @@ async function main() {
 
   // Only a proven archive is allowed through. `verified` means CRC-checked, parts
   // complete, and dimensions sampled — the fidelity guard has already run.
-  if (collection.state !== "verified") {
+  // `verified` means CRC-checked, parts complete, dimensions sampled — the
+  // fidelity guard has run. `ingested` is also allowed because it is verified
+  // plus finished: re-running is idempotent (every photo is already present, so
+  // nothing moves) and it is how an already-imported gallery gets published, or
+  // how a partial run fills its gaps. Anything else is an unproven archive.
+  if (collection.state !== "verified" && collection.state !== "ingested") {
     console.error(
       `state is "${collection.state}", not "verified" — refusing to ingest an unproven archive.\n` +
       `  run: node scripts/pixieset/watch.mjs sweep`
@@ -283,8 +369,14 @@ async function main() {
   console.log(`to ingest  : ${n(todo.length)} image(s)${bytesEstimate ? ` · archive is ${mb(bytesEstimate)}` : ""}\n`);
 
   if (!todo.length) {
-    console.log("nothing to do — every photo is already in the archive.");
-    if (APPLY) await markIngested(queue, collection, eventId);
+    console.log("nothing new to import — every photo is already in the archive.");
+    if (APPLY) {
+      // Still publish: a collection ingested before publishing existed, or a
+      // re-run after a partial failure, must not stay a draft just because
+      // there were no NEW photos to move.
+      if (eventId) await publishGallery(supabase, eventId, resolveSharePins, nanoid);
+      await markIngested(queue, collection, eventId);
+    }
     return;
   }
 
@@ -479,6 +571,27 @@ async function main() {
     console.log("failures:");
     for (const f of failures.slice(0, 20)) console.log(`   ${f.filename} — ${f.reason}`);
   }
+
+  /**
+   * Publish the gallery — i.e. mint a live share.
+   *
+   * Mason, 2026-08-13: imported galleries should arrive Published. His reasoning
+   * settles the exposure question: these are ALREADY public galleries on
+   * Pixieset, so a Pixeltrunk share preserves the status quo rather than
+   * creating new exposure — and it keeps the links alive once Pixieset is
+   * cancelled. The prompt was a real failure: a link was shared for a gallery
+   * that had never been published, and the client could not download.
+   *
+   * "Published" is not a flag on the event; it is derived from a LIVE share
+   * (`shares.is_active`) — see lib/events/status.ts. So publishing means
+   * inserting one.
+   *
+   * PINs go through `resolveSharePins()` and nothing else. CLAUDE.md is explicit
+   * that shares are minted from several places and that re-inlining inheritance
+   * at a call site is what broke the download PIN before; this script is now one
+   * more of those places.
+   */
+  if (!failed) await publishGallery(supabase, eventId, resolveSharePins, nanoid);
 
   // Settlement, once — both lanes debounce per event, and one send per photo is
   // how you get rate limited.
