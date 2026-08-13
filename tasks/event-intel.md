@@ -126,15 +126,62 @@ completion. The ongoing connection is in scope.
 ```
 venues        id, name, place_id?, address, city, region, country, lat, lng, notes
 crew          id, canonical_name, kind(staff|local|client|other), email, aliases[], notes
-clients       id, name, aliases[]
 roles         id, name           -- lookup: photographer, digital tech, stylist, makeup
-event_intel   event_id, venue_id, client_id, source(calendar|manual), calendar_event_id
+event_intel   event_id, venue_id, source(calendar|manual), calendar_event_id
+organizations id, name, domains[], kind(agency|brand|venue_host|individual)
+event_orgs    event_id, org_id, role(payer|end_brand|host)   -- NOT a client_id column
 event_crew    event_id, crew_id, roles[], would_rebook(yes|no|maybe)?, note
 venue_notes   venue_id, body, created_at            -- permanent truths
 ```
 
 Two note homes on purpose. A venue note is true until it changes; an event note is about
 one gig. Merged, the venue page becomes a chronological pile nobody reads.
+
+## "Client" is three different companies — and the payer is the one we want
+
+Mason, 2026-08-13: an event can be *at* Autodesk University, *for* Intel, and *paid for*
+by the events agency that hired us. All three are real, and the one to capture as the
+client is **whoever pays**.
+
+So do not put a `client_id` on the event. Mirror the crew model exactly — an
+**`organizations` registry plus a ROLE on the event**:
+
+```
+organizations   id, name, domains[], kind(agency|brand|venue_host|individual)
+event_orgs      event_id, org_id, role(payer | end_brand | host)
+```
+
+Same shape as people-and-roles, same reasoning, and it means "show me everything we did
+for Intel" and "show me everything Opus Agency hired us for" are both answerable without
+either fact overwriting the other.
+
+**Email domain is the canonical key for an organisation**, exactly as email is for a
+person. `opusagency.com` → Opus Agency, regardless of how the event was titled.
+
+### The invoice export makes the payer dimension real for 2022→2026
+
+`~/Projects/TDP/tdp-books/data/Invoices-2022-06-14-2026-06-13.csv` — a **PandaDoc**
+export (not QuickBooks itself), 1,403 rows, already on disk. Measured 2026-08-13:
+
+- **837 distinct recipients across 401 email domains.** The domains separate agency from
+  direct exactly as Mason described: `launchinc.com` (39), `opusagency.com` (26),
+  `typeaevents.com` (15), `streamlinevents.com` (15), `eventstudio.com` (14) are
+  agencies; `purestorage.com` (25), `axosbank.com` (19), `docusign.com` (18),
+  `collegeboard.org` (18), `stanford.edu` (16) are end brands buying direct.
+- `gmail.com` (62) carries no signal, and `twodudesphoto.com` (33) is internal and must
+  be excluded or it becomes our own biggest "client".
+- **`Document Name` parses 95% of the time**: `TDP Invoice for <Client> // <Month Year>
+  (Balance)`. Client, event and month in one string — a second matching key alongside
+  the calendar.
+
+**Coverage limit: this file starts 2022-06.** Pre-2022 payers are not in it. Live QBO
+credentials exist in `tdp-books/.env` (`QBO_CLIENT_ID` etc.) but the token file at
+`QBO_TOKEN_PATH` is absent on this machine, so the API is not currently authenticated.
+
+**Recommendation: do not integrate QuickBooks.** A one-time CSV export is enough for a
+backfill, and an OAuth integration for a dimension that changes a few times a month is
+cost without benefit. If pre-2022 payers matter, the cheap move is a second export from
+QuickBooks covering 2014–2022, not an API.
 
 ## Bespoke or general? Generic tables, bespoke ingestion (Mason's instinct, refined)
 
@@ -184,6 +231,11 @@ employees and often work for competitors. If it leaked it is genuinely damaging.
       clean: "Grace Cathedral", "The Scottsdale Plaza Resort"; some are full addresses).
       Decide then whether Google Places is worth a key and its per-lookup cost, or
       whether a curated own-list is enough. Do not pay for it before we know.
+- [ ] **4b. Payer dimension from the invoice export.** Parse `Document Name` and
+      recipient domains out of the PandaDoc CSV, build the `organizations` registry
+      keyed on domain, classify agency vs brand, and match to events by client + month.
+      Covers 2022-06 onward; decide then whether a pre-2022 QuickBooks export is worth
+      pulling.
 - [ ] **5. Migration + import.** Tables above, then the one-time import behind a dry run.
 - [ ] **6. The event editor.** Thin: venue picker, crew multi-select with roles, client,
       the two note fields. Fast enough to fill in after a 12-hour day.
