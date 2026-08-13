@@ -133,17 +133,20 @@ export async function GET(request: NextRequest) {
        * `created_at` was equivalent while every event was created near its own
        * date. The Pixieset import breaks that completely: 1,371 galleries
        * spanning 2014–2023 all get today's `created_at`, so ordering by it would
-       * stack twelve years of back-catalogue ON TOP of the live client work —
-       * the current galleries do not just sink, they leave the first page
-       * entirely.
+       * stack twelve years of back-catalogue ON TOP of the live client work.
        *
-       * `nullsFirst: false` matters: `event_date` is NULL on a meaningful share
-       * of hand-created events, and those belong at the end rather than above
-       * everything. `created_at` remains the tiebreak so same-day events keep a
-       * stable, deterministic order — without it, paging can show or skip a row
-       * as the sort shuffles between requests.
+       * `sort_date` (migration 054) is `event_date` when known and the creation
+       * date otherwise. Ordering by `event_date` directly was the first attempt
+       * and was wrong for a THIRD of this archive: 9 of 28 events carry no
+       * event_date — sample galleries, both pinned TDP workspaces, an undated
+       * headshot day — and they all sank below the oldest dated import. An
+       * undated gallery made yesterday belongs at the top, not beneath 2014.
+       *
+       * `created_at` remains the tiebreak so same-day events keep a stable,
+       * deterministic order — without it, paging can show or skip a row as the
+       * sort shuffles between requests.
        */
-      .order("event_date", { ascending: false, nullsFirst: false })
+      .order("sort_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 

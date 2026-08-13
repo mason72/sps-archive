@@ -244,6 +244,7 @@ export type Database = {
           pinned_at: string | null
           settings: Json
           slug: string
+          sort_date: string | null
           updated_at: string
           user_id: string
         }
@@ -259,6 +260,7 @@ export type Database = {
           pinned_at?: string | null
           settings?: Json
           slug: string
+          sort_date?: string | null
           updated_at?: string
           user_id: string
         }
@@ -274,6 +276,7 @@ export type Database = {
           pinned_at?: string | null
           settings?: Json
           slug?: string
+          sort_date?: string | null
           updated_at?: string
           user_id?: string
         }
