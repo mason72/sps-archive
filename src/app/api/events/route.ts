@@ -29,6 +29,52 @@ import type { Json } from "@/lib/supabase/database.types";
  * far better than an empty page reading "Something went wrong", which is what
  * every one of these failures produced.
  */
+/**
+ * Turn a date fragment typed into the search box into a half-open range.
+ *
+ * Accepts a year ("2022"), a year-month ("2022-06") or a full date
+ * ("2022-06-06"), and returns the day AFTER the fragment as the exclusive upper
+ * bound — so December rolls to the next January rather than producing month 13,
+ * and a full date matches exactly that day rather than nothing.
+ *
+ * Returns null for anything that is not a date, so ordinary text searches are
+ * unaffected.
+ */
+function dateFragmentRange(q: string): { from: string; to: string } | null {
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  const year = q.match(/^(\d{4})$/);
+  if (year) {
+    const y = Number(year[1]);
+    if (y < 1900 || y > 2200) return null;
+    return { from: `${y}-01-01`, to: `${y + 1}-01-01` };
+  }
+
+  const ym = q.match(/^(\d{4})-(\d{1,2})$/);
+  if (ym) {
+    const y = Number(ym[1]);
+    const m = Number(ym[2]);
+    if (m < 1 || m > 12) return null;
+    const nextY = m === 12 ? y + 1 : y;
+    const nextM = m === 12 ? 1 : m + 1;
+    return { from: `${y}-${pad(m)}-01`, to: `${nextY}-${pad(nextM)}-01` };
+  }
+
+  const ymd = q.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (ymd) {
+    const [, ys, ms, ds] = ymd;
+    const d = new Date(Date.UTC(Number(ys), Number(ms) - 1, Number(ds)));
+    if (Number.isNaN(d.getTime())) return null;
+    const next = new Date(d.getTime() + 86400000);
+    return {
+      from: `${ys}-${pad(Number(ms))}-${pad(Number(ds))}`,
+      to: next.toISOString().slice(0, 10),
+    };
+  }
+
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { user, supabase, error: authError } = await getAuthUser();
@@ -57,7 +103,24 @@ export async function GET(request: NextRequest) {
      */
     if (q) {
       const safe = q.replace(/[%,()]/g, " ").trim();
-      if (safe) query = query.or(`name.ilike.%${safe}%,event_type.ilike.%${safe}%`);
+      if (safe) {
+        const clauses = [`name.ilike.%${safe}%`, `event_type.ilike.%${safe}%`];
+        /**
+         * A date fragment searches the DATE, not the name.
+         *
+         * The old client-side filter matched `event_date.includes(q)`, so typing
+         * "2022" found every gallery shot that year. Moving search to the
+         * database dropped that silently — "2022" returned nothing at all, which
+         * is exactly how it was reported. Expressed as a RANGE rather than a
+         * string match so it uses the index and so "2022" cannot also match a
+         * gallery that merely has 2022 in its title for another reason.
+         */
+        const range = dateFragmentRange(safe);
+        if (range) {
+          clauses.push(`and(event_date.gte.${range.from},event_date.lt.${range.to})`);
+        }
+        query = query.or(clauses.join(","));
+      }
     }
     if (eventType) query = query.eq("event_type", eventType);
 
