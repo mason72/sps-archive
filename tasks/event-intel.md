@@ -140,6 +140,50 @@ tools.** Descriptions run to several KB each and there are thousands of events; 
 them through a conversation is the wrong tool. This is the same credential needed for
 suggest-and-confirm, so it pays for itself twice.
 
+### The roster spreadsheet is the other half of identity
+
+`1VYdBVOc6pzayjJyt2xulKeG2LWUf1HO3vVHfuAAC7ns` — "2 Dudes Roster", four sheets, ~99
+people with email addresses. Pull it without touching Drive's UI:
+`https://docs.google.com/spreadsheets/d/<id>/export?format=xlsx` in the logged-in
+browser downloads it straight to ~/Downloads.
+
+| sheet | people |
+|---|---|
+| `PhotographersDT` | ~51 |
+| `Stylists` | ~42 |
+| `SLC Recs from Cory` | ~4 |
+| `MUA` | ~2 |
+
+Columns on the main sheet: `First Name, Middle Name, Last Name, Email, Cell Phone,
+Lead, Traveler, City, Region, Notes, PayPal, Venmo`, plus grouped sections for Role,
+LOCATION, Archived, PAYMENT INFO and TRAVEL INFO.
+
+**This is the crew registry, already built.** The calendars supply stable *emails*; the
+roster supplies *canonical names, nicknames, city and capability*. Joined on email, the
+identity pass stops being data entry and becomes a review of pre-filled rows.
+
+Things it gives us that this design had not asked for and should use:
+
+- **`Lead` (Yes/Maybe/No)** — a capability rating that already exists. Feeds the staffing
+  query directly, and means `lead` is both a per-event role AND a standing capability.
+  Keep them separate: "can lead" is about the person, "led this gig" is about the event.
+- **`Traveler`** — whether they will travel. Essential to "who should I staff for this?"
+  once the venue is out of town.
+- **`City` / `Region`** — where each person is based, which is what makes local-hire
+  matching possible and gives the city pivot a second dimension (worked-in vs based-in).
+- **`Archived`** — active vs former, so the staffing query stops suggesting people who
+  have moved on.
+- **The sheet name IS the pool**: PhotographersDT, Stylists, MUA. Note it is one combined
+  photographer/DT sheet — the pairing is how Mason thinks of the POOL, while the role on
+  a given event stays a set. Those reconcile; do not collapse the per-event role to match
+  the sheet.
+- **`SLC Recs from Cory`** — a city-specific recommendation list, i.e. the local-hire
+  concept already in practice, sourced by referral.
+
+PayPal/Venmo/phone are PII with no place in this feature. Import name, email, role pool,
+city, region, lead, traveler and archived; leave payment and contact details in the
+sheet.
+
 ### What the calendar does NOT give us
 
 - Rebook ratings and quality judgements. Those are new.
