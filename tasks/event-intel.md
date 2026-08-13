@@ -1,6 +1,6 @@
 # Event Intel — venues, crew, clients, and the pivot over them
 
-Status: **designed, not started.** Interview 2026-08-13. Nothing built.
+Status: **designed, sampled, not built.** Interview + live source sampling 2026-08-13.
 
 Back-office metadata on an event: where it happened, who worked it, who the client was,
 and what we want to remember. Never visible to a client — internal only.
@@ -67,6 +67,51 @@ the data we have, for free, across the whole history.
 Consequence: **v1 is mostly extraction, canonicalisation and a pivot view — not a data
 entry form.** The form is a thin editor for corrections and for what the calendar never
 captured (rebook ratings, quality notes).
+
+### Coverage and matching, sampled live 2026-08-13
+
+Spot-checked Pixieset collections against the calendars rather than assuming:
+
+| | |
+|---|---|
+| `Two Dudes Gigs` earliest | **2014-05** (verified) |
+| `Two Dudes EXPOSURE` earliest | **~2016-09** — nothing between 2015-01 and 2016-09-06 |
+| `AXOS BANK DC // 2023` (2023-08-17) | **exact match**, 3 calendar entries, full intake form |
+| `Perkin Elmer` (2018-02-12) | **exact match**, venue + 4 crew + save-folder name |
+| `BoxWorks 2014 Headshots` (2014-09) | **no EXPOSURE event** — before that calendar existed |
+
+So headshot/event work from **2016-09 onward is well covered**; 2014, 2015 and most of
+2016 (~100 collections, ~7% of the keep set) will only be found in Gigs, if at all.
+
+**Three matching rules this sampling produced, each of which would otherwise have been a
+silent bug:**
+
+1. **It is N calendar events to ONE collection, not 1:1.** The Axos gig is three
+   entries — "Set Up for Axos Bank Headshots" on the 16th, the headshots on the 17th,
+   and the evening at the Smithsonian. Group calendar events into a *gig* first (same
+   client, contiguous dates), then match the gig to the collection. A 1:1 matcher would
+   pick one arbitrarily and drop the crew who only appear on the others.
+2. **One person has several email addresses.** `joey@twodudesphoto.com` and
+   `joeynags@gmail.com` are both attendees on the *same* event — one human. Email is the
+   right canonical key but it needs its own alias merging, or Joey is two crew members.
+   Newer records use `@twodudesphoto.com`, older ones personal addresses, which is also
+   a usable `staff` vs `local` signal.
+3. **The onsite-contact email resolves the payer.** The Axos record carries
+   `mtran@axosbank.com`, and `axosbank.com` has 19 invoices in the PandaDoc export. That
+   is the join between the calendar and the money.
+
+Also: `displayName` is populated on many attendees ("Joey Nagoshiner"), so the identity
+pass can *propose* canonical names rather than asking Mason to type them — he confirms.
+
+Description quality improves sharply over time. 2014–2018 is freeform prose with `**
+SECTION` headers; 2023 is a structured intake form (Event Name, Event Location, Onsite
+Contact, Backdrop, Load-out…) pasted from a Typeform. Parse both, but expect the recent
+years to yield far more fields.
+
+**The bulk backfill should use the Google Calendar API directly, not the agent's MCP
+tools.** Descriptions run to several KB each and there are thousands of events; pulling
+them through a conversation is the wrong tool. This is the same credential needed for
+suggest-and-confirm, so it pays for itself twice.
 
 ### What the calendar does NOT give us
 
@@ -220,9 +265,10 @@ employees and often work for competitors. If it leaked it is genuinely damaging.
 
 ## Plan
 
-- [ ] **1. Measure the match rate.** Pull both calendars, filter to gigs, match against
-      the 1,371 Pixieset collections + existing events by date ± window and client-name
-      similarity. Report coverage by year. This number decides how ambitious the rest is.
+- [x] **1. Sample the match rate.** Done 2026-08-13 — see "Coverage and matching" above.
+      2016-09 onward looks well covered; 2014–mid-2016 is not in EXPOSURE. A FULL match
+      rate still needs a bulk pull, which should wait for the API credential rather than
+      being done through MCP.
 - [ ] **2. Extract the distinct attendee set.** Every email across both calendars, with
       the display names seen for each and the gig count. Propose canonical name + kind.
 - [ ] **3. Identity confirmation pass.** Mason confirms/corrects in bulk — the one task
