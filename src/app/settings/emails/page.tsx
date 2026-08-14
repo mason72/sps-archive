@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -168,12 +169,7 @@ export default function EmailSettingsPage() {
     <div className="min-h-screen">
       {/* Nav */}
       <Nav>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Account
-        </Link>
+        <AppNav />
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-5xl">

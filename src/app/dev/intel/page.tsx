@@ -1,3 +1,5 @@
+import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { IntelBoard } from "@/app/intel/IntelBoard";
 import type { IntelIndex } from "@/lib/event-intel/index-intel";
 
@@ -109,6 +111,10 @@ const INDEX: IntelIndex = {
 export default function DevIntelPage() {
   return (
     <div className="min-h-screen bg-stone-50">
+      {/* The real nav, so the playground shows the page as it actually ships. */}
+      <Nav>
+        <AppNav isAdmin current="intel" />
+      </Nav>
       <div className="mx-auto max-w-[1400px] px-8 py-12 md:px-16">
         <p className="mb-8 inline-block rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[12px] text-amber-800">
           Fixtures — every name here is invented

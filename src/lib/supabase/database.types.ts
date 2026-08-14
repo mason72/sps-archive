@@ -506,6 +506,30 @@ export type Database = {
           },
         ]
       }
+      excluded_people: {
+        Row: {
+          created_at: string
+          name: string | null
+          person_key: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          name?: string | null
+          person_key: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          name?: string | null
+          person_key?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       faces: {
         Row: {
           bbox_h: number

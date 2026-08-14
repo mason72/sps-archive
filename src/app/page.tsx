@@ -4,10 +4,10 @@ import { BrandButton } from "@/components/ui/brand-button";
 import { EventList } from "@/components/events/EventList";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { UnfinishedUploadsAlert } from "@/components/dashboard/UnfinishedUploadsAlert";
-import { SignOutButton } from "@/components/auth/SignOutButton";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { Greeting } from "@/components/dashboard/Greeting";
 
@@ -75,52 +75,7 @@ async function DashboardView({
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
-        <Link
-          href="/search"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Search
-        </Link>
-        <Link
-          href="/people"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          People
-        </Link>
-        {/* Import sits WITH New Event, not in Settings: pulling a finished
-            shoot out of SimplePhotoShare is a way to create an event, so it
-            belongs beside the primary action rather than filed under account
-            preferences. Tighter gap than the nav's own so the two read as one
-            group with a primary and a secondary. */}
-        <div className="flex items-center gap-4">
-          <Link
-            href="/events/import"
-            className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-          >
-            Import
-          </Link>
-          <Link href="/events/new">
-            <BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>
-          </Link>
-        </div>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Account
-        </Link>
-        {/* Rendered from the REAL session's is_admin (survives act-as); the
-            /ops page re-gates server-side regardless — a convenience, not
-            the lock. */}
-        {showOpsLink && (
-          <Link
-            href="/ops"
-            className="editorial-link text-emerald-700 hover:text-emerald-800 transition-colors duration-300"
-          >
-            Ops
-          </Link>
-        )}
-        <SignOutButton />
+        <AppNav isAdmin={showOpsLink} current="archive" />
       </Nav>
 
       {/* ─── V3: Personalized greeting ─── */}

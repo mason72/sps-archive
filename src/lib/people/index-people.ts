@@ -139,6 +139,32 @@ export interface PersonDetail {
  * can only cost time; it can never change who belongs, which is the property
  * that keeps the identity rule single-homed.
  */
+/**
+ * Identities the photographer has said are NOT people.
+ *
+ * A filename produces convincing fake names — "Twodudes Arizona" (a filename
+ * prefix that arrived with 439 conference photos and became the archive's
+ * most-photographed "person"), "Jordan BackToSchool Banner.ai" (an Illustrator
+ * artboard). Both are two capitalised words with no digits, which is precisely
+ * what a real name looks like, so no amount of pattern-tightening separates
+ * them. The only reliable signal is a human saying so once.
+ *
+ * Returns the NORMALISED keys, so excluding one spelling excludes them all.
+ * Fails LOUD: a failed read here would silently re-admit every non-person the
+ * photographer has already dismissed, which reads as the feature not working.
+ */
+export async function loadExcludedPersonKeys(
+  supabase: SupabaseDB,
+  userId: string
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("excluded_people")
+    .select("person_key")
+    .eq("user_id", userId);
+  if (error) throw error;
+  return new Set((data ?? []).map((r: { person_key: string }) => r.person_key));
+}
+
 export async function buildPersonDetail(
   supabase: SupabaseDB,
   userId: string,
@@ -256,6 +282,7 @@ export async function buildPeopleIndex(
   supabase: SupabaseDB,
   userId: string
 ): Promise<IndexedPerson[]> {
+  const excluded = await loadExcludedPersonKeys(supabase, userId);
   const { data: events, error: eventsError } = await supabase
     .from("events")
     .select("id, name, event_date")
@@ -335,7 +362,10 @@ export async function buildPeopleIndex(
     const key = normalizeNameKey(name);
     if (!key) continue;
     parsedByRow.set(row.id, { name, key });
-    if (looksLikePersonName(name)) vouched.add(key);
+    // An excluded key never gets vouched, so it cannot become an identity —
+    // cheaper and more total than filtering the finished list, and it keeps the
+    // exclusion out of every downstream count as well as the display.
+    if (!excluded.has(key) && looksLikePersonName(name)) vouched.add(key);
   }
 
   for (const row of rows) {

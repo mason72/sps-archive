@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { buildPeopleIndex } from "@/lib/people/index-people";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
-import { SignOutButton } from "@/components/auth/SignOutButton";
 import { PeopleBoard } from "./PeopleBoard";
 
 export const dynamic = "force-dynamic";
@@ -66,25 +65,7 @@ export default async function PeoplePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <Nav>
-        <Link
-          href="/"
-          className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700"
-        >
-          Archive
-        </Link>
-        <Link
-          href="/search"
-          className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700"
-        >
-          Search
-        </Link>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700"
-        >
-          Account
-        </Link>
-        <SignOutButton />
+        <AppNav current="people" />
       </Nav>
 
       <div className="px-8 pb-4 pt-16 md:px-16">

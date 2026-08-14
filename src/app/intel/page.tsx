@@ -1,10 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { buildIntelIndex } from "@/lib/event-intel/index-intel";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
-import { SignOutButton } from "@/components/auth/SignOutButton";
 import { IntelBoard } from "./IntelBoard";
 
 export const dynamic = "force-dynamic";
@@ -36,19 +35,7 @@ export default async function IntelPage() {
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       <Nav>
-        <Link href="/" className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700">
-          Archive
-        </Link>
-        <Link href="/people" className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700">
-          People
-        </Link>
-        <Link href="/search" className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700">
-          Search
-        </Link>
-        <Link href="/account" className="editorial-link text-stone-400 transition-colors duration-300 hover:text-stone-700">
-          Account
-        </Link>
-        <SignOutButton />
+        <AppNav current="intel" />
       </Nav>
       <main className="flex-1 w-full max-w-[1400px] mx-auto px-8 py-12 md:px-16">
         <IntelBoard index={index} />

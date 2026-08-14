@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/layout/Nav";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
@@ -118,12 +119,7 @@ export default function ConnectionsPage() {
   return (
     <div className="min-h-screen">
       <Nav>
-        <Link
-          href="/account"
-          className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
-        >
-          Account
-        </Link>
+        <AppNav />
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-3xl">

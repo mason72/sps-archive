@@ -25,7 +25,48 @@ export interface PersonCard {
 
 type SortMode = "rank" | "photos" | "alpha";
 
+/**
+ * "Not a person."
+ *
+ * A filename makes a convincing name — "Twodudes Arizona" is a filename prefix
+ * that arrived with 439 conference photos; "Jordan BackToSchool Banner.ai" is
+ * an Illustrator artboard. Both look exactly like a person to any pattern, so
+ * the only fix is letting Mason say so.
+ *
+ * Optimistic and reversible: the card leaves immediately, and an undo sits in
+ * the toast until it is dismissed. Nothing about the PHOTOS changes — this
+ * decides only whether the identity appears in the index.
+ */
+function useNotAPerson() {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [undo, setUndo] = useState<{ name: string } | null>(null);
+
+  const exclude = async (name: string) => {
+    setHidden((h) => new Set(h).add(name));
+    setUndo({ name });
+    const res = await fetch("/api/people/exclude", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    // Put it back if the write failed — a card that vanishes on a 500 is a lie.
+    if (!res.ok) {
+      setHidden((h) => { const n = new Set(h); n.delete(name); return n; });
+      setUndo(null);
+    }
+  };
+
+  const restore = async (name: string) => {
+    setHidden((h) => { const n = new Set(h); n.delete(name); return n; });
+    setUndo(null);
+    await fetch(`/api/people/exclude?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+  };
+
+  return { hidden, undo, exclude, restore, dismissUndo: () => setUndo(null) };
+}
+
 export function PeopleBoard({ people }: { people: PersonCard[] }) {
+  const notAPerson = useNotAPerson();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("rank");
   const [repeatOnly, setRepeatOnly] = useState(false);
@@ -35,7 +76,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = people;
+    let list = people.filter((p) => !notAPerson.hidden.has(p.name));
     if (repeatOnly) list = list.filter((p) => p.eventCount >= 2);
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
     if (sort === "alpha") {
@@ -53,7 +94,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
     }
     // "rank" arrives pre-sorted from the server (events → photos → name).
     return list;
-  }, [people, query, sort, repeatOnly]);
+  }, [people, query, sort, repeatOnly, notAPerson.hidden]);
 
   // The wall of fame: the podium only means something when it's earned, so it
   // appears solely in rank order, unfiltered, and only for people who have
@@ -146,6 +187,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
                 person={p}
                 place={i + 1}
                 onOpen={() => setOpenKey(p.key)}
+                onNotAPerson={() => notAPerson.exclude(p.name)}
               />
             ))}
           </div>
@@ -156,8 +198,37 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       {rest.length > 0 && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {rest.map((p) => (
-            <PersonTile key={p.key} person={p} onOpen={() => setOpenKey(p.key)} />
+            <PersonTile
+              key={p.key}
+              person={p}
+              onOpen={() => setOpenKey(p.key)}
+              onNotAPerson={() => notAPerson.exclude(p.name)}
+            />
           ))}
+        </div>
+      )}
+
+      {notAPerson.undo && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-stone-300 bg-white px-4 py-2 text-[13px] text-stone-700 shadow-lg"
+        >
+          Hidden <span className="text-stone-900">{notAPerson.undo.name}</span>
+          <button
+            type="button"
+            onClick={() => notAPerson.restore(notAPerson.undo!.name)}
+            className="ml-3 text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={notAPerson.dismissUndo}
+            aria-label="Dismiss"
+            className="ml-3 text-stone-400 hover:text-stone-700"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -192,13 +263,28 @@ function PodiumCard({
   person,
   place,
   onOpen,
+  onNotAPerson,
 }: {
   person: PersonCard;
   place: number;
   onOpen: () => void;
+  onNotAPerson?: () => void;
 }) {
   return (
     <div className="group relative">
+      {onNotAPerson && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNotAPerson(); }}
+          title="Not a person — hide this from the index"
+          /* Visible by default on touch, revealed on hover at desktop widths.
+             Hover must never be the ONLY way to reach a control — there is no
+             hover on a phone, and this would simply not exist there. */
+          className="absolute right-2 top-2 z-10 rounded-full border border-stone-300 bg-white/90 px-2 py-1 text-[11px] text-stone-600 backdrop-blur transition-opacity duration-200 hover:border-stone-800 hover:text-stone-900 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+        >
+          Not a person
+        </button>
+      )}
       <button
         onClick={onOpen}
         className="relative block aspect-[4/5] w-full overflow-hidden bg-stone-100"
@@ -269,18 +355,34 @@ function EventChips({ person }: { person: PersonCard }) {
 function PersonTile({
   person,
   onOpen,
+  onNotAPerson,
 }: {
   person: PersonCard;
   onOpen: () => void;
+  onNotAPerson?: () => void;
 }) {
   // Always the spotlight. The old tile guessed — one event meant a link into
   // that event (which loaded 5,787 photos and filtered to none of them), two
   // meant a semantic search for their name. Clicking a face should show you
   // that face's photos; nothing else is a defensible answer.
   return (
+    // Wrapped rather than nested: the tile itself is a <button>, and a button
+    // inside a button is invalid HTML — the browser silently un-nests it and
+    // the inner click never fires.
+    <div className="group relative">
+      {onNotAPerson && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNotAPerson(); }}
+          title="Not a person — hide this from the index"
+          className="absolute right-1.5 top-1.5 z-10 rounded-full border border-stone-300 bg-white/90 px-2 py-0.5 text-[10px] text-stone-600 backdrop-blur transition-opacity duration-200 hover:border-stone-800 hover:text-stone-900 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+        >
+          Not a person
+        </button>
+      )}
     <button
       onClick={onOpen}
-      className="group block w-full text-left"
+      className="block w-full text-left"
       title={`All ${person.imageCount.toLocaleString()} photos of ${person.name}`}
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
@@ -315,5 +417,6 @@ function PersonTile({
         {person.imageCount} photo{person.imageCount === 1 ? "" : "s"}
       </p>
     </button>
+    </div>
   );
 }
