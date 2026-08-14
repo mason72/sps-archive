@@ -639,3 +639,35 @@ cycle is: download → verify → ingest → **verify in Pixeltrunk** → reclai
 six were confirmed complete (image count, thumbnails, live share) before their
 archives were released. Sustained throughput needs headroom — see the disk
 section above.
+
+
+## Staging moved to the external SSD — 2026-08-14
+
+The internal disk cannot hold this job: a collection must fit ENTIRELY on disk
+to be verified (`partsComplete` needs every part at once), the largest is
+~128 GB, and there were ~24 GB free. The watcher's floor was firing on every
+batch.
+
+`/Volumes/Archive` — a SanDisk Extreme SSD already holding the 51 GB
+pre-Syncthing restore archive — has ~483 GB free. Staging now lives at
+`/Volumes/Archive/pixieset-staging`. It is SCRATCH: each archive is released as
+soon as its collection is ingested and verified in Pixeltrunk.
+
+Both halves read **`PIXIESET_STAGING`** from `.env.local`, and `watch.mjs` now
+parses that file the way the ingest already did. That matters — an export the
+caller forgets would leave the watcher staging to the internal disk while the
+ingest looks on the external one. One file, read by both.
+
+`PIXIESET_MIN_FREE_GB=150` is deliberately above the largest single collection,
+so "there is room to request another" can never be true when the biggest one
+would not fit. `freeGB()` runs `df` against STAGING itself, so the floor follows
+the volume automatically.
+
+**`.env.local` is gitignored**, so this is machine-local — correct, since the
+path is specific to this Mac. The laptop needs its own value before it can drive
+the migration.
+
+**The drive shares a spindle with Time Machine** (931 GB total, TM using
+~397 GB). The 150 GB floor leaves TM room; do not lower it without checking what
+TM needs. And if the drive is ever unplugged mid-run the watcher will fail
+loudly rather than silently stage somewhere else — `df` on a missing path errors.

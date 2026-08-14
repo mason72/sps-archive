@@ -72,7 +72,8 @@ const flag = (name: string): string | null => {
 };
 const positional = argv.find((a) => !a.startsWith("--") && /^\d+$/.test(a)) ?? null;
 
-const STAGING = path.join(os.homedir(), "pixieset-staging");
+/** Same override as watch.mjs — one variable, or the two halves stage apart. */
+const STAGING = process.env.PIXIESET_STAGING || path.join(os.homedir(), "pixieset-staging");
 const VERIFIED = path.join(STAGING, "verified");
 const INGESTED = path.join(STAGING, "ingested");
 

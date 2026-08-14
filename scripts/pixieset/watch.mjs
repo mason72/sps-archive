@@ -35,25 +35,58 @@
  * would be its own outage.
  */
 import { readdir, stat, rename, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { load, save, get, transition } from "./lib/store.mjs";
+
+/**
+ * Read `.env.local` for PIXIESET_STAGING, exactly as the ingest half does.
+ *
+ * Both halves must agree on where collections are staged, and an export the
+ * caller forgets means the watcher stages to the internal disk while the ingest
+ * looks on the external one — or worse, fills a disk that has 25 GB free. One
+ * file, read by both, removes that whole class of mistake. Silent if absent.
+ */
+try {
+  for (const line of readFileSync(".env.local", "utf8").split("\n")) {
+    const m = line.match(/^\s*(PIXIESET_[A-Z_]+)\s*=\s*(.*)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+} catch { /* not run from the repo root, or no .env.local — defaults apply */ }
 import { verifyArchive, parseParts } from "./lib/archive.mjs";
 
 const run = promisify(execFile);
 
 export const DOWNLOADS = join(homedir(), "Downloads");
-export const STAGING = join(homedir(), "pixieset-staging");
+
+/**
+ * Where whole collections are staged between download and ingest.
+ *
+ * Overridable because the internal disk cannot hold this job. A collection must
+ * fit ENTIRELY on disk before it can be verified (`partsComplete` needs every
+ * part at once), and the largest is ~128 GB against ~25 GB free internally.
+ * `PIXIESET_STAGING` points it at a volume with room — the external SSD, in
+ * practice. Set it in one place; the ingest reads the same variable.
+ *
+ * The staged files are TRANSIENT: each archive is released once its collection
+ * is ingested AND verified in Pixeltrunk. This is scratch space, not storage.
+ */
+export const STAGING = process.env.PIXIESET_STAGING || join(homedir(), "pixieset-staging");
 export const VERIFIED = join(STAGING, "verified");
 export const QUARANTINE = join(STAGING, "quarantine");
 const ORPHAN_LOG = join(STAGING, "orphans.json");
 
-/** Stop requesting new work below this — the pipeline stages whole collections. */
-export const MIN_FREE_GB = 25;
+/**
+ * Stop requesting new work below this — the pipeline stages whole collections.
+ * Measured on the STAGING volume, not on `/`, since that is where the ZIPs land.
+ * Raisable via PIXIESET_MIN_FREE_GB when staging shares a disk with something
+ * that also needs room (the external SSD also holds Time Machine).
+ */
+export const MIN_FREE_GB = Number(process.env.PIXIESET_MIN_FREE_GB) || 25;
 
 const ZIP = /\.zip$/i;
 
