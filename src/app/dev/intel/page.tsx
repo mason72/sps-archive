@@ -27,7 +27,7 @@ const p = (
 ): IntelIndex["people"][number] => ({
   id, name, fullName: null, email: `${id}@example.com`, kind: "staff",
   homeCity: null, canLead: null, travels: null, archived: false, notes: null,
-  eventCount: 0, events: [], roleCounts: {}, cities: [], venueIds: [],
+  eventCount: 0, events: [], roleCounts: {}, inferredRoleCount: 0, cities: [], venueIds: [],
   orgIds: [], coCrewIds: [], rebook: { yes: 0, no: 0, maybe: 0 }, ...over,
 });
 
@@ -45,11 +45,12 @@ const INDEX: IntelIndex = {
       fullName: "Dana R. Whitfield", kind: "staff", homeCity: "Bay Area",
       canLead: "yes", travels: true, eventCount: 3,
       events: [
-        { ...EVENTS[0], roles: ["lead", "photographer"], wouldRebook: "yes", note: null },
-        { ...EVENTS[1], roles: ["photographer"], wouldRebook: "yes", note: null },
-        { ...EVENTS[3], roles: ["lead"], wouldRebook: null, note: null },
+        { ...EVENTS[0], roles: ["lead", "photographer"], rolesSource: "manual", wouldRebook: "yes", note: null },
+        { ...EVENTS[1], roles: ["photographer"], rolesSource: "manual", wouldRebook: "yes", note: null },
+        // A machine's guess — italic and question-marked in the UI, never counted.
+        { ...EVENTS[3], roles: ["lead"], rolesSource: "inferred", wouldRebook: null, note: null },
       ],
-      roleCounts: { lead: 2, photographer: 2 },
+      roleCounts: { lead: 1, photographer: 2 }, inferredRoleCount: 1,
       cities: ["San Jose", "Oakland"], venueIds: ["v1", "v2"], orgIds: ["o1", "o2"],
       coCrewIds: ["milo", "reyna"], rebook: { yes: 2, no: 0, maybe: 0 },
     }),
@@ -57,10 +58,10 @@ const INDEX: IntelIndex = {
       kind: "local", homeCity: "Phoenix", canLead: "maybe", travels: false,
       eventCount: 2,
       events: [
-        { ...EVENTS[0], roles: ["digital tech"], wouldRebook: "maybe", note: "Strong on set, slow to load out." },
-        { ...EVENTS[2], roles: ["assistant"], wouldRebook: "no", note: null },
+        { ...EVENTS[0], roles: ["digital tech"], rolesSource: "manual", wouldRebook: "maybe", note: "Strong on set, slow to load out." },
+        { ...EVENTS[2], roles: ["assistant"], rolesSource: "inferred", wouldRebook: "no", note: null },
       ],
-      roleCounts: { "digital tech": 1, assistant: 1 },
+      roleCounts: { "digital tech": 1 }, inferredRoleCount: 1,
       cities: ["San Jose"], venueIds: ["v1"], orgIds: ["o1"],
       coCrewIds: ["dana"], rebook: { yes: 0, no: 1, maybe: 1 },
       notes: "Referred by Reyna. Owns his own lighting kit.",
@@ -68,7 +69,7 @@ const INDEX: IntelIndex = {
     p("reyna", "Reyna Okafor", {
       kind: "local", homeCity: "Phoenix", canLead: "yes", travels: true,
       eventCount: 1,
-      events: [{ ...EVENTS[1], roles: [], wouldRebook: "yes", note: null }],
+      events: [{ ...EVENTS[1], roles: [], rolesSource: "manual", wouldRebook: "yes", note: null }],
       cities: ["Oakland"], venueIds: ["v2"], orgIds: ["o2"], coCrewIds: ["dana"],
       rebook: { yes: 1, no: 0, maybe: 0 },
     }),

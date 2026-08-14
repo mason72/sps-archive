@@ -27,6 +27,8 @@ export interface IntelCrewOnEvent {
   crewId: string;
   name: string;
   roles: string[];
+  /** 'inferred' = a machine guessed it. Must reach the UI, or a guess reads as a fact. */
+  rolesSource: string;
   wouldRebook: string | null;
   note: string | null;
 }
@@ -64,8 +66,11 @@ export interface IntelPerson {
   notes: string | null;
   eventCount: number;
   /** Newest first — what "when did we last use them" needs. */
-  events: { id: string; name: string; date: string | null; roles: string[]; wouldRebook: string | null; note: string | null }[];
+  events: { id: string; name: string; date: string | null; roles: string[]; rolesSource: string; wouldRebook: string | null; note: string | null }[];
+  /** Only roles a human confirmed — see the comment where this is built. */
   roleCounts: Record<string, number>;
+  /** Gigs whose roles are still a machine's guess. */
+  inferredRoleCount: number;
   cities: string[];
   venueIds: string[];
   orgIds: string[];
@@ -193,6 +198,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       crewId: r.crew_id,
       name: person.display_name,
       roles: r.roles ?? [],
+      rolesSource: r.roles_source ?? "manual",
       wouldRebook: r.would_rebook ?? null,
       note: r.note ?? null,
     });
@@ -241,6 +247,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
           name: e.name,
           date: e.date,
           roles: (r.roles ?? []) as string[],
+          rolesSource: (r.roles_source ?? "manual") as string,
           wouldRebook: (r.would_rebook ?? null) as string | null,
           note: (r.note ?? null) as string | null,
         };
@@ -248,8 +255,18 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       .filter((x): x is NonNullable<typeof x> => !!x)
       .sort(byDateDesc);
 
+    /**
+     * CONFIRMED ROLES ONLY. "Joey led 13 gigs" is a rehire-grade claim, and
+     * counting guesses into it would make the tally say exactly the same thing
+     * whether a human decided or a regex did. Inferred roles still show on each
+     * gig line, marked as provisional — they just do not become a statistic.
+     */
     const roleCounts: Record<string, number> = {};
-    for (const e of evs) for (const role of e.roles) roleCounts[role] = (roleCounts[role] ?? 0) + 1;
+    for (const e of evs) {
+      if (e.rolesSource !== "manual") continue;
+      for (const role of e.roles) roleCounts[role] = (roleCounts[role] ?? 0) + 1;
+    }
+    const inferredRoleCount = evs.filter((e) => e.rolesSource === "inferred" && e.roles.length).length;
 
     const rebook = { yes: 0, no: 0, maybe: 0 };
     for (const e of evs) {
@@ -273,6 +290,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       eventCount: evs.length,
       events: evs,
       roleCounts,
+      inferredRoleCount,
       cities: uniq(attended.map((e) => e.city)),
       venueIds: uniq(attended.map((e) => e.venueId)),
       orgIds: uniq(attended.flatMap((e) => e.orgs.map((o) => o.orgId))),

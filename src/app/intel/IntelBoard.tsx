@@ -431,7 +431,21 @@ function PersonPanel({
                 trailing={
                   <>
                     {e.roles.length > 0 && (
-                      <span className="text-[12px] text-stone-500">{e.roles.join(", ")}</span>
+                      <span
+                        className={
+                          e.rolesSource === "inferred"
+                            ? "text-[12px] italic text-stone-400"
+                            : "text-[12px] text-stone-500"
+                        }
+                        title={
+                          e.rolesSource === "inferred"
+                            ? "Guessed from the calendar — confirm or change it"
+                            : undefined
+                        }
+                      >
+                        {e.roles.join(", ")}
+                        {e.rolesSource === "inferred" && " ?"}
+                      </span>
                     )}
                     <RebookDot value={e.wouldRebook} />
                   </>
@@ -445,8 +459,18 @@ function PersonPanel({
       <Section title="Roles">
         {roles.length === 0 ? (
           <Blank>
-            Not recorded yet — the calendar names who was there, never what they did.
-            This is the one dimension that needs a human.
+            {p.inferredRoleCount > 0 ? (
+              <>
+                {p.inferredRoleCount} {p.inferredRoleCount === 1 ? "gig has" : "gigs have"} a
+                guessed role, shown in italics above. Nothing is counted here until you
+                confirm it — the calendar names who was there, never what they did.
+              </>
+            ) : (
+              <>
+                Not recorded yet — the calendar names who was there, never what they did.
+                This is the one dimension that needs a human.
+              </>
+            )}
           </Blank>
         ) : (
           <div className="flex flex-wrap gap-2">
