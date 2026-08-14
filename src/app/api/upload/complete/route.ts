@@ -87,18 +87,49 @@ export async function POST(request: NextRequest) {
     if (width) updateData.width = width;
     if (height) updateData.height = height;
 
+    /**
+     * Camera metadata is written SEPARATELY from the display fields.
+     *
+     * These used to share one update, which means a single value Postgres
+     * would not take failed the whole write and stranded the row at `pending`
+     * with no thumbnail — a ghost tile whose bytes are safely in R2 and which
+     * nothing points at. That is not hypothetical: a GPS DMS tuple against the
+     * double-precision `gps_lat` column did exactly this to 69 photographs
+     * during the Perkin Elmer ingest (2026-08-13).
+     *
+     * EXIF is a decoration on a photograph that is already uploaded and
+     * already complete. It must never be able to break it — the same rule the
+     * dashboard follows when an enrichment leg fails.
+     */
+    const exifData: Record<string, unknown> = {};
     if (exif) {
-      if (exif.takenAt) updateData.taken_at = exif.takenAt;
-      if (exif.cameraMake) updateData.camera_make = exif.cameraMake;
-      if (exif.cameraModel) updateData.camera_model = exif.cameraModel;
-      if (exif.lens) updateData.lens = exif.lens;
-      if (exif.focalLength) updateData.focal_length = exif.focalLength;
-      if (exif.aperture) updateData.aperture = exif.aperture;
-      if (exif.shutterSpeed) updateData.shutter_speed = exif.shutterSpeed;
-      if (exif.iso) updateData.iso = exif.iso;
-      if (exif.gpsLat) updateData.gps_lat = exif.gpsLat;
-      if (exif.gpsLng) updateData.gps_lng = exif.gpsLng;
+      if (exif.takenAt) exifData.taken_at = exif.takenAt;
+      if (exif.cameraMake) exifData.camera_make = exif.cameraMake;
+      if (exif.cameraModel) exifData.camera_model = exif.cameraModel;
+      if (exif.lens) exifData.lens = exif.lens;
+      if (exif.focalLength) exifData.focal_length = exif.focalLength;
+      if (exif.aperture) exifData.aperture = exif.aperture;
+      if (exif.shutterSpeed) exifData.shutter_speed = exif.shutterSpeed;
+      if (exif.iso) exifData.iso = exif.iso;
+      if (exif.gpsLat != null) exifData.gps_lat = exif.gpsLat;
+      if (exif.gpsLng != null) exifData.gps_lng = exif.gpsLng;
     }
+
+    /** Best-effort, reported, never fatal. The photo is already complete. */
+    const storeExif = async () => {
+      if (!Object.keys(exifData).length) return;
+      const { error: exifErr } = await supabase
+        .from("images")
+        .update(exifData)
+        .eq("id", imageId);
+      if (exifErr) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("upload.complete.exif", exifErr, {
+          imageId,
+          note: "photo is complete and visible; camera metadata not stored",
+        });
+      }
+    };
 
     // Videos: the binary is safely in R2 (that's "complete" — display never
     // gates on processing_status), but posters/metadata come from the ffmpeg
@@ -111,6 +142,7 @@ export async function POST(request: NextRequest) {
         .update(updateData)
         .eq("id", imageId);
       if (updateError) throw updateError;
+      await storeExif();
 
       try {
         await inngest.send({
@@ -176,6 +208,7 @@ export async function POST(request: NextRequest) {
       .eq("id", imageId);
 
     if (updateError) throw updateError;
+    await storeExif();
 
     // Direct uploads into a website section (TDP Website gallery) publish once
     // their thumbnails exist — that's now. No-op otherwise; non-fatal because

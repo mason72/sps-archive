@@ -778,19 +778,32 @@ async function importOneImage(
     });
   }
 
+  /**
+   * Camera metadata goes in its OWN write, after the display fields.
+   *
+   * Sharing one update means a single value Postgres will not take fails the
+   * whole thing and strands the row at `pending` with no thumbnail — bytes
+   * safely in R2, nothing pointing at them. A GPS DMS tuple against the
+   * double-precision column did exactly that to 69 photographs on 2026-08-13.
+   * EXIF decorates a photo that has already arrived; it must never break it.
+   */
   const exif = await extractExif(arrayBuffer);
+  const exifUpdate: Record<string, unknown> = {};
   if (exif) {
-    if (exif.takenAt) update.taken_at = exif.takenAt;
-    if (exif.cameraMake) update.camera_make = exif.cameraMake;
-    if (exif.cameraModel) update.camera_model = exif.cameraModel;
-    if (exif.lens) update.lens = exif.lens;
-    if (exif.focalLength) update.focal_length = exif.focalLength;
-    if (exif.aperture) update.aperture = exif.aperture;
-    if (exif.shutterSpeed) update.shutter_speed = exif.shutterSpeed;
-    if (exif.iso) update.iso = exif.iso;
-    if (exif.gpsLat) update.gps_lat = exif.gpsLat;
-    if (exif.gpsLng) update.gps_lng = exif.gpsLng;
+    if (exif.takenAt) exifUpdate.taken_at = exif.takenAt;
+    if (exif.cameraMake) exifUpdate.camera_make = exif.cameraMake;
+    if (exif.cameraModel) exifUpdate.camera_model = exif.cameraModel;
+    if (exif.lens) exifUpdate.lens = exif.lens;
+    if (exif.focalLength) exifUpdate.focal_length = exif.focalLength;
+    if (exif.aperture) exifUpdate.aperture = exif.aperture;
+    if (exif.shutterSpeed) exifUpdate.shutter_speed = exif.shutterSpeed;
+    if (exif.iso) exifUpdate.iso = exif.iso;
+    if (exif.gpsLat != null) exifUpdate.gps_lat = exif.gpsLat;
+    if (exif.gpsLng != null) exifUpdate.gps_lng = exif.gpsLng;
   }
+  // taken_at is display-relevant (it drives sort and the calendar match), so
+  // it stays on the main update rather than riding with the decorations.
+  if (exifUpdate.taken_at) update.taken_at = exifUpdate.taken_at;
   // SPS's `capturedAt` is its row's created_at — upload time, not shutter time.
   // Only worth having when the file carries no EXIF date of its own.
   if (!update.taken_at && image.capturedAt) update.taken_at = image.capturedAt;
@@ -800,6 +813,22 @@ async function importOneImage(
     .update(update)
     .eq("id", id);
   if (updateErr) throw updateErr;
+
+  // Decorations, after the photo is safely complete. Reported, never thrown.
+  delete exifUpdate.taken_at; // already applied above
+  if (Object.keys(exifUpdate).length) {
+    const { error: exifErr } = await supabase
+      .from("images")
+      .update(exifUpdate)
+      .eq("id", id);
+    if (exifErr) {
+      const { reportSystemError } = await import("@/lib/monitoring/report");
+      await reportSystemError("sps-pull.exif", exifErr, {
+        imageId: id,
+        note: "photo is complete and visible; camera metadata not stored",
+      });
+    }
+  }
 
   return { status: "imported", bytes: buffer.byteLength };
 }

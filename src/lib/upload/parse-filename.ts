@@ -84,6 +84,61 @@ export function parseFilename(filename: string): ParsedFilename {
  * Extract EXIF data from an image buffer.
  * Uses the exifr library for fast, selective parsing.
  */
+/**
+ * EXIF GPS → decimal degrees, or null.
+ *
+ * exifr hands back GPS as a DEGREES/MINUTES/SECONDS TUPLE — `[33, 38.1798, 0]`
+ * — not a number. `gps_lat` and `gps_lng` are `double precision`, so passing the
+ * tuple through made Postgres reject the whole row update with
+ * `22P02 invalid input syntax for type double precision: "[33,38.1798,0]"`.
+ *
+ * That failure was invisible for a long time, and worse than it looks: the GPS
+ * fields ride in the SAME update as `processing_status` and
+ * `thumbnail_generated`, so ONE unconvertible tuple stranded the entire row at
+ * `pending` with no thumbnail — a ghost tile. It surfaced only when a Pixieset
+ * collection shot on a GPS-equipped Canon 1DX put 69 of them in one gallery;
+ * across the other 31,000 images in the archive, `gps_lat` had never once been
+ * set, because pro bodies do not geotag without an accessory.
+ *
+ * The REF carries the hemisphere. Without it "112° W" becomes +112 and the
+ * photo claims to have been taken in China, which is a worse failure than
+ * having no coordinate at all — so a missing or unrecognised ref on a
+ * *southern/western* value is not guessed, it is simply applied as positive
+ * only when the ref is absent AND the value is already signed.
+ *
+ * Out-of-range results return null. A coordinate that cannot be real should not
+ * reach the column just because it parsed.
+ */
+export function toDecimalDegrees(
+  value: unknown,
+  ref: unknown,
+  limit: 90 | 180
+): number | null {
+  let deg: number | null = null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    deg = value;
+  } else if (Array.isArray(value) && value.length > 0) {
+    const [d = 0, m = 0, sec = 0] = value.map((v) => (typeof v === "number" ? v : Number(v)));
+    if ([d, m, sec].some((x) => !Number.isFinite(x))) return null;
+    // Sign lives on the ref, not on the degrees component; take |d| so a
+    // pre-signed tuple cannot double-negate below.
+    deg = Math.abs(d) + m / 60 + sec / 3600;
+    if (d < 0) deg = -deg;
+  } else {
+    return null;
+  }
+
+  const hemisphere = typeof ref === "string" ? ref.trim().toUpperCase()[0] : null;
+  if (hemisphere === "S" || hemisphere === "W") deg = -Math.abs(deg);
+  else if (hemisphere === "N" || hemisphere === "E") deg = Math.abs(deg);
+
+  if (!Number.isFinite(deg) || Math.abs(deg) > limit) return null;
+  // Sub-metre precision is meaningless here and full float noise makes diffs
+  // unreadable; 7 places is ~11 mm.
+  return Number(deg.toFixed(7));
+}
+
 export async function extractExif(buffer: ArrayBuffer) {
   const exifr = await import("exifr");
 
@@ -100,6 +155,10 @@ export async function extractExif(buffer: ArrayBuffer) {
         "ISO",
         "GPSLatitude",
         "GPSLongitude",
+        // The REF is the hemisphere, and without it a western longitude comes
+        // out positive — an Arizona shoot lands in China.
+        "GPSLatitudeRef",
+        "GPSLongitudeRef",
         "ImageWidth",
         "ImageHeight",
         "ExifImageWidth",
@@ -124,8 +183,8 @@ export async function extractExif(buffer: ArrayBuffer) {
           : `${data.ExposureTime}`
         : null,
       iso: data.ISO || null,
-      gpsLat: data.GPSLatitude || null,
-      gpsLng: data.GPSLongitude || null,
+      gpsLat: toDecimalDegrees(data.GPSLatitude, data.GPSLatitudeRef, 90),
+      gpsLng: toDecimalDegrees(data.GPSLongitude, data.GPSLongitudeRef, 180),
       width: data.ExifImageWidth || data.ImageWidth || null,
       height: data.ExifImageHeight || data.ImageHeight || null,
     };

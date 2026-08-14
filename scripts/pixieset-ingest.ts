@@ -43,6 +43,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -99,6 +100,30 @@ interface QueueCollection {
 
 const n = (x: number) => x.toLocaleString("en-US");
 const mb = (b: number) => `${(b / 1048576).toFixed(1)} MB`;
+
+/**
+ * A readable message for anything thrown here.
+ *
+ * A Supabase/PostgREST error is a PLAIN OBJECT, not an Error, so `String(err)`
+ * renders it `[object Object]` — which is what 69 failure lines said during the
+ * Perkin Elmer ingest, hiding a one-line cause (`22P02 invalid input syntax for
+ * type double precision`) behind a diagnostic that carried no information at
+ * all. Never let an error reach a log through `String()`.
+ */
+function pgMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string };
+    const parts = [e.code && `[${e.code}]`, e.message, e.details, e.hint].filter(Boolean);
+    if (parts.length) return parts.join(" ");
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return "unserialisable error object";
+    }
+  }
+  return String(err);
+}
 
 /** Every ZIP part staged for a collection, in part order. */
 /** Staged ZIPs for a collection, from either staging directory.
@@ -190,7 +215,7 @@ const prettySet = (s: string) => s.replace(/_/g, " ").trim();
  * every photo was already present, so a collection imported before this existed
  * does not stay a draft merely because it had no new photos to move.
  */
-async function publishGallery(
+export async function publishGallery(
   supabase: SupabaseLike,
   eventId: string,
   resolveSharePins: ResolveSharePins,
@@ -458,6 +483,7 @@ async function main() {
   let failed = 0;
   let bytes = 0;
   const failures: { filename: string; reason: string }[] = [];
+  let exifSkipped = 0;
   const started = Date.now();
 
   for (const [base, plan] of todo) {
@@ -512,7 +538,8 @@ async function main() {
       }
 
       // ── display work, then complete ──
-      const update: Record<string, unknown> = { processing_status: "complete" };
+      const displayUpdate: Record<string, unknown> = { processing_status: "complete" };
+      const exifUpdate: Record<string, unknown> = {};
 
       // Best-effort ON PURPOSE. A throw here would strand the row at "pending"
       // with its bytes already safe — and a stale pending row blocks the event's
@@ -520,11 +547,11 @@ async function main() {
       // photographer as "still uploading". One bad frame must not stall an event.
       try {
         const thumbs = await generateThumbnailsFromBuffer(buffer, eventId, filename);
-        update.thumbnail_generated = true;
-        update.thumb_bytes = thumbs.thumbBytes;
-        if (thumbs.width) update.width = thumbs.width;
-        if (thumbs.height) update.height = thumbs.height;
-        if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
+        displayUpdate.thumbnail_generated = true;
+        displayUpdate.thumb_bytes = thumbs.thumbBytes;
+        if (thumbs.width) displayUpdate.width = thumbs.width;
+        if (thumbs.height) displayUpdate.height = thumbs.height;
+        if (thumbs.dominantColor) displayUpdate.dominant_color = thumbs.dominantColor;
       } catch (thumbErr) {
         console.error(`  thumbnail failed for ${base}:`, thumbErr);
       }
@@ -533,20 +560,50 @@ async function main() {
         buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
       );
       if (exif) {
-        if (exif.takenAt) update.taken_at = exif.takenAt;
-        if (exif.cameraMake) update.camera_make = exif.cameraMake;
-        if (exif.cameraModel) update.camera_model = exif.cameraModel;
-        if (exif.lens) update.lens = exif.lens;
-        if (exif.focalLength) update.focal_length = exif.focalLength;
-        if (exif.aperture) update.aperture = exif.aperture;
-        if (exif.shutterSpeed) update.shutter_speed = exif.shutterSpeed;
-        if (exif.iso) update.iso = exif.iso;
-        if (exif.gpsLat) update.gps_lat = exif.gpsLat;
-        if (exif.gpsLng) update.gps_lng = exif.gpsLng;
+        if (exif.takenAt) exifUpdate.taken_at = exif.takenAt;
+        if (exif.cameraMake) exifUpdate.camera_make = exif.cameraMake;
+        if (exif.cameraModel) exifUpdate.camera_model = exif.cameraModel;
+        if (exif.lens) exifUpdate.lens = exif.lens;
+        if (exif.focalLength) exifUpdate.focal_length = exif.focalLength;
+        if (exif.aperture) exifUpdate.aperture = exif.aperture;
+        if (exif.shutterSpeed) exifUpdate.shutter_speed = exif.shutterSpeed;
+        if (exif.iso) exifUpdate.iso = exif.iso;
+        if (exif.gpsLat) exifUpdate.gps_lat = exif.gpsLat;
+        if (exif.gpsLng) exifUpdate.gps_lng = exif.gpsLng;
       }
 
-      const { error: updErr } = await supabase.from("images").update(update).eq("id", id);
+      /**
+       * DISPLAY FIRST, ENRICHMENT SECOND — in two writes, deliberately.
+       *
+       * These used to be one update, so a single unconvertible EXIF value took
+       * `processing_status` and `thumbnail_generated` down with it and left the
+       * row at `pending` with no thumbnail: a ghost tile, with its bytes safely
+       * in R2 and nothing pointing at them. That is exactly what happened to 69
+       * frames of Perkin Elmer Accelerate 2018, where a GPS-equipped Canon 1DX
+       * produced a DMS tuple the double-precision column could not take.
+       *
+       * The camera metadata is a decoration. It must never be able to break the
+       * photograph — same rule as the dashboard enrichment legs.
+       */
+      const { error: updErr } = await supabase
+        .from("images")
+        .update(displayUpdate)
+        .eq("id", id);
       if (updErr) throw updErr;
+
+      if (Object.keys(exifUpdate).length) {
+        const { error: exifErr } = await supabase
+          .from("images")
+          .update(exifUpdate)
+          .eq("id", id);
+        if (exifErr) {
+          // Reported, never thrown: the photo is already complete and visible.
+          exifSkipped++;
+          console.error(
+            `  ⚠ EXIF not stored for ${base} (photo is fine): ${pgMessage(exifErr)}`
+          );
+        }
+      }
 
       imported++;
       bytes += buffer.byteLength;
@@ -556,7 +613,7 @@ async function main() {
       }
     } catch (err) {
       failed++;
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = pgMessage(err);
       failures.push({ filename: base, reason });
       console.error(`  ✗ ${base}: ${reason}`);
     }
@@ -567,6 +624,9 @@ async function main() {
     `\n${n(imported)} imported · ${n(failed)} failed · ${mb(bytes)} in ${secs.toFixed(0)}s ` +
     `(${(bytes / 1048576 / secs).toFixed(1)} MB/s)`
   );
+  if (exifSkipped) {
+    console.log(`${n(exifSkipped)} photo(s) stored without camera metadata (visible and complete).`);
+  }
   if (failures.length) {
     console.log("failures:");
     for (const f of failures.slice(0, 20)) console.log(`   ${f.filename} — ${f.reason}`);
@@ -639,7 +699,22 @@ async function markIngested(
   console.log(`queue: ${collection.id} → ingested`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+/**
+ * Only run the CLI when this file IS the entry point.
+ *
+ * `publishGallery` is exported so the repair script can reuse it rather than
+ * re-inlining a share insert — and without this guard, importing it ran the
+ * whole ingest CLI, which printed a usage error and exited the caller.
+ */
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(entry).href;
+})();
+
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
