@@ -21,6 +21,8 @@ import {
   parseVenue,
   venueKey,
   parseStudioSession,
+  suggestEventName,
+  titleCaseEventName,
 } from "./parse-calendar";
 
 describe("title parsing", () => {
@@ -356,5 +358,106 @@ describe("hand-typed studio entries", () => {
       description: "Name: Nick Lombardo\nEmail: n@example.com\nPrice: $375.00",
     });
     expect(s.clientName).toBe("Nick Lombardo");
+  });
+});
+
+describe("suggesting a gallery name — spelling, not wording", () => {
+  it("de-shouts and fixes the misspelled name, keeping Mason's words", () => {
+    const s = suggestEventName("NICK LAMBARDO'S HEADSHOTS", { client: "Nick Lombardo" });
+    expect(s.suggested).toBe("Nick Lombardo's Headshots");
+    expect(s.worthChanging).toBe(true);
+  });
+
+  it("does NOT replace a good client-facing name with the internal label", () => {
+    // The calendar calls this "NYC Photo Booth"; Mason's name is far better and
+    // a tool that argues with him every time gets ignored.
+    const s = suggestEventName("Jordan x Kids Foot Locker Back to School // NYC", {
+      client: "NYC Photo Booth", city: "Bronx",
+    });
+    expect(s.suggested).toBe("Jordan x Kids Foot Locker Back to School // NYC");
+    expect(s.worthChanging).toBe(false);
+  });
+
+  it("does not shorten a readable name to the calendar's acronym", () => {
+    const s = suggestEventName("Hotel Data Conference 2026", { client: "HDC 2026" });
+    expect(s.suggested).toBe("Hotel Data Conference 2026");
+  });
+
+  it("keeps a subject the calendar never knew about", () => {
+    const s = suggestEventName("CollegeBoard // A Dream Deferred HBCU", { client: "College Board" });
+    expect(s.suggested).toContain("A Dream Deferred HBCU");
+  });
+
+  it("offers the city as a hint rather than editing it in", () => {
+    const s = suggestEventName("Clario Headshots", { client: "Clario Headshots", city: "Palo Alto" });
+    expect(s.suggested).toBe("Clario Headshots");
+    expect(s.cityHint).toBe("Palo Alto");
+  });
+
+  it("does not offer a city the name already carries", () => {
+    const s = suggestEventName("Appfolio // Goleta", { client: "Appfolio", city: "Goleta" });
+    expect(s.cityHint).toBeNull();
+  });
+
+  it("keeps acronyms shouting — Nyc would be a different kind of wrong", () => {
+    expect(titleCaseEventName("NYC PHOTO BOOTH")).toBe("NYC Photo Booth");
+    expect(titleCaseEventName("PG&E HEADSHOTS")).toBe("PG&E Headshots");
+    expect(titleCaseEventName("EBAY HEADSHOTS")).toBe("eBay Headshots");
+  });
+
+  it("treats 'us' as a word, not the country", () => {
+    // "Future of Us Festival" is a name; FUTURE OF US FESTIVAL must not become
+    // "Future of US Festival".
+    expect(titleCaseEventName("FUTURE OF US FESTIVAL")).toBe("Future of Us Festival");
+  });
+
+  it("stays quiet when the name is already fine", () => {
+    const s = suggestEventName("Clario Headshots", { client: "Clario Headshots" });
+    expect(s.worthChanging).toBe(false);
+  });
+});
+
+describe("the spelling rescue must not invent corrections", () => {
+  it("never rewrites a short word — Foot must not become Booth", () => {
+    // foot→booth is two edits and "Booth" is in half the calendar titles. The
+    // permissive version silently produced "Kids Booth Locker".
+    const s = suggestEventName("Jordan x Kids Foot Locker Back to School // NYC", {
+      client: "NYC Photo Booth",
+    });
+    expect(s.suggested).toContain("Kids Foot Locker");
+    expect(s.suggested).not.toContain("Booth Locker");
+  });
+
+  it("still fixes a long misspelled surname through a possessive", () => {
+    const s = suggestEventName("NICK LAMBARDO'S HEADSHOTS", { client: "Nick Lombardo" });
+    expect(s.suggested).toBe("Nick Lombardo's Headshots");
+  });
+
+  it("leaves a correctly spelled name entirely alone", () => {
+    const s = suggestEventName("Clario Headshots", { client: "Clario Headshots", city: "Palo Alto" });
+    expect(s.suggested).toBe("Clario Headshots");
+  });
+});
+
+describe("wording is Mason's; only spelling is the calendar's", () => {
+  it("does not pluralise or singularise his words", () => {
+    // "Headshot" → "Headshots" and "INTERNS" → "Intern" are wording changes
+    // dressed up as spelling fixes.
+    const a = suggestEventName("Island HQ Headshot Day", { client: "Island Headshots" });
+    expect(a.suggested).toBe("Island HQ Headshot Day");
+    const b = suggestEventName("eBay NATIONAL INTERNS DAY", { client: "ebay Intern Photo Booth" });
+    expect(b.suggested).not.toContain("Intern DAY");
+  });
+
+  it("de-shouts a name a lowercase brand letter would otherwise hide", () => {
+    // "eBay NATIONAL INTERNS DAY" is not 100% uppercase, and a strict test left
+    // the loudest name in the archive untouched.
+    const s = suggestEventName("eBay NATIONAL INTERNS DAY", { client: "ebay Intern Photo Booth" });
+    expect(s.suggested).toBe("eBay National Interns Day");
+  });
+
+  it("offers nothing when the result equals the input", () => {
+    const s = suggestEventName("DAIS 26", { client: "DAIS 26" });
+    expect(s.worthChanging).toBe(false);
   });
 });

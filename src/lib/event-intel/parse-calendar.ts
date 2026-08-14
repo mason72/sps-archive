@@ -474,6 +474,18 @@ export function venueKey(v: ParsedVenue): string {
  * looked absent from the calendar when they were simply on a different one in a
  * different shape.
  */
+/**
+ * Words that describe the JOB, not the client. Never treated as a misspelling to
+ * correct, because "Headshot" vs "Headshots" is wording and wording is Mason's.
+ */
+const COMMON_GIG_WORD = new Set([
+  "headshot", "headshots", "photo", "photos", "photography", "booth", "booths",
+  "intern", "interns", "event", "events", "party", "wedding", "portrait",
+  "portraits", "session", "sessions", "conference", "summit", "festival",
+  "meeting", "reception", "awards", "award", "show", "setup", "standard",
+  "basic", "annual", "national", "corporate", "company", "holiday",
+]);
+
 /** Housekeeping on the studio calendar — never a client. */
 const STUDIO_CHORE =
   /\b(?:studio\s+(?:busy|blocked|hold)|put\s+studio|trash|recycle|maintenance|cleaning|closed|out of office|blocked|available)\b/i;
@@ -535,4 +547,224 @@ export function parseStudioSession(ev: CalendarEventLike): StudioSession {
     price,
     isBooking: !!resolvedName,
   };
+}
+
+// ── suggesting a gallery name ───────────────────────────────────────────────
+
+export interface NameSuggestion {
+  suggested: string;
+  /** Why it differs — shown next to the Accept button so the change is legible. */
+  reasons: string[];
+  /** The city, when the calendar knows one the name does not already carry.
+   *  Offered as a hint the caller may apply — never folded into the name, since
+   *  whether a gallery name carries its city is Mason's convention to set. */
+  cityHint?: string | null;
+  /** False when the current name is already fine; the card should stay quiet. */
+  worthChanging: boolean;
+}
+
+/**
+ * Acronyms that stay shouting.
+ *
+ * Explicit, with NO generic "short all-caps word" catch-all. That catch-all was
+ * the bug: in "NYC PHOTO BOOTH" every word is uppercase, so it preserved PHOTO
+ * and BOOTH as acronyms and the all-caps name came back unchanged — which is the
+ * exact thing this function exists to fix. In a shouted title, case carries no
+ * information about what is an acronym, so only a known list can tell.
+ */
+const KNOWN_UPPER = /^(?:SKO|HDC|NYC|LA|SF|DC|SLC|MUA|DT|CEO|CTO|EOY|BBQ|VIP|AI|IT|HR|PR|QA|UK|CEA|DAIS|NASAI|HBCU|SDP|SB)$/;
+/** Lowercase inside a title unless first or last. */
+const MINOR = new Set(["a","an","the","and","or","but","for","of","in","on","at","to","by","vs","with"]);
+
+/** Brands whose own casing is the correct casing. */
+const BRAND_CASE: Record<string, string> = {
+  ebay: "eBay", iphone: "iPhone", ipad: "iPad", youtube: "YouTube",
+  linkedin: "LinkedIn", tiktok: "TikTok", docusign: "DocuSign",
+  // "College Board" is two words (Mason, 2026-08-13). Appfolio is deliberately
+  // absent: the company brands itself AppFolio but Mason writes Appfolio, and
+  // the point of this is to reduce his editing, not to correct his house style.
+  collegeboard: "College Board", purestorage: "Pure Storage",
+  "pg&e": "PG&E", sonos: "Sonos", paypal: "PayPal",
+};
+
+/**
+ * Is this name mostly shouting?
+ *
+ * ONE definition, used by both the title-caser and the suggester. They had two,
+ * and the strict one lost: "eBay NATIONAL INTERNS DAY" is not 100% uppercase
+ * because of the brand's lowercase "e", so the loudest name in the archive was
+ * treated as deliberate capitalisation and left alone. Proportional, and
+ * requiring one genuinely shouted word so "PG&E" alone does not qualify.
+ */
+export function isShoutedName(raw: string): boolean {
+  const letters = raw.replace(/[^A-Za-z]/g, "");
+  if (letters.length <= 3) return false;
+  const upper = raw.replace(/[^A-Z]/g, "").length;
+  return upper / letters.length >= 0.8 && /\b[A-Z]{4,}\b/.test(raw);
+}
+
+/**
+ * Title-case a gallery name without destroying the bits that are meant to shout.
+ *
+ * Mason: "Some people (Joey) like to use all caps and not name their events very
+ * well so I'm often left cleaning it up afterwards." A naive lowercase would
+ * turn NYC into Nyc and PG&E into Pg&e, which is a different kind of wrong — so
+ * acronyms, brand casing and minor words are all handled explicitly.
+ */
+export function titleCaseEventName(raw: string): string {
+  const words = raw.trim().split(/\s+/);
+  /**
+   * When the name shouts, an existing uppercase word proves nothing. When it is
+   * genuinely mixed case, an all-caps word was deliberate and is preserved.
+   */
+  const allCaps = isShoutedName(raw);
+
+  return words
+    .map((w, i) => {
+      const bare = w.replace(/[^A-Za-z0-9&']/g, "");
+      const brand = BRAND_CASE[bare.toLowerCase()];
+      if (brand) return w.replace(bare, brand);
+
+      const lower = w.toLowerCase();
+      const bareLower = lower.replace(/[^a-z]/g, "");
+      // Minor words first — "OF" is not an acronym, whatever its case.
+      if (i !== 0 && i !== words.length - 1 && MINOR.has(bareLower)) return lower;
+
+      if (KNOWN_UPPER.test(bare.toUpperCase())) return w.toUpperCase();
+      // Mixed-case input: someone typed those capitals on purpose.
+      if (!allCaps && bare.length > 1 && bare === bare.toUpperCase() && /[A-Z]/.test(bare)) return w;
+
+      return lower
+        .replace(/^([a-z])/, (c) => c.toUpperCase())
+        .replace(/([\/(])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+    })
+    .join(" ");
+}
+
+/**
+ * Propose a cleaned-up gallery name.
+ *
+ * ⚠️ THE OBVIOUS VERSION OF THIS IS WRONG, and it took running it over 23 real
+ * galleries to see it. Taking the calendar's client name as the answer proposed
+ * a rename for every single one, and most were worse:
+ *
+ *   Jordan x Kids Foot Locker Back to School // NYC → NYC Photo Booth // Bronx
+ *   Hotel Data Conference 2026                      → HDC 2026
+ *   CollegeBoard // A Dream Deferred HBCU           → College Board // Philadelphia
+ *
+ * The calendar name is an INTERNAL BOOKING LABEL — short, jargon-heavy, written
+ * to be recognised at a glance while scheduling ("Appfolio SB", "PS What If?
+ * Summit", "Anti-Booth"). The gallery name is written for the client. Mason's
+ * names are usually better and a tool that argues with them every time gets
+ * ignored, which costs more than it saves.
+ *
+ * So the calendar is consulted for SPELLING, never for wording:
+ *
+ *  1. Fix shouting. "NICK LAMBARDO'S HEADSHOTS" → "Nick Lombardo's Headshots".
+ *     This is the actual complaint: "Joey likes to use all caps".
+ *  2. Fix a misspelled name, only when the calendar plainly has the same name
+ *     spelled correctly (within two characters). LAMBARDO → Lombardo.
+ *  3. Otherwise leave the wording exactly alone.
+ *
+ * The city is offered separately as a HINT the caller may apply, not folded into
+ * the name — appending it changes a convention that is Mason's to set.
+ */
+export function suggestEventName(
+  currentName: string,
+  gig: { client?: string | null; city?: string | null; venueCity?: string | null; date?: string | null }
+): NameSuggestion {
+  const reasons: string[] = [];
+  const current = currentName.trim();
+  /**
+   * "Mostly shouting" rather than "entirely shouting".
+   *
+   * "eBay NATIONAL INTERNS DAY" is not 100% uppercase — the lowercase "e" in a
+   * brand defeated a strict test, so the loudest name in the archive was left
+   * exactly as it was. Judge by proportion, and require at least one genuinely
+   * shouted word so "PG&E" alone does not trigger it.
+   */
+  const isShouted = isShoutedName(current);
+
+  // Always start from HIS wording, merely de-shouted.
+  let suggested = isShouted ? titleCaseEventName(current) : current;
+  if (isShouted) reasons.push("was all caps");
+
+  /**
+   * Spelling rescue: only for a name the calendar clearly holds correctly.
+   * Compares word-by-word so "LAMBARDO" finds "Lombardo" without the rest of
+   * the title being replaced.
+   */
+  const client = (gig.client ?? "").trim();
+  if (client) {
+    /**
+     * STRICT, because a wrong "correction" silently rewrites a client's name.
+     *
+     * The permissive version turned "Kids Foot Locker" into "Kids Booth Locker":
+     * foot→booth is two edits, and "Booth" appears in half the calendar titles.
+     * So: at least six letters, and the allowance scales with length — one edit
+     * for a short word, two only for eight letters or more. LAMBARDO (8) still
+     * finds Lombardo; FOOT (4) is never touched.
+     */
+    /**
+     * Only PROPER NOUNS get corrected.
+     *
+     * The rescue was rewriting ordinary words: "Headshot" → "Headshots",
+     * "INTERNS" → "Intern". Those are not misspellings, they are Mason's
+     * wording, and changing them is the same error as replacing his whole name
+     * with the calendar's label — just smaller and harder to notice. A word is
+     * eligible only if the calendar capitalised it and it is not a common gig
+     * word.
+     */
+    const clientWords = client.split(/\s+/)
+      .filter((w) => /^[A-Z]/.test(w))
+      .map((w) => w.replace(/[^A-Za-z'-]/g, ""))
+      .filter((w) => w.length >= 6 && !COMMON_GIG_WORD.has(w.toLowerCase()));
+
+    suggested = suggested
+      .split(/\s+/)
+      .map((w) => {
+        // Compare without a possessive: "Lambardo's" must still find "Lombardo".
+        const bare = w.replace(/[^A-Za-z'-]/g, "");
+        const stem = bare.replace(/['’]s$/i, "");
+        if (stem.length < 6) return w;
+        for (const cw of clientWords) {
+          if (stem.toLowerCase() === cw.toLowerCase()) return w;
+          const allowed = stem.length >= 8 ? 2 : 1;
+          const d = smallEdit(stem.toLowerCase(), cw.toLowerCase());
+          if (d > 0 && d <= allowed) {
+            reasons.push(`"${stem}" → "${cw}" (calendar spelling)`);
+            return w.replace(stem, cw);
+          }
+        }
+        return w;
+      })
+      .join(" ");
+  }
+
+  const cityHint = (gig.city ?? gig.venueCity ?? "").trim() || null;
+  const saysCity =
+    cityHint && new RegExp(`\\b${cityHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(suggested);
+
+  // Nothing to offer if nothing actually changed. "DAIS 26" was being proposed
+  // as "DAIS 26" merely because it is uppercase, which is noise.
+  return {
+    suggested,
+    reasons,
+    cityHint: saysCity ? null : cityHint,
+    worthChanging: suggested !== current,
+  };
+}
+
+/** Capped edit distance, small inputs only. */
+function smallEdit(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
 }
