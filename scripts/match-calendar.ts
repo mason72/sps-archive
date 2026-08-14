@@ -36,6 +36,22 @@ const MIN_SCORE = Number(flag("min-score") ?? 0.45);
 /** Days either side of the event date to consider. A multi-day gig can start before. */
 const WINDOW_DAYS = Number(flag("window") ?? 4);
 
+/**
+ * Matches a human has confirmed by hand, keyed by archive event id.
+ *
+ * Some pairs are simply not derivable. "Jessica & Koji's Big Day" and the
+ * calendar's "Jessica Owyang Wedding" are the same 2014 wedding — Mason
+ * confirmed it — but they share one first name and score 0.32, and lowering the
+ * threshold far enough to catch it would let a dozen wrong pairs through. A
+ * confirmed match is recorded as fact, marked confirmed_at so no later run can
+ * revisit it, rather than by weakening the rule that keeps the rest honest.
+ */
+const CONFIRMED_MATCHES: Record<string, string> = {
+  // Jessica & Koji's Big Day, Aug 2014 — recovered from an old USB drive for
+  // the client after her husband died.
+  "b4f42922-0e30-48f9-8496-51b5a48db10b": "Jessica Owyang Wedding",
+};
+
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 /**
  * Keep SHORT tokens. "FM Headshots" is a real client whose only distinguishing
@@ -243,8 +259,14 @@ async function main() {
       .filter((c) => c.score > 0)
       .sort((a, b) => b.score - a.score);
 
-    const best = candidates[0];
-    if (!best || best.score < MIN_SCORE) {
+    // A human's confirmation outranks any score.
+    const forced = CONFIRMED_MATCHES[ev.id];
+    const best = forced
+      ? candidates.find((c) => norm(c.client ?? "") === norm(forced)) ?? candidates[0]
+      : candidates[0];
+    const isConfirmed = !!forced && !!best && norm(best.client ?? "") === norm(forced);
+
+    if (!best || (!isConfirmed && best.score < MIN_SCORE)) {
       unmatched++;
       const near = candidates[0];
       report.push(
@@ -277,7 +299,7 @@ async function main() {
     )];
 
     report.push(
-      `✓  ${ev.name.slice(0, 38).padEnd(40)} ${day}${shotDay.has(ev.id) ? "*" : " "} ${best.score.toFixed(2)} "${(best.client ?? "").slice(0, 24)}" ` +
+      `${isConfirmed ? "★" : "✓"}  ${ev.name.slice(0, 38).padEnd(40)} ${day}${shotDay.has(ev.id) ? "*" : " "} ${isConfirmed ? "conf" : best.score.toFixed(2)} "${(best.client ?? "").slice(0, 24)}" ` +
       `[${best.shared.join("+")}]\n` +
       `      venue: ${venue?.name ?? venue?.street ?? "—"}${venue?.city ? ` (${venue.city})` : ""}\n` +
       `      crew : ${resolved.map((r) => r.display_name).join(", ") || "—"}` +
@@ -310,6 +332,9 @@ async function main() {
       venue_id: venueId,
       calendar_event_ids: best.gig.events.map((e: { id?: string }) => e.id).filter(Boolean),
       source: "calendar",
+      // Only a human's confirmation sets this. Everything else stays a
+      // suggestion, and a suggestion is re-derivable; a confirmation is not.
+      ...(isConfirmed ? { confirmed_at: new Date().toISOString() } : {}),
       updated_at: new Date().toISOString(),
     }, { onConflict: "event_id" });
     if (iErr) console.error(`  intel: ${iErr.message}`);
