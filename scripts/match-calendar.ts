@@ -198,8 +198,29 @@ async function main() {
   let matched = 0, unmatched = 0, skippedConfirmed = 0;
   const report: string[] = [];
 
+  /**
+   * Shoot dates from the PHOTOS, not from the row.
+   *
+   * `sort_date` falls back to the creation date when `event_date` is null, and a
+   * gallery is created days after the shoot — "Island HQ Headshot Day" sorts at
+   * 08-12 for a job shot on 08-07, so a ±4 day window never saw it. `taken_at`
+   * is the shutter time and is present on ~98% of images. One grouped query
+   * rather than one per event.
+   */
+  const { data: shotRows } = await db.rpc("event_readiness", { p_event_ids: events.map((e: { id: string }) => e.id) })
+    .then(() => ({ data: null })).catch(() => ({ data: null }));
+  void shotRows;
+  const shotDay = new Map<string, string>();
   for (const ev of events) {
-    const day: string | null = ev.sort_date ?? ev.event_date ?? null;
+    const { data: t } = await db
+      .from("images").select("taken_at").eq("event_id", ev.id)
+      .not("taken_at", "is", null).order("taken_at", { ascending: true }).limit(1);
+    if (t?.[0]?.taken_at) shotDay.set(ev.id, String(t[0].taken_at).slice(0, 10));
+  }
+
+  for (const ev of events) {
+    // Prefer the shutter date, then the hand-entered one, then creation.
+    const day: string | null = shotDay.get(ev.id) ?? ev.event_date ?? ev.sort_date ?? null;
     if (!day) { unmatched++; report.push(`?  ${ev.name.slice(0, 40)} — no date to match on`); continue; }
 
     // Never clobber a human's work.
@@ -227,7 +248,7 @@ async function main() {
       unmatched++;
       const near = candidates[0];
       report.push(
-        `✗  ${ev.name.slice(0, 38).padEnd(40)} ${day}  ` +
+        `✗  ${ev.name.slice(0, 38).padEnd(40)} ${day}${shotDay.has(ev.id) ? "*" : " "} ` +
         (near ? `best "${near.client?.slice(0, 26)}" ${near.score.toFixed(2)}` : "no candidate in window")
       );
       continue;
@@ -256,7 +277,7 @@ async function main() {
     )];
 
     report.push(
-      `✓  ${ev.name.slice(0, 38).padEnd(40)} ${day}  ${best.score.toFixed(2)} "${(best.client ?? "").slice(0, 24)}" ` +
+      `✓  ${ev.name.slice(0, 38).padEnd(40)} ${day}${shotDay.has(ev.id) ? "*" : " "} ${best.score.toFixed(2)} "${(best.client ?? "").slice(0, 24)}" ` +
       `[${best.shared.join("+")}]\n` +
       `      venue: ${venue?.name ?? venue?.street ?? "—"}${venue?.city ? ` (${venue.city})` : ""}\n` +
       `      crew : ${resolved.map((r) => r.display_name).join(", ") || "—"}` +

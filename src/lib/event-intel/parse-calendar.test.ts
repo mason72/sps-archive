@@ -334,3 +334,27 @@ describe("studio sessions — a third format the gig parser cannot read", () => 
     expect(parseGig(nick).titleCrew).toEqual([]);
   });
 });
+
+describe("hand-typed studio entries", () => {
+  it("accepts a job typed straight into the calendar", () => {
+    // "PG&E Headshots" is a real 234-photo job with no Acuity booking behind it.
+    // Requiring the "Name: Session // $price" shape discarded it as a hold.
+    const s = parseStudioSession({ summary: "PG&E Headshots" });
+    expect(s.isBooking).toBe(true);
+    expect(s.clientName).toBe("PG&E Headshots");
+  });
+
+  it("still rejects the housekeeping entries that share the calendar", () => {
+    for (const chore of ["Studio Busy", "Put Studio Trash & Recycle Out", "Studio Blocked"]) {
+      expect(parseStudioSession({ summary: chore }).isBooking).toBe(false);
+    }
+  });
+
+  it("prefers the Acuity name over the title when both exist", () => {
+    const s = parseStudioSession({
+      summary: "Nick Lombardo: Standard Headshot Session // $375 (Two Dudes Photo)",
+      description: "Name: Nick Lombardo\nEmail: n@example.com\nPrice: $375.00",
+    });
+    expect(s.clientName).toBe("Nick Lombardo");
+  });
+});

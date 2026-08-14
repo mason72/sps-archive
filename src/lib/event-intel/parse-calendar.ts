@@ -474,6 +474,10 @@ export function venueKey(v: ParsedVenue): string {
  * looked absent from the calendar when they were simply on a different one in a
  * different shape.
  */
+/** Housekeeping on the studio calendar — never a client. */
+const STUDIO_CHORE =
+  /\b(?:studio\s+(?:busy|blocked|hold)|put\s+studio|trash|recycle|maintenance|cleaning|closed|out of office|blocked|available)\b/i;
+
 export interface StudioSession {
   clientName: string | null;
   email: string | null;
@@ -493,8 +497,16 @@ export function parseStudioSession(ev: CalendarEventLike): StudioSession {
   const title = (ev.summary ?? "").trim();
   const body = htmlToText(ev.description ?? "");
 
-  // A hold, not a person: "Studio Busy", "Blocked", "Maintenance".
-  if (!body && !/:/.test(title)) {
+  /**
+   * The STUDIO calendar carries BOTH Acuity bookings and hand-typed entries.
+   *
+   * Requiring the Acuity shape ("Name: Session // $price") threw away
+   * "PG&E Headshots" — a real 234-photo job typed straight into the calendar —
+   * because it has no colon and no structured body. So the test is inverted:
+   * anything that is not a chore or a hold is a job, and the chores are a short,
+   * knowable list.
+   */
+  if (STUDIO_CHORE.test(title)) {
     return { clientName: null, email: null, sessionType: null, price: null, isBooking: false };
   }
 
@@ -513,11 +525,14 @@ export function parseStudioSession(ev: CalendarEventLike): StudioSession {
     : titleMatch?.[3] ? Number(titleMatch[3].replace(/[^0-9.]/g, "")) || null
     : null;
 
+  // A hand-typed entry has no colon, so the whole title is the client.
+  const resolvedName = clientName ?? (title || null);
+
   return {
-    clientName,
+    clientName: resolvedName,
     email: emailFromBody ? emailFromBody.toLowerCase() : null,
     sessionType,
     price,
-    isBooking: !!clientName && !/^studio\s+(busy|blocked|hold)/i.test(title),
+    isBooking: !!resolvedName,
   };
 }
