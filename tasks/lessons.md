@@ -698,3 +698,31 @@ those rows were fresh they also blocked the event's entire AI pipeline.
   `publishGallery` so the repair path could reuse it ran the whole ingest CLI on
   import, which printed usage and exited the caller. Guard with
   `import.meta.url === pathToFileURL(process.argv[1]).href`.
+
+## 75 — The driver's fidelity flag records what it ASKED for, not what it GOT (2026-08-14)
+
+`BoxWorks 2014 Headshots Day 3` was reported by the download driver as
+`fidelity: "fresh-high-res"`. The archive it produced was a **Web Size
+rendition** — every sampled frame uniformly 1920px wide.
+
+The collection's setting was correct (`high_res_download_size: 1`, Original,
+verified live and identical to its two sibling collections that both passed).
+The driver did POST `Download[download_size]=1`. Pixieset served a cached
+archive anyway — one a CLIENT had generated at Web Size before the setting was
+fixed.
+
+**So the flag is a record of intent, and intent is not evidence.** The only
+thing that knows what actually arrived is `sampleDimensions()` measuring pixels
+in the delivered ZIP. That guard rejected it and quarantined it; without the
+guard, an at-risk 2014 collection where Pixieset is the ONLY copy would have
+been archived permanently as half-resolution derivatives.
+
+**The general rule: when a remote system can serve you something cached, a
+request parameter is a hope, not a contract. Measure the artefact.**
+
+Corollary on how to read a MIXED sample: a rendition is UNIFORM. Two sibling
+collections shot the same week sampled at median 1844px and 2880px and both
+PASSED, because their widths varied (1844 / 2880 / 3840) — cropped headshot
+deliverables are legitimately small. Day 3 failed not because it was small but
+because it was *uniform*. Never judge fidelity on the median alone; judge it on
+the spread.
