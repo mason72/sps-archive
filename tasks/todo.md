@@ -1,5 +1,29 @@
 # Pixeltrunk - Build Plan
 
+## QUEUE as of 2026-08-13 (read `docs/SESSION-HANDOFF.md` first)
+
+1. **Pixieset migration** — 1,371 collections / ~1.58M photos, oldest first.
+   857 pre-2024 collections are the ONLY copy in existence. Perkin Elmer
+   (1,016 photos) is staged and verified and is the next ingest.
+   Blocking first:
+   - [ ] AI-index nudge cap is 25 events/night — a bulk import outruns it
+   - [ ] 30 collections have `high_res_download_size: 0`; High Resolution must
+         be enabled before they can be pulled at full fidelity
+2. **Event Intel roles** — 42 links pre-filled as `inferred`; Mason confirms in
+   `/intel`. Only confirmed roles count toward any statistic.
+3. **Three client names** undecidable from the corpus: episode1agency.com,
+   typeaevents.com, wallandceiling.org. Needs Mason.
+4. **Confirm card at upload** — the parser already runs over one gig; wire it
+   into upload. Needs `GOOGLE_CALENDAR_KEY` in Vercel.
+5. **Housekeeping** — delete the orphaned June 2026 service-account key; the
+   "SLC Recs from Cory" roster sheet still unimported (no header row).
+
+Done 2026-08-13: gallery naming convention + 15 renames; `/intel` pivot;
+metro-normalised cities; organisation display names; `/dev/*` closed in
+production; crew roles pre-filled with provenance.
+
+---
+
 ## NEXT: Route uploads into their planned section on arrival [deferred 2026-08-11]
 
 **Status: designed, deliberately not built.** Everything around it shipped; this is
