@@ -502,3 +502,51 @@ Split the two jobs Pixieset currently conflates:
 - The pipeline is a **resumable queue** (per-collection state machine), not an LLM loop.
   The agent builds and supervises; it is not the for-loop.
 - `.env.local` points at **production**. A bug in ingest writes to live customer data.
+
+---
+
+## Disk is the binding constraint on the LARGE collections (measured 2026-08-13)
+
+A collection cannot be verified until **every ZIP part is on disk at once** —
+`partsComplete()` requires the full set, and dedupe runs by basename across all
+parts and sets. So a collection's whole download must fit in free space
+simultaneously; it cannot be ingested part by part.
+
+**Measured basis:** Perkin Elmer Accelerate 2018 — 3,796,798,554 bytes for
+1,016 files = **3.74 MB/photo**. That is ONE 2018 event collection, so scaling
+it to 1.58M photos gives roughly **6 TB** as an order of magnitude, not a
+figure. Older collections are likely smaller per photo; do not plan capacity on
+this number without re-measuring across a few years.
+
+**Against ~32 GB free (disk 94% full):**
+
+| Group | Collections | Fit today | Too big | Largest blocked |
+|---|---|---|---|---|
+| At-risk (pre-2024, only copy) | 855 | **851** | 4 | 52 GB |
+| All queued | 1,369 | 1,351 | 18 | 128 GB |
+
+**The priority work is not blocked.** Oldest-first at-risk is 851 of 855
+collections. Handle those first and the disk question stays theoretical for a
+long time.
+
+**The four at-risk collections that need more room**, plus the 14 other large
+ones, need one of:
+- free space on the internal disk (Library/Developer holds ~13 GB of
+  DerivedData and simulator runtimes; `~/Projects` is ~28 GB)
+- an external drive, with `STAGING` in `watch.mjs` pointed at it
+- Pixieset set-by-set downloads instead of whole-collection, if the UI offers
+  it — this would sidestep the all-parts rule entirely and is worth checking
+  before buying hardware
+
+The largest is **Service Now SKO26** (34,274 photos ≈ 128 GB), which is 2026 and
+therefore NOT at risk — Pixieset is not the only copy.
+
+### Also learned here
+
+**`photoCount` is not the download's file count and must never be the
+verification denominator.** Pixieset reported 903 photos for Perkin Elmer; the
+ZIP holds **1,016 distinct filenames** across 7 sets. Not duplicates — 1,016
+unique basenames. Whatever `photoCount` counts, it is not "files you will
+receive", and it is wrong in the safe direction here (more arrived than
+promised). This is why `archive.mjs` treats a count mismatch as a `suspicious`
+flag rather than a hard failure; that call was right.
