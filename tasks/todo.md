@@ -3,12 +3,22 @@
 ## QUEUE as of 2026-08-13 (read `docs/SESSION-HANDOFF.md` first)
 
 1. **Pixieset migration** — 1,371 collections / ~1.58M photos, oldest first.
-   857 pre-2024 collections are the ONLY copy in existence. Perkin Elmer
-   (1,016 photos) is staged and verified and is the next ingest.
-   Blocking first:
-   - [ ] AI-index nudge cap is 25 events/night — a bulk import outruns it
+   857 pre-2024 collections are the ONLY copy in existence.
+   - [x] Perkin Elmer Accelerate 2018 ingested (1,016 photos, 7 sections),
+         published at `/gallery/fkT9K0N6GS`, ZIP reclaimed. **2 of 1,371 done.**
+   - [x] AI-index backstop fixed — was capped at 25/night AND selected them
+         from an unordered 5,000-row sample, which starved everything behind a
+         big import. Now a FIFO grouped query, `AI_INDEX_NUDGE_LIMIT` tunable.
+   - [ ] **Needs Mason's Chrome:** the download driver only runs in a real
+         logged-in session (Cloudflare). Everything below waits on that.
+   - [ ] `7733050` US Partner Lounge Headshots (2017, 3,002 photos, at-risk)
+         re-queued after its PIN-gate failure. Whether the PIN was actually
+         cleared is unverifiable offline — the retry IS the check.
    - [ ] 30 collections have `high_res_download_size: 0`; High Resolution must
          be enabled before they can be pulled at full fidelity
+   - [ ] **Disk:** 851 of 855 at-risk collections fit in ~32 GB free. 18 of all
+         1,369 do not (largest 128 GB, and a collection cannot be ingested
+         part-by-part). Not urgent — see `tasks/pixieset-migration.md`.
 2. **Event Intel roles** — 42 links pre-filled as `inferred`; Mason confirms in
    `/intel`. Only confirmed roles count toward any statistic.
 3. **Three client names** undecidable from the corpus: episode1agency.com,
