@@ -611,3 +611,36 @@ anywhere in the repo — applied by hand and never checked in. The repo could no
 have rebuilt the database. Migration 047 is both the fix and that function's
 first definition under version control. Worth an audit of what else was applied
 by hand: `list_migrations` against the live project vs `supabase/migrations/`.
+
+## 73 — Re-read the user's actual words before building the general version (2026-08-13)
+
+Mason said: *"add the year for annual **events** (eBay intern day, NASAI) and
+for **company shots** like PG&E I usually include the month and year (eg
+`// Jul 2026`) since we may do multiple shoots throughout the year."*
+
+I read the trailing clause as the rule and built recurrence detection — a helper
+that walked three calendars, 4,975 entries, and counted 3,239 client mentions to
+decide whether a client was "recurring". It was wrong in both directions on real
+data: Appfolio (two shoots a month apart) read as a one-off because recurrence
+was keyed on the gallery name rather than the client, and Clario got the wrong
+form because being shot once has nothing to do with being a shoot.
+
+The actual axis was in the sentence's nouns — **events** vs **shots** — and the
+gallery name answers it directly. `isCompanyShoot()` is nine lines and needs no
+corpus at all.
+
+**The rule:** when a stated preference has a *because* clause, the clause
+explains the rule, it is not the rule. Build against the nouns the user chose,
+and if the implementation needs a corpus walk to answer a question the user
+answered in one sentence, that is a signal the question was misread.
+
+**Corollary, and the reason this was caught:** run every heuristic over the real
+corpus before shipping it. The unit tests were green on the recurrence version —
+they encoded my misreading faithfully. The live run over 27 galleries surfaced
+four further defects nothing else would have found: sittings dated (the calendar
+keys on "Chris Barnet", the gallery is "Chris Barnet's Headshots"), internal
+buckets dated, `Lombardo` "corrected" to `Lombardo's` producing `Lombardo's's`,
+and `eBay HEADSHOTS` not registering as shouted — 10 uppercase of 13 letters is
+77%, under the 80% threshold, entirely because of eBay's mandated lowercase e.
+A brand's own casing is not evidence about the author's intent; exclude those
+tokens from the measurement, not just from the fix.
