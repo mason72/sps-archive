@@ -587,3 +587,55 @@ unique basenames. Whatever `photoCount` counts, it is not "files you will
 receive", and it is wrong in the safe direction here (more arrived than
 promised). This is why `archive.mjs` treats a count mismatch as a `suspicious`
 flag rather than a hard failure; that call was right.
+
+---
+
+## First driven batch — 2026-08-14
+
+Six collections downloaded, verified and ingested end to end, oldest-first from
+the at-risk set. **The loop is proven.**
+
+| Collection | Files | Median width | Fidelity |
+|---|---|---|---|
+| Microsoft Futures Houston | 40 / 40 | 5472px | fresh-high-res |
+| Microsoft Futures Indianapolis | 112 / 112 | 5760px | fresh-high-res |
+| DC – Microsoft Futures | 155 / 155 | 5760px | fresh-high-res |
+| Mother's Day at Terrapin Crossroads | 194 / 194 | 5472px | fresh-high-res |
+| Microsoft Futures Chicago | 177 / 177 | 5055px | fresh-high-res |
+| Microsoft Futures Portraits & Event Photography | 47 / 47 | 5148px | fresh-high-res |
+
+Every file count matched the picker's own expectation exactly, and every median
+width is far above the 2560px rendition threshold — these are originals, which
+is what the High Resolution fix was for. Ingest reported **0 failed** on each,
+confirming the EXIF/GPS split fix (lesson 74) holds on real data.
+
+### The PIN gate is NOT a migration blocker — measured, not assumed
+
+375 collections on the account still carry a download PIN (289,070 photos). The
+overlap with the KEEP queue is **zero**. The 2026-08-12 clearing run covered
+everything that matters; what remains pinned is all outside the migration set.
+
+That zero was checked against three positive controls rather than trusted,
+because an empty set intersection is indistinguishable from an id-format
+mismatch: both live-pinned collections appear in the pinned list and are absent
+from the queue, the unpinned one is the reverse, and 1,370 of 1,371 queue ids
+appear in the full inventory — so the id spaces demonstrably match.
+
+### Two mistakes worth not repeating
+
+1. **A slug taken from a truncated console column 404s.** `...photogr` instead
+   of `...photography` — the column was cut at 38 chars in a debug print. Read
+   identifiers from the data file, never from a formatted display.
+2. **Two of the eight jobs were sourced from the high-res list, not the KEEP
+   queue**, so they were never meant to be downloaded at all. Both happened to
+   be PIN-blocked, which briefly looked like a systemic blocker and was not.
+   Drive the queue; it is the list of what we are keeping.
+
+### Disk is now the binding constraint, in practice
+
+The watcher's floor fired at 24 GB: `⚠ below the 25 GB floor — stop requesting`.
+Ingested ZIPs move to `~/pixieset-staging/ingested/` and are NOT deleted, so the
+cycle is: download → verify → ingest → **verify in Pixeltrunk** → reclaim. All
+six were confirmed complete (image count, thumbnails, live share) before their
+archives were released. Sustained throughput needs headroom — see the disk
+section above.
