@@ -720,8 +720,11 @@ export function suggestEventName(
     date?: string | null;
     /** A studio sitting for one person — never gets a date suffix. */
     isIndividual?: boolean;
-    /** A client shot more than once, so the month matters as well as the year. */
-    recurringClient?: boolean;
+    /**
+     * Force the month-and-year form. Normally derived from the name — see
+     * `isCompanyShoot` — but a caller with better information can override.
+     */
+    companyShoot?: boolean;
   }
 ): NameSuggestion {
   const reasons: string[] = [];
@@ -859,7 +862,9 @@ export function suggestEventName(
     if (!Number.isNaN(d.getTime())) {
       const mon = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
       const yr = d.getUTCFullYear();
-      dateHint = gig.recurringClient ? `// ${mon} ${yr}` : `${yr}`;
+      dateHint = gig.companyShoot ?? isCompanyShoot(suggested)
+        ? `// ${mon} ${yr}`
+        : `${yr}`;
     }
   }
 
@@ -893,26 +898,36 @@ function smallEdit(a: string, b: string): number {
 }
 
 /**
- * Which clients we shoot more than once.
- *
- * The month only matters for a client we see repeatedly — "since we may do
- * multiple shoots throughout the year". A client shot once has no collision to
- * disambiguate and gets the year at most.
- *
- * Derived from the corpus, never a hand-kept list: a hand-kept list is correct
- * the day it is written and silently wrong from the next booking on.
+ * Event nouns. A gallery whose first segment ends in one of these is a NAMED
+ * EVENT, however many headshots were taken at it — "Island HQ Headshot Day" is
+ * a day, not a sitting.
  */
-export function buildRecurringClients(clients: (string | null | undefined)[]): Set<string> {
-  const counts = new Map<string, number>();
-  for (const c of clients) {
-    const key = recurringClientKey(c);
-    if (!key) continue;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return new Set([...counts].filter(([, n]) => n >= 2).map(([k]) => k));
-}
+const EVENT_NOUN =
+  /\b(?:day|summit|festival|conference|show|meeting|party|gala|awards?|expo|convention|retreat|kickoff|sko|reception|dinner|launch|school|week|night|tour|open|classic|invitational|series)\b$/i;
 
-/** Corpus key for `buildRecurringClients`. One normalisation, one home. */
-export function recurringClientKey(client: string | null | undefined): string {
-  return (client ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** What a company shoot is called when it is not called anything. */
+const SHOOT_NOUN = /\b(?:headshots?|portraits?|photos?|photo booth|booth|sessions?)$/i;
+
+/**
+ * Is this a company shoot rather than a named event?
+ *
+ * Mason's rule, in his words: "add the year for annual EVENTS (eBay intern day,
+ * NASAI) and for COMPANY SHOTS like PG&E I usually include the month and year
+ * (eg // Jul 2026) since we may do multiple shoots throughout the year."
+ *
+ * So the axis is what the thing IS, not how often it recurs — which is what the
+ * first version of this guessed, by counting client mentions across the corpus.
+ * That got Appfolio wrong (two shoots a month apart, keyed on the gallery name
+ * rather than the client, so it read as a one-off) and it got Clario wrong in
+ * the other direction. The name answers the question directly and needs no
+ * corpus at all.
+ *
+ * Only the FIRST SEGMENT is read: "Appfolio Headshots // Goleta office" is a
+ * shoot with a location suffix, and the suffix is not what it is.
+ */
+export function isCompanyShoot(name: string): boolean {
+  const head = name.split(/\s*(?:\/\/|\|)\s*/)[0].trim().replace(/[^A-Za-z0-9&'\s]/g, "").trim();
+  if (!head) return false;
+  if (EVENT_NOUN.test(head)) return false;
+  return SHOOT_NOUN.test(head);
 }

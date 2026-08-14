@@ -11,18 +11,17 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  buildRecurringClients,
   classifyGig,
   extractContactEmails,
   groupIntoGigs,
   htmlToText,
+  isCompanyShoot,
   isShoutedName,
   normaliseClient,
   parseDescriptionSections,
   parseGig,
   parseStudioSession,
   parseVenue,
-  recurringClientKey,
   suggestEventName,
   titleCaseEventName,
   venueKey,
@@ -474,7 +473,7 @@ describe("Mason's dating convention", () => {
   it("offers month and year for a client shot repeatedly", () => {
     // "since we may do multiple shoots throughout the year" — a bare company
     // name collides with itself the second time.
-    const s = suggestEventName("PG&E Headshots", { client: "PG&E Headshots", date: "2026-07-01", recurringClient: true });
+    const s = suggestEventName("PG&E Headshots", { client: "PG&E Headshots", date: "2026-07-01", companyShoot: true });
     expect(s.dateHint).toBe("// Jul 2026");
   });
 
@@ -523,14 +522,6 @@ describe("individual sitting vs company shoot on the studio calendar", () => {
     const s = parseStudioSession({ summary: "Studio Busy", description: "" });
     expect(s.isBooking).toBe(false);
     expect(s.isIndividual).toBe(false);
-  });
-});
-
-describe("buildRecurringClients", () => {
-  it("only clients seen twice or more", () => {
-    const set = buildRecurringClients(["PG&E Headshots", "PG&E  headshots", "Clario", null, ""]);
-    expect(set.has(recurringClientKey("PG&E Headshots"))).toBe(true);
-    expect(set.has(recurringClientKey("Clario"))).toBe(false);
   });
 });
 
@@ -598,5 +589,30 @@ describe("brand spelling applies without shouting", () => {
       date: "2026-08-05",
     });
     expect(s.suggested).toBe("Appfolio Headshots // Goleta office");
+  });
+});
+
+describe("named event vs company shoot", () => {
+  it("a shoot is what it is called when it is not called anything", () => {
+    for (const n of ["PG&E Headshots", "Clario Headshots", "eBay Headshots",
+                     "Appfolio Headshots // Goleta office"]) {
+      expect(isCompanyShoot(n)).toBe(true);
+    }
+  });
+
+  it("an event noun wins, however many headshots were taken there", () => {
+    // "Island HQ Headshot Day" is a day, not a sitting.
+    for (const n of ["Island HQ Headshot Day", "What If? Summit", "Future of Us Festival",
+                     "Jordan x Kids Foot Locker Back to School // NYC",
+                     "CollegeBoard // A Dream Deferred HBCU"]) {
+      expect(isCompanyShoot(n)).toBe(false);
+    }
+  });
+
+  it("drives the two date forms", () => {
+    expect(suggestEventName("Clario Headshots", { client: "Clario Headshots", date: "2026-06-18" }).dateHint)
+      .toBe("// Jun 2026");
+    expect(suggestEventName("What If? Summit", { client: "What If? Summit", date: "2026-08-05" }).dateHint)
+      .toBe("2026");
   });
 });
