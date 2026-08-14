@@ -15,6 +15,11 @@
  * Every extraction carries what it was derived from so the confirm card can show
  * its working, and a wrong guess is visible rather than silently authoritative.
  */
+// The ONE definition of "does this read as a person's name". Imported rather
+// than restated: this session already shipped two competing definitions of "is
+// this shouting", and the strict one was defeated by the lowercase e in eBay.
+// The chain below is type-only at runtime, so this file stays effectively pure.
+import { looksLikePersonName, NON_PERSON_GALLERIES } from "@/lib/people/index-people";
 
 /** Shapes we need from a Google Calendar event. Structural on purpose. */
 export interface CalendarEventLike {
@@ -497,6 +502,18 @@ export interface StudioSession {
   price: number | null;
   /** "Studio Busy" and similar holds are not bookings. */
   isBooking: boolean;
+  /**
+   * One person sitting for their own headshots, as opposed to a company shoot
+   * booked into the studio. Drives the naming convention: a person is not an
+   * annual event and never gets a date suffix.
+   *
+   * TWO signals, because either alone is wrong. `looksLikePersonName` calls
+   * "Clario Headshots" a person — two capitalised words with no digits is
+   * exactly the shape of a name. The Acuity booking shape is what actually
+   * separates them: a real sitting has a price and a session type, and every
+   * company entry on this calendar was hand-typed with neither.
+   */
+  isIndividual: boolean;
 }
 
 const ACUITY_FIELD = (body: string, label: string): string | null => {
@@ -519,7 +536,10 @@ export function parseStudioSession(ev: CalendarEventLike): StudioSession {
    * knowable list.
    */
   if (STUDIO_CHORE.test(title)) {
-    return { clientName: null, email: null, sessionType: null, price: null, isBooking: false };
+    return {
+      clientName: null, email: null, sessionType: null, price: null,
+      isBooking: false, isIndividual: false,
+    };
   }
 
   // Prefer the structured Acuity body; the title is a formatted summary of it.
@@ -546,6 +566,10 @@ export function parseStudioSession(ev: CalendarEventLike): StudioSession {
     sessionType,
     price,
     isBooking: !!resolvedName,
+    isIndividual:
+      !!resolvedName &&
+      looksLikePersonName(resolvedName) &&
+      (price != null || sessionType != null),
   };
 }
 
@@ -555,6 +579,9 @@ export interface NameSuggestion {
   suggested: string;
   /** Why it differs — shown next to the Accept button so the change is legible. */
   reasons: string[];
+  /** A date suffix in Mason's convention, when the name carries none. Offered
+   *  as a hint, like the city — see `dateHint` below for why it is not applied. */
+  dateHint?: string | null;
   /** The city, when the calendar knows one the name does not already carry.
    *  Offered as a hint the caller may apply — never folded into the name, since
    *  whether a gallery name carries its city is Mason's convention to set. */
@@ -597,10 +624,25 @@ const BRAND_CASE: Record<string, string> = {
  * requiring one genuinely shouted word so "PG&E" alone does not qualify.
  */
 export function isShoutedName(raw: string): boolean {
-  const letters = raw.replace(/[^A-Za-z]/g, "");
+  /**
+   * Brand tokens are excluded from the measurement, not just from the fix.
+   *
+   * "eBay HEADSHOTS" is 10 uppercase letters out of 13 — 77%, under the
+   * threshold — purely because eBay's brand carries a lowercase e. The name is
+   * obviously shouting; one lowercase letter that the company itself mandates
+   * should not be evidence against that. Strip the tokens whose case is not the
+   * author's choice, then measure what is left.
+   */
+  const measured = raw
+    .split(/\s+/)
+    .filter((w) => !BRAND_CASE[w.replace(/[^A-Za-z&]/g, "").toLowerCase()])
+    .join(" ");
+  const subject = measured.replace(/[^A-Za-z]/g, "") ? measured : raw;
+
+  const letters = subject.replace(/[^A-Za-z]/g, "");
   if (letters.length <= 3) return false;
-  const upper = raw.replace(/[^A-Z]/g, "").length;
-  return upper / letters.length >= 0.8 && /\b[A-Z]{4,}\b/.test(raw);
+  const upper = subject.replace(/[^A-Z]/g, "").length;
+  return upper / letters.length >= 0.8 && /\b[A-Z]{4,}\b/.test(subject);
 }
 
 /**
@@ -671,7 +713,16 @@ export function titleCaseEventName(raw: string): string {
  */
 export function suggestEventName(
   currentName: string,
-  gig: { client?: string | null; city?: string | null; venueCity?: string | null; date?: string | null }
+  gig: {
+    client?: string | null;
+    city?: string | null;
+    venueCity?: string | null;
+    date?: string | null;
+    /** A studio sitting for one person — never gets a date suffix. */
+    isIndividual?: boolean;
+    /** A client shot more than once, so the month matters as well as the year. */
+    recurringClient?: boolean;
+  }
 ): NameSuggestion {
   const reasons: string[] = [];
   const current = currentName.trim();
@@ -688,6 +739,28 @@ export function suggestEventName(
   // Always start from HIS wording, merely de-shouted.
   let suggested = isShouted ? titleCaseEventName(current) : current;
   if (isShouted) reasons.push("was all caps");
+
+  /**
+   * Brand casing applies whether or not the name shouts.
+   *
+   * It rode along inside `titleCaseEventName`, so it only ever fired on an
+   * all-caps name and "CollegeBoard // A Dream Deferred HBCU" kept the run-on.
+   * But how a company spells its own name is a SPELLING fact — "College Board
+   * is two names" (Mason, 2026-08-13) — and spelling is exactly what this
+   * function is allowed to touch. Wording stays his; orthography does not.
+   */
+  const branded = suggested
+    .split(/\s+/)
+    .map((w) => {
+      const bare = w.replace(/[^A-Za-z&]/g, "");
+      const fix = BRAND_CASE[bare.toLowerCase()];
+      return fix && fix !== bare ? w.replace(bare, fix) : w;
+    })
+    .join(" ");
+  if (branded !== suggested) {
+    reasons.push("brand spelling");
+    suggested = branded;
+  }
 
   /**
    * Spelling rescue: only for a name the calendar clearly holds correctly.
@@ -718,6 +791,11 @@ export function suggestEventName(
     const clientWords = client.split(/\s+/)
       .filter((w) => /^[A-Z]/.test(w))
       .map((w) => w.replace(/[^A-Za-z'-]/g, ""))
+      // Strip the possessive from BOTH sides. The comparison below already
+      // strips it from the gallery's word; leaving it on the calendar's word
+      // made "Lombardo" an edit-distance-2 match for "Lombardo's" and produced
+      // "Nick Lombardo's's Headshots". A possessive is never a misspelling.
+      .map((w) => w.replace(/['\u2019]s$/i, ""))
       .filter((w) => w.length >= 6 && !COMMON_GIG_WORD.has(w.toLowerCase()));
 
     suggested = suggested
@@ -741,6 +819,50 @@ export function suggestEventName(
       .join(" ");
   }
 
+  /**
+   * Mason's dating convention (2026-08-13), visible across his existing names:
+   *
+   *   annual events       → the year        "Hotel Data Conference 2026"
+   *   recurring companies → month and year  "Appfolio // Jul 2026"
+   *   individual sittings → nothing         "Chris Barnet's Headshots"
+   *
+   * "since we may do multiple shoots throughout the year" — a company name with
+   * no date collides with itself the second time you shoot them.
+   *
+   * A HINT, not an edit. Which bucket a gallery belongs in is a judgement about
+   * the client relationship, and guessing it wrong on 1,371 imports would be
+   * worse than leaving the name alone. `isIndividual` is the one part that IS
+   * knowable: a studio sitting is a person, and a person is not an annual event.
+   */
+  let dateHint: string | null = null;
+  const alreadyDated = /\b(19|20)\d{2}\b|\b\d{2}\b\s*$/.test(suggested);
+
+  /**
+   * A possessive means the gallery belongs to a PERSON — "Chris Barnet's
+   * Headshots", "Nachi's Headshots". Read from the name itself rather than only
+   * from `gig.isIndividual`, because the calendar flag is keyed on the calendar's
+   * client ("Chris Barnet") and the gallery is named for the shoot ("Chris
+   * Barnet's Headshots"); the lookup misses and every sitting gets dated.
+   * The name carries the signal on its own, so use it.
+   */
+  const possessive = /^(.+?)['’]s\b/.exec(suggested);
+  const isPersonal =
+    gig.isIndividual === true ||
+    (!!possessive && !NON_PERSON_GALLERIES.has(possessive[1].trim()));
+
+  // Internal buckets are not gigs and have no date to carry. Same list the
+  // people index already excludes, exported rather than restated.
+  const isInternal = NON_PERSON_GALLERIES.has(suggested.trim());
+
+  if (gig.date && !alreadyDated && !isPersonal && !isInternal) {
+    const d = new Date(`${gig.date}T12:00:00Z`);
+    if (!Number.isNaN(d.getTime())) {
+      const mon = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+      const yr = d.getUTCFullYear();
+      dateHint = gig.recurringClient ? `// ${mon} ${yr}` : `${yr}`;
+    }
+  }
+
   const cityHint = (gig.city ?? gig.venueCity ?? "").trim() || null;
   const saysCity =
     cityHint && new RegExp(`\\b${cityHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(suggested);
@@ -750,6 +872,7 @@ export function suggestEventName(
   return {
     suggested,
     reasons,
+    dateHint,
     cityHint: saysCity ? null : cityHint,
     worthChanging: suggested !== current,
   };
@@ -767,4 +890,29 @@ function smallEdit(a: string, b: string): number {
     prev = cur;
   }
   return prev[b.length];
+}
+
+/**
+ * Which clients we shoot more than once.
+ *
+ * The month only matters for a client we see repeatedly — "since we may do
+ * multiple shoots throughout the year". A client shot once has no collision to
+ * disambiguate and gets the year at most.
+ *
+ * Derived from the corpus, never a hand-kept list: a hand-kept list is correct
+ * the day it is written and silently wrong from the next booking on.
+ */
+export function buildRecurringClients(clients: (string | null | undefined)[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const c of clients) {
+    const key = recurringClientKey(c);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, n]) => n >= 2).map(([k]) => k));
+}
+
+/** Corpus key for `buildRecurringClients`. One normalisation, one home. */
+export function recurringClientKey(client: string | null | undefined): string {
+  return (client ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }

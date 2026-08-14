@@ -24,7 +24,7 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
  * which otherwise dominate the leaderboard — the first draft of this query
  * reported them as the four most-photographed "people" in the archive.
  */
-const NON_PERSON_GALLERIES = new Set([
+export const NON_PERSON_GALLERIES = new Set([
   "TDP Website",
   "TDP Work",
   "Two Dudes Sample Images",

@@ -11,18 +11,21 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  parseGig,
+  buildRecurringClients,
   classifyGig,
-  groupIntoGigs,
-  parseDescriptionSections,
   extractContactEmails,
-  normaliseClient,
+  groupIntoGigs,
   htmlToText,
-  parseVenue,
-  venueKey,
+  isShoutedName,
+  normaliseClient,
+  parseDescriptionSections,
+  parseGig,
   parseStudioSession,
+  parseVenue,
+  recurringClientKey,
   suggestEventName,
   titleCaseEventName,
+  venueKey,
 } from "./parse-calendar";
 
 describe("title parsing", () => {
@@ -459,5 +462,141 @@ describe("wording is Mason's; only spelling is the calendar's", () => {
   it("offers nothing when the result equals the input", () => {
     const s = suggestEventName("DAIS 26", { client: "DAIS 26" });
     expect(s.worthChanging).toBe(false);
+  });
+});
+
+describe("Mason's dating convention", () => {
+  it("offers the year for an annual event", () => {
+    const s = suggestEventName("eBay National Interns Day", { client: "ebay Intern Photo Booth", date: "2026-07-30" });
+    expect(s.dateHint).toBe("2026");
+  });
+
+  it("offers month and year for a client shot repeatedly", () => {
+    // "since we may do multiple shoots throughout the year" — a bare company
+    // name collides with itself the second time.
+    const s = suggestEventName("PG&E Headshots", { client: "PG&E Headshots", date: "2026-07-01", recurringClient: true });
+    expect(s.dateHint).toBe("// Jul 2026");
+  });
+
+  it("offers nothing for an individual sitting", () => {
+    // A person is not an annual event.
+    const s = suggestEventName("Chris Barnet's Headshots", { client: "Chris Barnet", date: "2026-07-10", isIndividual: true });
+    expect(s.dateHint).toBeNull();
+  });
+
+  it("offers nothing when the name is already dated", () => {
+    for (const name of ["Hotel Data Conference 2026", "Appfolio // Jul 2026", "DAIS 26"]) {
+      expect(suggestEventName(name, { client: name, date: "2026-06-15" }).dateHint).toBeNull();
+    }
+  });
+
+  it("never edits the date in — the bucket is a judgement, not a fact", () => {
+    const s = suggestEventName("Clario Headshots", { client: "Clario Headshots", date: "2026-06-17" });
+    expect(s.suggested).toBe("Clario Headshots");
+  });
+});
+
+describe("individual sitting vs company shoot on the studio calendar", () => {
+  const acuity = (name: string, type: string, price: string) => ({
+    summary: `${name}: ${type} // $${price} (Two Dudes Photo)`,
+    description: `Name: ${name}\nEmail: someone@example.com\nPrice: $${price}`,
+  });
+
+  it("an Acuity sitting is an individual", () => {
+    for (const n of ["Nick Lombardo", "Chris Barnet"]) {
+      const s = parseStudioSession(acuity(n, "Standard Headshot Session", "375"));
+      expect(s.isIndividual).toBe(true);
+    }
+  });
+
+  it("a hand-typed company entry is NOT, even when it reads like a name", () => {
+    // "Clario Headshots" passes looksLikePersonName on its own — two
+    // capitalised words, no digits. The missing Acuity shape is what saves it.
+    for (const title of ["PG&E Headshots", "Clario Headshots"]) {
+      const s = parseStudioSession({ summary: title, description: "" });
+      expect(s.isBooking).toBe(true);
+      expect(s.isIndividual).toBe(false);
+    }
+  });
+
+  it("a hold is neither", () => {
+    const s = parseStudioSession({ summary: "Studio Busy", description: "" });
+    expect(s.isBooking).toBe(false);
+    expect(s.isIndividual).toBe(false);
+  });
+});
+
+describe("buildRecurringClients", () => {
+  it("only clients seen twice or more", () => {
+    const set = buildRecurringClients(["PG&E Headshots", "PG&E  headshots", "Clario", null, ""]);
+    expect(set.has(recurringClientKey("PG&E Headshots"))).toBe(true);
+    expect(set.has(recurringClientKey("Clario"))).toBe(false);
+  });
+});
+
+describe("date hint suppression", () => {
+  const at = (name: string) => suggestEventName(name, { client: name, date: "2026-07-15" });
+
+  it("a possessive names a person, so no date", () => {
+    // The calendar flag is keyed on "Chris Barnet"; the gallery is "Chris
+    // Barnet's Headshots". The name has to carry this on its own.
+    for (const n of ["Chris Barnet's Headshots", "Nachi's Headshots", "Nick Lombardo's Headshots"]) {
+      expect(at(n).dateHint).toBeNull();
+    }
+  });
+
+  it("internal buckets get nothing", () => {
+    for (const n of ["TDP Website", "TDP Work", "Two Dudes Samples", "Two Dudes Sample Images"]) {
+      expect(at(n).dateHint).toBeNull();
+    }
+  });
+
+  it("a real client still gets one", () => {
+    expect(at("Island HQ Headshot Day").dateHint).toBe("2026");
+  });
+});
+
+describe("suggester defects found by the live corpus (2026-08-13)", () => {
+  it("a possessive is never a misspelling", () => {
+    // Produced "Nick Lombardo's's Headshots" — the calendar word carried the
+    // possessive, so "Lombardo" read as an edit-distance-2 typo for it.
+    const s = suggestEventName("Nick Lombardo's Headshots", {
+      client: "Nick Lombardo's Headshots",
+      date: "2026-06-19",
+    });
+    expect(s.suggested).toBe("Nick Lombardo's Headshots");
+    expect(s.worthChanging).toBe(false);
+  });
+
+  it("a brand's mandated lowercase is not evidence against shouting", () => {
+    // "eBay HEADSHOTS" measured 77% uppercase and slipped under the threshold
+    // solely because of eBay's lowercase e.
+    expect(isShoutedName("eBay HEADSHOTS")).toBe(true);
+    expect(titleCaseEventName("eBay HEADSHOTS")).toBe("eBay Headshots");
+  });
+
+  it("still does not call a genuinely mixed-case name shouting", () => {
+    expect(isShoutedName("eBay Intern Photo Booth")).toBe(false);
+    expect(isShoutedName("Appfolio Headshots // Goleta office")).toBe(false);
+  });
+});
+
+describe("brand spelling applies without shouting", () => {
+  it("fixes a run-on brand in a mixed-case name", () => {
+    const s = suggestEventName("CollegeBoard // A Dream Deferred HBCU", {
+      client: "CollegeBoard // A Dream Deferred HBCU",
+      date: "2026-03-17",
+    });
+    expect(s.suggested).toBe("College Board // A Dream Deferred HBCU");
+  });
+
+  it("leaves his wording alone while fixing the brand", () => {
+    // Appfolio is deliberately absent from BRAND_CASE — the company writes
+    // AppFolio, Mason writes Appfolio, and his house style wins.
+    const s = suggestEventName("Appfolio Headshots // Goleta office", {
+      client: "Appfolio Headshots",
+      date: "2026-08-05",
+    });
+    expect(s.suggested).toBe("Appfolio Headshots // Goleta office");
   });
 });
