@@ -604,6 +604,11 @@ const KNOWN_UPPER = /^(?:SKO|HDC|NYC|LA|SF|DC|SLC|MUA|DT|CEO|CTO|EOY|BBQ|VIP|AI|
 const MINOR = new Set(["a","an","the","and","or","but","for","of","in","on","at","to","by","vs","with"]);
 
 /** Brands whose own casing is the correct casing. */
+/**
+ * How companies spell their own names. Keyed on the letters-only lowercase form
+ * so a domain stem ("collegeboard") and a written word ("CollegeBoard") reach
+ * the same entry.
+ */
 const BRAND_CASE: Record<string, string> = {
   ebay: "eBay", iphone: "iPhone", ipad: "iPad", youtube: "YouTube",
   linkedin: "LinkedIn", tiktok: "TikTok", docusign: "DocuSign",
@@ -613,6 +618,20 @@ const BRAND_CASE: Record<string, string> = {
   collegeboard: "College Board", purestorage: "Pure Storage",
   "pg&e": "PG&E", sonos: "Sonos", paypal: "PayPal",
 };
+
+/**
+ * Brand lookup that also tries the letters-only form, so an org domain stem
+ * ("pge" from pge.com) finds the entry keyed "pg&e".
+ */
+export function BRAND_CASE_LOOKUP(raw: string): string | null {
+  const k = raw.trim().toLowerCase();
+  if (BRAND_CASE[k]) return BRAND_CASE[k];
+  const bare = k.replace(/[^a-z0-9]/g, "");
+  for (const [key, val] of Object.entries(BRAND_CASE)) {
+    if (key.replace(/[^a-z0-9]/g, "") === bare) return val;
+  }
+  return null;
+}
 
 /**
  * Is this name mostly shouting?

@@ -105,6 +105,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  /**
+   * A local `next dev` and nothing else.
+   *
+   * Deliberately NOT `VERCEL_ENV !== "production"`: that reads as the same
+   * thing and fails OPEN, because an unset VERCEL_ENV — any runtime that is not
+   * Vercel — satisfies it. NODE_ENV is "production" in every built deployment
+   * and "development" only under `next dev`, so an unset or unexpected value
+   * leaves the playground hidden.
+   *
+   * Preview deploys are excluded too. Their URLs are public, and there is
+   * nothing on /dev worth the surface.
+   */
+  const isDevEnv = process.env.NODE_ENV === "development";
+
   // Define public routes
   const isPublic =
     pathname === "/" ||
@@ -141,7 +155,17 @@ export async function middleware(request: NextRequest) {
     // person it exists for. The route itself rate-limits, verifies the hashed
     // token, and requires a live share.
     pathname.startsWith("/api/guest-list/") ||
-    pathname.startsWith("/dev");
+    // Design playgrounds and rendering probes. PUBLIC ONLY OFF PRODUCTION.
+    //
+    // This was an unconditional allowlist, so app.pixeltrunk.com/dev/* answered
+    // 200 to anyone (verified 2026-08-13). The pages there today are harmless —
+    // a button playground, an email-HTML probe — but the surface is not: every
+    // future /dev page inherits "reachable by the whole internet", and a
+    // playground is exactly where someone renders real data to look at it.
+    //
+    // Gated on the ENVIRONMENT, never on the absence of a session, so the
+    // condition cannot be quietly true in production.
+    (isDevEnv && pathname.startsWith("/dev"));
 
   // Redirect unauthenticated users to login
   if (!user && !isPublic) {
