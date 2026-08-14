@@ -296,20 +296,57 @@ Unblocked for this repo by adding `mcp__claude-in-chrome__javascript_tool` to
 `.claude/settings.local.json`. The BACKUP phase was never blocked — only the
 destructive one, which is the right split.
 
-### ⚠️ `high_res_download_size` is per-collection and "High Resolution" is not always original
+### ✅ `high_res_download_size` — RESOLVED 2026-08-14, and the old note here was wrong
 
 The Download Settings pane offers High Resolution = **Original** or **3600px**. A
 collection set to 3600px hands back downsampled files while still calling them High
 Resolution — the fidelity guard would NOT catch it (3600 > the 2560 rendition
-threshold, and correctly so). Audited across all 1,763 (2026-08-12): **1,733 read `high_res_download_size: 1`
-(Original) and 30 read `0`** — high-res not offered at all, so those serve Web Size
-only. They cluster in 2014 and 2017, i.e. inside the at-risk set, and 30 of them are
-otherwise downloadable. Each needs its High Resolution setting turned on before it is
-pulled, or it archives derivatives. The width guard catches them either way, which is
-the point of having it — but catching them at verification wastes a download, so fix
-the setting first. Web Size likewise varies per collection (2048px on `nachisheadshots`,
-1024px here), which is why the guard keys on uniform narrow width rather than a
-specific number.
+threshold, and correctly so).
+
+**The field is an ENUM, not a boolean**, which the earlier note here got wrong in
+both directions. Decoded from a live capture:
+
+| value | meaning |
+|---|---|
+| `high_res_download_size: 1` | Original |
+| `high_res_download_size: 0` | 3600px **or** High Resolution switched off entirely |
+
+`download_size` is the discriminator — it is literally
+`"{high_res_code},{web_code}"`, and collapses to just `"{web_code}"` when High
+Resolution is unchecked. Web codes seen: `2` = 1024px, `4` = 2048px. (Pixieset
+notes 2048px web is only supported for collections created after 2016-08-02.)
+
+So the 30 collections reading `0` were **two different states**:
+- 25 with High Resolution ON at 3600px (`ds` = `"0,2"` / `"1,2"`)
+- 5 with High Resolution OFF entirely (`ds` = `"4"`), serving Web Size only
+
+**All 30 are now set to Original** (2026-08-14), preserving each collection's own
+web size rather than flattening them. Verified four ways: the PATCH response, a
+re-read of `before_download_settings`, an independent sweep of all 1,762
+collections via `dashboard_listings` (0 remaining at `0`), and a visual check of
+the hardest case.
+
+#### The write contract
+
+```
+PATCH /api/v1/collections/{id}/update_download_size
+Content-Type: application/json
+X-CSRF-TOKEN: <from <meta name="csrf-token">>      ← required; there is NO XSRF-TOKEN cookie
+body: {"id": <id>, "download_size": [<high_res_code>, <web_code>]}
+```
+
+Without the CSRF header this returns **419 CSRF token mismatch**. The token is in
+the meta tag, not a cookie — the usual Laravel `XSRF-TOKEN` cookie is absent here.
+
+#### Two traps worth keeping
+
+- **The settings page layout SHIFTS between collections** (an extra note line for
+  pre-2016 galleries moves the radios ~6px). Coordinates captured on one
+  collection miss on another. Locate per page, or drive the API.
+- **Two async sweeps writing to the same `window` global interleave.** Reassigning
+  the global does not stop the earlier loop — it just starts appending to the new
+  array, and the result silently mixes both runs. Guard with a run counter and
+  bail when superseded.
 
 ### Corrections to the wire contract (probed live 2026-08-12, second pass)
 
