@@ -20,6 +20,7 @@ import {
   htmlToText,
   parseVenue,
   venueKey,
+  parseStudioSession,
 } from "./parse-calendar";
 
 describe("title parsing", () => {
@@ -296,5 +297,40 @@ describe("venue parsing — every fixture a real calendar location", () => {
   it("returns null for nothing at all", () => {
     expect(parseVenue(null)).toBeNull();
     expect(parseVenue("")).toBeNull();
+  });
+});
+
+describe("studio sessions — a third format the gig parser cannot read", () => {
+  const nick = {
+    summary: "Nick Lombardo: Standard Headshot Session // $375 (Two Dudes Photo)",
+    location: "Two Dudes Photo",
+    description:
+      "June 19, 2026 9:00am PDT\nCalendar: Two Dudes Photo\nName: Nick Lombardo\n" +
+      "Phone: +12039801010\nEmail: nicholas.lombardo12@gmail.com\nPrice: $375.00\n",
+  };
+
+  it("reads the client, email, session type and price", () => {
+    const s = parseStudioSession(nick);
+    expect(s.clientName).toBe("Nick Lombardo");
+    expect(s.email).toBe("nicholas.lombardo12@gmail.com");
+    expect(s.sessionType).toBe("Standard Headshot Session");
+    expect(s.price).toBe(375);
+    expect(s.isBooking).toBe(true);
+  });
+
+  it("falls back to the title when there is no Acuity body", () => {
+    const s = parseStudioSession({ summary: "Chris Barnet: Standard Headshot Session // $375" });
+    expect(s.clientName).toBe("Chris Barnet");
+    expect(s.price).toBe(375);
+  });
+
+  it("does not treat a studio hold as a booking", () => {
+    // "Studio Busy" is a block, and counting it as a client would invent one.
+    expect(parseStudioSession({ summary: "Studio Busy" }).isBooking).toBe(false);
+  });
+
+  it("the gig parser finds no client here, which is why this exists", () => {
+    // Demonstrates the gap rather than asserting it in prose.
+    expect(parseGig(nick).titleCrew).toEqual([]);
   });
 });

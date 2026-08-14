@@ -455,3 +455,69 @@ export function venueKey(v: ParsedVenue): string {
   const base = v.name ?? v.street ?? v.raw;
   return `${base.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${(v.city ?? "").toLowerCase()}`;
 }
+
+// ── studio sessions ─────────────────────────────────────────────────────────
+
+/**
+ * The STUDIO calendar is a THIRD format, and nothing above parses it.
+ *
+ * In-studio headshots are booked through Squarespace/Acuity, so the entry looks
+ * nothing like a gig:
+ *
+ *   summary:     Nick Lombardo: Standard Headshot Session // $375 (Two Dudes Photo)
+ *   location:    Two Dudes Photo
+ *   description: Name: Nick Lombardo / Phone: … / Email: … / Price: $375.00
+ *
+ * There is no crew segment, no client company, and no attendees — the "client"
+ * is an individual and the venue is always the studio. Feeding these through
+ * `parseGig` yields nothing usable, which is why four of Mason's galleries
+ * looked absent from the calendar when they were simply on a different one in a
+ * different shape.
+ */
+export interface StudioSession {
+  clientName: string | null;
+  email: string | null;
+  sessionType: string | null;
+  price: number | null;
+  /** "Studio Busy" and similar holds are not bookings. */
+  isBooking: boolean;
+}
+
+const ACUITY_FIELD = (body: string, label: string): string | null => {
+  const re = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, "im");
+  const m = re.exec(body);
+  return m ? m[1].trim() || null : null;
+};
+
+export function parseStudioSession(ev: CalendarEventLike): StudioSession {
+  const title = (ev.summary ?? "").trim();
+  const body = htmlToText(ev.description ?? "");
+
+  // A hold, not a person: "Studio Busy", "Blocked", "Maintenance".
+  if (!body && !/:/.test(title)) {
+    return { clientName: null, email: null, sessionType: null, price: null, isBooking: false };
+  }
+
+  // Prefer the structured Acuity body; the title is a formatted summary of it.
+  const nameFromBody = ACUITY_FIELD(body, "Name");
+  const emailFromBody = ACUITY_FIELD(body, "Email");
+  const priceRaw = ACUITY_FIELD(body, "Price");
+
+  // "Nick Lombardo: Standard Headshot Session // $375 (Two Dudes Photo)"
+  const titleMatch = /^(.+?):\s*(.+?)(?:\s*\/\/\s*\$?([\d.,]+))?(?:\s*\(.*\))?$/.exec(title);
+
+  const clientName = nameFromBody ?? titleMatch?.[1]?.trim() ?? null;
+  const sessionType = titleMatch?.[2]?.replace(/\s*\/\/.*$/, "").trim() ?? null;
+  const price =
+    priceRaw ? Number(priceRaw.replace(/[^0-9.]/g, "")) || null
+    : titleMatch?.[3] ? Number(titleMatch[3].replace(/[^0-9.]/g, "")) || null
+    : null;
+
+  return {
+    clientName,
+    email: emailFromBody ? emailFromBody.toLowerCase() : null,
+    sessionType,
+    price,
+    isBooking: !!clientName && !/^studio\s+(busy|blocked|hold)/i.test(title),
+  };
+}
