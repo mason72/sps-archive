@@ -388,3 +388,64 @@ needed.
   Decide after step 4, not before.
 - Do we want the Two Dudes clients app / invoice history as a second source for the
   client dimension? Mason mentioned it; not yet examined.
+
+---
+
+## Built 2026-08-13 — `/intel`, the pivot
+
+`src/app/intel/` (page + `IntelBoard`), reading `buildIntelIndex()`
+(`src/lib/event-intel/index-intel.ts`). Fixture playground at `/dev/intel`,
+dev-only.
+
+**One fact table, four axes.** The event — with its venue, crew and
+organisations attached — read along people / venues / cities / clients. This is
+what makes a person's venues, a venue's crew and a city's clients incapable of
+disagreeing: they are the same pass. `scripts/triage/intel-probe.ts` asserts the
+person↔venue reciprocity rather than assuming it.
+
+It reads whole tables and joins in memory on purpose (89 crew, 42 links, 23 intel
+rows). At this size that is six round trips instead of four per axis. If it ever
+reaches thousands of gigs the answer is a materialised view, not a cleverer query.
+
+### Three things real data corrected
+
+**Cities were joining two vocabularies and silently returning zero.** Venues
+carry precise cities from Google (San Jose, Goleta, Bronx, Coppell); crew carry
+how a person writes home on a roster ("Bay Area", "LA", "SLC", "Seattle/LV/NYC",
+"Orlando? Florida?"). All 47 cities reported no local crew, which reads as an
+empty roster rather than a failed join. Both sides now normalise through
+`metroKeys()` (`geo.ts`). Downey finds 9, Bronx 6, Bellevue 4, Chandler 1.
+
+`geo.ts` is a hand-kept list and that is a deliberate exception to lesson 73. The
+distinction is what staleness costs: a recurring-client list is wrong the moment
+a client books again, whereas metro geography does not move, and a MISS here
+degrades to "no local crew" — visibly incomplete, never a person invented in the
+wrong place.
+
+**Client names were domain stems** — Collegeboard, Ebay, Fm, Getclario Ai, Str,
+Oxw. The domain is the right *identity* (one company, one row, however the gig
+was titled) and a terrible *label*. `orgDisplayName()` (`org-name.ts`) splits
+them: the domain keys the row, the name comes from how Mason writes it in his own
+gig titles, matched by concatenating 1–4 token windows from the title's first
+segment. Six renamed themselves off his titles. Marketing prefixes are stripped
+for the search only — getclario.ai is Clario.
+
+**`/dev/*` was public in production.** `app.pixeltrunk.com/dev/buttons` answered
+200 to anyone, unconditionally allowlisted in middleware since before this
+feature. Now `NODE_ENV === "development"`, deliberately not `VERCEL_ENV !==
+"production"` — that reads as the same rule and fails OPEN, because any
+non-Vercel runtime satisfies it. Negative-tested against a real production build.
+
+### Still open
+
+- **Roles are 0 of 42 links.** The calendar records who was there and never what
+  they did. The panel says so rather than hiding the section. Needs Mason, or a
+  confirm card at upload time.
+- **`crew_roles` is unseeded** — the vocabulary (photographer / digital tech /
+  stylist / makeup artist / lead / assistant) exists only in conversation.
+- **Three org names undecidable from the corpus**: episode1agency.com,
+  typeaevents.com, wallandceiling.org. No gig title names them, so guessing at a
+  client's name is exactly what `orgDisplayName` refuses to do.
+- **Venue names are often street addresses** — correct behaviour (a leading house
+  number means the calendar gave no venue name), but "2065 E Hamilton Ave" is a
+  poor label for a room we have shot twice.
