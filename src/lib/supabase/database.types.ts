@@ -111,6 +111,84 @@ export type Database = {
         }
         Relationships: []
       }
+      crew: {
+        Row: {
+          aliases: string[]
+          archived: boolean
+          can_lead: string | null
+          city: string | null
+          created_at: string
+          display_name: string
+          full_name: string | null
+          id: string
+          kind: string
+          notes: string | null
+          primary_email: string | null
+          region: string | null
+          travels: boolean | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aliases?: string[]
+          archived?: boolean
+          can_lead?: string | null
+          city?: string | null
+          created_at?: string
+          display_name: string
+          full_name?: string | null
+          id?: string
+          kind?: string
+          notes?: string | null
+          primary_email?: string | null
+          region?: string | null
+          travels?: boolean | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aliases?: string[]
+          archived?: boolean
+          can_lead?: string | null
+          city?: string | null
+          created_at?: string
+          display_name?: string
+          full_name?: string | null
+          id?: string
+          kind?: string
+          notes?: string | null
+          primary_email?: string | null
+          region?: string | null
+          travels?: boolean | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      crew_roles: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_sends: {
         Row: {
           body_html: string
@@ -194,6 +272,141 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      event_crew: {
+        Row: {
+          created_at: string
+          crew_id: string
+          event_id: string
+          note: string | null
+          roles: string[]
+          user_id: string
+          would_rebook: string | null
+        }
+        Insert: {
+          created_at?: string
+          crew_id: string
+          event_id: string
+          note?: string | null
+          roles?: string[]
+          user_id: string
+          would_rebook?: string | null
+        }
+        Update: {
+          created_at?: string
+          crew_id?: string
+          event_id?: string
+          note?: string | null
+          roles?: string[]
+          user_id?: string
+          would_rebook?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_crew_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_crew_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_intel: {
+        Row: {
+          calendar_event_ids: string[]
+          confirmed_at: string | null
+          created_at: string
+          event_id: string
+          notes: string | null
+          source: string
+          updated_at: string
+          user_id: string
+          venue_id: string | null
+        }
+        Insert: {
+          calendar_event_ids?: string[]
+          confirmed_at?: string | null
+          created_at?: string
+          event_id: string
+          notes?: string | null
+          source?: string
+          updated_at?: string
+          user_id: string
+          venue_id?: string | null
+        }
+        Update: {
+          calendar_event_ids?: string[]
+          confirmed_at?: string | null
+          created_at?: string
+          event_id?: string
+          notes?: string | null
+          source?: string
+          updated_at?: string
+          user_id?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_intel_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_intel_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_orgs: {
+        Row: {
+          created_at: string
+          event_id: string
+          org_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          org_id: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          org_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_orgs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_orgs_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       event_templates: {
         Row: {
@@ -587,6 +800,39 @@ export type Database = {
           key?: string
           updated_at?: string
           value?: Json
+        }
+        Relationships: []
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          domains: string[]
+          id: string
+          kind: string
+          name: string
+          notes: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          domains?: string[]
+          id?: string
+          kind?: string
+          name: string
+          notes?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          domains?: string[]
+          id?: string
+          kind?: string
+          name?: string
+          notes?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1150,6 +1396,96 @@ export type Database = {
           updated_at?: string
           user_id?: string
           website?: string | null
+        }
+        Relationships: []
+      }
+      venue_notes: {
+        Row: {
+          body: string
+          created_at: string
+          event_id: string | null
+          id: string
+          user_id: string
+          venue_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          user_id: string
+          venue_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          user_id?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_notes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_notes_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      venues: {
+        Row: {
+          address: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          lat: number | null
+          lng: number | null
+          name: string
+          notes: string | null
+          place_id: string | null
+          region: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          name: string
+          notes?: string | null
+          place_id?: string | null
+          region?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          notes?: string | null
+          place_id?: string | null
+          region?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
