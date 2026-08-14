@@ -197,12 +197,26 @@ export function htmlToText(html: string): string {
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 
+/**
+ * Trim an address that ran into the text after it.
+ *
+ * Descriptions concatenate without spaces once the tags are stripped, so
+ * "…mtran@axosbank.com" followed by "Onsite Contact" matches as
+ * "mtran@axosbank.comOnsite" — and the payer domain came out as
+ * "episode1agency.comonsite", which would have created an organisation per
+ * typo. A lowercase→uppercase transition inside the domain is the seam.
+ */
+function trimRunOnEmail(email: string): string {
+  const m = /^([\w.+-]+@[\w-]+(?:\.[a-z]{2,24})*?\.[a-z]{2,6})(?=[A-Z]|$)/.exec(email);
+  return m ? m[1] : email;
+}
+
 /** Emails inside the body — the onsite contact is how the payer is resolved. */
 export function extractContactEmails(html: string | null | undefined): string[] {
   if (!html) return [];
   const text = htmlToText(html);
   const found = text.match(EMAIL_RE) ?? [];
-  return [...new Set(found.map((e) => e.toLowerCase()))];
+  return [...new Set(found.map((e) => trimRunOnEmail(e).toLowerCase()))];
 }
 
 /** Is this entry a job, or calendar furniture? */
@@ -356,4 +370,88 @@ export function normaliseClient(name: string | null): string {
 function daysBetween(a: string, b: string): number {
   const ms = Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`);
   return Math.abs(Math.round(ms / 86400000));
+}
+
+// ── venues ──────────────────────────────────────────────────────────────────
+
+export interface ParsedVenue {
+  /** The room, when the string names one. Null for a bare street address. */
+  name: string | null;
+  street: string | null;
+  city: string | null;
+  region: string | null;
+  postal: string | null;
+  country: string | null;
+  /** The original string, always kept — parsing is a convenience, not a truth. */
+  raw: string;
+}
+
+const COUNTRY = /^(united states|usa|us|canada|united kingdom|uk|mexico|france|germany|spain|italy|japan|australia)$/i;
+/** "CA" or "CA 94111" — a US state, optionally with its ZIP. */
+const STATE_ZIP = /^([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/;
+/** A part beginning with a house number is a street, not a venue name. */
+const STARTS_WITH_NUMBER = /^\d/;
+
+/**
+ * Split a calendar `location` into its parts.
+ *
+ * Measured across 2,477 real strings: 2,114 are full Google-formatted addresses
+ * ("Fox Theatre, 2215 Broadway Street, Redwood City, CA 94063, United States"),
+ * 301 are a name with a partial address, and 62 are a bare name ("Four seasons").
+ *
+ * The distinction that matters is whether the FIRST part is a name or a street:
+ * "301 Battery St, San Francisco, …" names no venue at all, and inventing one
+ * called "301 Battery St" would create a venue per street address and defeat the
+ * point of a venue registry. A leading house number is the tell.
+ *
+ * `raw` is always preserved. This parse is for grouping and display; when it is
+ * wrong, the original string is still there to correct it from.
+ */
+export function parseVenue(location: string | null | undefined): ParsedVenue | null {
+  const raw = (location ?? "").trim();
+  if (!raw) return null;
+
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  const out: ParsedVenue = {
+    name: null, street: null, city: null, region: null, postal: null, country: null, raw,
+  };
+  if (!parts.length) return out;
+
+  if (COUNTRY.test(parts[parts.length - 1])) out.country = parts.pop()!;
+
+  const tail = parts[parts.length - 1];
+  const sz = tail ? STATE_ZIP.exec(tail) : null;
+  if (sz) {
+    out.region = sz[1];
+    out.postal = sz[2] ?? null;
+    parts.pop();
+  }
+
+  // Whatever is left is [name?] [street?] city
+  if (parts.length >= 2) out.city = parts.pop()!;
+  if (parts.length === 1) {
+    if (STARTS_WITH_NUMBER.test(parts[0])) out.street = parts[0];
+    else out.name = parts[0];
+  } else if (parts.length >= 2) {
+    if (STARTS_WITH_NUMBER.test(parts[0])) {
+      out.street = parts.join(", ");
+    } else {
+      out.name = parts[0];
+      out.street = parts.slice(1).join(", ") || null;
+    }
+  } else if (parts.length === 0 && !out.city) {
+    out.name = raw;
+  }
+  // A single bare token with nothing else is a name, not a city.
+  if (!out.name && !out.street && out.city && !out.region && !out.country) {
+    out.name = out.city;
+    out.city = null;
+  }
+  return out;
+}
+
+/** Key used to decide whether two location strings are the same venue. */
+export function venueKey(v: ParsedVenue): string {
+  const base = v.name ?? v.street ?? v.raw;
+  return `${base.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${(v.city ?? "").toLowerCase()}`;
 }

@@ -18,6 +18,8 @@ import {
   extractContactEmails,
   normaliseClient,
   htmlToText,
+  parseVenue,
+  venueKey,
 } from "./parse-calendar";
 
 describe("title parsing", () => {
@@ -232,5 +234,67 @@ describe("regressions found by real 2014 data", () => {
     const clients = gigs.map((g) => g.client ?? "");
     expect(clients.some((c) => /BNI/i.test(c))).toBe(false);
     expect(clients.some((c) => /Super Bowl/i.test(c))).toBe(false);
+  });
+});
+
+describe("venue parsing — every fixture a real calendar location", () => {
+  it("splits the full Google address form", () => {
+    const v = parseVenue("Fox Theatre, 2215 Broadway Street, Redwood City, CA 94063, United States")!;
+    expect(v.name).toBe("Fox Theatre");
+    expect(v.city).toBe("Redwood City");
+    expect(v.region).toBe("CA");
+    expect(v.postal).toBe("94063");
+    expect(v.country).toBe("United States");
+  });
+
+  it("names no venue when the string is a bare street address", () => {
+    // Inventing a venue called "301 Battery St" would create one venue per
+    // street address and defeat the point of the registry.
+    const v = parseVenue("301 Battery St, San Francisco, CA 94111, United States")!;
+    expect(v.name).toBeNull();
+    expect(v.street).toBe("301 Battery St");
+    expect(v.city).toBe("San Francisco");
+  });
+
+  it("handles a state with no ZIP", () => {
+    const v = parseVenue("Asian Art Museum, 200 Larkin Street, San Francisco, CA, United States")!;
+    expect(v.name).toBe("Asian Art Museum");
+    expect(v.city).toBe("San Francisco");
+    expect(v.postal).toBeNull();
+  });
+
+  it("treats a lone token as a name, not a city", () => {
+    const v = parseVenue("Four seasons")!;
+    expect(v.name).toBe("Four seasons");
+    expect(v.city).toBeNull();
+  });
+
+  it("handles a name with a partial address", () => {
+    const v = parseVenue("Alumni House Parking Lot, Berkeley, CA")!;
+    expect(v.name).toBe("Alumni House Parking Lot");
+    expect(v.city).toBe("Berkeley");
+    expect(v.region).toBe("CA");
+  });
+
+  it("always keeps the raw string, because the parse is a convenience", () => {
+    const raw = "Casa Real at Ruby Hill Winery, 410 Vineyard Avenue, Pleasanton, CA, United States";
+    expect(parseVenue(raw)!.raw).toBe(raw);
+  });
+
+  it("groups the same venue written two ways", () => {
+    const a = parseVenue("The Westin St Francis, Powell Street, San Francisco, CA, United States")!;
+    const b = parseVenue("The Westin St Francis, 335 Powell St, San Francisco, CA 94102, United States")!;
+    expect(venueKey(a)).toBe(venueKey(b));
+  });
+
+  it("does not group different venues in the same city", () => {
+    const a = parseVenue("Asian Art Museum, San Francisco, CA")!;
+    const b = parseVenue("The Westin St Francis, San Francisco, CA")!;
+    expect(venueKey(a)).not.toBe(venueKey(b));
+  });
+
+  it("returns null for nothing at all", () => {
+    expect(parseVenue(null)).toBeNull();
+    expect(parseVenue("")).toBeNull();
   });
 });
