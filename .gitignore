@@ -50,3 +50,8 @@ Claude*.MD
 
 # supabase local temp
 supabase/.temp/
+
+# Google service-account private key for the calendar integration.
+# Never commit: it is a live credential for the TDP Calendar service account.
+.google-calendar-key.json
+*-service-account*.json

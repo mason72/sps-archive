@@ -220,7 +220,7 @@ both callers are thin.
 
 What genuinely IS new work, and should be costed honestly:
 
-1. **The app needs its own Google Calendar credential.** The backfill can run through an
+1. ~~**The app needs its own Google Calendar credential.**~~ **DONE 2026-08-13.** The backfill can run through an
    agent session's calendar access; a live suggestion inside Pixeltrunk cannot. That
    means OAuth or a service account with domain-wide delegation, token storage and
    refresh. This is the real cost — call it a day — and it is the only part that would
@@ -333,6 +333,25 @@ employees and often work for competitors. If it leaked it is genuinely damaging.
   secondary. More filterable and more defensible.
 - With a shared team login there is no author attribution today. When crew accounts
   arrive, notes get authors and rebook notes should be visible to leads only.
+
+## Credential — connected 2026-08-13
+
+Service account **`tdp-calendar@careful-bridge-499801-a2.iam.gserviceaccount.com`**
+(project `careful-bridge-499801-a2`, "My First Project"). It already existed and the
+Calendar API was already enabled — only a new private key and one calendar share were
+needed.
+
+- Key at `.google-calendar-key.json`, mode 600, gitignored. Also accepted inline via
+  `GOOGLE_CALENDAR_KEY` for Vercel, or `GOOGLE_CALENDAR_KEY_FILE` for a different path.
+- **EXPOSURE was already shared** with the service account. **Gigs was not** (404) and
+  now is, at "See all event details" — read-only, which is all this ever needs.
+- No SDK: the service-account flow is a signed JWT exchanged for a token, ~30 lines with
+  `node:crypto`, against `googleapis` which is ~50 MB of every Google API.
+- `checkAccess()` exists because forgetting to share a calendar fails as an EMPTY RESULT
+  rather than an error, and a backfill that silently finds nothing looks exactly like a
+  backfill with nothing to find.
+- An older key (Jun 2026) is still active and its private half is not on this machine.
+  Worth deleting in the console once this is settled.
 
 ## Plan
 

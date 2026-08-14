@@ -68,7 +68,19 @@ const CREW_SPLIT = /\s*(?:&|,|\+)\s*/;
 const STATUS_PREFIX = /^\s*(?:\[[^\]]*\]|\b(?:BOOKED|HOLD|TENTATIVE|CONFIRMED|CANCELLED|POSTPONED)\b)\s*[|/]*\s*/i;
 
 const TRAVEL = /\b(?:flight|hotel|airbnb|rental car|check[- ]?in|check[- ]?out|departs?|arrives?)\b/i;
-const ADMIN = /\b(?:BNI|meeting|call|sync|holiday|vacation|unavailab|available|PTO|blocked|reminder|invoice|payroll)\b/i;
+/**
+ * Admin words split by strength, which real data forced.
+ *
+ * STRONG words are never a job, whatever else the entry carries: a BNI meeting
+ * held at Le Méridien has a venue, and the first version required the ABSENCE of
+ * a venue before calling something admin, so it fell through to "unknown" and
+ * was then counted as a gig.
+ *
+ * WEAK words can legitimately name a job — Mason has 76 holiday parties — so
+ * they only mean admin when there is no crew, no attendees and no venue.
+ */
+const ADMIN_STRONG = /\b(?:BNI|meeting|sync|stand[- ]?up|1:1|payroll|invoice|reminder|demo|training|webinar|interview)\b/i;
+const ADMIN_WEAK = /\b(?:holiday|vacation|unavailab|available|PTO|blocked|out of office|OOO)\b/i;
 const SETUP = /\b(?:set[- ]?up|setup|load[- ]?in|strike|tear[- ]?down|breakdown)\b/i;
 
 /** A crew segment is short, mostly letters, and usually shouty. */
@@ -198,13 +210,14 @@ export function classifyGig(ev: CalendarEventLike): GigKind {
   const title = (ev.summary ?? "").trim();
   if (!title) return "unknown";
   if (TRAVEL.test(title)) return "travel";
+  // Strong admin outranks everything: a meeting is not a job even at a hotel.
+  if (ADMIN_STRONG.test(title)) return "admin";
   if (SETUP.test(title)) return "setup";
-  // Admin only when there is no crew and no venue — "Holiday Party" is a real
-  // gig, and matching the word alone would drop 76 of them.
   const hasCrew = looksLikeCrewSegment(stripStatus(title).split(SEGMENT_SPLIT)[0] ?? "");
   const hasPeople = (ev.attendees ?? []).length > 0;
   const hasVenue = !!(ev.location ?? "").trim();
-  if (ADMIN.test(title) && !hasCrew && !hasPeople && !hasVenue) return "admin";
+  // Weak admin words only win when nothing suggests a job.
+  if (ADMIN_WEAK.test(title) && !hasCrew && !hasPeople && !hasVenue) return "admin";
   if (hasCrew || (hasPeople && hasVenue)) return "gig";
   return "unknown";
 }
@@ -288,7 +301,13 @@ export function groupIntoGigs(
 ): { client: string | null; start: string; end: string; events: CalendarEventLike[] }[] {
   const dated = events
     .map((e) => ({ e, day: startDay(e), parsed: parseGig(e) }))
-    .filter((x) => x.day && x.parsed.kind !== "travel" && x.parsed.kind !== "admin")
+    /**
+     * Only actual jobs group. Filtering by "not travel and not admin" let
+     * `unknown` through, so on a real 2014 week three gigs were reported as
+     * seven — every unclassifiable entry became its own gig. An entry we cannot
+     * read is not evidence of a job.
+     */
+    .filter((x) => x.day && (x.parsed.kind === "gig" || x.parsed.kind === "setup"))
     .sort((a, b) => (a.day! < b.day! ? -1 : a.day! > b.day! ? 1 : 0));
 
   const out: { client: string | null; start: string; end: string; events: CalendarEventLike[] }[] = [];

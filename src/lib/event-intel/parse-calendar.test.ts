@@ -193,3 +193,44 @@ describe("client normalisation", () => {
     expect(normaliseClient("Perkin Elmer")).not.toBe(normaliseClient("Pure Storage"));
   });
 });
+
+describe("regressions found by real 2014 data", () => {
+  it("a BNI meeting is admin even though it has a venue", () => {
+    // Gigs, 2014-05-01, held at Le Méridien San Francisco. The first version
+    // required the ABSENCE of a venue before calling something admin, so this
+    // fell through to "unknown" — and unknown was then counted as a gig.
+    expect(
+      classifyGig({
+        summary: "BNI Meeting",
+        location: "Le Méridien San Francisco, Battery Street, San Francisco, CA, United States",
+      })
+    ).toBe("admin");
+  });
+
+  it("still does not call a holiday party admin", () => {
+    // The weak/strong split has to keep this working: 76 of these are real gigs.
+    expect(
+      classifyGig({ summary: "JOEY & STRETCH | Acme Holiday Party", location: "The Fillmore" })
+    ).toBe("gig");
+  });
+
+  it("groups only jobs — an unreadable entry is not evidence of a gig", () => {
+    // The real week: 2 BNI meetings, a "Super Bowl Demo", a booth note and
+    // three real gigs. Grouping reported seven.
+    const week = [
+      { summary: "BNI Meeting", location: "Le Méridien San Francisco", start: { dateTime: "2014-05-01T07:15:00-07:00" } },
+      { summary: "Ryan LEAVE 1PM, setup booth 4-6, run booth 6-10", start: { dateTime: "2014-05-03T13:00:00-07:00" } },
+      { summary: "RYAN & MASON | Jennifer Zimmerman", location: "1700 West Hillsdale Boulevard", start: { dateTime: "2014-05-03T18:00:00-07:00" } },
+      { summary: "JOEY & CHRIS | Stanford Event", location: "Fox Theatre", start: { dateTime: "2014-05-03T21:00:00-07:00" } },
+      { summary: "MASON & JOEY | Cal event", location: "Alumni House Parking Lot, Berkeley", start: { dateTime: "2014-05-04T10:00:00-07:00" } },
+      { summary: "Super Bowl Demo", start: { dateTime: "2014-05-05T10:00:00-07:00" } },
+      { summary: "BNI Meeting", location: "Le Méridien San Francisco", start: { dateTime: "2014-05-08T07:15:00-07:00" } },
+    ];
+    const gigs = groupIntoGigs(week);
+    // Three named clients plus the booth setup note, never the meetings or the demo.
+    expect(gigs.length).toBeLessThanOrEqual(4);
+    const clients = gigs.map((g) => g.client ?? "");
+    expect(clients.some((c) => /BNI/i.test(c))).toBe(false);
+    expect(clients.some((c) => /Super Bowl/i.test(c))).toBe(false);
+  });
+});
