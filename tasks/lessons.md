@@ -644,3 +644,57 @@ and `eBay HEADSHOTS` not registering as shouted — 10 uppercase of 13 letters i
 77%, under the 80% threshold, entirely because of eBay's mandated lowercase e.
 A brand's own casing is not evidence about the author's intent; exclude those
 tokens from the measurement, not just from the fix.
+
+## 74 — An enhancement must never share a write with the thing it enhances (2026-08-13)
+
+Ingesting Perkin Elmer Accelerate 2018: **947 imported, 69 failed**, and every
+failure line read `[object Object]`.
+
+**Cause:** exifr returns GPS as a degrees/minutes/seconds TUPLE —
+`[33, 38.1798, 0]` — and `gps_lat` is `double precision`. Postgres rejected the
+update: `22P02 invalid input syntax for type double precision`.
+
+**Why it cost so much more than a missing coordinate:** the GPS fields rode in
+the SAME update as `processing_status` and `thumbnail_generated`. So one
+unconvertible decoration failed the whole write and left the row at `pending`
+with no thumbnail — bytes safely in R2, nothing pointing at them. A ghost tile,
+the same shape as lessons #21–23, arriving by a completely new route. And while
+those rows were fresh they also blocked the event's entire AI pipeline.
+
+**The rules:**
+
+1. **Split display-critical fields from enrichment, into separate writes.** The
+   photo is the product; camera metadata is a decoration on it. Same rule the
+   dashboard already follows with `Promise.allSettled` on its enrichment legs —
+   "an enhancement must never be able to fail the page it decorates" — and it
+   applies to writes, not just reads. Fixed in all three lanes that had the
+   pattern (Pixieset ingest, `/api/upload/complete`, SPS pull).
+
+2. **Never let an error reach a log through `String()`.** A Supabase/PostgREST
+   error is a plain object, not an `Error`, so `err instanceof Error ? … :
+   String(err)` renders it `[object Object]`. Sixty-nine identical lines carrying
+   no information, in front of a one-line cause. Write a formatter that reads
+   `code`/`message`/`details`/`hint`, and fall back to `JSON.stringify`.
+
+3. **A unit conversion needs its SIGN source in the same breath.** The fix
+   required `GPSLatitudeRef`/`GPSLongitudeRef`, which were not even in the exifr
+   pick list. Without the ref, 112° W becomes +112 — an Arizona shoot in China.
+   A confidently wrong value is worse than a null; out-of-range returns null.
+
+4. **Measure the blast radius before fixing.** 0 of 31,120 images archive-wide
+   had `gps_lat` set, so this write had never once succeeded — invisible for
+   months because professional bodies do not geotag without an accessory. That
+   measurement is also what proved only 69 rows were stranded and no other event
+   was touched.
+
+**Two smaller traps in the same session, both worth remembering:**
+
+- **`select()` silently truncates at 1,000 rows.** My first reconciliation
+  reported "1000 / 1000 linked — all visible" against an event of 1,016, and the
+  status breakdown summed to 1,000 rather than 1,016. Use
+  `select("*", { count: "exact", head: true })` for counts; a row fetch is not a
+  census.
+- **A script that calls `main()` at module load cannot be imported.** Exporting
+  `publishGallery` so the repair path could reuse it ran the whole ingest CLI on
+  import, which printed usage and exited the caller. Guard with
+  `import.meta.url === pathToFileURL(process.argv[1]).href`.
