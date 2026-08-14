@@ -671,3 +671,44 @@ the migration.
 ~397 GB). The 150 GB floor leaves TM room; do not lower it without checking what
 TM needs. And if the drive is ever unplugged mid-run the watcher will fail
 loudly rather than silently stage somewhere else — `df` on a missing path errors.
+
+### Staging is back on the INTERNAL disk (2026-08-14, same day) — and why
+
+Reclaiming 169 GB made the external SSD unnecessary, and using it turned out to
+be actively harmful: `/Volumes/Archive` shares a physical disk with Time
+Machine, so an ingest reading a 4 GB ZIP contended with TM writing backups.
+Throughput fell from ~77 photos/min to **2**.
+
+Worse, I caused the TM run myself: thinning all 20 local APFS snapshots
+prompted a full backup pass. The shared-spindle risk was written down one
+section above and then walked straight into.
+
+`PIXIESET_STAGING` now points back at `~/pixieset-staging` with a 60 GB floor.
+Rate recovered to 32/min immediately and kept climbing as load fell from 47.
+
+**Where the disk went, for the record** — the internal volume read 95% full with
+23 GB free, and only ~248 GB of that was visible files:
+
+| | |
+|---|---|
+| home | 200 GB |
+| /Library + /Applications | 48 GB |
+| **local Time Machine snapshots** | **~163 GB** |
+
+Emptying the Trash freed nothing, because the snapshots still referenced the
+deleted blocks. `tmutil thinlocalsnapshots / 200000000000 4` released all of it;
+the real backups live on the external drive and were untouched. Xcode
+DerivedData + iOS DeviceSupport gave another 9.4 GB. **23 GB → 192 GB free.**
+
+### Fidelity checks that fired, and what they showed
+
+- `boxworks2014day1` sampled at **median 2880px**, against 5472–5760px
+  elsewhere. Suspicious — 2880 is exactly half of 5760. But the sample was
+  MIXED (1844 / 2880 / 3840), and a Web Size rendition is UNIFORM. These are
+  cropped headshot deliverables, legitimately smaller than the frame.
+  `isRendition: false` was right.
+- `microsoftsurfacepro3campuseventheadshots` came back with `fidelity: null` —
+  it took the exist-interstitial and never touched the set picker, so the driver
+  set no flag. Sampling settled it: uniform 5760×3840, a 5D Mk III at full
+  resolution. **The width guard, not the driver's flag, is what answers this
+  question** — which is exactly what the driver's own docstring says.
