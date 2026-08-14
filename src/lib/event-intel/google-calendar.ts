@@ -32,7 +32,17 @@ export const CALENDARS = {
   gigs: "6jhfih8prj4erj9aspsv7au7gc@group.calendar.google.com",
   /** Headshots and event photography — most Pixieset collections. From ~2016-09. */
   exposure: "out00v9tpf06eldqsquh8m8d7s@group.calendar.google.com",
+  /**
+   * In-studio headshots, booked through Squarespace/Acuity. A completely
+   * different entry shape (see `parseStudioSession`) — individual clients, no
+   * crew, always the same venue. Four galleries looked absent from "the
+   * calendar" until this was included, because they were never on the other two.
+   */
+  studio: "jafn9nsi12jnjmsgf7oau3kks4@group.calendar.google.com",
 } as const;
+
+/** Calendars whose entries are Acuity studio bookings, not crewed gigs. */
+export const STUDIO_CALENDARS = new Set<CalendarKey>(["studio"]);
 
 export type CalendarKey = keyof typeof CALENDARS;
 

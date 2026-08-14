@@ -135,8 +135,8 @@ const daysApart = (a: string, b: string) =>
 
 async function main() {
   const { createServiceClient } = await import("../src/lib/supabase/server");
-  const { listEvents, CALENDARS } = await import("../src/lib/event-intel/google-calendar");
-  const { parseGig, groupIntoGigs, parseVenue, venueKey, startDay } =
+  const { listEvents, CALENDARS, STUDIO_CALENDARS } = await import("../src/lib/event-intel/google-calendar");
+  const { parseGig, groupIntoGigs, parseVenue, venueKey, parseStudioSession } =
     await import("../src/lib/event-intel/parse-calendar");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createServiceClient() as any;
@@ -150,13 +150,32 @@ async function main() {
   if (evErr) throw evErr;
   console.log(`${events.length} archive event(s)`);
 
-  // ── the calendar side, grouped into gigs once ──
+  // ── the calendar side ──
   const allEntries = [];
+  const studioEntries = [];
   for (const key of Object.keys(CALENDARS) as (keyof typeof CALENDARS)[]) {
-    allEntries.push(...(await listEvents(key, { timeMin: "2014-01-01T00:00:00Z" })));
+    const evs = await listEvents(key, { timeMin: "2014-01-01T00:00:00Z" });
+    if (STUDIO_CALENDARS.has(key)) studioEntries.push(...evs);
+    else allEntries.push(...evs);
   }
   const gigs = groupIntoGigs(allEntries);
-  console.log(`${allEntries.length} calendar entries → ${gigs.length} gigs\n`);
+
+  /**
+   * Studio bookings become single-entry pseudo-gigs.
+   *
+   * They cannot go through groupIntoGigs: there is no crew segment for it to
+   * read, the "client" is a person rather than a company, and two unrelated
+   * sittings on one afternoon must never merge into one gig the way a set-up and
+   * its main day should.
+   */
+  for (const e of studioEntries) {
+    const s = parseStudioSession(e);
+    if (!s.isBooking || !s.clientName) continue;
+    const day = (e.start?.date ?? e.start?.dateTime ?? "").slice(0, 10);
+    if (!day) continue;
+    gigs.push({ client: s.clientName, start: day, end: day, events: [e] });
+  }
+  console.log(`${allEntries.length} gig entries + ${studioEntries.length} studio entries → ${gigs.length} gigs\n`);
 
   // ── crew registry, for resolving attendees ──
   const { data: crew } = await db.from("crew").select("id, display_name, primary_email, aliases");
