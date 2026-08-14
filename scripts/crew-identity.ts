@@ -45,7 +45,23 @@ const CONFIRMED: Record<string, string> = {
   "joeynags@gmail.com": "joey@twodudesphoto.com",
   "jerrickmitra@gmail.com": "jerrick@twodudesphoto.com",
   "isteratter@gmail.com": "justin@twodudesphoto.com",
+  // Mason named Stretch among the staff who moved from a personal address to a
+  // company one, and this handle has 319 gigs against his 0 under the company
+  // address — the calendar knew him long before twodudesphoto.com did.
+  "stretchington2005@gmail.com": "stretch@twodudesphoto.com",
+  "christiejones0307@msn.com": "christiejones0307@gmail.com",
 };
+
+/**
+ * Pairs a human has explicitly REJECTED. Without this the matcher re-proposes a
+ * rejected merge on every run, and a suggestion that keeps coming back is one
+ * that eventually gets accepted by accident.
+ *
+ * Justin Green is not Justin Heller (Mason, 2026-08-13) — they collided on the
+ * bare first name "justin", which is why the local-part rule now demands a
+ * distinctive handle.
+ */
+const NEVER_MERGE = new Set(["justin@justingreenphotography.com"]);
 
 /**
  * Addresses that are not a human.
@@ -175,6 +191,10 @@ async function main() {
   for (const [email, rec] of [...seen.entries()].sort((a, b) => b[1].gigs - a[1].gigs)) {
     if (byAddress.has(email)) { already.push(email); continue; }
 
+    if (NEVER_MERGE.has(email)) {
+      review.push({ email, names: [...rec.names], gigs: rec.gigs, best: undefined, why: "rejected by Mason — never merge" });
+      continue;
+    }
     // Mason's confirmed list wins outright.
     const target = CONFIRMED[email];
     if (target) {
