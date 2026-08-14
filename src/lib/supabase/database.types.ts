@@ -280,6 +280,7 @@ export type Database = {
           event_id: string
           note: string | null
           roles: string[]
+          roles_source: string
           user_id: string
           would_rebook: string | null
         }
@@ -289,6 +290,7 @@ export type Database = {
           event_id: string
           note?: string | null
           roles?: string[]
+          roles_source?: string
           user_id: string
           would_rebook?: string | null
         }
@@ -298,6 +300,7 @@ export type Database = {
           event_id?: string
           note?: string | null
           roles?: string[]
+          roles_source?: string
           user_id?: string
           would_rebook?: string | null
         }
@@ -1644,6 +1647,14 @@ export type Database = {
           stalled: number
           total: number
           uploading: number
+        }[]
+      }
+      events_needing_ai_index: {
+        Args: { max_events?: number }
+        Returns: {
+          event_id: string
+          oldest: string
+          pending: number
         }[]
       }
       first_image_per_event: {

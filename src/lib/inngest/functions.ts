@@ -528,22 +528,45 @@ export const uploadReconciler = inngest.createFunction(
       });
     }
 
-    // AI-index backstop: nudge any event holding unindexed displayable images
-    // (catches SPS imports and anything that missed the finalize-time
-    // dispatch). Debounce + the job's own pending-uploads check make this
-    // safe to over-fire; it no-ops entirely while AI_INDEXING_ENABLED is off.
+    /**
+     * AI-index backstop: nudge any event holding unindexed displayable images
+     * (catches SPS imports and anything that missed the finalize-time
+     * dispatch). Debounce + the job's own pending-uploads check make this safe
+     * to over-fire; it no-ops entirely while AI_INDEXING_ENABLED is off.
+     *
+     * This used to read `.limit(5000)` rows of `images` with NO ordering and
+     * take the first 25 distinct event ids. Both halves were wrong for a bulk
+     * import: 25 a night is 55 days behind a 1,371-collection Pixieset move,
+     * and — worse — those 5,000 rows can all belong to two or three large
+     * collections, so the same events were nudged every night while the rest
+     * STARVED. Silently, because the job reported success either way. Raising
+     * the cap alone would not have fixed it.
+     *
+     * `events_needing_ai_index` groups in the database and orders by the
+     * oldest pending image, so it is FIFO: the gallery waiting longest goes
+     * first. AI_INDEX_NUDGE_LIMIT tunes the batch without a deploy; the SQL
+     * clamps it to 2,000 whatever is passed.
+     */
     const aiEventIds = await step.run("ai-index-sweep", async () => {
       const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
       if (!isAiIndexingEnabled()) return [] as string[];
       const supabase = createServiceClient();
-      const { data } = await supabase
-        .from("images")
-        .select("event_id")
-        .is("ai_indexed_at", null)
-        .eq("thumbnail_generated", true)
-        .eq("media_type", "image")
-        .limit(5000);
-      return [...new Set((data ?? []).map((r) => r.event_id))].slice(0, 25);
+      const limit = Number(process.env.AI_INDEX_NUDGE_LIMIT) || 200;
+      const { data, error } = await supabase.rpc("events_needing_ai_index", {
+        max_events: limit,
+      });
+      // An error here returns null, and `data ?? []` would report "nothing to
+      // index" — indistinguishable from a healthy empty queue. Say so instead.
+      if (error) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError(
+          "inngest.ai-index-sweep",
+          error,
+          { note: "events_needing_ai_index rpc failed; no nudges dispatched this run", limit }
+        );
+        return [] as string[];
+      }
+      return (data ?? []).map((r: { event_id: string }) => r.event_id);
     });
     if (aiEventIds.length) {
       await step.sendEvent(
