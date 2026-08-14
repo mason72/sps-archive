@@ -670,13 +670,92 @@ async function main() {
   // rerun has something to read.
   if (!failed) {
     await markIngested(queue, collection, eventId);
-    if (!KEEP_ZIP) {
+
+    /**
+     * Release the archive — but only against PIXELTRUNK, never against our own
+     * success counters.
+     *
+     * The archives used to be parked in `ingested/` with "delete once you are
+     * happy it landed", which meant a human verifying and deleting by hand
+     * after every collection. Doing that ~1,371 times is not a plan, and the
+     * one time it is skipped the staging volume fills and the pipeline stops.
+     *
+     * The check deliberately re-reads the DATABASE rather than trusting
+     * `imported`/`failed` from the loop above. Those counters say what this
+     * process believes it did; the query says what a visitor to the gallery
+     * will actually see. Perkin Elmer reported "947 imported / 69 failed" while
+     * the database held 1,016 rows — the counters and the truth disagreed, and
+     * the truth was the one worth acting on.
+     *
+     * Three conditions, all required: every expected image present, every one
+     * with a thumbnail (a row without one is a ghost tile), and a live share
+     * (an unpublished gallery is one the client cannot open). Anything short of
+     * that keeps the bytes.
+     */
+    const release = await verifyLanded(supabase, eventId, todo.length);
+    if (KEEP_ZIP) {
+      console.log("archive kept (--keep-zip)");
+    } else if (release.ok) {
+      let freed = 0;
+      for (const z of zips) {
+        try { freed += fs.statSync(z).size; fs.unlinkSync(z); }
+        catch (err) { console.error(`  could not release ${path.basename(z)}: ${String(err)}`); }
+      }
+      console.log(
+        `archive released — ${release.detail}. ` +
+        `${(freed / 1073741824).toFixed(2)} GB back on the staging volume.`
+      );
+    } else {
       fs.mkdirSync(INGESTED, { recursive: true });
       for (const z of zips) fs.renameSync(z, path.join(INGESTED, path.basename(z)));
-      console.log(`archive moved to ${INGESTED} — delete once you are happy it landed`);
+      console.log(`archive KEPT in ${INGESTED} — ${release.detail}`);
     }
   } else {
     console.log("archive KEPT (there were failures) — rerun to fill the gaps; it is idempotent.");
+  }
+}
+
+
+/**
+ * Did this collection actually land, as a visitor would see it?
+ *
+ * Asks the database, not the importer. Used to decide whether the downloaded
+ * archive may be deleted, so it fails CLOSED: any doubt keeps the bytes, and
+ * the bytes can always be re-downloaded from Pixieset anyway. The asymmetry
+ * matters — a wrongly-kept archive costs disk, a wrongly-deleted one costs a
+ * re-download of something irreplaceable.
+ */
+export async function verifyLanded(
+  supabase: SupabaseLike,
+  eventId: string,
+  expected: number
+): Promise<{ ok: boolean; detail: string }> {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const db = supabase as any;
+  try {
+    const head = () =>
+      db.from("images").select("*", { count: "exact", head: true }).eq("event_id", eventId);
+
+    const totalRes = await head();
+    if (totalRes.error) throw totalRes.error;
+    const thumbRes = await head().eq("thumbnail_generated", true);
+    if (thumbRes.error) throw thumbRes.error;
+    const { data: shares, error: shErr } = await db
+      .from("shares").select("slug").eq("event_id", eventId).eq("is_active", true);
+    if (shErr) throw shErr;
+
+    const total = totalRes.count as number;
+    const thumbed = thumbRes.count as number;
+    const live = (shares ?? []).length > 0;
+    const ok = total >= expected && thumbed === total && live;
+
+    return {
+      ok,
+      detail: `${total}/${expected} images · ${thumbed} with thumbnails · ${live ? "published" : "NOT published"}`,
+    };
+  } catch (err) {
+    // A failed check is not a pass. Keep the archive and say why.
+    return { ok: false, detail: `verification failed: ${pgMessage(err)}` };
   }
 }
 

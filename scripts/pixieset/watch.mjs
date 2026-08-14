@@ -34,7 +34,7 @@
  * between Mason's two Macs, and pushing terabytes of transient ZIPs through it
  * would be its own outage.
  */
-import { readdir, stat, rename, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, stat, rename, mkdir, readFile, writeFile, copyFile, unlink } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
@@ -211,13 +211,77 @@ export async function sweep({ dryRun = false } = {}) {
     // real retry (11139225, failed at the PIN gate, downloaded after the gate was
     // cleared). `failed` exits only to `queued`, so that is the first hop.
     const step = (to, patch) => { if (get(queue, collection.id).state !== to) transition(queue, collection.id, to, patch); };
+
+    /**
+     * Already past this point? Stage the files and leave the state alone.
+     *
+     * A collection can be `verified` or `ingested` while its ZIPs are still in
+     * ~/Downloads — that is exactly what the failed cross-volume move produced.
+     * Walking the machine backwards from there is illegal and throws, killing
+     * the whole sweep. The archive still needs a home, so move it and move on.
+     */
+    const already = get(queue, collection.id).state;
+    if (already === "verified" || already === "ingested") {
+      const home = result.ok ? VERIFIED : QUARANTINE;
+      await mkdir(home, { recursive: true });
+      for (const p of paths) {
+        const target = join(home, basename(p));
+        try { await rename(p, target); }
+        catch (err) {
+          if (err?.code !== "EXDEV") throw err;
+          await copyFile(p, target);
+          const [a, b] = [await stat(p), await stat(target)];
+          if (a.size !== b.size) throw new Error(`copy of ${basename(p)} is ${b.size} B, source is ${a.size} B`);
+          await unlink(p);
+        }
+      }
+      done.push({ slug, id: collection.id, ok: result.ok, files: result.files, restaged: already });
+      continue;
+    }
+
     if (get(queue, collection.id).state === "failed") step("queued");
     if (get(queue, collection.id).state === "queued") step("requested", { requestedAt: new Date().toISOString() });
     if (get(queue, collection.id).state === "requested") step("ready");
     step("downloaded", { files: result.files, bytes: result.bytes });
 
+    /**
+     * Move the archive to staging BEFORE advancing the state, and fail loudly.
+     *
+     * Two bugs lived in the one line this replaces, and they compounded:
+     *
+     *   `rename()` CANNOT CROSS VOLUMES. Once staging moved to the external SSD,
+     *   every move from ~/Downloads (internal) failed with EXDEV.
+     *
+     *   `.catch(() => {})` swallowed that whole. So the collection was marked
+     *   `verified` while its ZIPs sat in ~/Downloads — and the next sweep, seeing
+     *   them still there, tried `verified → downloaded`, which is illegal, threw,
+     *   and killed the entire run. One silent failure, one hard crash, and a
+     *   state that claimed the bytes were somewhere they were not.
+     *
+     * The rule is the same one the ingest follows: the bytes reach their home
+     * before anything records that they did.
+     */
     const dest = result.ok ? VERIFIED : QUARANTINE;
-    for (const p of paths) await rename(p, join(dest, basename(p))).catch(() => {});
+    await mkdir(dest, { recursive: true });
+    const moved = [];
+    for (const p of paths) {
+      const target = join(dest, basename(p));
+      try {
+        await rename(p, target);
+      } catch (err) {
+        if (err?.code !== "EXDEV") throw err;
+        // Different volume: copy, verify the size, then drop the source. Never
+        // unlink before the copy is proven, or a failure loses the archive.
+        await copyFile(p, target);
+        const [a, b] = [await stat(p), await stat(target)];
+        if (a.size !== b.size) throw new Error(`copy of ${basename(p)} is ${b.size} B, source is ${a.size} B`);
+        await unlink(p);
+      }
+      moved.push(target);
+    }
+    if (moved.length !== paths.length) {
+      throw new Error(`staged ${moved.length} of ${paths.length} parts for ${slug} — refusing to advance state`);
+    }
 
     if (result.ok) {
       transition(queue, collection.id, "verified", { files: result.files, bytes: result.bytes });
