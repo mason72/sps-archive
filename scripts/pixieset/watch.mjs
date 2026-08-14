@@ -41,7 +41,7 @@ import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { load, save, get, transition } from "./lib/store.mjs";
+import { load, save, get, transition, withQueue } from "./lib/store.mjs";
 
 /**
  * Read `.env.local` for PIXIESET_STAGING, exactly as the ingest half does.
@@ -173,6 +173,8 @@ export async function sweep({ dryRun = false } = {}) {
   await mkdir(QUARANTINE, { recursive: true });
 
   const { bySlug, skipped, orphans } = await scanDownloads();
+  /** Final state per collection, applied under the lock once the slow work is done. */
+  const pendingStates = [];
   const idx = slugIndex(queue);
   const done = [];
 
@@ -285,11 +287,14 @@ export async function sweep({ dryRun = false } = {}) {
 
     if (result.ok) {
       transition(queue, collection.id, "verified", { files: result.files, bytes: result.bytes });
+      pendingStates.push({ id: collection.id, to: "verified", patch: { files: result.files, bytes: result.bytes } });
     } else {
-      transition(queue, collection.id, "failed", {
+      const patch = {
         error: result.problems.join("; ").slice(0, 400),
         attempts: collection.attempts + 1,
-      });
+      };
+      transition(queue, collection.id, "failed", patch);
+      pendingStates.push({ id: collection.id, to: "failed", patch });
     }
     done.push({
       slug, id: collection.id, ok: result.ok, files: result.files,
@@ -301,7 +306,35 @@ export async function sweep({ dryRun = false } = {}) {
     });
   }
 
-  if (!dryRun) await save(queue);
+  /**
+   * Apply the state changes under the lock, against a FRESHLY re-read queue.
+   *
+   * The sweep holds `queue` for minutes — verifying CRCs and moving multi-GB
+   * archives — and anything read before that work is stale by the time it
+   * finishes. Saving that stale copy is what silently reverted two collections
+   * from `verified` to `queued` while the ingest loop ran alongside
+   * (2026-08-14): the ingest's own write landed in between and was erased.
+   *
+   * So the slow work happens unlocked, and only the final states are applied
+   * here — briefly, atomically, on current data. Lock hold time is milliseconds
+   * rather than minutes, so the ingest is never blocked behind a verification.
+   */
+  if (!dryRun && pendingStates.length) {
+    await withQueue((fresh) => {
+      for (const { id, to, patch } of pendingStates) {
+        const cur = get(fresh, id).state;
+        if (cur === to) continue;
+        // Walk the machine forward on the fresh copy; skip anything already past.
+        if (cur === "failed" && to !== "failed") transition(fresh, id, "queued");
+        for (const hop of ["requested", "ready", "downloaded"]) {
+          if (get(fresh, id).state === to) break;
+          const order = ["queued", "requested", "ready", "downloaded", "verified", "failed"];
+          if (order.indexOf(get(fresh, id).state) < order.indexOf(hop)) transition(fresh, id, hop);
+        }
+        if (get(fresh, id).state !== to) transition(fresh, id, to, patch);
+      }
+    });
+  }
   for (const o of orphans) await noteOrphan(o);
   return { done, skipped, orphans, freeGB: await freeGB() };
 }

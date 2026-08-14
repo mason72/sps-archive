@@ -765,18 +765,56 @@ async function markIngested(
   collection: QueueCollection,
   eventId: string | null
 ) {
-  const c = queue.collections[collection.id];
-  if (!c) return;
-  c.state = "ingested";
-  c.eventId = eventId;
-  (c as unknown as { history: unknown[] }).history = [
-    ...((c as unknown as { history: unknown[] }).history ?? []),
-    { state: "ingested", at: new Date().toISOString(), eventId },
-  ];
-  const tmp = `${QUEUE_PATH}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(queue, null, 2));
-  fs.renameSync(tmp, QUEUE_PATH);
-  console.log(`queue: ${collection.id} → ingested`);
+  /**
+   * Re-read the queue, change only OUR row, write it back — under a lock.
+   *
+   * `queue` was read when this run started, twenty minutes and several gigabytes
+   * ago. Writing that whole object back republishes a stale snapshot of every
+   * OTHER collection too, erasing anything the watcher recorded meanwhile. That
+   * is exactly what happened on 2026-08-14: two collections the watcher had
+   * marked `verified` silently reverted to `queued`, which would have re-
+   * downloaded archives already sitting on disk.
+   *
+   * The lock protocol matches `store.mjs#withQueue` — same file, same semantics
+   * — so the watcher and the ingest genuinely serialise against each other.
+   */
+  const LOCK = `${QUEUE_PATH}.lock`;
+  const started = Date.now();
+  for (;;) {
+    try {
+      fs.writeFileSync(LOCK, String(process.pid), { flag: "wx" });
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== "EEXIST") throw err;
+      const age = (() => {
+        try { return Date.now() - fs.statSync(LOCK).mtimeMs; } catch { return Infinity; }
+      })();
+      if (age > 120000) { fs.rmSync(LOCK, { force: true }); continue; }  // holder died
+      if (Date.now() - started > 30000) throw new Error("queue lock held too long by another pixieset process");
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+  try {
+    const fresh = JSON.parse(fs.readFileSync(QUEUE_PATH, "utf8")) as {
+      collections: Record<string, QueueCollection>;
+      updatedAt?: string;
+    };
+    const c = fresh.collections[collection.id];
+    if (!c) return;
+    c.state = "ingested";
+    (c as unknown as { eventId: string | null }).eventId = eventId;
+    (c as unknown as { history: unknown[] }).history = [
+      ...((c as unknown as { history: unknown[] }).history ?? []),
+      { state: "ingested", at: new Date().toISOString(), eventId },
+    ];
+    fresh.updatedAt = new Date().toISOString();
+    const tmp = `${QUEUE_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(fresh, null, 2));
+    fs.renameSync(tmp, QUEUE_PATH);
+    console.log(`queue: ${collection.id} → ingested`);
+  } finally {
+    fs.rmSync(LOCK, { force: true });
+  }
 }
 
 /**

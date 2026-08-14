@@ -24,7 +24,7 @@
  *     target. Any verification that asserts `files === photoCount` will fail on
  *     healthy collections; see `verify()` in watch.mjs.
  */
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, stat, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,55 @@ export async function save(queue) {
   await writeFile(tmp, JSON.stringify(queue, null, 2));
   await rename(tmp, QUEUE_PATH);
   return queue;
+}
+
+const LOCK = `${QUEUE_PATH}.lock`;
+
+/**
+ * Read-modify-write the queue under an exclusive lock.
+ *
+ * The atomic write above makes each SAVE safe; it does nothing about two
+ * processes reading the same queue, each editing its own copy, and the second
+ * write erasing the first. That is not hypothetical — running the watcher and
+ * the ingest loop together silently reverted two collections from `verified`
+ * back to `queued` (2026-08-14). The state was wrong in the direction that
+ * causes a re-download of something already on disk.
+ *
+ * `wx` is the lock: an exclusive create fails if the file exists, which is
+ * atomic on every filesystem we care about. The PID goes inside so a stale lock
+ * can be identified, and any lock older than the timeout is broken rather than
+ * deadlocking the pipeline forever — a crashed process must not stop the queue.
+ */
+export async function withQueue(mutate, { timeoutMs = 30000, staleMs = 120000 } = {}) {
+  await mkdir(DATA_DIR, { recursive: true });
+  const started = Date.now();
+  for (;;) {
+    try {
+      await writeFile(LOCK, String(process.pid), { flag: "wx" });
+      break;
+    } catch (err) {
+      if (err?.code !== "EEXIST") throw err;
+      const age = await stat(LOCK).then((s) => Date.now() - s.mtimeMs).catch(() => Infinity);
+      if (age > staleMs) {
+        await rm(LOCK, { force: true });   // holder died; do not deadlock the pipeline
+        continue;
+      }
+      if (Date.now() - started > timeoutMs) {
+        throw new Error(`queue lock held for ${Math.round(age / 1000)}s — another pixieset process is running`);
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+  try {
+    // Re-read INSIDE the lock. Anything loaded before it is already stale.
+    const queue = await load();
+    if (!queue) throw new Error("no queue to mutate");
+    const result = await mutate(queue);
+    await save(queue);
+    return result;
+  } finally {
+    await rm(LOCK, { force: true });
+  }
 }
 
 /**
