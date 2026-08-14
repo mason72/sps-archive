@@ -33,6 +33,17 @@ const AXES: { key: Axis; label: string }[] = [
   { key: "clients", label: "Clients" },
 ];
 
+/**
+ * Written out rather than computed. Chopping the last letter off the axis name
+ * gave "Pick a peopl", which is what the first screenshot said back.
+ */
+const SINGULAR: Record<Axis, string> = {
+  people: "someone",
+  venues: "a venue",
+  cities: "a city",
+  clients: "a client",
+};
+
 const fmtDate = (d: string | null) =>
   d
     ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", {
@@ -66,24 +77,37 @@ function Chip({
   onClick?: () => void;
   title?: string;
 }) {
-  const base =
-    "inline-flex items-center rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[12px] text-stone-600";
-  return onClick ? (
+  /**
+   * TWO TIERS, and the difference is visible at rest.
+   *
+   * A chip that navigates and a chip that merely states a fact looked
+   * identical, so the only clue that "The Alder Room" opens the venue was
+   * hovering it — and hover is not a thing on a phone. Actionable chips are
+   * bordered and darker; facts are a flat tint with no border and lighter text.
+   * Nobody has to discover anything.
+   */
+  const shared = "inline-flex items-center rounded-full px-2.5 py-1 text-[12px]";
+  if (!onClick) {
+    return (
+      <span className={`${shared} bg-stone-100 text-stone-500`} title={title}>
+        {children}
+      </span>
+    );
+  }
+  return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      className={`${base} transition-colors duration-200 hover:border-stone-400 hover:text-stone-900`}
+      className={`${shared} border border-stone-300 bg-white text-stone-800 transition-colors duration-200 hover:border-stone-800 hover:bg-stone-900 hover:text-white`}
     >
       {children}
     </button>
-  ) : (
-    <span className={base}>{children}</span>
   );
 }
 
 /** Rebook signal. Severity ramp, never the brand accent. */
-function RebookDot({ value }: { value: string | null }) {
+function RebookDot({ value, count }: { value: string | null; count?: number }) {
   if (!value) return null;
   const map: Record<string, [string, string]> = {
     yes: ["bg-stone-600", "would rebook"],
@@ -95,7 +119,10 @@ function RebookDot({ value }: { value: string | null }) {
   return (
     <span className="inline-flex items-center gap-1.5" title={hit[1]}>
       <span className={`h-1.5 w-1.5 rounded-full ${hit[0]}`} />
-      <span className="text-[12px] text-stone-500">{hit[1]}</span>
+      <span className="text-[12px] text-stone-500">
+        {count != null && <span className="tabular-nums text-stone-700">{count} </span>}
+        {hit[1]}
+      </span>
     </span>
   );
 }
@@ -240,7 +267,13 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
 
       {/* ── Axis tabs + search ────────────────────────────────────────────── */}
       <div className="mt-10 flex flex-wrap items-end justify-between gap-6">
-        <nav className="flex gap-7" aria-label="Pivot axis">
+        {/*
+          Wraps rather than scrolls. Four axes at 375px overflowed the row and
+          took the whole page into horizontal scroll with it — a body that
+          scrolls sideways is a bug, not a layout. Wrapping keeps every axis
+          reachable without a swipe nobody knows is available.
+        */}
+        <nav className="flex flex-wrap gap-x-6 gap-y-2" aria-label="Pivot axis">
           {AXES.map((a) => {
             const active = a.key === axis;
             const n =
@@ -320,7 +353,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           {!currentId ? (
             <div className="rounded-lg border border-dashed border-stone-200 bg-white/60 px-8 py-16 text-center">
               <p className="font-editorial text-[20px] text-stone-500">
-                Pick {axis === "cities" ? "a city" : axis === "clients" ? "a client" : `a ${axis.slice(0, -1)}`}
+                Pick {SINGULAR[axis]}
               </p>
               <p className="mt-2 text-[13px] text-stone-400">
                 Every panel links into the others — a person&apos;s venues open the venue,
@@ -427,9 +460,9 @@ function PersonPanel({
       {(p.rebook.yes || p.rebook.no || p.rebook.maybe) > 0 && (
         <Section title="Rebook">
           <div className="flex gap-5">
-            {p.rebook.yes > 0 && <RebookDot value="yes" />}
-            {p.rebook.maybe > 0 && <RebookDot value="maybe" />}
-            {p.rebook.no > 0 && <RebookDot value="no" />}
+            {p.rebook.yes > 0 && <RebookDot value="yes" count={p.rebook.yes} />}
+            {p.rebook.maybe > 0 && <RebookDot value="maybe" count={p.rebook.maybe} />}
+            {p.rebook.no > 0 && <RebookDot value="no" count={p.rebook.no} />}
           </div>
         </Section>
       )}
