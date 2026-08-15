@@ -516,22 +516,61 @@ photographer turned solid in the same frame.
 - **`/api/crew`, `/api/venues`, `/api/organizations`** — full CRUD, archive over
   delete wherever `event_*` references the row, server-verified.
 
-### Not built — and it is the piece Mason actually asked for first
+### Built 2026-08-15 — confirmation on the CREATE EVENT screen
 
-**Confirmation belongs on the CREATE EVENT screen**, not only after the fact.
-Mason, 2026-08-15: *"I was assuming it would be on the very first screen where
-you create the event. Where you enter the name and date. And it pre-populates if
-you use the autocomplete."*
+The piece Mason asked for first, and the last one to land. *"I was assuming it
+would be on the very first screen where you create the event. Where you enter
+the name and date. And it pre-populates if you use the autocomplete."*
 
-That matches his original ask from the very start of this feature — "the crew
-member who's uploading the event can simply confirm it". What exists today
-confirms an event that already exists. The create flow should look the gig up by
-date as the name is typed, propose venue + crew + client from the calendar, and
-carry the confirmed set into the event it creates.
+**The name field IS the autocomplete.** Type a client, a venue or a city; the
+matching gigs appear with their dates, venue and crew count; picking one
+pre-fills the name and date and opens a confirm card carrying venue, crew and
+payer. Creating the event writes all of it, already confirmed.
 
-`parseGig()` and the whole calendar layer already work over ONE entry — that was
-deliberate, so the confirm card and the backfill share a function. The missing
-part is the create-page wiring, not the parsing.
+| | |
+|---|---|
+| `src/lib/event-intel/match-gig.ts` | The scoring, now shared |
+| `src/lib/event-intel/lookup-gigs.ts` | Windowed calendar fetch + 5-min cache |
+| `src/lib/event-intel/apply-gig.ts` | The writer — venue, crew, payer, provenance |
+| `src/lib/event-intel/roles.ts` | The role vocabulary and its shape rule |
+| `GET /api/events/suggest-gig` | The lookup |
+| `POST /api/events` | Optional `intel` body, written last and never fatal |
+| `src/components/events/CreateGigConfirm.tsx` | Dropdown + confirm card |
+| `/dev/gig-confirm` | Fixture playground |
+
+**Picking the gig IS the confirmation.** `event_intel.confirmed_at` is set, so
+the backfill will never revisit that event. Roles keep the three-state model:
+the discipline implied by a person's `kind` arrives as a GUESS (tinted, italic)
+and only a click makes it a decision.
+
+**Four things that were only findable by running it:**
+
+1. **`normaliseClient` stripped a LEADING "Set Up for X" but not a trailing "X
+   Set Up".** Its own comment describes the bug it did not prevent. 15 set-up
+   entries in one window were separate gigs; the Appfolio job appeared twice, a
+   day apart, and the second copy carried the payer domain the first lacked.
+2. **Everything copied INTO the event has to come from the JOB entry.**
+   `groupIntoGigs` takes its client and start from whichever entry opened the
+   group — the set-up. In production that named a gallery "Appfolio Set Up" and
+   dated it to the load-in. `start`/`end` stay the true range; `client` and a
+   new `shootDate` come from the first `kind === "gig"` entry.
+3. **A typeahead is not the backfill's matcher.** "perk" is not a token overlap
+   with "Perkin Elmer" and never will be. `scoreTypeahead` adds prefix coverage
+   on top of the strict signals; the backfill keeps the strict ones alone,
+   because a prefix rule there would match "Pure Storage" to "Purely Social" and
+   attach the wrong crew to a gallery nobody re-checks.
+4. **A row's badge changed its height.** "not a regular" beside the name pushed
+   the role chips past the card width, so local hires wrapped to a ragged second
+   line and regulars did not. The badge stacks under the name now.
+
+**Two controls, two shapes** (Mason, 2026-08-15: *"you have the corner radii
+swapped"*). `lead` is a squared-off chip — a flag. The discipline is a fully
+rounded segmented track — a choice, where picking one necessarily un-picks the
+others. Rendering both as identical pills made an illegal pair look legal.
+Emerald for both active states; the harsh black is gone.
+
+Still open: the create card cannot add someone who is NOT on the roster (the
+event page's picker can). An unmatched attendee is reported as a count.
 
 ### Answered by Mason, so do not re-derive
 

@@ -777,3 +777,62 @@ so confirming one thing confirmed everything on it. **Provenance has to live at
 the same grain as the decision.** Per-row provenance on a per-item decision
 silently launders guesses into facts — here, rehire-grade claims about named
 people that nobody made.
+
+## 79 — A comment describing a bug is not a guard against it (2026-08-15)
+
+`normaliseClient` carried an excellent comment: a set-up entry names its gig
+("Set Up for Axos Bank Headshots"), so leaving that prefix in makes it normalise
+to a different client and the two refuse to group — "the exact failure this
+grouping exists to prevent". The regex under it was anchored `^`.
+
+Mason writes it both ways. "Appfolio Set Up" is trailing, so the Appfolio job
+came back as two gigs a day apart. Nothing failed: the backfill counted them
+separately, the create screen offered both, and the copy the payer domain lived
+on was the one you would not pick. **15 spurious gigs in a 9-month window,
+invisible for a year**, in a function whose comment described the problem
+precisely.
+
+The tell is that the comment generalised ("a set-up entry names its gig") while
+the code special-cased (one word order). **When a comment states a rule, check
+the code implements the RULE and not one instance of it** — and grep for the
+other orderings before believing it does.
+
+Found by running the live calendar, not by reading. The 72 unit tests all passed
+both before and after, because they encoded the same one word order.
+
+## 80 — Grouping decides the range; it must not also decide the label (2026-08-15)
+
+`groupIntoGigs` merges a set-up day with its shoot day — correct, that is its
+job. It also returns the group's `client` and `start` from whichever entry
+opened the group, which is the set-up. Every consumer that had only wanted a
+DATE RANGE was fine. The first consumer that wanted a NAME got "Appfolio Set Up"
+into a gallery title and the load-in date into the gallery's date, in
+production, on the first real click.
+
+**A grouping function's identity fields are about the group's extent, not about
+what to show a human.** When something copies a value out of a group and into a
+user-facing record, derive it from the member that IS the thing — here the first
+entry classified `kind === "gig"` — and keep the aggregate for the aggregate
+question. `start`/`end` still show "Jul 13 – Jul 14"; only `client` and the new
+`shootDate` changed.
+
+Same shape as lesson 78's provenance point: the grain of the answer has to match
+the grain of the question.
+
+## 81 — A typeahead and a matcher are different questions (2026-08-15)
+
+Sharing the backfill's `nameScore` with the create screen's autocomplete was the
+obvious move and the wrong one. Token overlap cannot match "perk" to "Perkin
+Elmer" — a half-typed word is not a token — so the autocomplete returned nothing
+until a whole word was typed.
+
+The fix is not to loosen the shared function. **Loosening it would have changed
+1,371 unattended matches to catch one interactive one.** A prefix rule is safe
+where a human reads the list and picks (an extra candidate costs a glance) and
+unsafe where nothing is watching ("Pure Storage" vs "Purely Social" attaches the
+wrong crew to a gallery nobody re-checks).
+
+So: one module, two entry points, sharing the signal set —
+`scoreNameAgainstClient` for the backfill, `scoreTypeahead` for the box. **"Share
+the code" and "share the thresholds" are separate decisions**, and conflating
+them is how a strict path gets quietly relaxed by a lenient caller.
