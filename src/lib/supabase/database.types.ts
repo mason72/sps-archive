@@ -278,6 +278,7 @@ export type Database = {
       }
       event_crew: {
         Row: {
+          confirmed_roles: string[]
           created_at: string
           crew_id: string
           event_id: string
@@ -288,6 +289,7 @@ export type Database = {
           would_rebook: string | null
         }
         Insert: {
+          confirmed_roles?: string[]
           created_at?: string
           crew_id: string
           event_id: string
@@ -298,6 +300,7 @@ export type Database = {
           would_rebook?: string | null
         }
         Update: {
+          confirmed_roles?: string[]
           created_at?: string
           crew_id?: string
           event_id?: string

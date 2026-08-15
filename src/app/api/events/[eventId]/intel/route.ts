@@ -23,6 +23,7 @@ const KNOWN_ROLES = ["lead", "photographer", "digital tech", "assistant", "styli
 interface EventCrewRow {
   crew_id: string;
   roles: string[] | null;
+  confirmed_roles: string[] | null;
   roles_source: string | null;
   would_rebook: string | null;
   note: string | null;
@@ -111,7 +112,13 @@ export async function GET(
           homeCity: person?.city ?? null,
           canLead: person?.can_lead ?? null,
           roles: r.roles ?? [],
-          // The UI must be able to tell a guess from a decision.
+          /**
+           * The subset Mason has actually endorsed. Per-ROLE, because
+           * confirming one used to confirm every other guess on the row: he
+           * clicked "lead" on Joey and silently blessed "photographer" too.
+           */
+          confirmedRoles: r.confirmed_roles ?? [],
+          // Row-level provenance, still useful for "has this been looked at".
           rolesSource: r.roles_source ?? "manual",
           wouldRebook: r.would_rebook ?? null,
           note: r.note ?? null,
@@ -167,6 +174,7 @@ export async function PATCH(
       addCrewId?: string;
       remove?: boolean;
       roles?: string[];
+      confirmedRoles?: string[];
       wouldRebook?: string | null;
       note?: string | null;
       eventNotes?: string;
@@ -215,6 +223,20 @@ export async function PATCH(
       const clean = [...new Set(body.roles.map((r) => String(r).toLowerCase().trim()))]
         .filter((r) => KNOWN_ROLES.includes(r));
       patch.roles = clean;
+
+      /**
+       * Confirmation follows the ROLES THE CALLER SENT, and nothing else.
+       *
+       * A role the human just switched on is confirmed. A guess they left
+       * alone stays a guess — it is still in `roles`, still shown dashed, and
+       * still excluded from any tally. That is the whole fix: clicking "lead"
+       * confirms lead, not the machine's opinion about photographer.
+       */
+      const confirmed = Array.isArray(body.confirmedRoles)
+        ? [...new Set(body.confirmedRoles.map((r) => String(r).toLowerCase().trim()))]
+            .filter((r) => KNOWN_ROLES.includes(r) && clean.includes(r))
+        : clean;
+      patch.confirmed_roles = confirmed;
     }
     if (body.wouldRebook !== undefined) {
       patch.would_rebook = body.wouldRebook && ["yes", "no", "maybe"].includes(body.wouldRebook)

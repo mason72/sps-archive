@@ -28,6 +28,8 @@ interface CrewRow {
   homeCity: string | null;
   canLead: string | null;
   roles: string[];
+  /** The subset a human has endorsed. The rest are still the backfill guessing. */
+  confirmedRoles: string[];
   rolesSource: string;
   wouldRebook: string | null;
   note: string | null;
@@ -125,7 +127,9 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
   }
   if (!data) return <div className="px-8 py-16 text-[13px] text-stone-400">Loading intel…</div>;
 
-  const unconfirmed = data.crew.filter((c) => c.rolesSource !== "manual" && c.roles.length).length;
+  const unconfirmed = data.crew.filter((c) =>
+    c.roles.some((r) => !c.confirmedRoles.includes(r))
+  ).length;
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
@@ -206,7 +210,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   {
                     crewId: person.id, name: person.name, kind: person.kind ?? null,
                     homeCity: person.homeCity ?? null, canLead: null,
-                    roles: [], rolesSource: "manual", wouldRebook: null, note: null,
+                    roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },
                 ].sort(byName),
               }));
@@ -223,7 +227,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   {
                     crewId: person.id, name: person.name, kind: person.kind,
                     homeCity: person.homeCity, canLead: null,
-                    roles: [], rolesSource: "manual", wouldRebook: null, note: null,
+                    roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },
                 ].sort(byName),
               }));
@@ -243,7 +247,12 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
               key={c.crewId}
               crew={c}
               knownRoles={data.knownRoles}
-              onRoles={(roles) => void save({ crewId: c.crewId, roles }, setCrew(c.crewId, { roles }))}
+              onRoles={(roles, confirmedRoles) =>
+                void save(
+                  { crewId: c.crewId, roles, confirmedRoles },
+                  setCrew(c.crewId, { roles, confirmedRoles })
+                )
+              }
               onRebook={(v) => void save({ crewId: c.crewId, wouldRebook: v }, setCrew(c.crewId, { wouldRebook: v }))}
               onNote={(v) => void save({ crewId: c.crewId, note: v }, setCrew(c.crewId, { note: v }))}
               onRemove={() =>
@@ -297,14 +306,14 @@ function CrewLine({
 }: {
   crew: CrewRow;
   knownRoles: string[];
-  onRoles: (roles: string[]) => void;
+  onRoles: (roles: string[], confirmed: string[]) => void;
   onRebook: (v: string | null) => void;
   onNote: (v: string) => void;
   onRemove: () => void;
 }) {
   const [note, setNote] = useState(crew.note ?? "");
   const [openNote, setOpenNote] = useState(false);
-  const guessed = crew.rolesSource !== "manual";
+  const guessed = crew.roles.some((r) => !crew.confirmedRoles.includes(r));
 
   /**
    * Rebook and notes are for people who DON'T work here.
@@ -318,11 +327,33 @@ function CrewLine({
    */
   const isTemp = crew.kind !== "staff";
 
+  /**
+   * THREE states, not two — and a dashed chip's first click CONFIRMS it.
+   *
+   * The old toggle had two: on or off. A guessed role was "on", so it rendered
+   * dashed but behaved like something already chosen, and clicking it REMOVED
+   * it. Mason clicked "lead" on Jerrick — a dashed guess — and watched lead
+   * vanish while photographer turned solid, which reads as "clicking lead
+   * selected photographer". Dashed means "not yet yours"; a click on it has to
+   * mean yes.
+   *
+   *   outline  not on the gig      → click adds it, confirmed
+   *   dashed   a guess             → click CONFIRMS it (stays, becomes solid)
+   *   solid    yours               → click removes it
+   */
   const toggle = (role: string) => {
-    const next = crew.roles.includes(role)
-      ? crew.roles.filter((r) => r !== role)
-      : [...crew.roles, role];
-    onRoles(next);
+    const on = crew.roles.includes(role);
+    const confirmed = crew.confirmedRoles.includes(role);
+    if (!on) {
+      onRoles([...crew.roles, role], [...crew.confirmedRoles, role]);
+    } else if (!confirmed) {
+      onRoles(crew.roles, [...crew.confirmedRoles, role]);
+    } else {
+      onRoles(
+        crew.roles.filter((r) => r !== role),
+        crew.confirmedRoles.filter((r) => r !== role)
+      );
+    }
   };
 
   return (
@@ -356,18 +387,24 @@ function CrewLine({
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {knownRoles.map((role) => {
           const on = crew.roles.includes(role);
+          const confirmed = crew.confirmedRoles.includes(role);
+          const state = !on ? "off" : confirmed ? "yours" : "guess";
           return (
             <button
               key={role}
               onClick={() => toggle(role)}
               className={`rounded-full px-2.5 py-1 text-[12px] transition-colors duration-150 ${
-                on
-                  ? guessed
-                    ? "border border-dashed border-stone-400 bg-white text-stone-600"
-                    : "border border-stone-800 bg-stone-900 text-white"
-                  : "border border-stone-200 bg-white text-stone-400 hover:border-stone-400 hover:text-stone-700"
+                state === "yours"
+                  ? "border border-stone-800 bg-stone-900 text-white"
+                  : state === "guess"
+                    ? "border border-dashed border-stone-400 bg-white text-stone-600 hover:border-stone-800 hover:text-stone-900"
+                    : "border border-stone-200 bg-white text-stone-400 hover:border-stone-400 hover:text-stone-700"
               }`}
-              title={on && guessed ? "Guessed — click to confirm" : on ? "Click to remove" : "Click to add"}
+              title={
+                state === "guess" ? "Guessed from the calendar — click to confirm"
+                : state === "yours" ? "Click to remove"
+                : "Click to add"
+              }
             >
               {role}
             </button>
