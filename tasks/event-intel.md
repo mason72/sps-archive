@@ -449,3 +449,95 @@ non-Vercel runtime satisfies it. Negative-tested against a real production build
 - **Venue names are often street addresses** — correct behaviour (a leading house
   number means the calendar gave no venue name), but "2065 E Hamilton Ave" is a
   poor label for a room we have shot twice.
+
+---
+
+## 2026-08-14/15 — the editing pass, and what using it changed
+
+Everything below came from Mason actually using the feature. Almost every item
+is a correction, and the pattern is worth naming: **I shipped what verified at
+the data layer, he found what was wrong at the UI layer.** Once I could drive
+his logged-in Chrome (see SESSION-HANDOFF) that gap closed, but not before four
+avoidable round trips.
+
+### The model, as it settled
+
+| | what it answers | shape |
+|---|---|---|
+| `crew.kind` | what someone DOES | photographer \| stylist \| makeup artist |
+| `crew.is_regular` | do you reach for them | boolean, MARKED not derived |
+| `event_crew.roles` | what they did on THIS gig | `lead` flag + one discipline |
+| `event_crew.confirmed_roles` | which of those a human endorsed | subset of `roles` |
+
+**`kind` was staff/local/client/other and that was two questions badly.** "Do I
+employ them" and "what do they do" are different, and `is_regular` already
+answered the first. `client` was a category error — clients are ORGANISATIONS.
+No catch-all: "other" absorbs everyone nobody classified and the list stops
+meaning anything.
+
+**`lead` is a flag, the discipline is a choice.** The first build made all six
+roles one free multi-select, which allowed stylist AND photographer — impossible
+on a real gig. Enforced in the API, not just the UI.
+
+**`digital tech` is gone.** It never named a person, only a shift: the pair
+trade off across the day and both do both. Folded into photographer, with
+`assistant`.
+
+**Regulars are marked, never derived from an event count** — the backfill covers
+23 of 45 galleries, so a count calls a regular new and a one-off prolific.
+
+### Two bugs that were really one idea
+
+**A guess must not read as a fact, and a guess must not behave like a decision.**
+
+`roles_source` marked a whole ROW as inferred. Clicking any chip flipped the row
+to manual, so every other guess on it silently became endorsed — clicking "lead"
+on Joey blessed the machine's opinion that he was also the photographer.
+
+Worse, a guessed role was "on", so the dashed chip DELETED itself on click.
+Mason: *"clicking lead ONLY chooses photographer"* — because lead vanished while
+photographer turned solid in the same frame.
+
+`confirmed_roles` fixes both. Three states, and dashed means *not yet yours*:
+
+    outline  not on the gig  → click adds it, confirmed
+    dashed   still a guess   → click CONFIRMS it, and only it
+    solid    yours           → click removes it
+
+### Where things live now
+
+- **`/intel`** — Crew · Venues · Cities · Clients · **Roster**. The first four
+  are pivot axes over one fact table; Roster is where the list is EDITED
+  (search, add, bulk archive, regulars filter, star).
+- **Event page → Intel tab** — venue (editable, incl. naming one), crew with
+  roles, client.
+- **Event page → under the photos** — `EventCrewConfirm`, a TO-DO that renders
+  only while something is unconfirmed and vanishes when answered.
+- **`/api/crew`, `/api/venues`, `/api/organizations`** — full CRUD, archive over
+  delete wherever `event_*` references the row, server-verified.
+
+### Not built — and it is the piece Mason actually asked for first
+
+**Confirmation belongs on the CREATE EVENT screen**, not only after the fact.
+Mason, 2026-08-15: *"I was assuming it would be on the very first screen where
+you create the event. Where you enter the name and date. And it pre-populates if
+you use the autocomplete."*
+
+That matches his original ask from the very start of this feature — "the crew
+member who's uploading the event can simply confirm it". What exists today
+confirms an event that already exists. The create flow should look the gig up by
+date as the name is typed, propose venue + crew + client from the calendar, and
+carry the confirmed set into the event it creates.
+
+`parseGig()` and the whole calendar layer already work over ONE entry — that was
+deliberate, so the confirm card and the backfill share a function. The missing
+part is the create-page wiring, not the parsing.
+
+### Answered by Mason, so do not re-derive
+
+- **All staff get a calendar invite.** So attendee-matching is sound, and a gig
+  with no crew means the backfill did not match the ENTRY, not that people were
+  missing from it.
+- **`can_lead` is not needed.** Dropped from the UI; column kept.
+- **"Photographer" needs no better name** — in this shop the digital-tech work
+  IS part of being the photographer.
