@@ -53,6 +53,13 @@ export async function GET(
         alreadyPulled: img.alreadyPulled,
         previewUrl: img.thumbUrl || img.url,
         /**
+         * The camera-size source, for tag-at-import. A face embedded from a
+         * 200px thumbnail is a bad reference; the tag path re-fetches THIS and
+         * downscales server-side to what the detector wants. Same presigned
+         * URL the import itself would use — nothing new is exposed.
+         */
+        fullUrl: img.url,
+        /**
          * True when the preview IS the full camera file, because SPS sent no
          * small variant for this row. The grid says so rather than just being
          * slow — an unexplained crawl through a 6,000-frame review is how the

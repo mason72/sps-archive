@@ -345,6 +345,81 @@ export async function addUploadedFace(
   return { ok: true, id: made.id };
 }
 
+/**
+ * Hosts a tag-at-import URL may point at — SPS's own presigned/public storage
+ * and this app's, nothing else.
+ *
+ * The URL arrives from a request body, and a server that fetches
+ * caller-supplied URLs is an SSRF the day someone passes it an internal
+ * address. Every legitimate URL on the import review screen was minted by SPS
+ * (its R2 bucket or its API host) or by this app's own bucket, so the
+ * allowlist costs nothing real.
+ */
+function urlHostAllowed(u: URL): boolean {
+  if (u.protocol !== "https:") return false;
+  const h = u.hostname;
+  const spsHost = new URL(
+    process.env.SPS_ARCHIVE_BASE_URL ||
+      "https://admin2.simplephotoshare.com/api/integrations/archive"
+  ).hostname;
+  return (
+    h === spsHost ||
+    h.endsWith(".r2.dev") ||
+    h.endsWith(".r2.cloudflarestorage.com")
+  );
+}
+
+/**
+ * Add a reference from a photo that lives at a URL — the tag-at-import path.
+ *
+ * Mason's decision (2026-08-15): at SPS import review, "tag it, still skip the
+ * frame" — the face is kept, the setup frame is not. The frame is not in the
+ * archive (that is the point), so there is no `faces` row to snapshot; this
+ * fetches the pixels, downscales anything camera-sized to what the detector
+ * wants, and rides the upload path from there.
+ */
+export async function addFaceFromUrl(
+  db: Db,
+  { userId, crewId, imageUrl }: { userId: string; crewId: string; imageUrl: string }
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl);
+  } catch {
+    return { ok: false, error: "Not a URL." };
+  }
+  if (!urlHostAllowed(parsed)) {
+    return { ok: false, error: "That image is not on SPS or this archive." };
+  }
+
+  const res = await fetch(parsed, { signal: AbortSignal.timeout(30_000) }).catch(() => null);
+  if (!res?.ok) {
+    // Presigned URLs expire in an hour — the likely cause, and the fix is to
+    // reopen the review screen, so say that instead of a bare failure.
+    return { ok: false, error: "Couldn't fetch that frame — its link may have expired. Reopen the review and try again." };
+  }
+  let buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > 40 * 1024 * 1024) {
+    return { ok: false, error: "That file is too large to be a photo frame." };
+  }
+
+  // A camera original can be 8MB+; the detector caps at ~6MB decoded and a
+  // face survives 2400px comfortably. Only re-encode when needed — a 200px
+  // thumbnail through sharp is pure loss.
+  if (buf.length > 4 * 1024 * 1024) {
+    const sharp = (await import("sharp")).default;
+    buf = Buffer.from(
+      await sharp(buf).rotate().resize(2400, 2400, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()
+    );
+  }
+
+  return addUploadedFace(db, {
+    userId,
+    crewId,
+    imageBase64: buf.toString("base64"),
+  });
+}
+
 /** The pin. Clears the old star first — the DB enforces exactly one. */
 export async function setAvatar(
   db: Db,

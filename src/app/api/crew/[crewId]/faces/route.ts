@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntelUser } from "@/lib/event-intel/require-intel";
 import {
+  addFaceFromUrl,
   addTaggedFace,
   addUploadedFace,
   crewFaceSet,
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     const body = (await req.json().catch(() => null)) as {
       faceId?: string;
       imageBase64?: string;
+      /** Tag-at-import: a frame SPS holds, allowlisted server-side. */
+      imageUrl?: string;
     } | null;
 
     const result = body?.faceId
@@ -63,7 +66,13 @@ export async function POST(req: NextRequest, { params }: Params) {
             crewId,
             imageBase64: body.imageBase64,
           })
-        : { ok: false as const, error: "faceId or imageBase64 is required" };
+        : body?.imageUrl
+          ? await addFaceFromUrl(supabase, {
+              userId: user!.id,
+              crewId,
+              imageUrl: body.imageUrl,
+            })
+          : { ok: false as const, error: "faceId, imageBase64 or imageUrl is required" };
 
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({

@@ -171,12 +171,6 @@ export function RosterManager() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search name, email, city…"
-            className={`${FIELD} w-56`}
-          />
           <button
             onClick={() => { setShowArchived((v) => !v); setPicked(new Set()); }}
             className="text-[12px] text-stone-500 underline underline-offset-4 hover:text-stone-800"
@@ -190,6 +184,20 @@ export function RosterManager() {
             {addOpen ? "Cancel" : "Add person"}
           </button>
         </div>
+      </div>
+
+      {/* Search sits ABOVE THE LIST IT SEARCHES — the same rule the pivot axes
+          follow, and Mason had to point out this tab had been skipped: "Roster
+          tab still has Search top-right instead of above the list of names."
+          Top-right it read as page chrome; here, the thing it filters is the
+          next thing you look at. */}
+      <div className="mt-4">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name, email, city…"
+          className={`${FIELD} max-w-sm`}
+        />
       </div>
 
       {error && <p className="mt-3 text-[13px] text-red-700">{error}</p>}

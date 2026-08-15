@@ -14,6 +14,7 @@ import {
   GigIntelStep,
   type GigIntelPayload,
 } from "@/components/events/CreateGigConfirm";
+import { CrewFaceTag } from "@/components/crew/CrewFaceTag";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -69,6 +70,8 @@ interface ManifestImage {
   alreadyPulled: boolean;
   previewUrl: string;
   previewIsFullSize: boolean;
+  /** Camera-size source, for tag-at-import — a thumb makes a bad reference. */
+  fullUrl: string;
 }
 
 interface PullJob {
@@ -138,6 +141,8 @@ export default function ImportFromSpsPage() {
    * working with them."
    */
   const [gigIntel, setGigIntel] = useState<GigIntelPayload | null>(null);
+  /** The last "saved a crew face" confirmation — shown by the import button. */
+  const [tagNote, setTagNote] = useState<string | null>(null);
   /**
    * The SHOOT day, taken from the manifest's event record.
    *
@@ -265,6 +270,7 @@ export default function ImportFromSpsPage() {
     setManifestTotal(null);
     setCountPending(true);
     setGigIntel(null);
+    setTagNote(null);
     setSpsShootDate(ev.completedAt ? ev.completedAt.slice(0, 10) : null);
     loadPage(ev.id, 0);
 
@@ -720,6 +726,13 @@ export default function ImportFromSpsPage() {
                 {manifestTotal === null && countPending && (
                   <span className="text-stone-400"> · counting…</span>
                 )}
+                {/* A face save changes the SELECTION (the tile unchecks), so
+                    its confirmation lives beside the count that just moved —
+                    an unexplained decrement here is exactly the class of lie
+                    the denominator rules exist to prevent. */}
+                {tagNote && (
+                  <span className="block text-[12px] text-accent-hover">{tagNote}</span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 {deselected.size > 0 && (
@@ -819,46 +832,72 @@ export default function ImportFromSpsPage() {
               {images.map((img) => {
                 const off = deselected.has(img.id);
                 return (
-                  <button
+                  /**
+                   * A DIV wrapping a button, not a button — the crew tag is a
+                   * button of its own, and a button inside a button is invalid
+                   * HTML that browsers un-nest unpredictably. The toggle keeps
+                   * its full-tile hit area; the tag floats above it.
+                   */
+                  <div
                     key={img.id}
-                    onClick={() => toggle(img.id)}
-                    title={img.originalFilename}
                     className={cn(
-                      "relative aspect-square overflow-hidden bg-stone-100 group cursor-pointer transition-all duration-200",
+                      "relative aspect-square overflow-hidden bg-stone-100 group transition-all duration-200",
                       off ? "opacity-30" : "opacity-100"
                     )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.previewUrl}
-                      alt={img.originalFilename}
-                      loading="lazy"
-                      decoding="async"
-                      className="w-full h-full object-cover"
-                    />
-
-                    {/* Checkbox — the affordance has to be visible without
-                        hovering, because on a phone there is no hover. */}
-                    <span
-                      className={cn(
-                        "absolute top-2 left-2 w-5 h-5 flex items-center justify-center border transition-colors",
-                        off
-                          ? "bg-white/70 border-stone-300"
-                          : "bg-stone-900 border-stone-900"
-                      )}
+                    <button
+                      onClick={() => toggle(img.id)}
+                      title={img.originalFilename}
+                      className="absolute inset-0 h-full w-full cursor-pointer"
                     >
-                      {!off && <Check size={12} className="text-white" />}
-                    </span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.previewUrl}
+                        alt={img.originalFilename}
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full h-full object-cover"
+                      />
 
-                    {/* "unverified", not "re-encoded" — see the note above the
-                        banner. The badge must not claim the file is degraded
-                        when the bytes have been shown to be identical. */}
-                    {img.quality === "lossy" && (
-                      <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-stone-900/70 text-white px-1.5 py-0.5">
-                        unverified
+                      {/* Checkbox — the affordance has to be visible without
+                          hovering, because on a phone there is no hover. */}
+                      <span
+                        className={cn(
+                          "absolute top-2 left-2 w-5 h-5 flex items-center justify-center border transition-colors",
+                          off
+                            ? "bg-white/70 border-stone-300"
+                            : "bg-stone-900 border-stone-900"
+                        )}
+                      >
+                        {!off && <Check size={12} className="text-white" />}
                       </span>
-                    )}
-                  </button>
+
+                      {/* "unverified", not "re-encoded" — see the note above the
+                          banner. The badge must not claim the file is degraded
+                          when the bytes have been shown to be identical. */}
+                      {img.quality === "lossy" && (
+                        <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-stone-900/70 text-white px-1.5 py-0.5">
+                          unverified
+                        </span>
+                      )}
+                    </button>
+
+                    {/**
+                     * "That's crew" — keep the face, still skip the frame.
+                     * Mason's call on the setup-frame tension: the review grid
+                     * is the only moment these frames are on screen before
+                     * being discarded. Tagging UNCHECKS the tile, because
+                     * keeping the face is the reason the frame can go.
+                     * Renders nothing without Event Intel.
+                     */}
+                    <CrewFaceTag
+                      imageUrl={img.fullUrl}
+                      onTagged={(name) => {
+                        setDeselected((prev) => new Set(prev).add(img.id));
+                        setTagNote(`Saved ${name}'s face — the frame stays out of the import.`);
+                      }}
+                    />
+                  </div>
                 );
               })}
             </div>
