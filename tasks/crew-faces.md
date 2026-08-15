@@ -200,9 +200,14 @@ with use. This is the compounding one.
 
 ## As built (2026-08-15) — deltas from the design above
 
-- **Import-review capture (path b) is NOT built yet.** The tension stands as
-  written; Mason has not picked between tag-before-dropping and
-  keep-a-section. Everything else shipped.
+- **Import-review capture (path b): DECIDED AND BUILT** (2026-08-15, later the
+  same day). Mason chose **tag-before-dropping**: a hover "that's crew" button
+  on each review tile (`CrewFaceTag`, intel accounts only) saves the face —
+  server fetches the frame's `fullUrl` (a 200px thumb makes a bad reference),
+  downscales camera originals, runs detection — and then UNCHECKS the tile,
+  because keeping the face is the reason the frame can go. The fetched URL is
+  allowlisted to SPS hosts + R2 (SSRF). The confirmation prints beside the
+  selection count that just moved.
 - **The gallery-side entry is at CLUSTER level, not photo level** —
   `CrewLinkAction` ("crew…") in the PersonModal beside rename/split. Stronger
   than tagging one photo: the whole cluster's faces feed the matcher, and its
