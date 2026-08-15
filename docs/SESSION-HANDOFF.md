@@ -83,6 +83,14 @@ conventions. It is the other entry point.
   / anywhere on the Intel Crew axis. GROUPS, not a filter: within-reach, would
   travel, further out, can't-place — nobody silently dropped. Client-side over
   `geo.ts` (24-metro coordinate table, tests against known distances)
+- **Live SPS events are importable, flagged** (2026-08-15) — SPS's archive list
+  now includes `status: 'live'` events with `live: true` (spsv2 commit
+  04da08b); the import screen badges them (pulsing red LIVE, "photos so far"),
+  warns in review, and confirms before pulling. An event still imports ONCE;
+  "check for updates on a pulled event" is spec'd backlog. Hand-uploaded
+  events get "Already in the archive?" → link to the existing PT event
+  (`POST /api/sps/pull/events/[id]/link`, source manual-link, Unlink undo);
+  KFL LA + NYC linked and verified 2026-08-15
 - **Crew faces** (2026-08-15, `tasks/crew-faces.md`) — reference sets in
   `crew_faces` (migration 061), avatars beside every crew name (initials when
   empty), upload/tag/star/delete on the Intel panel, "Find them in the
