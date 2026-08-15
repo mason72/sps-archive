@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { RosterManager } from "./RosterManager";
 import type {
   IntelIndex,
   IntelPerson,
@@ -24,13 +25,16 @@ import type {
  * accent mean two different things at once.
  */
 
-type Axis = "people" | "venues" | "cities" | "clients";
+type Axis = "people" | "venues" | "cities" | "clients" | "roster";
 
 const AXES: { key: Axis; label: string }[] = [
   { key: "people", label: "People" },
   { key: "venues", label: "Venues" },
   { key: "cities", label: "Cities" },
   { key: "clients", label: "Clients" },
+  // Not a pivot axis — the place the roster is EDITED. It sits here because
+  // this is where someone already comes to look at people.
+  { key: "roster", label: "Roster" },
 ];
 
 /**
@@ -42,6 +46,7 @@ const SINGULAR: Record<Axis, string> = {
   venues: "a venue",
   cities: "a city",
   clients: "a client",
+  roster: "someone",
 };
 
 const fmtDate = (d: string | null) =>
@@ -183,6 +188,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
     venues: null,
     cities: null,
     clients: null,
+    roster: null,
   });
   const [query, setQuery] = useState("");
 
@@ -280,7 +286,8 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
               a.key === "people" ? index.people.length
               : a.key === "venues" ? index.venues.length
               : a.key === "cities" ? index.cities.length
-              : index.orgs.length;
+              : a.key === "clients" ? index.orgs.length
+              : null;   // Roster manages its own list; a stale count would lie
             return (
               <button
                 key={a.key}
@@ -291,7 +298,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                 }`}
               >
                 {a.label}
-                <span className="ml-2 text-[11px] tabular-nums text-stone-300">{n}</span>
+                {n != null && <span className="ml-2 text-[11px] tabular-nums text-stone-300">{n}</span>}
                 <span
                   className={`absolute inset-x-0 bottom-0 h-[2px] origin-left transition-transform duration-200 ${
                     active ? "scale-x-100 bg-emerald-500" : "scale-x-0 bg-stone-300 group-hover:scale-x-100"
@@ -313,6 +320,11 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
       <div className="mt-px"><Rule /></div>
 
       {/* ── List + detail ─────────────────────────────────────────────────── */}
+      {axis === "roster" ? (
+        <div className="mt-8">
+          <RosterManager />
+        </div>
+      ) : (
       <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(260px,340px)_1fr]">
         <div className="max-h-[70vh] overflow-y-auto pr-1">
           {rows.length === 0 ? (
@@ -371,6 +383,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
