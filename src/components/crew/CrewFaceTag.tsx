@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Users } from "lucide-react";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 
@@ -64,13 +65,47 @@ export function CrewFaceTag({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Where the panel goes, in VIEWPORT coordinates.
+   *
+   * The panel is a portal with `position: fixed`, not a child of the tile —
+   * the tile is `overflow-hidden` (it has to be, for the image crop), so a
+   * child popover gets cropped to the square and, in Mason's words, "I can't
+   * really use it at all". A portal escapes the clipping AND the stacking
+   * context a dimmed (opacity-30) tile creates. Measured from the button when
+   * it opens; clamped to the viewport; flipped above the button when the
+   * bottom of the screen is too close.
+   */
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const place = () => {
+    const r = buttonRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const PANEL_W = 208;
+    const left = Math.max(8, Math.min(r.right - PANEL_W, window.innerWidth - PANEL_W - 8));
+    if (window.innerHeight - r.bottom < 320) {
+      setPos({ left, bottom: window.innerHeight - r.top + 4 });
+    } else {
+      setPos({ left, top: r.bottom + 4 });
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
     if (roster === null) fetchRoster().then(setRoster);
-    // Focus after the popover paints.
+    // Focus after the portal paints.
     const t = setTimeout(() => inputRef.current?.focus(), 0);
-    return () => clearTimeout(t);
+    // A fixed panel does not travel with the page — close rather than drift.
+    // Capture-phase, so scrolls inside any container count too.
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, { capture: true, passive: true });
+    window.addEventListener("resize", close);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("scroll", close, { capture: true });
+      window.removeEventListener("resize", close);
+    };
   }, [open, roster]);
 
   if (hasIntel !== true) return null;
@@ -106,9 +141,11 @@ export function CrewFaceTag({
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          if (!open) place();
           setOpen((v) => !v);
         }}
         title="That's crew — save their face, still skip the frame"
@@ -121,10 +158,11 @@ export function CrewFaceTag({
         <Users size={14} />
       </button>
 
-      {open && (
+      {open && pos && createPortal(
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute right-1.5 top-10 z-20 w-52 border border-stone-200 bg-white text-left shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]"
+          style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom }}
+          className="z-50 w-52 border border-stone-200 bg-white text-left shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]"
         >
           <input
             ref={inputRef}
@@ -163,7 +201,8 @@ export function CrewFaceTag({
             )}
           </div>
           {error && <p className="border-t border-stone-100 px-3 py-2 text-[12px] text-amber-700">{error}</p>}
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
