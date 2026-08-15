@@ -42,8 +42,9 @@ import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices } from "lucide-react";
+import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
+import { EventIntelPanel } from "@/components/events/EventIntelPanel";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -149,7 +150,7 @@ export default function EventPage({
   const [failedUploads, setFailedUploads] = useState<File[]>([]);
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
-  const [viewMode, setViewMode] = useState<"grid" | "filmstrip" | "people">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "filmstrip" | "people" | "intel">("grid");
   // Filter the grid to one clustered person (set by clicking a face in the
   // People view). Composes with sections/search/favorites in the images memo.
   const [personFilter, setPersonFilter] = useState<{
@@ -2181,6 +2182,16 @@ export default function EventPage({
                     </span>
                   )}
                 </button>
+                {/* Back-office: venue, who worked it, client. Internal only —
+                    this event's editor is the one place it is reachable. */}
+                <button
+                  onClick={() => setViewMode("intel")}
+                  className={`p-1.5 transition-colors ${viewMode === "intel" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                  aria-label="Event intel — venue, crew and client"
+                  title="Venue, crew and client"
+                >
+                  <ClipboardList className="h-4 w-4" />
+                </button>
               </div>
             </div>
 
@@ -2352,7 +2363,9 @@ export default function EventPage({
                     )}
                   </p>
                 )}
-              {viewMode === "people" ? (
+              {viewMode === "intel" ? (
+                <EventIntelPanel eventId={eventId} />
+              ) : viewMode === "people" ? (
                 <PeopleView
                   eventId={eventId}
                   activePersonId={personFilter?.id ?? null}
