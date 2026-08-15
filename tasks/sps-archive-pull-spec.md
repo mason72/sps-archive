@@ -111,13 +111,25 @@ Base URL: `https://admin2.simplephotoshare.com/api/integrations/archive`
 
 ### `GET /events`
 
-Events available to pull. **Completed events only** — a live event is still
-being shot, and importing it captures a partial take.
+Events available to pull. **Live events included and flagged** (contract
+change 2026-08-15 — the original completed-only rule blocked the "team is
+done, nobody pressed Complete" case; Mason: "a LIVE badge and are-you-sure
+warning would do the same work without blocking me"). Live events sort first,
+carry `live: true` and a null `completedAt`; the importer MUST badge them and
+confirm before pulling, because an event imports once and photos arriving
+after the pull are not in the copy. Test events stay excluded. The manifest
+paginates `created_at ASC`, so a live pull is a stable snapshot up to the end
+of the walk.
+
+Backlog (Mason's follow-on idea, not built): a "check for updates" action on a
+pulled event that re-walks the manifest and offers photos added since the
+pull — the per-image `(event_id, sps_image_id)` unique index already makes a
+re-walk idempotent, so this is a UI and job-resume question, not a schema one.
 
 ```json
 { "events": [
-  { "id": "uuid", "name": "…", "slug": "…",
-    "completedAt": "2026-08-01T…Z", "imageCount": 5902, "archiveEnabled": true }
+  { "id": "uuid", "name": "…", "slug": "…", "completedAt": "2026-08-01T…Z",
+    "imageCount": 5902, "archiveEnabled": true, "live": false }
 ]}
 ```
 
