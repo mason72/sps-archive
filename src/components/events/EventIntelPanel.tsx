@@ -195,38 +195,41 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
         </div>
 
         {adding && (
-          <div className="mt-3 rounded-md border border-stone-200 bg-white p-3">
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                const id = e.target.value;
-                if (!id) return;
-                const p = data.roster.find((r) => r.id === id);
-                setAdding(false);
-                void save({ addCrewId: id }, (d) => ({
-                  ...d,
-                  crew: [
-                    ...d.crew,
-                    {
-                      crewId: id, name: p?.name ?? "…", kind: p?.kind ?? null,
-                      homeCity: p?.homeCity ?? null, canLead: null,
-                      roles: [], rolesSource: "manual", wouldRebook: null, note: null,
-                    },
-                  ].sort(byName),
-                }));
-              }}
-              className="w-full rounded-md border border-stone-200 px-2 py-1.5 text-[13px] text-stone-800 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
-            >
-              <option value="" disabled>Choose from the roster…</option>
-              {data.roster
-                .filter((r) => !data.crew.some((c) => c.crewId === r.id))
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}{r.homeCity ? ` — ${r.homeCity}` : ""}
-                  </option>
-                ))}
-            </select>
-          </div>
+          <CrewPicker
+            roster={data.roster.filter((r) => !data.crew.some((c) => c.crewId === r.id))}
+            onPick={(person) => {
+              setAdding(false);
+              void save({ addCrewId: person.id }, (d) => ({
+                ...d,
+                crew: [
+                  ...d.crew,
+                  {
+                    crewId: person.id, name: person.name, kind: person.kind ?? null,
+                    homeCity: person.homeCity ?? null, canLead: null,
+                    roles: [], rolesSource: "manual", wouldRebook: null, note: null,
+                  },
+                ].sort(byName),
+              }));
+            }}
+            onCreated={(person) => {
+              setAdding(false);
+              // Straight into the crew list AND the roster, so a second event
+              // that day finds them already there.
+              applyLocal((d) => ({
+                ...d,
+                roster: [...d.roster, person].sort((a, b) => a.name.localeCompare(b.name)),
+                crew: [
+                  ...d.crew,
+                  {
+                    crewId: person.id, name: person.name, kind: person.kind,
+                    homeCity: person.homeCity, canLead: null,
+                    roles: [], rolesSource: "manual", wouldRebook: null, note: null,
+                  },
+                ].sort(byName),
+              }));
+            }}
+            onCancel={() => setAdding(false)}
+          />
         )}
 
         <div className="mt-3 divide-y divide-stone-100">
@@ -416,6 +419,135 @@ function CrewLine({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Add someone to this gig: type their name.
+ *
+ * The first version was a bare `<select>` over 89 people with no search and no
+ * way to add anyone new — which is useless for the actual job. A temp worked
+ * today, you type their name, and either they are on the roster or you make
+ * them right here. Mason should never have to leave the event, go to the
+ * roster, add a person, come back, and find them.
+ *
+ * Anyone created here is `kind: "local"` — a temp. That is not a guess about
+ * them; it is what "someone I am adding from an event page who is not already
+ * on my roster" means, and it is the thing that makes the rebook and notes
+ * controls appear for them. Staff are already on the roster.
+ */
+function CrewPicker({
+  roster, onPick, onCreated, onCancel,
+}: {
+  roster: { id: string; name: string; kind: string; homeCity: string | null }[];
+  onPick: (p: { id: string; name: string; kind: string; homeCity: string | null }) => void;
+  onCreated: (p: { id: string; name: string; kind: string; homeCity: string | null }) => void;
+  onCancel: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [cursor, setCursor] = useState(0);
+
+  const term = q.trim().toLowerCase();
+  const matches = term
+    ? roster.filter((r) => r.name.toLowerCase().includes(term) || (r.homeCity ?? "").toLowerCase().includes(term))
+    : roster;
+  // Offer to create only when nothing matches EXACTLY — a near-match should be
+  // picked, not duplicated. Duplicate people are the failure this registry
+  // exists to prevent.
+  const exact = roster.some((r) => r.name.toLowerCase() === term);
+  const canCreate = term.length >= 2 && !exact;
+  const options = matches.slice(0, 8);
+
+  const create = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/crew", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: q.trim(), kind: "local" }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Could not add");
+      onCreated({ id: j.id, name: q.trim(), kind: "local", homeCity: null });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not add");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") { onCancel(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => Math.min(c + 1, options.length)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (cursor < options.length) onPick(options[cursor]);
+      else if (canCreate) void create();
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-md border border-stone-200 bg-white p-3">
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setCursor(0); }}
+        onKeyDown={onKey}
+        placeholder="Type a name — or a new one to add them"
+        className="w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+      />
+
+      <ul className="mt-2 max-h-60 overflow-y-auto">
+        {options.map((r, i) => (
+          <li key={r.id}>
+            <button
+              onMouseEnter={() => setCursor(i)}
+              onClick={() => onPick(r)}
+              className={`flex w-full items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left text-[13px] ${
+                i === cursor ? "bg-stone-100 text-stone-900" : "text-stone-700 hover:bg-stone-50"
+              }`}
+            >
+              <span>{r.name}</span>
+              <span className="text-[11px] text-stone-400">
+                {[r.kind !== "staff" ? r.kind : null, r.homeCity].filter(Boolean).join(" · ")}
+              </span>
+            </button>
+          </li>
+        ))}
+
+        {canCreate && (
+          <li>
+            <button
+              onMouseEnter={() => setCursor(options.length)}
+              onClick={() => void create()}
+              disabled={busy}
+              className={`flex w-full items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left text-[13px] ${
+                cursor === options.length ? "bg-stone-100 text-stone-900" : "text-stone-700 hover:bg-stone-50"
+              }`}
+            >
+              <span>{busy ? "Adding…" : <>Add <span className="text-stone-900">“{q.trim()}”</span> as a temp</>}</span>
+              <span className="text-[11px] text-stone-400">new</span>
+            </button>
+          </li>
+        )}
+
+        {options.length === 0 && !canCreate && (
+          <li className="px-2 py-2 text-[12px] text-stone-400">
+            {term ? "No match — type at least two characters to add someone new." : "Nobody left to add."}
+          </li>
+        )}
+      </ul>
+
+      {err && <p className="mt-2 text-[12px] text-red-700">{err}</p>}
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-[11px] text-stone-300">↑↓ to move · Enter to choose · Esc to close</span>
+        <button onClick={onCancel} className="text-[12px] text-stone-500 hover:text-stone-800">Cancel</button>
+      </div>
     </div>
   );
 }
