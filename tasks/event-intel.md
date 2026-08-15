@@ -1,6 +1,13 @@
 # Event Intel — venues, crew, clients, and the pivot over them
 
-Status: **designed, sampled, not built.** Interview + live source sampling 2026-08-13.
+Status: **live.** Designed and sampled 2026-08-13; the pivot (`/intel`), the
+create-screen gig confirm, the SPS-import gig confirm, the rehire ladder, the
+roster editor, the radius search and crew faces (`tasks/crew-faces.md`) all
+shipped 2026-08-13 → 2026-08-15. Sections below record the design and its
+reasoning; where a decision changed in the building, the later note wins —
+"digital tech" was removed from the role vocabulary 2026-08-15 (it named a
+shift, not a person), and access is now gated per account
+(`src/lib/event-intel/access.ts`, lesson 85).
 
 Back-office metadata on an event: where it happened, who worked it, who the client was,
 and what we want to remember. Never visible to a client — internal only.

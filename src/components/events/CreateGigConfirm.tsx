@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 
 /**
  * Looking a gig up while you name the event — and confirming it before the
@@ -261,6 +262,23 @@ export function GigConfirmCard({
   const [temps, setTemps] = useState<TempPerson[]>([]);
   const [addingTemp, setAddingTemp] = useState(false);
 
+  /**
+   * Faces beside the names — "is this the Nicole I think it is?", asked at the
+   * exact moment a rehire judgement is being recorded about her. Best-effort:
+   * a failed fetch leaves initials, which the row renders anyway.
+   */
+  const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
+  useEffect(() => {
+    const ids = gig.crew.map((c) => c.crewId);
+    if (!ids.length) return;
+    let live = true;
+    fetch(`/api/crew/avatars?ids=${ids.join(",")}`)
+      .then((r) => (r.ok ? r.json() : { avatars: {} }))
+      .then((j) => { if (live) setAvatars(j.avatars ?? {}); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [gig]);
+
   // Seed once per gig: everyone on, discipline guessed from what they DO.
   useEffect(() => {
     const seed: Record<string, CrewPick> = {};
@@ -483,22 +501,32 @@ export function GigConfirmCard({
                            * not — rows of two different heights for no reason a
                            * reader could see. Found by looking at it.
                            */}
-                          <span className="min-w-0">
-                            <button
-                              type="button"
-                              onClick={() => toggleOn(c.id)}
-                              title={p.on ? "They were not here" : "Add them back"}
-                              className={`block text-left text-[14px] transition-colors ${
-                                p.on ? "text-stone-900" : "text-stone-300 line-through"
-                              }`}
-                            >
-                              {c.name}
-                            </button>
-                            {!c.isRegular && p.on && (
-                              <span className="block text-[11px] leading-tight text-stone-400">
-                                {c.isTemp ? "new — added here" : "not a regular"}
-                              </span>
-                            )}
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            {/* Temps have no roster row yet, so no face — the
+                                initials circle carries the row's shape. */}
+                            <CrewAvatar
+                              face={c.isTemp ? null : avatars[c.id]}
+                              name={c.name}
+                              size={28}
+                              className={p.on ? "" : "opacity-40"}
+                            />
+                            <span className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleOn(c.id)}
+                                title={p.on ? "They were not here" : "Add them back"}
+                                className={`block text-left text-[14px] transition-colors ${
+                                  p.on ? "text-stone-900" : "text-stone-300 line-through"
+                                }`}
+                              >
+                                {c.name}
+                              </button>
+                              {!c.isRegular && p.on && (
+                                <span className="block text-[11px] leading-tight text-stone-400">
+                                  {c.isTemp ? "new — added here" : "not a regular"}
+                                </span>
+                              )}
+                            </span>
                           </span>
 
                           {p.on && (

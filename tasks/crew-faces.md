@@ -1,7 +1,8 @@
 # Crew faces — design notes
 
-Status: **designed, not built.** Written 2026-08-15 from Mason's ask, with the
-numbers measured against live data first (`scripts/triage/crew-face-yield.ts`).
+Status: **built and live** (2026-08-15, same day). The design below survived
+contact with the build intact; deltas from it, at the bottom. Migration 061;
+lib `src/lib/crew-faces/`; UI `src/components/crew/`.
 
 Mason: *"We often have setup photos with crew faces (almost never named
 properly lol). It will be especially helpful to remember who random one-time
@@ -194,3 +195,31 @@ with use. This is the compounding one.
    plus the "is this Joey?" card.
 4. The `/people` crew section and its toggle.
 5. Capture at import review, and a face on the temp adder.
+
+---
+
+## As built (2026-08-15) — deltas from the design above
+
+- **Import-review capture (path b) is NOT built yet.** The tension stands as
+  written; Mason has not picked between tag-before-dropping and
+  keep-a-section. Everything else shipped.
+- **The gallery-side entry is at CLUSTER level, not photo level** —
+  `CrewLinkAction` ("crew…") in the PersonModal beside rename/split. Stronger
+  than tagging one photo: the whole cluster's faces feed the matcher, and its
+  representative face joins the references.
+- **`/people` crew section defaults to REGULARS** — Mason's call, with the
+  reason recorded: the page is "a sort of 'trophy room' so I think it will be
+  fun to go there and see our colleagues first, not randoms. When we are
+  trying to remember someone's name… it's easy enough to click non-regular."
+- **Avatar crops are CSS windows, not stored crops** (the People view's
+  FaceCrop math, generalised in `CrewAvatar` to measure uploaded images via
+  onLoad since they have no stored dimensions). A reference whose pixels are
+  gone stays matchable and stops being drawable — falls back to initials.
+- **Confirm teaches:** `confirmCrewPerson` snapshots the cluster's
+  representative face into `crew_faces` as `confirmed-suggestion`. Re-tagging
+  the same face is a no-op by lookup, not by constraint.
+- **Deleting the starred reference hands the star to the newest survivor** —
+  a person with references must never silently fall back to initials.
+- **Gating:** all routes via `getIntelUser()`; `CrewWall` and `CrewLinkAction`
+  self-gate to nothing (403 → null render); the store scopes every query by
+  `user_id` regardless.
