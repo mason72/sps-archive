@@ -25,6 +25,9 @@ interface FaceRef extends CrewAvatarFace {
   id: string;
   isAvatar: boolean;
   source: string;
+  /** Where a click goes — the source photo's event and its face cluster. */
+  sourceEventId: string | null;
+  sourcePersonId: string | null;
 }
 
 interface ClusterMatch {
@@ -165,7 +168,25 @@ export function CrewFacesSection({
             <ul className="flex flex-wrap gap-3">
               {faces.map((f) => (
                 <li key={f.id} className="group relative">
-                  <CrewAvatar face={f} name={crewName} size={56} />
+                  {/**
+                   * The circle is a DOOR when its photo still lives in a
+                   * gallery — Mason: "if they're in a gallery we should be
+                   * able to go look at the images." It lands on the event's
+                   * People view with this person's face card open (`?face=`).
+                   * Uploads and orphaned references have nowhere to go and
+                   * stay plain — matchable, not visitable.
+                   */}
+                  {f.sourceEventId ? (
+                    <a
+                      href={`/events/${f.sourceEventId}${f.sourcePersonId ? `?face=${f.sourcePersonId}` : ""}`}
+                      title="See this face in its gallery"
+                      className="block rounded-full transition-shadow hover:ring-2 hover:ring-accent hover:ring-offset-2"
+                    >
+                      <CrewAvatar face={f} name={crewName} size={56} />
+                    </a>
+                  ) : (
+                    <CrewAvatar face={f} name={crewName} size={56} />
+                  )}
                   {/**
                    * The star sits ON the face, always visible when earned,
                    * hover-revealed when offered — but on touch there is no

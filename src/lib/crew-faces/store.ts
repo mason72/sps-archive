@@ -45,6 +45,15 @@ export interface CrewFaceView {
   source: string;
   /** Set when the reference came from an archive photo that still exists. */
   imageId: string | null;
+  /**
+   * Where a click can GO — Mason: "if they're in a gallery we should be able
+   * to go look at the images." The event holding the source photo, and the
+   * face cluster there when its detection still exists, so the strip links to
+   * the person's card in that gallery. Null for uploads and for references
+   * whose source has since been deleted — matchable, not visitable.
+   */
+  sourceEventId: string | null;
+  sourcePersonId: string | null;
 }
 
 const clamp01 = (v: unknown): number =>
@@ -70,6 +79,7 @@ async function resolveViews(
   rows: {
     id: string;
     image_id: string | null;
+    face_id?: string | null;
     storage_key: string | null;
     bbox: unknown;
     is_avatar: boolean;
@@ -79,14 +89,24 @@ async function resolveViews(
   const imageIds = [...new Set(rows.map((r) => r.image_id).filter(Boolean))] as string[];
   const imageById = new Map<
     string,
-    { r2_key: string; width: number | null; height: number | null }
+    { r2_key: string; width: number | null; height: number | null; event_id: string }
   >();
   if (imageIds.length) {
     const { data } = await db
       .from("images")
-      .select("id, r2_key, width, height")
+      .select("id, r2_key, width, height, event_id")
       .in("id", imageIds);
     for (const img of data ?? []) imageById.set(img.id, img);
+  }
+
+  // The cluster each reference face belongs to, for the click-through. Looked
+  // up live rather than stored: clusters merge and re-form, and a stale
+  // person id would open the wrong card.
+  const faceIds = [...new Set(rows.map((r) => r.face_id).filter(Boolean))] as string[];
+  const personByFace = new Map<string, string | null>();
+  if (faceIds.length) {
+    const { data } = await db.from("faces").select("id, person_id").in("id", faceIds);
+    for (const f of data ?? []) personByFace.set(f.id, f.person_id);
   }
 
   const out: CrewFaceView[] = [];
@@ -102,6 +122,8 @@ async function resolveViews(
         isAvatar: r.is_avatar,
         source: r.source,
         imageId: r.image_id,
+        sourceEventId: img.event_id,
+        sourcePersonId: (r.face_id && personByFace.get(r.face_id)) || null,
       });
     } else if (r.storage_key) {
       out.push({
@@ -115,6 +137,8 @@ async function resolveViews(
         isAvatar: r.is_avatar,
         source: r.source,
         imageId: null,
+        sourceEventId: null,
+        sourcePersonId: null,
       });
     }
     // else: pixels gone everywhere — matchable, not drawable. Skipped.
@@ -139,7 +163,7 @@ export async function crewAvatars(
 
   const { data, error } = await db
     .from("crew_faces")
-    .select("id, crew_id, image_id, storage_key, bbox, is_avatar, source")
+    .select("id, crew_id, image_id, face_id, storage_key, bbox, is_avatar, source")
     .eq("user_id", userId)
     .in("crew_id", crewIds)
     .order("is_avatar", { ascending: false })
@@ -177,7 +201,7 @@ export async function crewFaceSet(
 ): Promise<CrewFaceView[]> {
   const { data, error } = await db
     .from("crew_faces")
-    .select("id, image_id, storage_key, bbox, is_avatar, source")
+    .select("id, image_id, face_id, storage_key, bbox, is_avatar, source")
     .eq("user_id", userId)
     .eq("crew_id", crewId)
     .order("is_avatar", { ascending: false })

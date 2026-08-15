@@ -73,6 +73,8 @@ export function PeopleView({
   onSuggestionsCount,
   searchQuery,
   matchingImageIds,
+  openPersonId,
+  onOpenedPerson,
 }: {
   eventId: string;
   activePersonId: string | null;
@@ -81,6 +83,12 @@ export function PeopleView({
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   /** Reports the live suggestion count (drives the People-button badge). */
   onSuggestionsCount?: (count: number) => void;
+  /**
+   * A cluster to open the card for on arrival — the `?face=` deep link from a
+   * crew reference circle. Consumed once via `onOpenedPerson`.
+   */
+  openPersonId?: string | null;
+  onOpenedPerson?: () => void;
   /** The editor's search box filters the face wall too. */
   searchQuery?: string;
   /**
@@ -136,6 +144,22 @@ export function PeopleView({
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * The `?face=` arrival: open the cluster's card once people have loaded.
+   *
+   * The MISS is owned here, out loud: a reference was taken from this cluster
+   * at some point, and clusters merge and re-form under re-indexing — a link
+   * that silently opens nothing would read as "the photos are gone" when the
+   * truth is "the group moved".
+   */
+  useEffect(() => {
+    if (!openPersonId || people === null) return;
+    const p = people.find((x) => x.id === openPersonId);
+    if (p) setReviewing(p);
+    else toast.info("That face group has since been merged or rebuilt — the photos are still in the event.");
+    onOpenedPerson?.();
+  }, [openPersonId, people, onOpenedPerson]);
 
   /** Apply or dismiss a suggestion; reload on mutations that reshape people. */
   const resolve = useCallback(

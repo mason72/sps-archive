@@ -207,6 +207,25 @@ export default function EventPage({
    * client component and that hook drags a Suspense requirement into the
    * build for a one-shot read.
    */
+  /**
+   * `?face=<clusterId>` — arriving from a crew reference circle.
+   *
+   * Mason: "If I click on the images directly, can you take me to Sergio's
+   * face card on this event?" The param opens the People view with that
+   * cluster's card, and PeopleView owns the miss (the cluster may have been
+   * merged away since the reference was taken — it says so rather than
+   * opening nothing). Read once and stripped, same discipline as `?person=`.
+   */
+  const [openFacePersonId, setOpenFacePersonId] = useState<string | null>(null);
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("face");
+    if (!raw) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    setOpenFacePersonId(raw);
+    setViewMode("people");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const appliedPersonParam = useRef(false);
   useEffect(() => {
     if (appliedPersonParam.current || allImages.length === 0) return;
@@ -2407,6 +2426,8 @@ export default function EventPage({
                 <PeopleView
                   eventId={eventId}
                   activePersonId={personFilter?.id ?? null}
+                  openPersonId={openFacePersonId}
+                  onOpenedPerson={() => setOpenFacePersonId(null)}
                   imageById={imageThumbById}
                   onSuggestionsCount={setSuggestionCount}
                   searchQuery={searchQuery}
