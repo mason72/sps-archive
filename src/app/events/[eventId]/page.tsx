@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
 import { EventIntelPanel } from "@/components/events/EventIntelPanel";
+import { EventCrewConfirm } from "@/components/events/EventCrewConfirm";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -2511,6 +2512,11 @@ export default function EventPage({
                 />
               )}
             </div>
+
+            {/* Below the photos, on the first screen — where Mason went looking
+                for it. Renders ONLY while something is unconfirmed, and only on
+                the photo views: the Intel tab already asks in full. */}
+            {viewMode !== "intel" && <EventCrewConfirm eventId={eventId} />}
             </>
             )}
           </>

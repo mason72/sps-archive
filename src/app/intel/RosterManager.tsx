@@ -338,7 +338,7 @@ export function RosterManager() {
 }
 
 function AddPerson({ kinds, onDone }: { kinds: string[]; onDone: () => void }) {
-  const [f, setF] = useState({ display_name: "", primary_email: "", kind: "local", city: "", can_lead: "" });
+  const [f, setF] = useState({ display_name: "", primary_email: "", kind: "photographer", city: "" });
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -372,12 +372,6 @@ function AddPerson({ kinds, onDone }: { kinds: string[]; onDone: () => void }) {
         </select>
         <input placeholder="City / region" value={f.city}
           onChange={(e) => setF({ ...f, city: e.target.value })} className={FIELD} />
-        <select value={f.can_lead} onChange={(e) => setF({ ...f, can_lead: e.target.value })} className={FIELD}>
-          <option value="">Can lead? — unknown</option>
-          <option value="yes">Can lead: yes</option>
-          <option value="maybe">Can lead: maybe</option>
-          <option value="no">Can lead: no</option>
-        </select>
       </div>
       {err && <p className="mt-2 text-[12px] text-red-700">{err}</p>}
       <div className="mt-3 flex items-center gap-3">
@@ -404,7 +398,6 @@ function EditPerson({
     primary_email: person.primary_email ?? "",
     kind: person.kind,
     city: person.city ?? "",
-    can_lead: person.can_lead ?? "",
   });
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -423,7 +416,6 @@ function EditPerson({
             primary_email: f.primary_email.trim() || null,
             kind: f.kind,
             city: f.city.trim() || null,
-            can_lead: f.can_lead || null,
           })}
           className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white"
         >
