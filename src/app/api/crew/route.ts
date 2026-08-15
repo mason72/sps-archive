@@ -35,8 +35,12 @@ export async function GET(request: NextRequest) {
 
     let q = db
       .from("crew")
-      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, can_lead, travels, archived, notes")
+      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, can_lead, travels, archived, notes, is_regular")
       .eq("user_id", user!.id)
+      // Regulars first, then alphabetical. The people Mason works with most
+      // should never be scrolled past to reach — and this is the ONE place the
+      // order is decided, so every picker inherits it.
+      .order("is_regular", { ascending: false })
       .order("display_name");
     if (!includeArchived) q = q.eq("archived", false);
 
@@ -98,6 +102,7 @@ export async function POST(request: NextRequest) {
       full_name: String(b.full_name ?? "").trim() || null,
       primary_email: email,
       kind: KINDS.includes(String(b.kind)) ? b.kind : "local",
+      is_regular: b.is_regular === true,
       city: String(b.city ?? "").trim() || null,
       can_lead: ["yes", "maybe", "no"].includes(String(b.can_lead)) ? b.can_lead : null,
       travels: typeof b.travels === "boolean" ? b.travels : null,
@@ -136,6 +141,7 @@ export async function PATCH(request: NextRequest) {
     if (typeof b.travels === "boolean" || b.travels === null) patch.travels = b.travels;
     if (typeof b.notes === "string") patch.notes = b.notes.trim() || null;
     if (typeof b.archived === "boolean") patch.archived = b.archived;
+    if (typeof b.is_regular === "boolean") patch.is_regular = b.is_regular;
 
     const { error } = await db.from("crew").update(patch).eq("id", id).eq("user_id", user!.id);
     if (error) throw error;

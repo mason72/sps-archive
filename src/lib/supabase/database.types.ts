@@ -121,6 +121,7 @@ export type Database = {
           display_name: string
           full_name: string | null
           id: string
+          is_regular: boolean
           kind: string
           notes: string | null
           primary_email: string | null
@@ -138,6 +139,7 @@ export type Database = {
           display_name: string
           full_name?: string | null
           id?: string
+          is_regular?: boolean
           kind?: string
           notes?: string | null
           primary_email?: string | null
@@ -155,6 +157,7 @@ export type Database = {
           display_name?: string
           full_name?: string | null
           id?: string
+          is_regular?: boolean
           kind?: string
           notes?: string | null
           primary_email?: string | null

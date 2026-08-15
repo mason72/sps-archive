@@ -54,8 +54,10 @@ export async function GET(
       db.from("event_intel").select("*").eq("event_id", eventId).eq("user_id", user!.id).maybeSingle(),
       db.from("event_crew").select("*").eq("event_id", eventId).eq("user_id", user!.id),
       db.from("event_orgs").select("*").eq("event_id", eventId).eq("user_id", user!.id),
-      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, can_lead")
-        .eq("user_id", user!.id).eq("archived", false).order("display_name"),
+      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, can_lead, is_regular")
+        .eq("user_id", user!.id).eq("archived", false)
+        // Regulars first — the picker shows this order as it arrives.
+        .order("is_regular", { ascending: false }).order("display_name"),
     ]);
     for (const r of [intelRes, crewLinkRes, orgLinkRes, rosterRes]) {
       // A Supabase error is a RETURN VALUE — `data || []` would render an empty
@@ -124,8 +126,8 @@ export async function GET(
         role: r.role,
       })),
       knownRoles: KNOWN_ROLES,
-      roster: roster.map((c: { id: string; display_name: string; kind: string; city: string | null }) => ({
-        id: c.id, name: c.display_name, kind: c.kind, homeCity: c.city,
+      roster: roster.map((c: { id: string; display_name: string; kind: string; city: string | null; is_regular: boolean }) => ({
+        id: c.id, name: c.display_name, kind: c.kind, homeCity: c.city, isRegular: !!c.is_regular,
       })),
     });
   } catch (err) {

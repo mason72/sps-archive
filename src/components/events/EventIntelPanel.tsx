@@ -41,7 +41,7 @@ interface IntelPayload {
   crew: CrewRow[];
   orgs: { orgId: string; name: string; role: string }[];
   knownRoles: string[];
-  roster: { id: string; name: string; kind: string; homeCity: string | null }[];
+  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }[];
 }
 
 const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
@@ -440,9 +440,9 @@ function CrewLine({
 function CrewPicker({
   roster, onPick, onCreated, onCancel,
 }: {
-  roster: { id: string; name: string; kind: string; homeCity: string | null }[];
-  onPick: (p: { id: string; name: string; kind: string; homeCity: string | null }) => void;
-  onCreated: (p: { id: string; name: string; kind: string; homeCity: string | null }) => void;
+  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }[];
+  onPick: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }) => void;
+  onCreated: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }) => void;
   onCancel: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -459,7 +459,18 @@ function CrewPicker({
   // exists to prevent.
   const exact = roster.some((r) => r.name.toLowerCase() === term);
   const canCreate = term.length >= 2 && !exact;
-  const options = matches.slice(0, 8);
+  /**
+   * Regulars first, then everyone else — and the divider is drawn so the split
+   * is visible rather than implied. Sorted here as well as in the API because a
+   * newly created person is spliced into the local copy and would otherwise
+   * land wherever the array happened to put them.
+   */
+  const ordered = [...matches].sort((a, b) =>
+    a.isRegular === b.isRegular ? a.name.localeCompare(b.name) : a.isRegular ? -1 : 1
+  );
+  const options = ordered.slice(0, 10);
+  const firstOtherIdx = options.findIndex((o) => !o.isRegular);
+  const hasRegulars = options.some((o) => o.isRegular);
 
   const create = async () => {
     setBusy(true);
@@ -472,7 +483,7 @@ function CrewPicker({
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Could not add");
-      onCreated({ id: j.id, name: q.trim(), kind: "local", homeCity: null });
+      onCreated({ id: j.id, name: q.trim(), kind: "local", homeCity: null, isRegular: false });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not add");
     } finally {
@@ -505,6 +516,14 @@ function CrewPicker({
       <ul className="mt-2 max-h-60 overflow-y-auto">
         {options.map((r, i) => (
           <li key={r.id}>
+            {hasRegulars && i === 0 && (
+              <p className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.14em] text-stone-300">Regulars</p>
+            )}
+            {hasRegulars && i === firstOtherIdx && firstOtherIdx > 0 && (
+              <p className="mt-1 border-t border-stone-100 px-2 pb-1 pt-2 text-[10px] uppercase tracking-[0.14em] text-stone-300">
+                Everyone else
+              </p>
+            )}
             <button
               onMouseEnter={() => setCursor(i)}
               onClick={() => onPick(r)}
@@ -514,7 +533,7 @@ function CrewPicker({
             >
               <span>{r.name}</span>
               <span className="text-[11px] text-stone-400">
-                {[r.kind !== "staff" ? r.kind : null, r.homeCity].filter(Boolean).join(" · ")}
+                {[r.isRegular ? "★" : null, r.kind !== "staff" ? r.kind : null, r.homeCity].filter(Boolean).join(" · ")}
               </span>
             </button>
           </li>

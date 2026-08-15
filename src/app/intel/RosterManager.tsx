@@ -31,6 +31,7 @@ interface Person {
   archived: boolean;
   notes: string | null;
   eventCount: number;
+  is_regular: boolean;
 }
 
 const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
@@ -41,6 +42,12 @@ export function RosterManager() {
   const [people, setPeople] = useState<Person[]>([]);
   const [kinds, setKinds] = useState<string[]>([]);
   const [q, setQ] = useState("");
+  /**
+   * Regular is MARKED, never derived from an event count. The calendar backfill
+   * covers 23 of 27 events, so a count would call a regular new and a one-off
+   * prolific — and this is the list Mason picks from under time pressure.
+   */
+  const [band, setBand] = useState<"all" | "regular" | "other">("all");
   const [showArchived, setShowArchived] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
@@ -64,12 +71,17 @@ export function RosterManager() {
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return people;
-    return people.filter((p) =>
-      [p.display_name, p.full_name, p.primary_email, p.city, p.kind]
-        .some((f) => (f ?? "").toLowerCase().includes(s))
-    );
-  }, [people, q]);
+    let list = people;
+    if (band === "regular") list = list.filter((p) => p.is_regular);
+    if (band === "other") list = list.filter((p) => !p.is_regular);
+    if (s) {
+      list = list.filter((p) =>
+        [p.display_name, p.full_name, p.primary_email, p.city, p.kind]
+          .some((f) => (f ?? "").toLowerCase().includes(s))
+      );
+    }
+    return list;
+  }, [people, q, band]);
 
   /** Optimistic, like the rest of this feature — the server is the record, not the renderer. */
   const mutate = async (body: Record<string, unknown>, local: (list: Person[]) => Person[]) => {
@@ -131,6 +143,28 @@ export function RosterManager() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className={META}>Roster</span>
+          <div className="mt-2 flex gap-1">
+            {([["all","All"],["regular","Regulars"],["other","Non-regulars"]] as const).map(([k,label]) => (
+              <button
+                key={k}
+                onClick={() => setBand(k)}
+                className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+                  band === k
+                    ? "bg-stone-900 text-white"
+                    : "border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-800"
+                }`}
+              >
+                {label}
+                {k !== "all" && (
+                  <span className="ml-1.5 tabular-nums opacity-60">
+                    {k === "regular"
+                      ? people.filter((p) => p.is_regular).length
+                      : people.filter((p) => !p.is_regular).length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
           <p className="mt-1 text-[13px] text-stone-500">
             {people.length} {showArchived ? "archived" : "active"}
             {q && ` · ${shown.length} matching`}
@@ -167,6 +201,22 @@ export function RosterManager() {
         <div className="mt-4 flex items-center justify-between rounded-md border border-stone-300 bg-white px-3 py-2">
           <span className="text-[13px] text-stone-700">{picked.size} selected</span>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => {
+                const ids = [...picked];
+                setPicked(new Set());
+                void Promise.all(
+                  ids.map((id) =>
+                    mutate({ id, is_regular: true }, (list) =>
+                      list.map((x) => (x.id === id ? { ...x, is_regular: true } : x))
+                    )
+                  )
+                );
+              }}
+              className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
+            >
+              Mark regular
+            </button>
             <button
               onClick={() => void archiveMany([...picked], !showArchived)}
               className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
@@ -221,6 +271,21 @@ export function RosterManager() {
                   ) : (
                     <>
                       <div className="flex flex-wrap items-baseline gap-x-2">
+                        <button
+                          onClick={() =>
+                            void mutate(
+                              { id: p.id, is_regular: !p.is_regular },
+                              (list) => list.map((x) => (x.id === p.id ? { ...x, is_regular: !x.is_regular } : x))
+                            )
+                          }
+                          title={p.is_regular ? "A regular — click to unmark" : "Mark as a regular"}
+                          className={`text-[13px] leading-none transition-colors ${
+                            p.is_regular ? "text-stone-800" : "text-stone-200 hover:text-stone-500"
+                          }`}
+                          aria-pressed={p.is_regular}
+                        >
+                          ★
+                        </button>
                         <span className="text-[14px] text-stone-900">{p.display_name}</span>
                         <span className="text-[11px] text-stone-400">{p.kind}</span>
                         {p.city && <span className="text-[11px] text-stone-400">· {p.city}</span>}

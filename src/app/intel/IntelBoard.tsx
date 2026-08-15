@@ -28,7 +28,10 @@ import type {
 type Axis = "people" | "venues" | "cities" | "clients" | "roster";
 
 const AXES: { key: Axis; label: string }[] = [
-  { key: "people", label: "People" },
+  // "Crew" not "People": /people is the archive-wide index of everyone
+  // PHOTOGRAPHED. These are the people who worked the gig. Two different
+  // populations, and one word for both is how someone clicks the wrong tab.
+  { key: "people", label: "Crew" },
   { key: "venues", label: "Venues" },
   { key: "cities", label: "Cities" },
   { key: "clients", label: "Clients" },
@@ -42,7 +45,7 @@ const AXES: { key: Axis; label: string }[] = [
  * gave "Pick a peopl", which is what the first screenshot said back.
  */
 const SINGULAR: Record<Axis, string> = {
-  people: "someone",
+  people: "a crew member",
   venues: "a venue",
   cities: "a city",
   clients: "a client",
@@ -312,7 +315,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${axis}…`}
+          placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
           className="w-full max-w-xs rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
         />
       </div>
