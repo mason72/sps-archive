@@ -8,23 +8,21 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
  * The signed-in navigation, in ONE place.
  *
  * Every page used to hand-roll its own list of links — fourteen copies of the
- * same four `<Link>`s. They had already drifted (some carried People, some
- * didn't), and adding a destination meant editing fourteen files, which is
- * exactly why /intel shipped with no way to reach it.
+ * same four `<Link>`s. They had already drifted, and adding a destination meant
+ * editing fourteen files, which is exactly why /intel shipped unreachable.
  *
  * Structure is Mason's (2026-08-14):
  *
- *   Search · People · New Event ▾ (Import) · Ops* · Account ▾ (Intel, Sign out)
+ *   Archive · Search · People · New Event ▾ · Ops* · Account ▾
  *
- *   *Ops is admin-only and rendered ONLY when the server says so. It is not a
- *   security boundary — /ops checks `assertAdminPage()` on every page — but a
- *   link to a place you cannot go is a worse experience than no link.
+ *   *Ops is admin-only and rendered only when the server says so. Not a
+ *   security boundary — /ops re-gates on every page — but a link to a place
+ *   you cannot go is worse than no link.
  */
 
 export interface AppNavProps {
   /** From the server. Controls whether Ops is offered, never whether it is allowed. */
   isAdmin?: boolean;
-  /** Highlights the current section. */
   current?: "archive" | "search" | "people" | "intel" | "account" | "ops";
 }
 
@@ -33,65 +31,99 @@ const LINK =
 const LINK_ON = "editorial-link text-stone-800";
 
 /**
- * A menu that opens on CLICK, not hover.
+ * A nav item that is BOTH a destination and a menu.
  *
- * Hover menus are unusable on touch and hostile with a keyboard. Click-to-open
- * with Escape-to-close and an outside-click handler works everywhere, which is
- * the same rule the rest of the app follows about hover never being the only
- * path to something.
+ * The first version made these pure menu buttons, and "New Event" — a thing
+ * Mason clicks constantly — stopped being clickable. The parent is a real link
+ * again; the menu holds only what the parent ISN'T.
+ *
+ * Three ways in, deliberately:
+ *   · click the LABEL     → go to the primary destination
+ *   · hover the group     → the menu appears (desktop convenience)
+ *   · click the CHEVRON   → the menu opens and stays
+ *
+ * The chevron exists because hover does not, on a phone. Without it the
+ * secondary items would simply not exist on touch, which is the failure this
+ * app has a standing rule against.
+ *
+ * `group-hover:` is safe here — VERIFIED against the compiled stylesheet rather
+ * than assumed, because "sticky hover" leaving a menu stuck open after a tap is
+ * exactly the kind of thing that is invisible until someone is holding a phone.
+ * Tailwind v4 emits:
+ *
+ *   .group-hover\:visible { &:is(:where(.group):hover *) { @media (hover: hover) { … } } }
+ *
+ * so the reveal never engages on a touch device. Writing an explicit
+ * `[@media(hover:hover)]:` prefix on top of that only nests a second identical
+ * media query inside the first.
  */
-function Menu({
+function SplitMenu({
   label,
+  href,
   active,
   children,
 }: {
   label: string;
+  href: string;
   active?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!pinned) return;
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      if (box.current && !box.current.contains(e.target as Node)) setPinned(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPinned(false); };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [pinned]);
 
   return (
-    <div ref={box} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className={`${active ? LINK_ON : LINK} inline-flex items-center gap-1`}
+    <div ref={box} className="group relative">
+      <span className="inline-flex items-center gap-1">
+        <Link href={href} className={active ? LINK_ON : LINK}>
+          {label}
+        </Link>
+        <button
+          type="button"
+          onClick={() => setPinned((v) => !v)}
+          aria-expanded={pinned}
+          aria-haspopup="menu"
+          aria-label={`${label} menu`}
+          className="p-0.5 text-[9px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-600"
+        >
+          <span
+            aria-hidden="true"
+            className={`inline-block transition-transform duration-200 ${pinned ? "rotate-180" : ""}`}
+          >
+            ▾
+          </span>
+        </button>
+      </span>
+
+      {/*
+        Rendered always, revealed by hover OR by the pinned state. `invisible`
+        rather than unmounted so the hover transition has something to animate,
+        and `pointer-events-none` so a hidden menu can never swallow a click
+        aimed at the page behind it.
+      */}
+      <div
+        role="menu"
+        className={`absolute right-0 top-full z-50 min-w-[160px] rounded-md border border-stone-200 bg-white py-1 shadow-lg transition-opacity duration-150
+          ${pinned
+            ? "visible opacity-100"
+            : "invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto"}`}
+        onClick={() => setPinned(false)}
       >
-        {label}
-        <span
-          aria-hidden="true"
-          className={`text-[9px] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-        >
-          ▾
-        </span>
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-50 mt-2 min-w-[150px] rounded-md border border-stone-200 bg-white py-1 shadow-lg"
-          onClick={() => setOpen(false)}
-        >
-          {children}
-        </div>
-      )}
+        {children}
+      </div>
     </div>
   );
 }
@@ -116,22 +148,26 @@ export function AppNav({ isAdmin = false, current }: AppNavProps) {
       <Link href="/search" className={cls("search")}>Search</Link>
       <Link href="/people" className={cls("people")}>People</Link>
 
-      <Menu label="New Event">
-        <Item href="/events/new">Blank event</Item>
+      {/* The parent IS "create a new event". The menu holds the other way in —
+          there is no "Blank event" item, because that is just clicking it. */}
+      <SplitMenu label="New Event" href="/events/new">
         <Item href="/events/import">Import from SPS</Item>
-      </Menu>
+      </SplitMenu>
 
       {isAdmin && <Link href="/ops" className={cls("ops")}>Ops</Link>}
 
-      <Menu label="Account" active={current === "account" || current === "intel"}>
-        <Item href="/account">Account</Item>
+      <SplitMenu
+        label="Account"
+        href="/account"
+        active={current === "account" || current === "intel"}
+      >
         <Item href="/intel">Intel</Item>
         <Item href="/settings/connections">Connections</Item>
         <div className="my-1 h-px bg-stone-100" />
         <div className="px-3 py-1.5">
           <SignOutButton />
         </div>
-      </Menu>
+      </SplitMenu>
     </>
   );
 }
