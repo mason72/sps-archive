@@ -127,15 +127,26 @@ function SplitMenu({
         and `pointer-events-none` so a hidden menu can never swallow a click
         aimed at the page behind it.
       */}
+      {/*
+        The gap is PADDING on the wrapper, not a margin on the panel.
+        A margin would put 8px of dead space between the button and the menu:
+        the pointer leaves the group crossing it, hover ends, and the menu shuts
+        before you reach it. Padding keeps the hover area continuous while the
+        visible panel still sits clear of the button.
+      */}
       <div
-        role="menu"
-        className={`absolute right-0 top-full z-50 min-w-[160px] rounded-md border border-stone-200 bg-white py-1 shadow-lg transition-opacity duration-150
+        className={`absolute right-0 top-full z-50 pt-2 transition-opacity duration-150
           ${pinned
             ? "visible opacity-100"
             : "invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto"}`}
-        onClick={() => setPinned(false)}
       >
-        {children}
+        <div
+          role="menu"
+          className="min-w-[160px] rounded-md border border-stone-200 bg-white py-1 shadow-lg"
+          onClick={() => setPinned(false)}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
