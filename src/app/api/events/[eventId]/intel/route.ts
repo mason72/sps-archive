@@ -18,23 +18,16 @@ import { reportSystemError } from "@/lib/monitoring/report";
  */
 
 /**
- * Two independent questions, not one list.
+ * The role vocabulary and its shape rule live in `@/lib/event-intel/roles`.
  *
- * Mason, 2026-08-15: "we may want to eliminate Digital Tech. Very rarely we
- * hire someone just to be a digital tech but 99% of the time the
- * photographer/digital tech role is shared and the main difference is that
- * stylists never do the shooting or computer work... lead is more of an on/off
- * thing while photographer, stylist, MUA is 'select one of these'."
- *
- * So `lead` is a FLAG and the discipline is a CHOICE. Modelling all of them as
- * one free multi-select — which is what I built first — let someone be marked
- * stylist AND photographer, which his operation says cannot happen.
- *
- * "digital tech" is gone because it never named a person, only a shift: the
- * pair trade off across the day and both do both.
+ * They were declared here, which was fine while this was the only writer. It
+ * is not: the create screen writes assignments too, through `applyGigIntel`.
+ * Two declarations of "what is a role and how many disciplines may someone
+ * hold" is how one writer starts accepting stylist AND photographer while the
+ * other rejects it — enforced in the API rather than only the UI, and therefore
+ * worth having exactly one API-side definition.
  */
-const DISCIPLINES = ["photographer", "stylist", "makeup artist"];
-const KNOWN_ROLES = ["lead", ...DISCIPLINES];
+import { KNOWN_ROLES, cleanConfirmedRoles, cleanRoles } from "@/lib/event-intel/roles";
 
 interface EventCrewRow {
   crew_id: string;
@@ -295,32 +288,9 @@ export async function PATCH(
 
     const patch: Record<string, unknown> = { roles_source: "manual" };
     if (body.roles) {
-      // Vocabulary only — free text is how a pivot silently splits into
-      // Photographer / photographer / Photog.
-      const asked = [...new Set(body.roles.map((r) => String(r).toLowerCase().trim()))]
-        .filter((r) => KNOWN_ROLES.includes(r));
-      // At most ONE discipline survives — the flag and the choice are separate
-      // questions and the storage has to enforce that, not just the UI.
-      const disciplines = asked.filter((r) => DISCIPLINES.includes(r));
-      const clean = [
-        ...(asked.includes("lead") ? ["lead"] : []),
-        ...(disciplines.length ? [disciplines[disciplines.length - 1]] : []),
-      ];
+      const clean = cleanRoles(body.roles);
       patch.roles = clean;
-
-      /**
-       * Confirmation follows the ROLES THE CALLER SENT, and nothing else.
-       *
-       * A role the human just switched on is confirmed. A guess they left
-       * alone stays a guess — it is still in `roles`, still shown dashed, and
-       * still excluded from any tally. That is the whole fix: clicking "lead"
-       * confirms lead, not the machine's opinion about photographer.
-       */
-      const confirmed = Array.isArray(body.confirmedRoles)
-        ? [...new Set(body.confirmedRoles.map((r) => String(r).toLowerCase().trim()))]
-            .filter((r) => KNOWN_ROLES.includes(r) && clean.includes(r))
-        : clean;
-      patch.confirmed_roles = confirmed;
+      patch.confirmed_roles = cleanConfirmedRoles(body.confirmedRoles, clean);
     }
     if (body.wouldRebook !== undefined) {
       patch.would_rebook = body.wouldRebook && ["yes", "no", "maybe"].includes(body.wouldRebook)

@@ -273,13 +273,25 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { name, description, eventDate, eventType, settings, sections } = body as {
+    const { name, description, eventDate, eventType, settings, sections, intel } = body as {
       name: string;
       description?: string;
       eventDate?: string;
       eventType?: string;
       settings?: Record<string, unknown>;
       sections?: { name: string; description?: string; sortOrder: number }[];
+      /**
+       * The calendar gig the creator confirmed on the way in. Optional, and
+       * absent for every event created without picking one — see the block at
+       * the end of this handler for why it is written after the event and never
+       * allowed to fail it.
+       */
+      intel?: {
+        venue?: string | null;
+        crew?: { crewId: string; roles?: string[]; confirmedRoles?: string[] }[];
+        orgDomains?: string[];
+        calendarEventIds?: string[];
+      };
     };
 
     if (!name) {
@@ -333,7 +345,47 @@ export async function POST(request: NextRequest) {
       ]);
     }
 
-    return NextResponse.json({ event: data }, { status: 201 });
+    /**
+     * Event Intel, from the gig picked on the create screen.
+     *
+     * LAST, and non-fatal by construction. Mason picks a gig to save himself
+     * typing; a venue-name collision must not turn that convenience into a
+     * failed event creation with photos already queued behind it. `applyGigIntel`
+     * reports its problems instead of throwing, and they are logged rather than
+     * returned — the useful signal is in `system_errors`, not in a 201 body
+     * nobody reads.
+     *
+     * `confirmed: true` because picking the gig IS the confirmation. That is
+     * what stops the calendar backfill revisiting this event later and quietly
+     * replacing what a human just chose.
+     */
+    let intelWarnings: string[] = [];
+    if (data && intel && (intel.venue || intel.crew?.length || intel.orgDomains?.length)) {
+      try {
+        const { applyGigIntel } = await import("@/lib/event-intel/apply-gig");
+        const result = await applyGigIntel(supabase, {
+          userId: user!.id,
+          eventId: data.id,
+          venue: intel.venue ?? null,
+          crew: intel.crew ?? [],
+          orgDomains: intel.orgDomains ?? [],
+          calendarEventIds: intel.calendarEventIds ?? [],
+          confirmed: true,
+        });
+        intelWarnings = result.warnings;
+        if (result.warnings.length) {
+          await reportSystemError(
+            "api.events.POST.intel",
+            new Error(result.warnings.join("; ")),
+            { eventId: data.id }
+          );
+        }
+      } catch (intelErr) {
+        await reportSystemError("api.events.POST.intel", intelErr, { eventId: data.id });
+      }
+    }
+
+    return NextResponse.json({ event: data, intelWarnings }, { status: 201 });
   } catch (error) {
     console.error("Create event error:", error);
     return NextResponse.json(

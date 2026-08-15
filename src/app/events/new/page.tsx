@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrandButton } from "@/components/ui/brand-button";
@@ -9,6 +9,15 @@ import { cn } from "@/lib/utils";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
+import {
+  GigConfirmCard,
+  GigDropdown,
+  isFragmentOf,
+  useDropdownKeys,
+  useGigLookup,
+  type GigIntelPayload,
+  type SuggestedGig,
+} from "@/components/events/CreateGigConfirm";
 
 const EVENT_TYPES = [
   { value: "wedding", label: "Wedding" },
@@ -35,6 +44,41 @@ export default function NewEventPage() {
   const [eventType, setEventType] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+
+  /**
+   * The calendar gig this gallery is, if one was picked.
+   *
+   * `pickedGig` is the confirmation itself — Mason choosing a row is what makes
+   * the match a decision rather than a suggestion, which is why the event it
+   * creates is written with `confirmed_at` set and the backfill will never
+   * revisit it.
+   */
+  const [pickedGig, setPickedGig] = useState<SuggestedGig | null>(null);
+  const [gigIntel, setGigIntel] = useState<GigIntelPayload | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // The lookup stops the moment a gig is chosen — nothing left to search for.
+  const lookup = useGigLookup(name, eventDate, !pickedGig);
+  const visibleGigs = dropdownOpen && !pickedGig ? lookup.gigs : [];
+
+  const pickGig = useCallback(
+    (g: SuggestedGig) => {
+      setPickedGig(g);
+      setDropdownOpen(false);
+      // Fill the name ONLY when what is typed is a fragment of the calendar's
+      // label. A name he wrote in full is his; the card offers the rename.
+      const label = g.client?.trim();
+      if (label && isFragmentOf(name, label)) setName(label);
+      if (!eventDate) setEventDate(g.start);
+    },
+    [name, eventDate]
+  );
+
+  const keys = useDropdownKeys(
+    visibleGigs.length,
+    (i) => { const g = visibleGigs[i]; if (g) pickGig(g); },
+    () => setDropdownOpen(false)
+  );
 
   // Template state
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -96,6 +140,7 @@ export default function NewEventPage() {
           eventDate: eventDate || undefined,
           settings: templateSettings || undefined,
           sections: templateSections || undefined,
+          intel: pickedGig && gigIntel ? gigIntel : undefined,
         }),
       });
 
@@ -186,21 +231,57 @@ export default function NewEventPage() {
           className="space-y-12 reveal"
           style={{ animationDelay: "0.25s" }}
         >
-          {/* Event name */}
+          {/* Event name — also the calendar lookup. Typing a client, a venue or
+              a city surfaces the gig, and picking it pre-fills the rest. */}
           <div>
             <label htmlFor="name" className="label-caps mb-3 block">
               Event name
             </label>
-            <input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Johnson Wedding, Q1 Headshots"
-              required
-              autoFocus
-              className="h-12 w-full border-b border-stone-200 bg-transparent text-[18px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
-            />
+            <div className="relative">
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setDropdownOpen(true);
+                }}
+                onFocus={() => setDropdownOpen(true)}
+                // A click inside the list must land before the blur closes it.
+                onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+                onKeyDown={keys.onKeyDown}
+                role="combobox"
+                aria-expanded={visibleGigs.length > 0}
+                aria-controls="gig-suggestions"
+                autoComplete="off"
+                placeholder="e.g., Johnson Wedding, Q1 Headshots"
+                required
+                autoFocus
+                className="h-12 w-full border-b border-stone-200 bg-transparent text-[18px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+              />
+              <div id="gig-suggestions">
+                <GigDropdown
+                  gigs={visibleGigs}
+                  activeIndex={keys.activeIndex}
+                  onPick={pickGig}
+                  onHover={keys.setActiveIndex}
+                />
+              </div>
+            </div>
+            {/**
+             * A calendar that cannot answer is SAID OUT LOUD. "No credential"
+             * and "no gig that day" are outwardly identical — an empty
+             * dropdown — and only one of them is something Mason can fix. A
+             * lookup that silently finds nothing looks exactly like a lookup
+             * with nothing to find.
+             */}
+            {!pickedGig && lookup.unavailable && (
+              <p className="mt-2 text-[12px] text-stone-400">
+                {lookup.unavailable === "no-credential"
+                  ? "Calendar lookup is off here — no Google credential is configured."
+                  : "The calendar did not answer, so there are no suggestions right now."}
+              </p>
+            )}
           </div>
 
           {/* Event type */}
@@ -240,6 +321,20 @@ export default function NewEventPage() {
             </label>
             <DatePicker value={eventDate} onChange={setEventDate} />
           </div>
+
+          {/* The gig, confirmed before the event exists — the thing Mason asked
+              for first: "it pre-populates if you use the autocomplete." */}
+          {pickedGig && (
+            <GigConfirmCard
+              gig={pickedGig}
+              typedName={name}
+              typedDate={eventDate}
+              onUseName={setName}
+              onUseDate={setEventDate}
+              onClear={() => { setPickedGig(null); setGigIntel(null); }}
+              onChange={setGigIntel}
+            />
+          )}
 
           <BrandButton type="submit" size="lg" color="emerald" celebrate disabled={!name.trim() || isCreating}>
             {isCreating ? "Creating..." : "Create event & start uploading"}

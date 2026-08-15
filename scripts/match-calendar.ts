@@ -52,105 +52,25 @@ const CONFIRMED_MATCHES: Record<string, string> = {
   "b4f42922-0e30-48f9-8496-51b5a48db10b": "Jessica Owyang Wedding",
 };
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 /**
- * Keep SHORT tokens. "FM Headshots" is a real client whose only distinguishing
- * token is two characters, and dropping it left nothing but the stopword
- * "headshots" — so a gallery matched a gig with the identical name at zero.
- * Same for PG&E. Short filler words are excluded by STOP instead.
- */
-const tokens = (s: string) => norm(s).split(" ").filter((t) => t.length >= 2);
-
-/** Words that appear in half the gallery names and carry no identity. */
-const STOP = new Set([
-  "headshots", "headshot", "photos", "photo", "booth", "event", "events", "party",
-  "holiday", "gala", "conference", "summit", "the", "and", "for", "with", "day",
-  "sko", "annual", "meeting", "reception", "portraits", "portrait", "shoot",
-  // Short filler, now that 2-character tokens are kept.
-  "of", "at", "in", "on", "to", "by", "vs", "st", "nd", "rd", "th",
-]);
-
-/**
- * Levenshtein, capped. Used only as a last resort on whole names.
+ * The scoring now lives in `src/lib/event-intel/match-gig.ts`.
  *
- * Mason: "Joey is not good with details and often has typos." The gallery said
- * NICK LAMBARDO'S HEADSHOTS; the booking says Nick Lombardo. One character, and
- * every other signal scores it zero.
- */
-function editDistance(a: string, b: string, cap = 3): number {
-  if (Math.abs(a.length - b.length) > cap) return cap + 1;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= b.length; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    if (Math.min(...cur) > cap) return cap + 1;
-    prev = cur;
-  }
-  return prev[b.length];
-}
-
-/** Initials of the meaningful words: "Construction of Excellence Award" → "cea". */
-function acronym(s: string): string {
-  return tokens(s).filter((t) => !STOP.has(t)).map((t) => t[0]).join("");
-}
-
-/**
- * How much do two names look like the same client?
+ * It was written here, and it was the right place while the backfill was the
+ * only caller. It is not: the create screen looks a gig up as the name is
+ * typed, and the design promised from the start that the two would be the same
+ * function — "the backfill calls it 1,371 times; the upload flow calls it
+ * once". A copy here would be a second dialect of the rule that decides which
+ * job a gallery is, and this repo's recurring failure is exactly that: a caller
+ * that re-derives what another surface decides drifts from it silently.
  *
- * Computes EVERY signal and takes the best, rather than returning on the first
- * hit. Returning early on token overlap meant "CEA Show 26" matched
- * "Construction of Excellence Award Show" on the shared word "show" alone — a
- * 0.33 that fell below threshold — and the acronym rule that would have scored
- * it 0.75 was never reached. A weak signal must not shadow a strong one.
+ * Imported inside `main` with everything else from `src/`, because the env file
+ * has to be loaded before those modules initialise.
  */
-function nameScore(a: string, b: string): { score: number; shared: string[] } {
-  const ta = new Set(tokens(a).filter((t) => !STOP.has(t)));
-  const tb = new Set(tokens(b).filter((t) => !STOP.has(t)));
-  if (!ta.size || !tb.size) return { score: 0, shared: [] };
-
-  const signals: { score: number; shared: string[] }[] = [];
-
-  // 1. Shared meaningful tokens — the ordinary case.
-  const shared = [...ta].filter((t) => tb.has(t));
-  if (shared.length) signals.push({ score: shared.length / Math.min(ta.size, tb.size), shared });
-
-  const ja = [...ta].join("");
-  const jb = [...tb].join("");
-
-  // 2. Compound: "COLLEGEBOARD" vs "College Board". Floored so short names
-  //    cannot swallow each other — "ebay" inside "ebaymotors" is a coincidence.
-  if (ja.length >= 8 && jb.length >= 8 && (ja.includes(jb) || jb.includes(ja))) {
-    signals.push({ score: 0.8, shared: ["compound"] });
-  }
-
-  // 3. Acronym: Mason names galleries by the short form the client uses, the
-  //    calendar carries the full name. 3+ letters, so two-letter coincidences
-  //    cannot fire.
-  for (const [short, long] of [[a, b], [b, a]] as const) {
-    const shortTokens = tokens(short).filter((t) => !STOP.has(t));
-    const initials = acronym(long);
-    const hit = shortTokens.find((t) => t.length >= 3 && initials.startsWith(t));
-    if (hit) signals.push({ score: 0.75, shared: [`acronym:${hit}`] });
-  }
-
-  // 4. Typo, last and weakest. "Lambardo" vs "Lombardo" — one character, and
-  //    every other signal scores it zero.
-  if (ja.length >= 6 && jb.length >= 6) {
-    const d = editDistance(ja, jb, 2);
-    if (d <= 2) signals.push({ score: 0.7 - d * 0.05, shared: [`typo:${d}`] });
-  }
-
-  if (!signals.length) return { score: 0, shared: [] };
-  return signals.reduce((best, s) => (s.score > best.score ? s : best));
-}
-
-const daysApart = (a: string, b: string) =>
-  Math.abs(Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000));
-
 async function main() {
   const { createServiceClient } = await import("../src/lib/supabase/server");
+  const { norm, scoreNameAgainstClient: nameScore, daysApart } =
+    await import("../src/lib/event-intel/match-gig");
+  const { payerDomains } = await import("../src/lib/event-intel/apply-gig");
   const { listEvents, CALENDARS, STUDIO_CALENDARS } = await import("../src/lib/event-intel/google-calendar");
   const { parseGig, groupIntoGigs, parseVenue, venueKey, parseStudioSession } =
     await import("../src/lib/event-intel/parse-calendar");
@@ -292,11 +212,9 @@ async function main() {
       if (hit) resolvedMap.set(hit.id, hit);
     }
     const resolved = [...resolvedMap.values()];
-    const contactDomains = [...new Set(
-      best.parsed.flatMap((p) => p.contactEmails)
-        .map((e) => e.split("@")[1]?.toLowerCase())
-        .filter((d): d is string => !!d && !/twodudesphoto|gmail|hotmail|yahoo|outlook|icloud|me\.com|att\.net/.test(d))
-    )];
+    // Shared with the create screen: one definition of "which domain names a
+    // payer", so the two cannot start disagreeing about whether gmail counts.
+    const contactDomains = payerDomains(best.parsed.flatMap((p) => p.contactEmails));
 
     report.push(
       `${isConfirmed ? "★" : "✓"}  ${ev.name.slice(0, 38).padEnd(40)} ${day}${shotDay.has(ev.id) ? "*" : " "} ${isConfirmed ? "conf" : best.score.toFixed(2)} "${(best.client ?? "").slice(0, 24)}" ` +

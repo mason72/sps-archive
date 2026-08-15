@@ -365,6 +365,14 @@ export function normaliseClient(name: string | null): string {
        * prevent, since the set-up entry often carries crew the main day does not.
        */
       .replace(/^\s*(?:set[- ]?up|setup|load[- ]?in|strike|tear[- ]?down|breakdown)\s+(?:for\s+)?/i, " ")
+      /**
+       * ...and the OTHER word order, which the leading anchor missed for a year.
+       * Mason writes it both ways: "Set Up for Axos Bank Headshots" and
+       * "Appfolio Set Up". Found 2026-08-15 by running the live calendar rather
+       * than the tests — the Appfolio job came back as two gigs a day apart,
+       * with the set-up entry offered as its own candidate on the create screen.
+       */
+      .replace(/\s*\b(?:set[- ]?up|setup|load[- ]?in|strike|tear[- ]?down|breakdown)\s*$/i, " ")
       .replace(/\b(20\d{2}|fy\d{2})\b/g, " ")
       .replace(/\b(sko|headshots?|event|photos?|photo booth|gala|party|conference|summit)\b/g, " ")
       .replace(/[^a-z0-9]+/g, " ")
