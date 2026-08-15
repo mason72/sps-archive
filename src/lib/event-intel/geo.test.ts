@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   distanceBand,
   isMappable,
+  mappableMetros,
   metroDistance,
   metroKeys,
   metroPoints,
@@ -79,6 +80,19 @@ describe("a person with several markets", () => {
     expect(metroKeys("SF")).toEqual(["bay area"]);
     expect(metroKeys("Walnut Creek")).toEqual(["bay area"]);
     expect(metroDistance("Oakland", "San Jose")!.miles).toBe(0);
+  });
+});
+
+describe("the picker's labels round-trip", () => {
+  it("every offered metro resolves back to its own key", () => {
+    // The radius picker offers these display labels; a label metroKeys cannot
+    // read back is the picker offering an answer the search then rejects
+    // ("New York City" and "Dallas–Fort Worth" both failed this before the
+    // aliases existed).
+    for (const m of mappableMetros()) {
+      expect(metroKeys(m.label), `label "${m.label}"`).toEqual([m.key]);
+      expect(isMappable(m.label), `label "${m.label}"`).toBe(true);
+    }
   });
 });
 

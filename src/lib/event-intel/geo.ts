@@ -40,6 +40,13 @@ const ALIAS: Record<string, string> = {
   "d.c.": "washington",
   "the bay": "bay area",
   bay: "bay area",
+  // The DISPLAY labels must round-trip: the radius picker offers
+  // `mappableMetros()` labels, and a label the parser cannot read back is a
+  // picker offering answers the search then rejects. Guarded by a test.
+  "new york city": "new york",
+  "dallas–fort worth": "dallas",
+  "dallas-fort worth": "dallas",
+  dfw: "dallas",
 };
 
 /**
@@ -220,6 +227,19 @@ const METRO_POINT: Record<string, { lat: number; lng: number }> = {
   // Canada
   toronto: { lat: 43.6532, lng: -79.3832 },
 };
+
+/**
+ * Every metro a radius search can be asked FROM, for pickers.
+ *
+ * Exactly the keys of the coordinate table — offering anything else would be
+ * offering a place the search cannot answer for. Sorted by label so a datalist
+ * reads like a list and not like the table's insertion order.
+ */
+export function mappableMetros(): { key: string; label: string }[] {
+  return Object.keys(METRO_POINT)
+    .map((key) => ({ key, label: metroLabel(key) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
 
 /** Great-circle distance in statute miles. */
 export function haversineMiles(

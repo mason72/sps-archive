@@ -12,6 +12,13 @@ import type {
   IntelOrg,
 } from "@/lib/event-intel/index-intel";
 import type { RehireStanding } from "@/lib/event-intel/roles";
+import { willTravel } from "@/lib/event-intel/roles";
+import {
+  isMappable,
+  mappableMetros,
+  metroDistance,
+  metroLabel,
+} from "@/lib/event-intel/geo";
 
 /**
  * The pivot, as a UI.
@@ -241,6 +248,22 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
   });
   const [query, setQuery] = useState("");
 
+  /**
+   * The radius search — Crew axis only.
+   *
+   * Mason: "choose a location and then have a slider/field for MILES FROM so I
+   * can find anyone within 500 miles of any city I want." The distance control
+   * is his own better framing from the same conversation: drivable / a short
+   * flight / anywhere, because "how do I get them there" is the actual staffing
+   * question a miles number only approximates.
+   *
+   * Survives an axis switch on purpose: mid-staffing-search you check a venue
+   * and come back; wiping the search would mean retyping it. (`query` does
+   * reset per axis — that one is scoped to the list under it.)
+   */
+  const [near, setNear] = useState("");
+  const [reach, setReach] = useState<"drivable" | "short flight" | "any">("any");
+
   const personById = useMemo(() => new Map(index.people.map((p) => [p.id, p])), [index.people]);
   const venueById = useMemo(() => new Map(index.venues.map((v) => [v.id, v])), [index.venues]);
   const cityByKey = useMemo(() => new Map(index.cities.map((c) => [c.key, c])), [index.cities]);
@@ -298,6 +321,94 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         count: o.eventCount,
       }));
   }, [axis, query, index]);
+
+  /**
+   * The crew list, regrouped by distance when a "near" place is set.
+   *
+   * GROUPS, not a filter. The reach chips decide where the "within reach" line
+   * falls — nobody is dropped for being past it, because two of this roster's
+   * standing rules forbid exactly that: a traveler beyond the band is precisely
+   * who you fly in (and 35 of 61 have `travels` unset, which is *unknown*, not
+   * "no"), and the three people no map can read ("EU", "Kentucky",
+   * "Orlando? Florida?") must surface as fixable work, not vanish. The grouping
+   * IS the answer to "who can work San Diego": locals, then who would travel,
+   * then the unknowns, each sorted nearest-first.
+   *
+   * Null when the search is off; `{unresolved}` when the typed place itself
+   * cannot be put on the map. The text query composes — it narrows within the
+   * groups, same as it narrows the flat list.
+   */
+  const nearGroups = useMemo(() => {
+    if (axis !== "people") return null;
+    const place = near.trim();
+    if (!place) return null;
+    if (!isMappable(place)) return { unresolved: place, groups: [] };
+
+    const q = query.trim().toLowerCase();
+    const match = (...fields: (string | null | undefined)[]) =>
+      !q || fields.some((f) => (f ?? "").toLowerCase().includes(q));
+
+    const maxMiles = reach === "drivable" ? 300 : reach === "short flight" ? 1200 : Infinity;
+
+    type Placed = { p: IntelPerson; miles: number; fromKey: string };
+    const placed: Placed[] = [];
+    const unplaced: IntelPerson[] = [];
+    for (const p of index.people) {
+      if (!match(p.name, p.fullName, p.email, p.homeCity, p.kind)) continue;
+      const d = metroDistance(p.homeCity, place);
+      if (d) placed.push({ p, miles: d.miles, fromKey: d.fromKey });
+      else unplaced.push(p);
+    }
+
+    // A hard no sinks here exactly as it does in every picker — this list is
+    // "who do I book near X", which is the picker question wearing a map.
+    const sink = (a: IntelPerson, b: IntelPerson) =>
+      a.standing.hardNo !== b.standing.hardNo ? (a.standing.hardNo ? 1 : -1) : 0;
+    placed.sort((a, b) => sink(a.p, b.p) || a.miles - b.miles || a.p.name.localeCompare(b.p.name));
+    unplaced.sort((a, b) => sink(a, b) || a.name.localeCompare(b.name));
+
+    const row = ({ p, miles, fromKey }: Placed) => ({
+      id: p.id,
+      primary: p.name,
+      secondary:
+        `${Math.round(miles).toLocaleString()} mi · ${metroLabel(fromKey)}` +
+        (p.travels === false ? " · local only" : ""),
+      count: p.eventCount,
+      star: p.isRegular,
+    });
+
+    const within = placed.filter((x) => x.miles <= maxMiles);
+    const beyond = placed.filter((x) => x.miles > maxMiles);
+    const travelers = beyond.filter((x) =>
+      willTravel({ is_regular: x.p.isRegular, travels: x.p.travels })
+    );
+    const others = beyond.filter(
+      (x) => !willTravel({ is_regular: x.p.isRegular, travels: x.p.travels })
+    );
+
+    return {
+      unresolved: null,
+      groups: [
+        {
+          label:
+            reach === "drivable" ? "Drivable" : reach === "short flight" ? "A short flight" : "Nearest first",
+          rows: within.map(row),
+        },
+        { label: "Would travel", rows: travelers.map(row) },
+        { label: "Further out", rows: others.map(row) },
+        {
+          label: "Can’t place",
+          rows: unplaced.map((p) => ({
+            id: p.id,
+            primary: p.name,
+            secondary: p.homeCity ? `“${p.homeCity}” isn’t on the map` : "no location on file",
+            count: p.eventCount,
+            star: p.isRegular,
+          })),
+        },
+      ].filter((g) => g.rows.length > 0),
+    };
+  }, [axis, near, reach, query, index.people]);
 
   const currentId = selected[axis];
   const coverage = index.totalEventCount - index.uncoveredEventCount;
@@ -381,12 +492,94 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
        */}
       {axis !== "roster" && (
         <div className="mt-4">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
-            className="w-full max-w-sm rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
+              className="w-full max-w-sm rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+            />
+
+            {/* The radius search — see the nearGroups memo for the rules. */}
+            {axis === "people" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  htmlFor="intel-near"
+                  className="text-[11px] uppercase tracking-[0.14em] text-stone-400"
+                >
+                  Near
+                </label>
+                <input
+                  id="intel-near"
+                  list="intel-metros"
+                  value={near}
+                  onChange={(e) => setNear(e.target.value)}
+                  placeholder="a city…"
+                  className="w-44 rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                />
+                <datalist id="intel-metros">
+                  {mappableMetros().map((m) => (
+                    <option key={m.key} value={m.label} />
+                  ))}
+                </datalist>
+
+                {near.trim() && (
+                  <>
+                    {/* One track, one answer — same control grammar as the
+                        discipline picker on the create screen. */}
+                    <span
+                      role="radiogroup"
+                      aria-label="How far is bookable"
+                      className="inline-flex overflow-hidden rounded-full border border-stone-200 bg-white"
+                    >
+                      {([
+                        ["drivable", "Drivable"],
+                        ["short flight", "Short flight"],
+                        ["any", "Anywhere"],
+                      ] as const).map(([value, label], i) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={reach === value}
+                          onClick={() => setReach(value)}
+                          className={`px-2.5 py-1.5 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
+                            i > 0 ? "border-l border-stone-200" : ""
+                          } ${
+                            reach === value
+                              ? "bg-emerald-600 text-white"
+                              : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setNear("")}
+                      className="text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-700 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* The bands are set against straight-line miles; never let them read
+              as road distance (see DISTANCE_BANDS in geo.ts). One honest line. */}
+          {axis === "people" && near.trim() && !nearGroups?.unresolved && (
+            <p className="mt-2 text-[12px] text-stone-400">
+              Straight-line miles — the drive runs longer.
+            </p>
+          )}
+          {nearGroups?.unresolved && (
+            <p className="mt-2 text-[12px] text-stone-400">
+              Can’t put “{nearGroups.unresolved}” on the map — pick a metro from the list.
+            </p>
+          )}
         </div>
       )}
 
@@ -411,41 +604,52 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
          * list would sit on top of the detail you just tapped through to.
          */}
         <div className="pr-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-4rem)] lg:self-start lg:overflow-y-auto">
-          {rows.length === 0 ? (
+          {nearGroups ? (
+            nearGroups.groups.length === 0 ? (
+              <Blank>
+                {nearGroups.unresolved
+                  ? "Pick a metro the map knows."
+                  : `Nothing matches “${query}”.`}
+              </Blank>
+            ) : (
+              nearGroups.groups.map((g) => (
+                <div key={g.label}>
+                  <p className="mb-1 mt-6 flex items-baseline gap-2 pl-3 text-[11px] uppercase tracking-[0.14em] text-stone-400 first:mt-0">
+                    {g.label}
+                    <span className="tabular-nums text-stone-300">{g.rows.length}</span>
+                  </p>
+                  <ul>
+                    {g.rows.map((r) => (
+                      <ListRow
+                        key={r.id}
+                        r={r}
+                        active={r.id === currentId}
+                        onClick={() =>
+                          setSelected((s) => ({
+                            ...s,
+                            [axis]: r.id === currentId ? null : r.id,
+                          }))
+                        }
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )
+          ) : rows.length === 0 ? (
             <Blank>Nothing matches “{query}”.</Blank>
           ) : (
             <ul>
-              {rows.map((r) => {
-                const active = r.id === currentId;
-                return (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelected((s) => ({ ...s, [axis]: active ? null : r.id }))}
-                      className={`flex w-full items-baseline justify-between gap-3 border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors duration-200 ${
-                        active
-                          ? "border-emerald-500 bg-white"
-                          : "border-transparent hover:border-stone-300 hover:bg-white"
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[14px] text-stone-800">
-                          {"star" in r && (r as { star?: boolean }).star && (
-                            <span className="mr-1.5 text-accent" title="A regular">★</span>
-                          )}
-                          {r.primary}
-                        </span>
-                        {r.secondary && (
-                          <span className="block truncate text-[12px] text-stone-400">{r.secondary}</span>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-[12px] tabular-nums text-stone-400">
-                        {r.count || "—"}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              {rows.map((r) => (
+                <ListRow
+                  key={r.id}
+                  r={r}
+                  active={r.id === currentId}
+                  onClick={() =>
+                    setSelected((s) => ({ ...s, [axis]: r.id === currentId ? null : r.id }))
+                  }
+                />
+              ))}
             </ul>
           )}
         </div>
@@ -474,6 +678,52 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
       </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One list row, shared by the flat list and the distance groups.
+ *
+ * Extracted the day the radius search added a second renderer of the same row
+ * — two copies of this button is how the star, the rail and the count column
+ * drift apart.
+ */
+function ListRow({
+  r,
+  active,
+  onClick,
+}: {
+  r: { id: string; primary: string; secondary?: string; count: number; star?: boolean };
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full items-baseline justify-between gap-3 border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors duration-200 ${
+          active
+            ? "border-emerald-500 bg-white"
+            : "border-transparent hover:border-stone-300 hover:bg-white"
+        }`}
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-[14px] text-stone-800">
+            {r.star && (
+              <span className="mr-1.5 text-accent" title="A regular">★</span>
+            )}
+            {r.primary}
+          </span>
+          {r.secondary && (
+            <span className="block truncate text-[12px] text-stone-400">{r.secondary}</span>
+          )}
+        </span>
+        <span className="shrink-0 text-[12px] tabular-nums text-stone-400">
+          {r.count || "—"}
+        </span>
+      </button>
+    </li>
   );
 }
 
