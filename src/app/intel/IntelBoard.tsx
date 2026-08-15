@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RosterManager } from "./RosterManager";
 import type {
@@ -391,6 +391,84 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
   );
 }
 
+/* ── Inline editing ───────────────────────────────────────────────────────── */
+
+const EFIELD =
+  "w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25";
+
+/**
+ * Edit a venue or a client in place.
+ *
+ * Both are real rows with real ids, so this is a plain PATCH — no derived
+ * cleverness. Cities are deliberately NOT editable here: they are derived from
+ * venue.city, and giving them their own edit box would create a second place to
+ * keep in sync. Fixing a city means fixing the venue's city, which is what the
+ * venue editor does.
+ *
+ * `onSaved` hands the new values back so the board updates without a refetch —
+ * a refetch would rebuild every axis and lose the open selection.
+ */
+function InlineEdit({
+  fields, endpoint, id, onSaved, onCancel,
+}: {
+  fields: { key: string; label: string; value: string; placeholder?: string }[];
+  endpoint: string;
+  id: string;
+  onSaved: (patch: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const [v, setV] = useState<Record<string, string>>(
+    Object.fromEntries(fields.map((f) => [f.key, f.value]))
+  );
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...v }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Could not save");
+      onSaved(v);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-md border border-stone-200 bg-white p-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {fields.map((f) => (
+          <label key={f.key} className="block">
+            <span className="mb-1 block text-[11px] uppercase tracking-[0.14em] text-stone-400">{f.label}</span>
+            <input
+              value={v[f.key] ?? ""}
+              placeholder={f.placeholder}
+              onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") onCancel(); }}
+              className={EFIELD}
+            />
+          </label>
+        ))}
+      </div>
+      {err && <p className="mt-2 text-[12px] text-red-700">{err}</p>}
+      <div className="mt-3 flex items-center gap-3">
+        <button onClick={() => void submit()} disabled={saving}
+          className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white disabled:opacity-50">
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={onCancel} className="text-[12px] text-stone-500 hover:text-stone-800">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Panels ───────────────────────────────────────────────────────────────── */
 
 function PanelHead({ title, sub }: { title: string; sub?: React.ReactNode }) {
@@ -571,12 +649,54 @@ function VenuePanel({
   orgById: Map<string, IntelOrg>;
   jump: (a: Axis, id: string) => void;
 }) {
+  const [edit, setEdit] = useState(false);
+  const [local, setLocal] = useState<{ name: string; address: string; city: string }>({
+    name: v.name, address: v.address ?? "", city: v.city ?? "",
+  });
+  useEffect(() => {
+    setLocal({ name: v.name, address: v.address ?? "", city: v.city ?? "" });
+    setEdit(false);
+  }, [v.id, v.name, v.address, v.city]);
+
+  /** A leading digit means this "name" is really the street address. */
+  const unnamed = /^\d/.test(local.name.trim());
+
   return (
     <div>
-      <PanelHead
-        title={v.name}
-        sub={v.address ?? [v.city, v.region].filter(Boolean).join(", ") ?? undefined}
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PanelHead
+          title={local.name}
+          sub={
+            <>
+              {[local.address, local.city].filter(Boolean).join(", ")}
+              {unnamed && (
+                <span className="ml-2 text-stone-400">
+                  — no venue name yet; the calendar only gave an address
+                </span>
+              )}
+            </>
+          }
+        />
+        <button
+          onClick={() => setEdit((x) => !x)}
+          className="mt-1 shrink-0 text-[12px] text-stone-400 hover:text-stone-800"
+        >
+          {edit ? "Cancel" : unnamed ? "Add a name" : "Edit"}
+        </button>
+      </div>
+      {edit && (
+        <InlineEdit
+          endpoint="/api/venues"
+          id={v.id}
+          fields={[
+            { key: "name", label: "Name", value: local.name, placeholder: "The Alder Room" },
+            { key: "address", label: "Address", value: local.address, placeholder: "418 Wharf St" },
+            { key: "city", label: "City", value: local.city, placeholder: "San Jose" },
+          ]}
+          onSaved={(patch) => { setLocal({ ...local, ...patch } as typeof local); setEdit(false); }}
+          onCancel={() => setEdit(false)}
+        />
+      )}
       <Rule />
 
       <Section title={`${v.eventCount} ${v.eventCount === 1 ? "gig" : "gigs"} here`}>
@@ -711,17 +831,40 @@ function OrgPanel({
   venueById: Map<string, IntelVenue>;
   jump: (a: Axis, id: string) => void;
 }) {
+  const [edit, setEdit] = useState(false);
+  const [name, setName] = useState(o.name);
+  useEffect(() => { setName(o.name); setEdit(false); }, [o.id, o.name]);
+
   return (
     <div>
-      <PanelHead
-        title={o.name}
-        sub={
-          <>
-            {o.kind !== "unknown" && <>{o.kind.replace(/_/g, " ")} · </>}
-            {o.domains.length ? o.domains.join(", ") : "no domain on file"}
-          </>
-        }
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PanelHead
+          title={name}
+          sub={
+            <>
+              {o.kind !== "unknown" && <>{o.kind.replace(/_/g, " ")} · </>}
+              {o.domains.length ? o.domains.join(", ") : "no domain on file"}
+            </>
+          }
+        />
+        <button
+          onClick={() => setEdit((x) => !x)}
+          className="mt-1 shrink-0 text-[12px] text-stone-400 hover:text-stone-800"
+        >
+          {edit ? "Cancel" : "Rename"}
+        </button>
+      </div>
+      {edit && (
+        /* Renaming never touches `domains` — the domain is the identity, and
+           editing a label must not be able to split one company into two. */
+        <InlineEdit
+          endpoint="/api/organizations"
+          id={o.id}
+          fields={[{ key: "name", label: "Client name", value: name, placeholder: "Episode 1 Agency" }]}
+          onSaved={(patch) => { setName(patch.name ?? name); setEdit(false); }}
+          onCancel={() => setEdit(false)}
+        />
+      )}
       <Rule />
 
       <Section title={`${o.eventCount} ${o.eventCount === 1 ? "gig" : "gigs"}`}>

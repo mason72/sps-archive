@@ -19,7 +19,7 @@
  * scoped by the id set the intel rows already established.
  */
 import type { createServiceClient } from "@/lib/supabase/server";
-import { metroKeys } from "./geo";
+import { metroKeys, metroKey, metroLabel } from "./geo";
 
 type DB = ReturnType<typeof createServiceClient>;
 
@@ -317,13 +317,30 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
   });
 
   // ── Axis: cities ──────────────────────────────────────────────────────────
+  /**
+   * Grouped by METRO, not by the raw Google city.
+   *
+   * Mason: "why do you have Bronx and not New York City? Bronx is part of New
+   * York City." Right — and the inconsistency was mine: `geo.ts` already
+   * existed so "San Jose" and "Bay Area" would match for crew, and then this
+   * grouped on the raw string anyway. So the Bronx sat as a peer of San
+   * Francisco while the matching logic knew better.
+   *
+   * The specific city is not lost: it stays on the venue, which is where "which
+   * building" is actually answered.
+   */
   const cityMap = new Map<string, IntelCity>();
   const touchCity = (name: string | null, region: string | null): IntelCity | null => {
-    const key = cityKey(name);
-    if (!key) return null;
+    const raw = (name ?? "").trim();
+    if (!raw) return null;
+    const key = metroKey(raw) ?? cityKey(raw);
     let c = cityMap.get(key);
     if (!c) {
-      c = { key, name: (name ?? "").trim(), region, eventCount: 0, events: [], venueIds: [], crewIds: [], localCrewIds: [] };
+      c = {
+        key,
+        name: metroLabel(key),
+        region, eventCount: 0, events: [], venueIds: [], crewIds: [], localCrewIds: [],
+      };
       cityMap.set(key, c);
     }
     return c;
@@ -345,8 +362,10 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
    * and to every existing city row in those metros, so a gig in Coppell finds a
    * crew member who wrote "Dallas".
    */
+  // The row's key IS its metro now, so compare against that rather than
+  // re-deriving from the display label ("Dallas–Fort Worth" is not a lookup key).
   const cityMetros = new Map<string, string[]>();
-  for (const c of cityMap.values()) cityMetros.set(c.key, metroKeys(c.name));
+  for (const c of cityMap.values()) cityMetros.set(c.key, [c.key]);
 
   for (const p of people) {
     const homes = metroKeys(p.homeCity);
