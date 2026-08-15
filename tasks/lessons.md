@@ -726,3 +726,54 @@ PASSED, because their widths varied (1844 / 2880 / 3840) — cropped headshot
 deliverables are legitimately small. Day 3 failed not because it was small but
 because it was *uniform*. Never judge fidelity on the median alone; judge it on
 the spread.
+
+## 76 — I ran the build and the push in one command, so the push won (2026-08-14)
+
+`npm run build > log; git push` — the build failed, and the push had already
+happened by the time the failure printed. `main` auto-deploys, so a broken build
+went out. Vercel kept the last good deployment serving, which is the only reason
+production was fine; that was luck, not diligence.
+
+This is written in ship-discipline.md in almost these words — *"a guard chained
+to the thing it guards is not a guard"* — recorded after the same mistake with
+`git log … && git push`. Knowing the rule did not help. **Read the result, then
+decide, then act, in separate invocations.** For a build gate specifically: run
+it, read the exit code in the tool result, and only then issue the push as its
+own call.
+
+## 77 — "Not found" from a case-sensitive probe is not "not rendering" (2026-08-15)
+
+Three checks in a row said the new confirm strip was absent from the page, and I
+was about to go debug JSX placement and deployment. It had been rendering the
+whole time. The label is `uppercase` in CSS, so `innerText` returns
+"FROM THE CALENDAR" and my `includes("From the calendar")` never matched.
+
+**A DOM probe searching for user-visible text must be case-insensitive**, because
+CSS decides the case that `innerText` reports. More generally: before concluding
+a feature is broken, prove the PROBE works — search for a string you are certain
+is on the page. The earlier version of this lesson is "an empty poll result is a
+BROKEN probe, not a pending answer" (workflow.md); this is the same failure with
+a different disguise.
+
+## 78 — Ask what a control MEANS before deciding what a click does (2026-08-15)
+
+A guessed role rendered dashed and was stored as "on". So clicking it removed
+it — while the row flipping to confirmed turned a sibling chip solid in the same
+frame. Mason read that as "clicking lead selected photographer", which is exactly
+what it looked like.
+
+The bug was not the handler; it was that one visual state was carrying two
+meanings. Dashed said *provisional* to the reader and *selected* to the code.
+
+**When a control has a third state, it needs a third behaviour.** Enumerate what
+each state MEANS to the person looking at it, then write the transition for each:
+
+    outline  not chosen        → choose it
+    dashed   proposed, not yet → ACCEPT it
+    solid    chosen            → remove it
+
+And a corollary about provenance: `roles_source` marked a whole ROW as inferred,
+so confirming one thing confirmed everything on it. **Provenance has to live at
+the same grain as the decision.** Per-row provenance on a per-item decision
+silently launders guesses into facts — here, rehire-grade claims about named
+people that nobody made.
