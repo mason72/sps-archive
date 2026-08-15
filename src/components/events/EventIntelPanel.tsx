@@ -27,6 +27,7 @@ interface CrewRow {
   kind: string | null;
   homeCity: string | null;
   canLead: string | null;
+  isRegular: boolean;
   roles: string[];
   /** The subset a human has endorsed. The rest are still the backfill guessing. */
   confirmedRoles: string[];
@@ -219,11 +220,11 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
         <div className="flex items-baseline justify-between">
           <span className={META}>
             Crew
-            {data.crew.length > 0 && data.crew.every((c) => c.kind === "staff") && (
+            {data.crew.length > 0 && data.crew.every((c) => c.isRegular) && (
               /* Otherwise the rebook controls look broken rather than absent —
-                 they are for temps, and this gig had none. */
+                 they are for people you are still forming an opinion about. */
               <span className="ml-2 normal-case tracking-normal text-stone-300">
-                all staff — rebook notes appear for local hires
+                all regulars — rebook notes appear for everyone else
               </span>
             )}
           </span>
@@ -247,6 +248,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   {
                     crewId: person.id, name: person.name, kind: person.kind ?? null,
                     homeCity: person.homeCity ?? null, canLead: null,
+                    isRegular: person.isRegular,
                     roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },
                 ].sort(byName),
@@ -264,6 +266,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   {
                     crewId: person.id, name: person.name, kind: person.kind,
                     homeCity: person.homeCity, canLead: null,
+                    isRegular: person.isRegular,
                     roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },
                 ].sort(byName),
@@ -353,16 +356,18 @@ function CrewLine({
   const guessed = crew.roles.some((r) => !crew.confirmedRoles.includes(r));
 
   /**
-   * Rebook and notes are for people who DON'T work here.
+   * Rebook and notes are for people you DON'T reach for by default.
    *
    * Mason: "we only need the yes/no/maybe/notes for NON CREW (temps)". You do
-   * not file a rehire judgement on your own team — the question is meaningless
-   * for staff and the control is noise on every row. `kind` is decided once per
-   * PERSON when they are merged (staff | local | client | other), never derived
-   * per gig, so this is stable: Joey never reads as a local hire on an old
-   * event just because that record carried a personal address.
+   * not file a rehire judgement on your own team.
+   *
+   * This used to key on `kind`, back when kind meant staff/local. Kind is now a
+   * DISCIPLINE — photographer, stylist, makeup artist — and the "do I use them
+   * regularly" question moved to `is_regular` where it belonged all along. So
+   * the gate follows it: a regular is your team whatever they shoot; anyone
+   * else is someone you are still forming an opinion about.
    */
-  const isTemp = crew.kind !== "staff";
+  const isTemp = !crew.isRegular;
 
   /**
    * THREE states, not two — and a dashed chip's first click CONFIRMS it.
@@ -399,9 +404,7 @@ function CrewLine({
         <div className="min-w-0">
           <span className="text-[15px] text-stone-900">{crew.name}</span>
           {crew.homeCity && <span className="ml-2 text-[12px] text-stone-400">{crew.homeCity}</span>}
-          {crew.kind && crew.kind !== "staff" && (
-            <span className="ml-2 text-[11px] text-stone-400">{crew.kind}</span>
-          )}
+          {crew.kind && <span className="ml-2 text-[11px] text-stone-400">{crew.kind}</span>}
           {guessed && crew.roles.length > 0 && (
             <span
               className="ml-2 text-[11px] italic text-stone-400"

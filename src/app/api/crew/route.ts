@@ -21,7 +21,17 @@ import { reportSystemError } from "@/lib/monitoring/report";
  * is therefore its own column.
  */
 
-const KINDS = ["staff", "local", "client", "other"];
+/**
+ * What someone DOES. Not how often you use them — that is `is_regular`, and
+ * conflating the two is what the old staff/local/client/other vocabulary did.
+ *
+ * Mason, 2026-08-14: "I think that's redundant with 'regular' — maybe we change
+ * staff to photographer, stylist, MUA... we don't need 'other'."
+ *
+ * No catch-all on purpose. "other" absorbs everyone nobody classified and the
+ * list stops meaning anything; three real disciplines force a real answer.
+ */
+const KINDS = ["photographer", "stylist", "makeup artist"];
 
 export async function GET(request: NextRequest) {
   try {
@@ -101,7 +111,7 @@ export async function POST(request: NextRequest) {
       display_name: name,
       full_name: String(b.full_name ?? "").trim() || null,
       primary_email: email,
-      kind: KINDS.includes(String(b.kind)) ? b.kind : "local",
+      kind: KINDS.includes(String(b.kind)) ? b.kind : "photographer",
       is_regular: b.is_regular === true,
       city: String(b.city ?? "").trim() || null,
       can_lead: ["yes", "maybe", "no"].includes(String(b.can_lead)) ? b.can_lead : null,

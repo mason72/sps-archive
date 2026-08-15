@@ -103,12 +103,13 @@ export async function GET(
       crew: (crewLinkRes.data ?? [])
         .map((r: EventCrewRow) => {
         const person = rosterById.get(r.crew_id) as
-          | { display_name: string; kind: string; city: string | null; can_lead: string | null }
+          | { display_name: string; kind: string; city: string | null; can_lead: string | null; is_regular: boolean }
           | undefined;
         return {
           crewId: r.crew_id,
           name: person?.display_name ?? "(not on the roster)",
           kind: person?.kind ?? null,
+          isRegular: !!person?.is_regular,
           homeCity: person?.city ?? null,
           canLead: person?.can_lead ?? null,
           roles: r.roles ?? [],
