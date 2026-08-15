@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { cleanRehire } from "@/lib/event-intel/roles";
 
 /**
  * The roster — add, edit, archive.
@@ -152,6 +153,14 @@ export async function PATCH(request: NextRequest) {
     if (typeof b.notes === "string") patch.notes = b.notes.trim() || null;
     if (typeof b.archived === "boolean") patch.archived = b.archived;
     if (typeof b.is_regular === "boolean") patch.is_regular = b.is_regular;
+    /**
+     * The person-level rehire baseline (migration 060).
+     *
+     * `undefined` means "not mentioned"; an explicit null clears it. Normalised
+     * through the one gate so this column and event_crew.would_rebook can never
+     * drift into different vocabularies.
+     */
+    if (b.rehire !== undefined) patch.rehire = cleanRehire(b.rehire);
 
     const { error } = await db.from("crew").update(patch).eq("id", id).eq("user_id", user!.id);
     if (error) throw error;

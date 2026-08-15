@@ -30,7 +30,7 @@ const p = (
   id, name, fullName: null, email: `${id}@example.com`, kind: "staff",
   homeCity: null, canLead: null, travels: null, archived: false, notes: null,
   eventCount: 0, events: [], roleCounts: {}, inferredRoleCount: 0, cities: [], venueIds: [],
-  orgIds: [], coCrewIds: [], rebook: { yes: 0, no: 0, maybe: 0 }, ...over,
+  orgIds: [], coCrewIds: [], standing: { headline: null, tally: { first_call: 0, solid: 0, last_resort: 0, never: 0 }, total: 0, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null, ...over,
 });
 
 const EVENTS = [
@@ -54,7 +54,7 @@ const INDEX: IntelIndex = {
       ],
       roleCounts: { lead: 1, photographer: 2 }, inferredRoleCount: 1,
       cities: ["San Jose", "Oakland"], venueIds: ["v1", "v2"], orgIds: ["o1", "o2"],
-      coCrewIds: ["milo", "reyna"], rebook: { yes: 2, no: 0, maybe: 0 },
+      coCrewIds: ["milo", "reyna"], standing: { headline: "first_call", tally: { first_call: 2, solid: 0, last_resort: 0, never: 0 }, total: 2, hardNo: false, fromBaseline: false }, isRegular: true, rehireBaseline: null,
     }),
     p("milo", "Milo Vance", {
       kind: "local", homeCity: "Phoenix", canLead: "maybe", travels: false,
@@ -65,7 +65,7 @@ const INDEX: IntelIndex = {
       ],
       roleCounts: { "digital tech": 1 }, inferredRoleCount: 1,
       cities: ["San Jose"], venueIds: ["v1"], orgIds: ["o1"],
-      coCrewIds: ["dana"], rebook: { yes: 0, no: 1, maybe: 1 },
+      coCrewIds: ["dana"], standing: { headline: "never", tally: { first_call: 0, solid: 0, last_resort: 1, never: 1 }, total: 2, hardNo: true, fromBaseline: false }, isRegular: false, rehireBaseline: null,
       notes: "Referred by Reyna. Owns his own lighting kit.",
     }),
     p("reyna", "Reyna Okafor", {
@@ -73,7 +73,7 @@ const INDEX: IntelIndex = {
       eventCount: 1,
       events: [{ ...EVENTS[1], roles: [], rolesSource: "manual", wouldRebook: "yes", note: null }],
       cities: ["Oakland"], venueIds: ["v2"], orgIds: ["o2"], coCrewIds: ["dana"],
-      rebook: { yes: 1, no: 0, maybe: 0 },
+      standing: { headline: "first_call", tally: { first_call: 1, solid: 0, last_resort: 0, never: 0 }, total: 1, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null,
     }),
     // The common case today: on the roster, never yet linked to a gig.
     p("tobias", "Tobias Lund", { kind: "local", homeCity: "Seattle", canLead: "no" }),

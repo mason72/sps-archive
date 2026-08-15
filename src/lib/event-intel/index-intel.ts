@@ -20,6 +20,7 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 import { metroKeys, metroKey, metroLabel } from "./geo";
+import { rehireStanding, type RehireStanding } from "./roles";
 
 type DB = ReturnType<typeof createServiceClient>;
 
@@ -76,7 +77,17 @@ export interface IntelPerson {
   orgIds: string[];
   /** People they have actually worked alongside, by shared event. */
   coCrewIds: string[];
-  rebook: { yes: number; no: number; maybe: number };
+  /** Do you reach for them. MARKED, never derived from an event count. */
+  isRegular: boolean;
+  /**
+   * Their rehire standing: the most recent per-gig judgement, the distribution
+   * behind it, and a hard-no flag that survives regardless of age. Falls back
+   * to `crew.rehire` — the person-level opinion — only when no gig has been
+   * rated, which is most of the roster (89 crew, 40 links).
+   */
+  standing: RehireStanding;
+  /** The seeded opinion itself, so the editor can show what it is editing. */
+  rehireBaseline: string | null;
 }
 
 export interface IntelVenue {
@@ -268,12 +279,13 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
     }
     const inferredRoleCount = evs.filter((e) => e.rolesSource === "inferred" && e.roles.length).length;
 
-    const rebook = { yes: 0, no: 0, maybe: 0 };
-    for (const e of evs) {
-      if (e.wouldRebook === "yes") rebook.yes++;
-      else if (e.wouldRebook === "no") rebook.no++;
-      else if (e.wouldRebook === "maybe") rebook.maybe++;
-    }
+    /**
+     * `evs` is newest-first (see where it is built), which is exactly what
+     * `rehireStanding` needs: the headline is the most recent judgement, not an
+     * average. An average over an ordinal ladder names no action and buries one
+     * disastrous gig under four fine ones.
+     */
+    const standing = rehireStanding(evs.map((e) => e.wouldRebook), c.rehire ?? null);
 
     const attended = evs.map((e) => eventById.get(e.id)!);
     return {
@@ -295,7 +307,9 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       venueIds: uniq(attended.map((e) => e.venueId)),
       orgIds: uniq(attended.flatMap((e) => e.orgs.map((o) => o.orgId))),
       coCrewIds: uniq(attended.flatMap((e) => e.crew.map((x) => x.crewId))).filter((id) => id !== c.id),
-      rebook,
+      isRegular: !!c.is_regular,
+      standing,
+      rehireBaseline: c.rehire ?? null,
     };
   });
 

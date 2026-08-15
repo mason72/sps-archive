@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RosterManager } from "./RosterManager";
 import type {
@@ -10,6 +11,7 @@ import type {
   IntelCity,
   IntelOrg,
 } from "@/lib/event-intel/index-intel";
+import type { RehireStanding } from "@/lib/event-intel/roles";
 
 /**
  * The pivot, as a UI.
@@ -114,15 +116,17 @@ function Chip({
   );
 }
 
-/** Rebook signal. Severity ramp, never the brand accent. */
+/** Rehire signal. Severity ramp, never the brand accent. */
+const REHIRE_DOT: Record<string, [string, string]> = {
+  first_call: ["bg-stone-800", "first call"],
+  solid: ["bg-stone-500", "solid"],
+  last_resort: ["bg-amber-700", "last resort"],
+  never: ["bg-red-700", "never again"],
+};
+
 function RebookDot({ value, count }: { value: string | null; count?: number }) {
   if (!value) return null;
-  const map: Record<string, [string, string]> = {
-    yes: ["bg-stone-600", "would rebook"],
-    maybe: ["bg-amber-600", "maybe"],
-    no: ["bg-red-700", "would not rebook"],
-  };
-  const hit = map[value];
+  const hit = REHIRE_DOT[value];
   if (!hit) return null;
   return (
     <span className="inline-flex items-center gap-1.5" title={hit[1]}>
@@ -131,6 +135,48 @@ function RebookDot({ value, count }: { value: string | null; count?: number }) {
         {count != null && <span className="tabular-nums text-stone-700">{count} </span>}
         {hit[1]}
       </span>
+    </span>
+  );
+}
+
+/**
+ * A person's standing: the most recent judgement, with the distribution on
+ * hover.
+ *
+ * Mason asked for an "average rebook rating" and then agreed this is better:
+ * "most recent rating and on hover show a distribution". An average over an
+ * ordinal ladder gives "2.3", which names no action — and it buries one
+ * disastrous gig under four fine ones, which is the single fact you most need.
+ *
+ * `fromBaseline` means nobody has rated a real gig and this is the standing
+ * opinion someone seeded. Said out loud rather than shown as if it were earned.
+ */
+function StandingBadge({ s }: { s: RehireStanding }) {
+  if (!s.headline) return null;
+  const hit = REHIRE_DOT[s.headline];
+  if (!hit) return null;
+  const parts = (["first_call", "solid", "last_resort", "never"] as const)
+    .filter((k) => s.tally[k] > 0)
+    .map((k) => `${s.tally[k]} × ${REHIRE_DOT[k][1]}`);
+  const title = s.fromBaseline
+    ? "Seeded by hand — no rated gigs yet"
+    : parts.length
+      ? `Most recent: ${hit[1]}\nAcross ${s.total} rated ${s.total === 1 ? "gig" : "gigs"}: ${parts.join(", ")}`
+      : hit[1];
+  return (
+    <span className="inline-flex items-center gap-1.5" title={title}>
+      <span className={`h-1.5 w-1.5 rounded-full ${hit[0]}`} />
+      <span className={`text-[12px] ${s.fromBaseline ? "italic text-stone-400" : "text-stone-500"}`}>
+        {hit[1]}
+        {s.total > 1 && <span className="ml-1 tabular-nums text-stone-400">·{s.total}</span>}
+      </span>
+      {/* A hard no is stated even when the latest gig went fine — the downside
+          is the thing you are checking for, and it must not be averaged away. */}
+      {s.hardNo && s.headline !== "never" && (
+        <span className="text-[11px] text-red-700" title="A 'never again' exists in their history">
+          !
+        </span>
+      )}
     </span>
   );
 }
@@ -220,6 +266,10 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           primary: p.name,
           secondary: [p.homeCity, p.kind !== "other" ? p.kind : null].filter(Boolean).join(" · "),
           count: p.eventCount,
+          // Mason: "show the 'regular' stars next to their name". Scanning for
+          // your own team in a list of 61 is the common case; a badge you have
+          // to open a panel to see does not help with that.
+          star: p.isRegular,
         }));
     if (axis === "venues")
       return index.venues
@@ -366,7 +416,12 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-[14px] text-stone-800">{r.primary}</span>
+                        <span className="block truncate text-[14px] text-stone-800">
+                          {"star" in r && (r as { star?: boolean }).star && (
+                            <span className="mr-1.5 text-amber-500" title="A regular">★</span>
+                          )}
+                          {r.primary}
+                        </span>
                         {r.secondary && (
                           <span className="block truncate text-[12px] text-stone-400">{r.secondary}</span>
                         )}
@@ -489,12 +544,288 @@ function InlineEdit({
 
 /* ── Panels ───────────────────────────────────────────────────────────────── */
 
-function PanelHead({ title, sub }: { title: string; sub?: React.ReactNode }) {
+function PanelHead({ title, sub }: { title: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <header className="pb-5">
       <h2 className="font-editorial text-[30px] leading-tight text-stone-900">{title}</h2>
       {sub && <p className="mt-1.5 text-[13px] text-stone-500">{sub}</p>}
     </header>
+  );
+}
+
+/**
+ * Edit a person, in the panel you are already looking at.
+ *
+ * Mason, 2026-08-15: he wants to "go through and seed the current list" — mark
+ * regulars, rate the non-regulars, and fix names, emails and locations without
+ * leaving the Crew axis. The Roster tab could already do some of this, but
+ * nobody investigating a person wants to go somewhere else to correct what they
+ * are looking at.
+ *
+ * ── WHAT A REGULAR DOES NOT NEED TO BE ASKED ────────────────────────────────
+ *
+ * "All regulars can lead and travel" and "all regulars are photographers ... so
+ * they really don't need to have the role pill either, just whether or not they
+ * led an event." Verified against the live roster before hiding anything: 15
+ * regulars, all `kind: photographer`; 46 non-regulars, all stylists. Hiding a
+ * control on a false premise would silently mislabel people, so it was checked
+ * rather than trusted.
+ *
+ * So a regular shows ONE control — the star — and everything else is implied
+ * through `canLead()` / `willTravel()` in roles.ts. A non-regular is asked the
+ * things that actually vary: discipline, whether they can lead, whether they
+ * travel, and how eager you are to rehire them.
+ *
+ * The rating here is a person-level BASELINE (`crew.rehire`). It exists because
+ * most of the roster has no gig to attach a real rating to — 89 crew against 40
+ * event links — and it always yields to a real per-gig judgement the moment one
+ * exists (`rehireStanding`).
+ */
+function CrewEditor({ p }: { p: IntelPerson }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [f, setF] = useState({
+    display_name: p.name,
+    primary_email: p.email ?? "",
+    city: p.homeCity ?? "",
+  });
+
+  // Re-seed when the panel switches to a different person.
+  useEffect(() => {
+    setF({ display_name: p.name, primary_email: p.email ?? "", city: p.homeCity ?? "" });
+    setOpen(false);
+    setErr(null);
+  }, [p.id, p.name, p.email, p.homeCity]);
+
+  const save = async (patch: Record<string, unknown>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/crew", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id, ...patch }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setErr(j.error ?? "Could not save");
+        return;
+      }
+      // The board is derived server-side from one pass over the whole fact
+      // table, so a local patch would leave every OTHER axis stale — a person's
+      // venues, a city's crew. Refresh re-derives them together, which is the
+      // property that makes them incapable of disagreeing.
+      router.refresh();
+    } catch {
+      setErr("Could not save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* The star IS the regular toggle — same mark the list shows. */}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save({ is_regular: !p.isRegular })}
+          title={p.isRegular ? "A regular — click to unmark" : "Mark as a regular"}
+          className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors disabled:opacity-50 ${
+            p.isRegular
+              ? "border-amber-300 bg-amber-50 text-amber-700"
+              : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
+          }`}
+        >
+          ★ regular
+        </button>
+
+        {p.isRegular ? (
+          // Everything else is implied. Saying so beats an empty space, which
+          // reads as "not recorded" rather than "not a question".
+          <span className="text-[12px] text-stone-400">
+            photographer · can lead · travels
+          </span>
+        ) : (
+          <>
+            <SegChoice
+              label="Discipline"
+              options={[
+                ["photographer", "photographer"],
+                ["stylist", "stylist"],
+                ["makeup artist", "MUA"],
+              ]}
+              value={p.kind}
+              busy={busy}
+              onPick={(v) => void save({ kind: v })}
+            />
+            <SegChoice
+              label="Can lead"
+              options={[["yes", "can lead"], ["no", "cannot"]]}
+              value={p.canLead}
+              busy={busy}
+              onPick={(v) => void save({ can_lead: p.canLead === v ? null : v })}
+            />
+            <SegChoice
+              label="Travel"
+              options={[["yes", "travels"], ["no", "local only"]]}
+              value={p.travels == null ? null : p.travels ? "yes" : "no"}
+              busy={busy}
+              onPick={(v) => {
+                const next = v === "yes";
+                void save({ travels: p.travels === next ? null : next });
+              }}
+            />
+          </>
+        )}
+        {p.archived && <Chip>archived</Chip>}
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="ml-auto text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-800 hover:underline"
+        >
+          {open ? "Done" : "Edit details"}
+        </button>
+      </div>
+
+      {/**
+       * The rehire ladder, for non-regulars only — you do not score your own
+       * team gig to gig.
+       *
+       * Labelled as a starting point when it is one: a seeded opinion is not the
+       * same thing as four rated gigs, and the panel should never let those look
+       * alike.
+       */}
+      {!p.isRegular && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-stone-400">
+            {p.standing.total > 0 ? "Rehire (from rated gigs)" : "Rehire"}
+          </span>
+          {p.standing.total > 0 ? (
+            <StandingBadge s={p.standing} />
+          ) : (
+            <SegChoice
+              label="Rehire"
+              options={[
+                ["first_call", "First call"],
+                ["solid", "Solid"],
+                ["last_resort", "Last resort"],
+                ["never", "Never again"],
+              ]}
+              value={p.rehireBaseline}
+              busy={busy}
+              severity
+              onPick={(v) => void save({ rehire: p.rehireBaseline === v ? null : v })}
+            />
+          )}
+        </div>
+      )}
+
+      {open && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <input
+            value={f.display_name}
+            onChange={(e) => setF({ ...f, display_name: e.target.value })}
+            placeholder="Name"
+            className="rounded-md border border-stone-200 bg-white px-3 py-2 text-[13px] text-stone-800 focus:border-stone-400 focus:outline-none"
+          />
+          <input
+            value={f.primary_email}
+            onChange={(e) => setF({ ...f, primary_email: e.target.value })}
+            placeholder="Email"
+            className="rounded-md border border-stone-200 bg-white px-3 py-2 text-[13px] text-stone-800 focus:border-stone-400 focus:outline-none"
+          />
+          <input
+            value={f.city}
+            onChange={(e) => setF({ ...f, city: e.target.value })}
+            placeholder="City / region"
+            className="rounded-md border border-stone-200 bg-white px-3 py-2 text-[13px] text-stone-800 focus:border-stone-400 focus:outline-none sm:col-span-2"
+          />
+          <div className="flex items-center gap-3 sm:col-span-2">
+            <button
+              type="button"
+              disabled={busy || !f.display_name.trim()}
+              onClick={() =>
+                void save({
+                  display_name: f.display_name.trim(),
+                  primary_email: f.primary_email.trim() || null,
+                  city: f.city.trim() || null,
+                }).then(() => setOpen(false))
+              }
+              className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white disabled:opacity-40"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setErr(null); }}
+              className="text-[12px] text-stone-500 hover:text-stone-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* A failed save must SAY so — an optimistic panel that silently keeps a
+          rejected change lies about what was stored. */}
+      {err && <p className="mt-2 text-[12px] text-red-700">{err}</p>}
+    </div>
+  );
+}
+
+/**
+ * A one-of-N segmented control, matching the create card's language: a fully
+ * rounded track for a choice, so it never reads as a set of independent flags.
+ * Clicking the current value clears it — a judgement you cannot take back is
+ * one people stop making.
+ */
+function SegChoice({
+  label, options, value, busy, onPick, severity,
+}: {
+  label: string;
+  options: [string, string][];
+  value: string | null;
+  busy: boolean;
+  onPick: (v: string) => void;
+  severity?: boolean;
+}) {
+  return (
+    <span
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex overflow-hidden rounded-full border border-stone-200"
+    >
+      {options.map(([v, text], i) => {
+        const on = value === v;
+        // Severity ramp for a rehire judgement; the neutral stone for anything
+        // that is merely a fact about the person.
+        const onClass = severity
+          ? REHIRE_DOT[v]
+            ? `${REHIRE_DOT[v][0]} text-white`
+            : "bg-stone-900 text-white"
+          : "bg-stone-900 text-white";
+        return (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={busy}
+            onClick={() => onPick(v)}
+            className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 disabled:opacity-50 ${
+              i > 0 ? "border-l border-stone-200" : ""
+            } ${on ? onClass : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}
+          >
+            {text}
+          </button>
+        );
+      })}
+    </span>
   );
 }
 
@@ -511,7 +842,16 @@ function PersonPanel({
   return (
     <div>
       <PanelHead
-        title={p.name}
+        title={
+          <>
+            {p.name}
+            {p.isRegular && (
+              <span className="ml-2 align-middle text-[16px] text-amber-500" title="A regular">
+                ★
+              </span>
+            )}
+          </>
+        }
         sub={
           <>
             {p.fullName && p.fullName !== p.name && <>{p.fullName} · </>}
@@ -522,12 +862,7 @@ function PersonPanel({
       />
       <Rule />
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <Chip>{p.kind}</Chip>
-        {p.canLead && <Chip title="Standing capability from the roster, not a per-gig fact">can lead: {p.canLead}</Chip>}
-        {p.travels != null && <Chip>{p.travels ? "travels" : "local only"}</Chip>}
-        {p.archived && <Chip>archived</Chip>}
-      </div>
+      <CrewEditor p={p} />
 
       <Section title={`${p.eventCount} ${p.eventCount === 1 ? "gig" : "gigs"}`}>
         {p.events.length === 0 ? (
@@ -593,12 +928,14 @@ function PersonPanel({
         )}
       </Section>
 
-      {(p.rebook.yes || p.rebook.no || p.rebook.maybe) > 0 && (
-        <Section title="Rebook">
-          <div className="flex gap-5">
-            {p.rebook.yes > 0 && <RebookDot value="yes" count={p.rebook.yes} />}
-            {p.rebook.maybe > 0 && <RebookDot value="maybe" count={p.rebook.maybe} />}
-            {p.rebook.no > 0 && <RebookDot value="no" count={p.rebook.no} />}
+      {p.standing.total > 0 && (
+        <Section title="Rehire">
+          <div className="flex flex-wrap gap-5">
+            {(["first_call", "solid", "last_resort", "never"] as const)
+              .filter((k) => p.standing.tally[k] > 0)
+              .map((k) => (
+                <RebookDot key={k} value={k} count={p.standing.tally[k]} />
+              ))}
           </div>
         </Section>
       )}

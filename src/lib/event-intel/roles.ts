@@ -107,6 +107,12 @@ export interface RehireStanding {
    * gig went fine.
    */
   hardNo: boolean;
+  /**
+   * True when the headline came from `crew.rehire` — a standing opinion someone
+   * seeded — rather than from any rated gig. Said out loud so a seed never
+   * renders as if it were earned from evidence.
+   */
+  fromBaseline: boolean;
 }
 
 /**
@@ -145,8 +151,18 @@ export function standingVisibleFor(thisEventRating: string | null | undefined): 
  * regardless of age. Recency decides the label; the downside is never buried.
  *
  * `ratings` must arrive newest-first.
+ *
+ * `baseline` is the person-level standing opinion (`crew.rehire`), for people
+ * with no rated gigs yet — most of the roster, since 89 crew carry 40 event
+ * links. A REAL PER-GIG RATING ALWAYS WINS: the baseline is what you knew
+ * before the data existed and it steps aside the moment the data does. It is
+ * counted in the tally only when nothing else is, so it can never inflate a
+ * distribution built from actual gigs.
  */
-export function rehireStanding(ratings: (string | null)[]): RehireStanding {
+export function rehireStanding(
+  ratings: (string | null)[],
+  baseline?: string | null
+): RehireStanding {
   const tally: Record<Rehire, number> = {
     first_call: 0, solid: 0, last_resort: 0, never: 0,
   };
@@ -158,7 +174,42 @@ export function rehireStanding(ratings: (string | null)[]): RehireStanding {
     tally[r]++;
   }
   const total = REHIRE_LADDER.reduce((n, k) => n + tally[k], 0);
-  return { headline, tally, total, hardNo: tally.never > 0 };
+  if (total === 0) {
+    // Nothing from a real gig — fall back to the standing opinion. `total`
+    // stays 0 so a caller can still tell "seeded" from "earned", and
+    // `fromBaseline` says so explicitly rather than making that inferable only
+    // from a zero.
+    const seed = cleanRehire(baseline);
+    if (seed) {
+      return { headline: seed, tally, total: 0, hardNo: seed === "never", fromBaseline: true };
+    }
+  }
+  return { headline, tally, total, hardNo: tally.never > 0, fromBaseline: false };
+}
+
+/**
+ * Can this person lead, and will they travel?
+ *
+ * Mason, 2026-08-15: "all regulars can lead and travel, so we only need that
+ * chip for non-regulars." So being a regular IMPLIES both, and the two chips
+ * are asked only of everyone else — which is also what makes the panel quick
+ * enough to seed 61 people through.
+ *
+ * Expressed as functions rather than left to each caller, because the
+ * alternative is every query writing `is_regular || travels` and one of them
+ * eventually forgetting. It matters most for the coming radius search: 35 of 61
+ * active crew have `travels` unset, and reading that as "will not travel" would
+ * silently drop half the roster.
+ *
+ * The assumption is his, stated as fact about this roster. If a regular ever
+ * cannot travel, this is the one place to make it explicit rather than implied.
+ */
+export function canLead(p: { is_regular?: boolean | null; can_lead?: string | null }): boolean {
+  return !!p.is_regular || p.can_lead === "yes";
+}
+
+export function willTravel(p: { is_regular?: boolean | null; travels?: boolean | null }): boolean {
+  return !!p.is_regular || p.travels === true;
 }
 
 /**
