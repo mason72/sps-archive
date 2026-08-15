@@ -248,13 +248,27 @@ export async function GET(request: NextRequest) {
     });
 
     /**
-     * Already-used gigs sink to the bottom, in their existing order.
+     * Three keys, in this order.
      *
-     * They stay pickable — see the comment on the query — but they should never
-     * outrank a gig with no gallery yet, because the overwhelmingly common
-     * reason you are on this screen is the one that has not been made.
+     * 1. UNCLAIMED FIRST. Already-used gigs stay pickable — see the comment on
+     *    the query — but must never outrank a gig with no gallery yet, because
+     *    the overwhelmingly common reason you are on this screen is the one
+     *    that has not been made.
+     * 2. SCORE. Typing "perkin" has to find Perkin Elmer even though it is from
+     *    2018, so what you typed always beats when it happened.
+     * 3. MOST RECENT FIRST (Mason, 2026-08-15). This does real work rather than
+     *    breaking rare ties: the typeahead's scores are coarse by design — three
+     *    Appfolio gigs all score 1.00 on a prefix — and among equally good
+     *    matches the one you just shot is the one you are here for. Before
+     *    this, ties fell back to the calendar's own ascending order, which put
+     *    the OLDEST first: exactly backwards.
      */
-    out.sort((a, b) => Number(!!a.alreadyIn) - Number(!!b.alreadyIn));
+    out.sort(
+      (a, b) =>
+        Number(!!a.alreadyIn) - Number(!!b.alreadyIn) ||
+        b.score - a.score ||
+        (a.start < b.start ? 1 : a.start > b.start ? -1 : 0)
+    );
 
     return NextResponse.json({ gigs: out, unavailable: null });
   } catch (err) {

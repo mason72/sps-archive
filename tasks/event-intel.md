@@ -580,3 +580,114 @@ event page's picker can). An unmatched attendee is reported as a count.
 - **`can_lead` is not needed.** Dropped from the UI; column kept.
 - **"Photographer" needs no better name** — in this shop the digital-tech work
   IS part of being the photographer.
+
+---
+
+## 2026-08-15 (later) — rating, temps, and the region question
+
+### The rehire ladder
+
+`event_crew.would_rebook` now carries **`first_call | solid | last_resort |
+never`** — Mason's own words, ordered best-to-worst. It replaced `yes|maybe|no`,
+which collapsed "I'd call them first" and "they were fine" into one answer,
+losing exactly the distinction he asked for: *"whether they were a solid hire or
+a last resort."*
+
+Free to change, and checked before choosing: **0 of 40 links carried a
+judgement** and the column has no CHECK constraint (migration 056 leaves it plain
+text with a comment). Legacy values map forward in `cleanRehire`, so an old row
+never becomes meaningless.
+
+Colours come from the SEVERITY ramp (stone / amber-700 / red-700), never emerald
+— a rehire judgement about a named person is not the brand's accent.
+
+### Three rules that came out of using it
+
+**Rate at the moment of upload, not later.** Mason: *"this is actually the best
+moment to get the feedback since the lead from the event is uploading just after
+working with them."* The rating and note live on the create card, on non-regulars
+only — your own team is not something you score gig to gig.
+
+**A standing must not be visible while you are forming one.** *"Show ratings ...
+on events AFTER they've been rated to eliminate bias."* Seeing "First call ×4"
+while deciding today's rating is an invitation to agree with yourself, and an
+independent judgement per gig is the whole value of the data.
+`standingVisibleFor()` is the single expression of that gate.
+
+**It is not an average.** Mason asked for one; a mean over an ordinal ladder
+gives "2.3", which names no action, and it buries one disastrous gig under four
+fine ones. `rehireStanding()` returns the MOST RECENT judgement as the headline
+(people improve and decline), the full distribution for the hover, and
+`hardNo` — true if a `never` exists anywhere, surfaced regardless of age.
+
+**"Never again" sinks, it does not disappear.** *"Drop the 'do not hires' to the
+end of our list so we can keep them in the system."* `compareCrewForPicker()` is
+the one comparator every picker shares; a hard no sorts last even if they are
+somehow marked a regular, because that combination is a contradiction someone
+should see rather than have resolved for them. Archiving stays the separate,
+deliberate act for people who are simply gone.
+
+### Temps
+
+The calendar knows who was **invited**, so anyone hired on the day is invisible
+to it — and that is precisely the person whose rating matters, because there is
+no other record of them. "+ Someone else worked this" adds a row inline. Nothing
+is written until the event is created: a temp typed into an abandoned form should
+not leave a person behind. They ride the same `crew[]` payload as everyone else
+(`newPerson` instead of `crewId`), so no caller has to reconcile a parallel array.
+
+### Ordering the autocomplete
+
+Three keys: **unclaimed first, then score, then most recent first** (Mason,
+2026-08-15). Recency is not a rare tiebreak here — the typeahead's scores are
+coarse by design, so three Appfolio gigs all score 1.00 on a prefix, and among
+equally good matches the one you just shot is the one you are here for. Before
+this the tie fell through to the calendar's own ascending order, which put the
+OLDEST first: exactly backwards. Score still outranks recency, so typing
+"perkin" finds the 2018 gig.
+
+### Already-mapped gigs are marked, never hidden
+
+22 calendar entries already belong to a gallery. They now grey out, say which
+gallery claims them, and sort last — but stay pickable. One gig legitimately
+produces two galleries (a split delivery, a re-shoot), and a silently missing row
+is indistinguishable from the calendar having lost it.
+
+### Region filtering — the design, not yet built
+
+Mason: *"maybe a more useful tool is to choose a location and then have a
+slider/field for MILES FROM."* Agreed, and the nested-region taxonomy he floated
+first should be dropped entirely.
+
+- **Named regions fail at the boundary, which is where the answer usually is.**
+  A job in Philadelphia wants NY, Baltimore, DC and Pittsburgh — "Northeast" plus
+  "Mid-Atlantic" plus part of "Midwest" depending on whose map. A radius centred
+  on the job needs no boundaries.
+- **It makes international stop being a tier.** Amsterdam→Berlin is 400 miles;
+  same mechanism, no parallel vocabulary for four events.
+- **Label the bands by cost, not distance** (Mason likes this): drivable / short
+  flight / long haul. 300 miles in the Northeast corridor is a train; 300 out of
+  Salt Lake is a flight either way.
+- **`Traveler` must be visible in results.** Measured: 16 of 61 active crew say
+  yes, 10 say no, **35 are unset** — so a silent filter on that field would drop
+  more than half the roster on missing data.
+
+**The real cost, measured.** `metroKeys()` resolves 100% of crew and venue
+locations — but by being *permissive*, returning several overlapping keys per
+input so things match. It is a fine matching vocabulary and a poor coordinate
+key: the resolved set includes `east coast`, `west coast`, `tx`, `eu`. A radius
+needs ONE canonical home per person. Of 61 active crew most are unambiguous
+("Nashville", "Santa Barbara"); a handful are not, and "Seattle/LV/NYC" is
+someone working three markets who should carry SEVERAL bases, not one. So:
+`crew.home_metros[]`, a short confirmation pass over ~15 people, and a hand-kept
+lat/lng table of ~40 metros. No API, no per-lookup cost — the same trade `geo.ts`
+already makes because geography does not move.
+
+### Still not built
+
+- **The SPS import flow (`/events/import`) has no crew card.** It mints events
+  too, so it has the identical gap. It should share `CreateGigConfirm`, not grow
+  its own.
+- **The standing is not yet rendered on `/intel`.** The API returns it
+  (`rehireStanding` per person, gated); the board does not show it.
+- The radius filter above.
