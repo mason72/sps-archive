@@ -50,6 +50,8 @@ interface SpsEventRow {
   completedAt: string | null;
   imageCount: number | null;
   archiveEnabled: boolean;
+  /** Still live on SPS — importable, badged, and confirmed before pulling. */
+  live?: boolean;
   /** SPS's cover thumbnail, when the event has one. */
   coverUrl: string | null;
   archiveEventId: string | null;
@@ -159,6 +161,47 @@ export default function ImportFromSpsPage() {
 
   // Event-list search. 84 completed events is too many to scan by eye.
   const [eventQuery, setEventQuery] = useState("");
+
+  /**
+   * Manual linking — "these were uploaded manually; I'd like to mark them as
+   * 'already in the system'" (Mason, 2026-08-15). One picker open at a time;
+   * the archive's event list is fetched once, on the first open, because
+   * every row's picker offers the same list.
+   */
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [ptEvents, setPtEvents] = useState<{ id: string; name: string }[] | null>(null);
+  useEffect(() => {
+    if (!linkingId || ptEvents !== null) return;
+    let live = true;
+    fetch("/api/events?limit=200")
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((j) => {
+        if (live)
+          setPtEvents(
+            (j.events ?? []).map((e: { id: string; name: string }) => ({ id: e.id, name: e.name }))
+          );
+      })
+      .catch(() => { if (live) setPtEvents([]); });
+    return () => { live = false; };
+  }, [linkingId, ptEvents]);
+
+  const markLinked = (spsId: string, archiveEventId: string | null) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === spsId ? { ...e, archiveEventId } : e))
+    );
+    setLinkingId(null);
+  };
+
+  const unlink = async (ev: SpsEventRow) => {
+    if (
+      !window.confirm(
+        `Unlink “${ev.name}” from its archive event? Nothing is deleted — the import list will just offer it again.`
+      )
+    )
+      return;
+    const res = await fetch(`/api/sps/pull/events/${ev.id}/link`, { method: "DELETE" });
+    if (res.ok) markLinked(ev.id, null);
+  };
 
   /**
    * Read by the poll callback, which must NOT depend on `images` — rebuilding it
@@ -380,6 +423,21 @@ export default function ImportFromSpsPage() {
 
   const startImport = async () => {
     if (!chosen) return;
+    /**
+     * A live event imports with EYES OPEN — Mason's own design for lifting the
+     * completed-only gate: "a LIVE badge and 'are you sure' warning would do
+     * the same work without blocking me." The fact that matters is in the
+     * wording: an event imports once, and photos arriving after this moment
+     * are not in the copy.
+     */
+    if (
+      chosen.live &&
+      !window.confirm(
+        `“${chosen.name}” is still live on SPS. An event can only be imported once, and photos that arrive after this moment won't be included. Import what's there now?`
+      )
+    ) {
+      return;
+    }
     setIsStarting(true);
     setLoadError(null);
     try {
@@ -639,8 +697,26 @@ export default function ImportFromSpsPage() {
                             {ev.name}
                           </h3>
                           <p className="text-[13px] text-stone-400 mt-1">
-                            Completed {formatDate(ev.completedAt)}
-                            {ev.imageCount ? ` · about ${ev.imageCount} photos` : ""}
+                            {/* A live event has no completed date to show, and
+                                "so far" keeps the count honest — it can still
+                                grow. */}
+                            {ev.live ? (
+                              <>
+                                <span className="inline-flex items-center gap-1.5 font-medium text-red-700">
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-600/60" />
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-700" />
+                                  </span>
+                                  LIVE
+                                </span>
+                                {ev.imageCount ? ` · about ${ev.imageCount} photos so far` : ""}
+                              </>
+                            ) : (
+                              <>
+                                Completed {formatDate(ev.completedAt)}
+                                {ev.imageCount ? ` · about ${ev.imageCount} photos` : ""}
+                              </>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -667,20 +743,54 @@ export default function ImportFromSpsPage() {
                           Resume import
                         </button>
                       ) : ev.archiveEventId ? (
-                        <Link
-                          href={`/events/${ev.archiveEventId}`}
-                          className="label-caps text-stone-300 hover:text-stone-500 shrink-0 inline-flex items-center gap-1.5"
-                        >
-                          <Check size={12} />
-                          In the archive
-                        </Link>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <Link
+                            href={`/events/${ev.archiveEventId}`}
+                            className="label-caps text-stone-300 hover:text-stone-500 inline-flex items-center gap-1.5"
+                          >
+                            <Check size={12} />
+                            In the archive
+                          </Link>
+                          {/* Only hand-made links offer undo — a link with no
+                              pull job behind it was a human's claim, and a
+                              claim can be retracted. A pulled event's link is
+                              provenance. */}
+                          {!ev.job && (
+                            <button
+                              onClick={() => unlink(ev)}
+                              className="text-[11px] text-stone-300 transition-colors hover:text-stone-500 cursor-pointer"
+                            >
+                              Unlink
+                            </button>
+                          )}
+                        </div>
                       ) : (
-                        <button
-                          onClick={() => beginReview(ev)}
-                          className="label-caps text-stone-500 hover:text-stone-900 border border-stone-200 hover:border-stone-400 px-4 py-2 shrink-0 transition-colors cursor-pointer"
-                        >
-                          Review &amp; import
-                        </button>
+                        <div className="relative flex shrink-0 flex-col items-end gap-1.5">
+                          <button
+                            onClick={() => beginReview(ev)}
+                            className="label-caps text-stone-500 hover:text-stone-900 border border-stone-200 hover:border-stone-400 px-4 py-2 transition-colors cursor-pointer"
+                          >
+                            Review &amp; import
+                          </button>
+                          {/* The uploaded-by-hand case: the photos are already
+                              in the archive, they just arrived before the pull
+                              lane existed. Linking marks the row rather than
+                              re-importing 300 photos that are already here. */}
+                          <button
+                            onClick={() => setLinkingId(linkingId === ev.id ? null : ev.id)}
+                            className="text-[11px] text-stone-300 transition-colors hover:text-stone-500 cursor-pointer"
+                          >
+                            Already in the archive?
+                          </button>
+                          {linkingId === ev.id && (
+                            <ArchiveLinkPicker
+                              spsEvent={ev}
+                              ptEvents={ptEvents}
+                              onLinked={(archiveEventId) => markLinked(ev.id, archiveEventId)}
+                              onClose={() => setLinkingId(null)}
+                            />
+                          )}
+                        </div>
                       )}
                     </li>
                   );
@@ -695,6 +805,16 @@ export default function ImportFromSpsPage() {
         {/* ─── Review ─── */}
         {stage === "review" && chosen && (
           <>
+            {chosen.live && (
+              <p className="mb-6 flex max-w-2xl items-start gap-2 text-[13px] leading-[1.7] text-red-700">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  This event is still <span className="font-medium">live</span> on SPS —
+                  photos may still be arriving, and an event can only be imported once.
+                  What you import is what&apos;s there when the pull runs.
+                </span>
+              </p>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-6 border-b border-stone-100">
               {/* While pages are still arriving, the client does NOT know the
                   total — and the import is an EXCLUSION set, so it will pull
@@ -1075,6 +1195,89 @@ export default function ImportFromSpsPage() {
       </main>
 
       <Footer />
+    </div>
+  );
+}
+
+/**
+ * Pick which archive event an SPS event already lives in.
+ *
+ * A dropdown, not a page: the person is looking at the row that is wrong, and
+ * the fix is one name away. Sorted as the archive list returns them (newest
+ * first), searchable because 40+ events is past scanning.
+ */
+function ArchiveLinkPicker({
+  spsEvent,
+  ptEvents,
+  onLinked,
+  onClose,
+}: {
+  spsEvent: SpsEventRow;
+  ptEvents: { id: string; name: string }[] | null;
+  onLinked: (archiveEventId: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const visible = (ptEvents ?? []).filter(
+    (e) => !q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase())
+  );
+
+  const pick = async (eventId: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/sps/pull/events/${spsEvent.id}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, spsEventName: spsEvent.name }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setError(j.error ?? "Couldn't link.");
+        return;
+      }
+      onLinked(eventId);
+    } catch {
+      setError("Couldn't link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="absolute right-0 top-full z-20 mt-1 w-72 border border-stone-200 bg-white text-left shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]">
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+        placeholder="Which archive event is it?"
+        className="w-full border-b border-stone-100 px-3 py-2 text-[13px] text-stone-800 placeholder:text-stone-300 focus:outline-none"
+      />
+      <div className="max-h-56 overflow-y-auto">
+        {ptEvents === null ? (
+          <p className="px-3 py-2 text-[12px] text-stone-400">Loading your archive…</p>
+        ) : visible.length === 0 ? (
+          <p className="px-3 py-2 text-[12px] text-stone-400">No archive event matches.</p>
+        ) : (
+          visible.map((e) => (
+            <button
+              key={e.id}
+              disabled={busy}
+              onClick={() => pick(e.id)}
+              className="block w-full truncate px-3 py-1.5 text-left text-[13px] text-stone-700 transition-colors hover:bg-stone-50 hover:text-stone-900"
+            >
+              {e.name}
+            </button>
+          ))
+        )}
+      </div>
+      {error && (
+        <p className="border-t border-stone-100 px-3 py-2 text-[12px] text-amber-700">{error}</p>
+      )}
     </div>
   );
 }

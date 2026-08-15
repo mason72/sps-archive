@@ -57,6 +57,14 @@ export interface SpsPullEvent {
    * post-dates the original contract; null on events that never had one set.
    */
   coverUrl?: string | null;
+  /**
+   * Still live on SPS — being shot, or wrapped but not yet marked complete.
+   * Importable ON PURPOSE since 2026-08-15 (the completed-only gate blocked
+   * the "team is done, nobody pressed Complete" case), but the UI must badge
+   * it and warn: an event imports once, and photos arriving after the pull
+   * are not in the archive copy.
+   */
+  live?: boolean;
 }
 
 export interface SpsManifestImage {
