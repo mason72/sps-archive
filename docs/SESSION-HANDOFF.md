@@ -34,7 +34,7 @@ must pass before every push.
 | Pixieset migration | `docs/PIXIESET-MIGRATION.md`, `tasks/pixieset-migration.md` | The 1,371-collection move |
 | Event Intel | `tasks/event-intel.md` | Venues, crew, clients, and the `/intel` pivot |
 | SPS pull | `tasks/sps-archive-pull-spec.md` | The wire contract; `tasks/sps-pull-build-plan.md` for build notes |
-| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 73 entries and counting |
+| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 78 entries and counting |
 | Queue | `tasks/todo.md` | What is next and why |
 
 Project memory (`MEMORY.md` in the memory namespace) carries the facts that are
@@ -50,31 +50,34 @@ conventions. It is the other entry point.
 - `/ops` admin — cost, usage, invites, errors
 - **SPS → Pixeltrunk pull import** (built 2026-08-11) — moves bytes, not
   pointers
-- **Event Intel `/intel`** (built 2026-08-13) — the back-office pivot
-- **Event Intel calendar backfill** — 23 of 27 galleries carry venue, crew and
+- **Event Intel** — `/intel` pivot (Crew · Venues · Cities · Clients · Roster),
+  an Intel tab on the event page, and a confirm strip under the photos. Full
+  CRUD on crew, venues and clients. See `tasks/event-intel.md` for the model.
+- **Event Intel calendar backfill** — 23 of 45 galleries carry venue, crew and
   client, matched from three Google Calendars
 
 ## In flight — pick these up
 
-Full detail in `tasks/todo.md`. In priority order as of 2026-08-13:
+Full detail in `tasks/todo.md`. Priority as of **2026-08-15**:
 
-1. **Pixieset migration.** The big one. 1,371 KEEP collections / ~1.58M photos
-   before the subscription is cancelled; 857 of them are pre-2024 where
-   **Pixieset is the only copy in existence.** Oldest first. Nothing is deleted
-   from Pixieset until it is verified elsewhere. Perkin Elmer (1,016 photos) is
-   staged and verified and is the next ingest.
-   - Blocking work first: the AI-index nudge cap (25 events/night) will not
-     keep up with a bulk import; and 30 collections have
-     `high_res_download_size: 0` and need High Resolution turned on before they
-     can be pulled at full fidelity.
-2. **Event Intel roles.** All 42 crew links are pre-filled but marked
-   `roles_source = 'inferred'`. Mason confirms them in `/intel`; confirmed
-   roles are the only ones that count toward any statistic.
-3. **Three client names** are undecidable from the corpus —
-   `episode1agency.com`, `typeaevents.com`, `wallandceiling.org`. Needs Mason.
-4. **Confirm card at upload time** — the calendar parser already runs over one
-   gig; wiring it into the upload flow is the "suggest and confirm" Mason asked
-   for. Needs `GOOGLE_CALENDAR_KEY` in Vercel.
+1. **Crew confirmation on the CREATE EVENT screen.** The biggest gap, and the
+   thing Mason asked for first: *"I was assuming it would be on the very first
+   screen where you create the event. Where you enter the name and date. And it
+   pre-populates if you use the autocomplete."* What ships today confirms an
+   event that ALREADY exists. `parseGig()` and the calendar layer already work
+   over one entry — the missing piece is create-page wiring, not parsing. Needs
+   `GOOGLE_CALENDAR_KEY` in Vercel. See `tasks/event-intel.md` → "Not built".
+2. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
+   end to end and unblocked: staging is on the external SSD, High Resolution is
+   fixed on all 30 collections that needed it, PINs turned out not to gate the
+   KEEP set. Needs Mason's Chrome for the download driver (Cloudflare).
+   Two collections are quarantined as Web Size and need re-requesting once
+   Pixieset's cached archives age out (7 days).
+3. **Three client names** undecidable from the corpus — `episode1agency.com`,
+   `typeaevents.com`, `wallandceiling.org`.
+4. **AI-index timeouts under bulk import** — 8,782 photos in 24h made the
+   indexer time out partway before retrying successfully. Self-healing today;
+   will get louder as the bulk scales.
 5. **Housekeeping:** an orphaned June 2026 service-account key to delete; the
    "SLC Recs from Cory" roster sheet never imported (no header row).
 
