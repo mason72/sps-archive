@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SignOutButton } from "@/components/auth/SignOutButton";
+import { BrandButton } from "@/components/ui/brand-button";
 
 /**
  * The signed-in navigation, in ONE place.
@@ -69,11 +70,15 @@ function SplitMenu({
   label,
   href,
   active,
+  button,
   children,
 }: {
-  label: string;
+  /** Text-link form (Account). */
+  label?: string;
   href: string;
   active?: boolean;
+  /** Button form (New Event) — rendered instead of the text label. */
+  button?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [pinned, setPinned] = useState(false);
@@ -96,15 +101,15 @@ function SplitMenu({
   return (
     <div ref={box} className="group relative">
       <span className="inline-flex items-center gap-1">
-        <Link href={href} className={active ? LINK_ON : LINK}>
-          {label}
+        <Link href={href} className={button ? "" : active ? LINK_ON : LINK}>
+          {button ?? label}
         </Link>
         <button
           type="button"
           onClick={() => setPinned((v) => !v)}
           aria-expanded={pinned}
           aria-haspopup="menu"
-          aria-label={`${label} menu`}
+          aria-label={`${label ?? "New Event"} menu`}
           className="p-0.5 text-[9px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-600"
         >
           <span
@@ -175,9 +180,15 @@ export function AppNav({ isAdmin, current }: AppNavProps) {
       <Link href="/search" className={cls("search")}>Search</Link>
       <Link href="/people" className={cls("people")}>People</Link>
 
-      {/* The parent IS "create a new event". The menu holds the other way in —
-          there is no "Blank event" item, because that is just clicking it. */}
-      <SplitMenu label="New Event" href="/events/new">
+      {/*
+        New Event is a BUTTON, as it was before the nav was unified.
+        Mason: "it's a dumb text link... now it just feels like a menu title."
+        Right — it is the primary action on every screen, and flattening it into
+        the same editorial link as Search and People stripped the one visual cue
+        that said so. Back to the emerald BrandButton it always was, celebrate
+        and all; the chevron beside it opens Import.
+      */}
+      <SplitMenu href="/events/new" button={<BrandButton color="emerald" celebrate size="sm">New Event</BrandButton>}>
         <Item href="/events/import">Import from SPS</Item>
       </SplitMenu>
 
