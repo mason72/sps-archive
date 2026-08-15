@@ -4,7 +4,7 @@
 now. Read `CLAUDE.md` first for the invariants; this is the orientation: what
 Pixeltrunk is, what is in flight, and what the next session should pick up.
 
-Last substantive update: **2026-08-13**.
+Last substantive update: **2026-08-15**.
 
 ---
 
@@ -77,6 +77,21 @@ Full detail in `tasks/todo.md`. In priority order as of 2026-08-13:
    for. Needs `GOOGLE_CALENDAR_KEY` in Vercel.
 5. **Housekeeping:** an orphaned June 2026 service-account key to delete; the
    "SLC Recs from Cory" roster sheet never imported (no header row).
+
+## You can SEE the app — use it
+
+Mason's own Chrome is signed in to app.pixeltrunk.com, and the
+`claude-in-chrome` tools drive it. Open a tab, navigate, screenshot, run JS in
+the page. **Do this before handing any UI over.** Four separate layout/UX bugs
+in the 2026-08-14/15 session were things he caught because I had verified types,
+data and build but never looked at the screen.
+
+Never ask for or type his password — he offered it and the answer is no. The
+existing session makes it unnecessary anyway.
+
+Two gotchas: the event page is heavy enough that `screenshot` sometimes times out
+(use `get_page_text` or a JS probe instead), and a DOM text probe must be
+CASE-INSENSITIVE because CSS `uppercase` changes what `innerText` returns.
 
 ## How to work here
 

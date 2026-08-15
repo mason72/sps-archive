@@ -1,6 +1,6 @@
 # Pixeltrunk - Build Plan
 
-## QUEUE as of 2026-08-13 (read `docs/SESSION-HANDOFF.md` first)
+## QUEUE as of 2026-08-15 (read `docs/SESSION-HANDOFF.md` first)
 
 1. **Pixieset migration** — 1,371 collections / ~1.58M photos, oldest first.
    857 pre-2024 collections are the ONLY copy in existence.
@@ -19,12 +19,17 @@
    - [ ] **Disk:** 851 of 855 at-risk collections fit in ~32 GB free. 18 of all
          1,369 do not (largest 128 GB, and a collection cannot be ingested
          part-by-part). Not urgent — see `tasks/pixieset-migration.md`.
-2. **Event Intel roles** — 42 links pre-filled as `inferred`; Mason confirms in
-   `/intel`. Only confirmed roles count toward any statistic.
+2. **Crew confirmation on the CREATE EVENT screen** — the piece Mason actually
+   asked for first, and still the biggest gap. Enter name + date, the gig is
+   looked up from the calendar, venue/crew/client pre-populate, he confirms
+   BEFORE the event exists. What ships today only confirms an event that already
+   exists (a strip under the photos + the Intel tab). Needs
+   `GOOGLE_CALENDAR_KEY` in Vercel. See `tasks/event-intel.md` → "Not built".
 3. **Three client names** undecidable from the corpus: episode1agency.com,
    typeaevents.com, wallandceiling.org. Needs Mason.
-4. **Confirm card at upload** — the parser already runs over one gig; wire it
-   into upload. Needs `GOOGLE_CALENDAR_KEY` in Vercel.
+4. **AI-index timeouts under bulk import** — 8,782 photos in 24h made the
+   indexer time out partway (200 of 1,016) before retrying successfully. Self-
+   healing today; will get louder as the Pixieset bulk scales.
 5. **Housekeeping** — delete the orphaned June 2026 service-account key; the
    "SLC Recs from Cory" roster sheet still unimported (no header row).
 
