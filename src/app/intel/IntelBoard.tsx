@@ -418,7 +418,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                       <span className="min-w-0">
                         <span className="block truncate text-[14px] text-stone-800">
                           {"star" in r && (r as { star?: boolean }).star && (
-                            <span className="mr-1.5 text-amber-500" title="A regular">★</span>
+                            <span className="mr-1.5 text-accent" title="A regular">★</span>
                           )}
                           {r.primary}
                         </span>
@@ -544,11 +544,27 @@ function InlineEdit({
 
 /* ── Panels ───────────────────────────────────────────────────────────────── */
 
-function PanelHead({ title, sub }: { title: React.ReactNode; sub?: React.ReactNode }) {
+function PanelHead({
+  title, sub, action,
+}: {
+  title: React.ReactNode;
+  sub?: React.ReactNode;
+  /**
+   * A control that acts on the DETAILS — sits beside them, above the rule.
+   *
+   * Mason: "edit details should be above the line — to the right of the actual
+   * details you're editing." Right: below the rule it sat among the chips,
+   * which are a different kind of thing, and read as if it edited those.
+   */
+  action?: React.ReactNode;
+}) {
   return (
-    <header className="pb-5">
-      <h2 className="font-editorial text-[30px] leading-tight text-stone-900">{title}</h2>
-      {sub && <p className="mt-1.5 text-[13px] text-stone-500">{sub}</p>}
+    <header className="flex items-start justify-between gap-4 pb-5">
+      <div className="min-w-0">
+        <h2 className="font-editorial text-[30px] leading-tight text-stone-900">{title}</h2>
+        {sub && <p className="mt-1.5 text-[13px] text-stone-500">{sub}</p>}
+      </div>
+      {action && <div className="shrink-0 pt-2">{action}</div>}
     </header>
   );
 }
@@ -581,9 +597,14 @@ function PanelHead({ title, sub }: { title: React.ReactNode; sub?: React.ReactNo
  * event links — and it always yields to a real per-gig judgement the moment one
  * exists (`rehireStanding`).
  */
-function CrewEditor({ p }: { p: IntelPerson }) {
+function CrewEditor({
+  p, open, setOpen,
+}: {
+  p: IntelPerson;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState({
@@ -595,7 +616,6 @@ function CrewEditor({ p }: { p: IntelPerson }) {
   // Re-seed when the panel switches to a different person.
   useEffect(() => {
     setF({ display_name: p.name, primary_email: p.email ?? "", city: p.homeCity ?? "" });
-    setOpen(false);
     setErr(null);
   }, [p.id, p.name, p.email, p.homeCity]);
 
@@ -636,7 +656,7 @@ function CrewEditor({ p }: { p: IntelPerson }) {
           title={p.isRegular ? "A regular — click to unmark" : "Mark as a regular"}
           className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors disabled:opacity-50 ${
             p.isRegular
-              ? "border-amber-300 bg-amber-50 text-amber-700"
+              ? "border-accent bg-accent text-white"
               : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
           }`}
         >
@@ -683,13 +703,6 @@ function CrewEditor({ p }: { p: IntelPerson }) {
         )}
         {p.archived && <Chip>archived</Chip>}
 
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="ml-auto text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-800 hover:underline"
-        >
-          {open ? "Done" : "Edit details"}
-        </button>
       </div>
 
       {/**
@@ -804,11 +817,17 @@ function SegChoice({
         const on = value === v;
         // Severity ramp for a rehire judgement; the neutral stone for anything
         // that is merely a fact about the person.
+        /**
+         * Brand emerald for a FACT about the person (discipline, can lead,
+         * travels). The SEVERITY ramp for a rehire judgement — "never again" in
+         * the brand's green would be absurd, and severity colours are
+         * deliberately separate from the accent throughout this app.
+         */
         const onClass = severity
           ? REHIRE_DOT[v]
             ? `${REHIRE_DOT[v][0]} text-white`
             : "bg-stone-900 text-white"
-          : "bg-stone-900 text-white";
+          : "bg-accent text-white";
         return (
           <button
             key={v}
@@ -839,6 +858,10 @@ function PersonPanel({
   jump: (a: Axis, id: string) => void;
 }) {
   const roles = Object.entries(p.roleCounts).sort((a, b) => b[1] - a[1]);
+  // Held here so the toggle can sit in the header — beside the name, email and
+  // city it edits — while the form and the chips render below the rule.
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { setEditing(false); }, [p.id]);
   return (
     <div>
       <PanelHead
@@ -846,7 +869,7 @@ function PersonPanel({
           <>
             {p.name}
             {p.isRegular && (
-              <span className="ml-2 align-middle text-[16px] text-amber-500" title="A regular">
+              <span className="ml-2 align-middle text-[16px] text-accent" title="A regular">
                 ★
               </span>
             )}
@@ -859,10 +882,19 @@ function PersonPanel({
             {p.homeCity && <> · based in {p.homeCity}</>}
           </>
         }
+        action={
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className="text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-800 hover:underline"
+          >
+            {editing ? "Done" : "Edit details"}
+          </button>
+        }
       />
       <Rule />
 
-      <CrewEditor p={p} />
+      <CrewEditor p={p} open={editing} setOpen={setEditing} />
 
       <Section title={`${p.eventCount} ${p.eventCount === 1 ? "gig" : "gigs"}`}>
         {p.events.length === 0 ? (
