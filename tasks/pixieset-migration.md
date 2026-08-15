@@ -712,3 +712,91 @@ DerivedData + iOS DeviceSupport gave another 9.4 GB. **23 GB → 192 GB free.**
   set no flag. Sampling settled it: uniform 5760×3840, a 5D Mk III at full
   resolution. **The width guard, not the driver's flag, is what answers this
   question** — which is exactly what the driver's own docstring says.
+
+## Restart — 2026-08-15
+
+Loop restarted after ~20 hours idle. It does not self-drive: the watcher only
+proves ZIPs that Chrome has already saved, so nothing moves unless someone runs
+`driver.js` in the logged-in browser. **An idle watcher is the normal resting
+state, not a fault.**
+
+Landed: `choco` (7), `rsac2015` (2,059), `kiamom` (1,575),
+`virginatlanticatthefacebooktravelfair` (310), `cphs20-yearreunion` (668) —
+4,619 photos, all sampled as true originals.
+Quarantined: `jonathanandcat`, uniform 1920px — the fifth Web Size rendition
+the guard has caught, and the second to arrive while the driver reported
+`fresh-high-res`. Lesson 75 keeps being re-earned.
+
+### A THIRD gate class: downloads switched off entirely (22 collections)
+
+Distinct from the PIN gate and from Web Size fidelity. The gallery page loads
+normally, has no password prompt, and simply carries **no `/download/auth/`
+link** — so the driver cannot begin. It reports
+`no download-auth link on gallery page (downloads disabled?)`, which is
+accurate.
+
+**This was knowable without touching the site.** `pixieset-inventory.json`
+already carries `collection_download` and `photo_download` per row:
+
+| rows | `photo_download` | `collection_download` |
+|---|---|---|
+| 1,706 | 1 | true |
+| 30 | 1 | true (`high_res=0`, since fixed) |
+| 19 | 0 | false |
+| 4 | 0 | true |
+| 3 | 1 | false |
+
+22 of those fall in the KEEP queue — 14,526 photos, but **13,983 of them are
+one gallery**, `paloaltoskobooth22023`. The other 21 are small, and 20 are a
+single two-day pet-portrait run in Jan 2015 that happens to sit at the very
+front of oldest-first ordering, which is why the restart hit them immediately
+and looked systemic when it was not.
+
+Decision (Mason, 2026-08-15): **flip the setting, pull, flip back** — recording
+each collection's original `photo_download` / `collection_download` to a file
+first, so the restore is a diff against captured truth rather than memory.
+Not yet executed.
+
+**Rule: before probing a live system for why a request failed, grep the
+inventory already on disk.** The answer had been sitting there since 2026-08-14.
+
+### Releasing a staged archive needs a PRESENCE check, not a count
+
+`verifyLanded()` in the ingest gates on `total >= expected`. That is the right
+gate for the ingest and the WRONG gate for a delete: an event holding images
+from more than one source satisfies it trivially. The Microsoft collection
+verified at "1,369/1,185 images" — passing while proving nothing about those
+1,185.
+
+Two scripts now exist, and the second is the one that gates a delete:
+
+```
+npx tsx scripts/triage/verify-pixieset-landed.ts <slug> [<slug> ...]
+npx tsx scripts/triage/px-filecheck.ts <eventId> <zip> [<zip> ...]
+```
+
+`px-filecheck` compares ZIP entries against **`images.original_filename`** and
+exits non-zero on any miss. ⚠️ **`images.filename` is the R2 storage key (a
+UUID), not a human name.** Comparing against it reports every file missing,
+which reads exactly like catastrophic ingest failure — it did, for 1,185 files,
+minutes before a delete. See lesson 87.
+
+### Disk, again — and what actually reclaims it
+
+Internal sat at 60–64 GB against the 60 GB floor. What was learned:
+
+- **Deleting staged archives frees nothing immediately.** 6.8 GB of verified
+  `ingested/` ZIPs were removed and free space did not move, because macOS holds
+  the blocks in ~20 hourly APFS snapshots.
+- **The Trash is not involved.** It was empty; a direct delete never goes there,
+  and emptying it would not release snapshot-pinned blocks anyway.
+- **Local snapshots expire at ~24h and drain on their own** — measured at
+  60 → 64 GB over a few minutes as the oldest crossed the line. Waiting is a
+  real option and costs no restore points.
+- **The ingest is the lever that both progresses and frees**, since each
+  collection releases its archive on verified completion.
+
+Thinning snapshots by hand still works but triggers a full Time Machine pass —
+harmless now that staging is internal and TM writes to the external, but that is
+exactly the combination that caused the 77→2 photos/min collapse when staging
+was on the shared spindle. Do not re-point staging at `/Volumes/Archive`.

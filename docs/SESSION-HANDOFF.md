@@ -96,7 +96,10 @@ conventions. It is the other entry point.
 Full detail in `tasks/todo.md`. Priority as of **2026-08-15**:
 
 1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
-   end to end and unblocked: staging is on the external SSD, High Resolution is
+   end to end and unblocked: staging is on the INTERNAL disk (deliberately —
+   `/Volumes/Archive` shares a spindle with Time Machine and ingest throughput
+   collapsed from 77 photos/min to 2 there; read `PIXIESET_STAGING` in
+   `.env.local`, never this sentence), High Resolution is
    fixed on all 30 collections that needed it, PINs turned out not to gate the
    KEEP set. Needs Mason's Chrome for the download driver (Cloudflare).
    Two collections are quarantined as Web Size and need re-requesting once

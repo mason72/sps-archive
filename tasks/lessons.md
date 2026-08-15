@@ -984,3 +984,63 @@ exercised against production with real data before being called done. The
 probe that found it (`scripts/triage/crew-face-probe.ts`) reproduced the exact
 query from the code, per the standing rule: when a guard or write misbehaves,
 reproduce its exact expression before believing or dismissing it.
+
+## 87 — I read the convenient surface instead of the durable record, four times in one hour (2026-08-15)
+
+Restarting the Pixieset migration produced four confident wrong readings in
+about sixty minutes. No data was lost, but three of the four pointed at a
+disaster that was not happening, and one of them nearly caused a real delete.
+They are one lesson, not four, because the shape is identical every time: **I
+checked the thing that was easy to look at instead of the thing that actually
+records the truth.**
+
+1. **A stale doc line about staging.** `SESSION-HANDOFF.md` said staging was on
+   the external SSD. `.env.local` said the internal disk. I repeated the doc,
+   reported it to Mason as fact, then "fixed" the config to match my own wrong
+   statement — undoing a deliberate reversal made the day before with
+   measurements attached (77 photos/min → **2** on the drive that shares a
+   spindle with Time Machine). Reverting cost two 17 GB round trips.
+   **The config is the record; the doc is a claim about the config.**
+
+2. **A probe watching a directory that gets emptied every 20 seconds.** I waited
+   10 minutes for a ZIP to appear in `~/Downloads` and reported the pipeline
+   stalled. The watcher had already swept the file to staging — its whole job.
+   Chrome's own download history and `queue.json` both held the answer the
+   entire time. **Never poll a buffer; poll the ledger.**
+
+3. **An exit code reporting the wrong command.** `rsync … | tail` followed by
+   `df` returned **0** because `df` succeeded, while the rsync had failed on an
+   unsupported `--info=stats2` and moved nothing. The tool result said "exit
+   code 0" and I nearly believed the move happened. Same shape as the older
+   `check && echo ok` rule: **a status chained behind another command reports
+   that other command.** Put the operation in its own invocation and read its
+   own result — and for a move, assert byte totals on both sides.
+
+4. **The nearly-expensive one: comparing against the wrong column.** Before
+   deleting the only staged copy of a 2014 collection, I compared ZIP entries
+   against `images.filename` and got **1,185 of 1,185 missing** — which reads
+   exactly like "the ingest silently failed, do not delete." `filename` is the
+   R2 storage key (a UUID); the camera name lives in `original_filename`. The
+   corrected check returned 1,185 of 1,185 *present*. **A false alarm and a real
+   one are indistinguishable until you look at a row.** I only caught it by
+   printing eight actual records, which took one command.
+
+The rule, and it is cheap: **before believing any alarming or reassuring
+reading, name the durable record for that fact and check it there.** For this
+repo that is almost always `queue.json`, the process's own log line, or the
+database rows — not a doc, not a directory listing, not an exit code, and not a
+column I assumed the meaning of.
+
+Two corollaries worth keeping separate:
+
+- **A count-based guard is not a presence guard.** `verifyLanded()` gates on
+  `total >= expected`, which is right for the ingest and is satisfied trivially
+  when an event holds images from more than one source. Releasing the last other
+  copy of something needs the stricter question — is every file present, by name
+  — which is now `scripts/triage/px-filecheck.ts`, exiting non-zero so it can
+  gate a delete in a shell `if`.
+- **A gate can be recorded in data you already have.** 22 collections have bulk
+  downloads switched off; I diagnosed it as a live-page problem after a failed
+  run, when `collection_download: false` had been sitting in
+  `pixieset-inventory.json` since the day it was built. Before probing a live
+  system for why something failed, grep the inventory you already pulled.
