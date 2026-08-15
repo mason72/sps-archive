@@ -277,7 +277,10 @@ export default function NewEventPage() {
              * lookup that silently finds nothing looks exactly like a lookup
              * with nothing to find.
              */}
-            {!pickedGig && lookup.unavailable && (
+            {/* "not-enabled" says nothing: for an account Event Intel does not
+                belong to, the name field is just a name field and a note about
+                Google credentials would describe someone else's feature. */}
+            {!pickedGig && lookup.unavailable && lookup.unavailable !== "not-enabled" && (
               <p className="mt-2 text-[12px] text-stone-400">
                 {lookup.unavailable === "no-credential"
                   ? "Calendar lookup is off here — no Google credential is configured."

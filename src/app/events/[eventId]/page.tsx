@@ -46,6 +46,7 @@ import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, C
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
 import { EventIntelPanel } from "@/components/events/EventIntelPanel";
 import { EventCrewConfirm } from "@/components/events/EventCrewConfirm";
+import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import type { ImageData, StackData } from "@/types/image";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
@@ -152,6 +153,12 @@ export default function EventPage({
   const [retryFiles, setRetryFiles] = useState<File[] | undefined>(undefined);
   const hadUploadErrors = useRef(false);
   const [viewMode, setViewMode] = useState<"grid" | "filmstrip" | "people" | "intel">("grid");
+  /**
+   * Does Event Intel belong to this account? Null until asked — the surfaces
+   * below render nothing until the answer lands rather than guessing either
+   * way, so `hasIntel` is deliberately a boolean-ish, not a boolean.
+   */
+  const hasIntel = useIntelAccess() === true;
   // Filter the grid to one clustered person (set by clicking a face in the
   // People view). Composes with sections/search/favorites in the images memo.
   const [personFilter, setPersonFilter] = useState<{
@@ -2207,15 +2214,22 @@ export default function EventPage({
                   )}
                 </button>
                 {/* Back-office: venue, who worked it, client. Internal only —
-                    this event's editor is the one place it is reachable. */}
-                <button
-                  onClick={() => setViewMode("intel")}
-                  className={`p-1.5 transition-colors ${viewMode === "intel" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
-                  aria-label="Event intel — venue, crew and client"
-                  title="Venue, crew and client"
-                >
-                  <ClipboardList className="h-4 w-4" />
-                </button>
+                    this event's editor is the one place it is reachable, and
+                    only for an account Event Intel belongs to. Unlike the
+                    AI-dependent controls, this one is HIDDEN rather than
+                    disabled-with-a-reason: a greyed control explains a wait,
+                    and this is not a wait — it is a feature that is not
+                    yours. */}
+                {hasIntel && (
+                  <button
+                    onClick={() => setViewMode("intel")}
+                    className={`p-1.5 transition-colors ${viewMode === "intel" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
+                    aria-label="Event intel — venue, crew and client"
+                    title="Venue, crew and client"
+                  >
+                    <ClipboardList className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2387,7 +2401,7 @@ export default function EventPage({
                     )}
                   </p>
                 )}
-              {viewMode === "intel" ? (
+              {viewMode === "intel" && hasIntel ? (
                 <EventIntelPanel eventId={eventId} />
               ) : viewMode === "people" ? (
                 <PeopleView
@@ -2539,7 +2553,7 @@ export default function EventPage({
             {/* Below the photos, on the first screen — where Mason went looking
                 for it. Renders ONLY while something is unconfirmed, and only on
                 the photo views: the Intel tab already asks in full. */}
-            {viewMode !== "intel" && <EventCrewConfirm eventId={eventId} />}
+            {viewMode !== "intel" && hasIntel && <EventCrewConfirm eventId={eventId} />}
             </>
             )}
           </>

@@ -32,6 +32,18 @@ export interface AppNavProps {
    * that unifying the nav introduced.
    */
   isAdmin?: boolean;
+  /**
+   * Whether to OFFER Event Intel. Same contract as `isAdmin`: undefined means
+   * "ask", never "no", and /intel plus every intel route re-gate server-side
+   * regardless (`src/lib/event-intel/access.ts`).
+   *
+   * Separate from `isAdmin` because they are genuinely different accounts —
+   * `is_admin` is mason@'s and every crew, venue and event row belongs to
+   * info@, the shared team login. Folding them into one flag would have shown
+   * Intel to the account with no data and hidden it from the one with all of
+   * it.
+   */
+  hasIntel?: boolean;
   current?: "archive" | "search" | "people" | "intel" | "account" | "ops";
 }
 
@@ -164,7 +176,7 @@ function Item({ href, children }: { href: string; children: React.ReactNode }) {
   );
 }
 
-export function AppNav({ isAdmin, current }: AppNavProps) {
+export function AppNav({ isAdmin, hasIntel, current }: AppNavProps) {
   const cls = (k: AppNavProps["current"]) => (current === k ? LINK_ON : LINK);
 
   /**
@@ -174,17 +186,24 @@ export function AppNav({ isAdmin, current }: AppNavProps) {
    * that already passed the flag never fires it. The alternative was defaulting
    * to false, which is what made Ops disappear from six pages.
    */
-  const [asked, setAsked] = useState<boolean | null>(null);
+  const [asked, setAsked] = useState<{ isAdmin: boolean; hasIntel: boolean } | null>(null);
   useEffect(() => {
-    if (isAdmin !== undefined) return;
+    // Ask only when SOMETHING is unknown — a server page that passed both flags
+    // never fires it, and one request answers both.
+    if (isAdmin !== undefined && hasIntel !== undefined) return;
     let live = true;
     fetch("/api/ops/whoami")
-      .then((r) => (r.ok ? r.json() : { isAdmin: false }))
-      .then((j) => { if (live) setAsked(!!j.isAdmin); })
-      .catch(() => { if (live) setAsked(false); });
+      .then((r) => (r.ok ? r.json() : { isAdmin: false, hasIntel: false }))
+      .then((j) => {
+        if (live) setAsked({ isAdmin: !!j.isAdmin, hasIntel: !!j.hasIntel });
+      })
+      .catch(() => {
+        if (live) setAsked({ isAdmin: false, hasIntel: false });
+      });
     return () => { live = false; };
-  }, [isAdmin]);
-  const showOps = isAdmin ?? asked ?? false;
+  }, [isAdmin, hasIntel]);
+  const showOps = isAdmin ?? asked?.isAdmin ?? false;
+  const showIntel = hasIntel ?? asked?.hasIntel ?? false;
   return (
     <>
       <Link href="/" className={cls("archive")}>Archive</Link>
@@ -210,7 +229,7 @@ export function AppNav({ isAdmin, current }: AppNavProps) {
         href="/account"
         active={current === "account" || current === "intel"}
       >
-        <Item href="/intel">Intel</Item>
+        {showIntel && <Item href="/intel">Intel</Item>}
         <Item href="/settings/connections">Connections</Item>
         <div className="my-1 h-px bg-stone-100" />
         <div className="px-3 py-1.5">

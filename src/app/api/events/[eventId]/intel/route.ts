@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth/helpers";
+import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
@@ -53,7 +53,7 @@ export async function GET(
 ) {
   const { eventId } = await params;
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -231,7 +231,7 @@ export async function PATCH(
 ) {
   const { eventId } = await params;
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;

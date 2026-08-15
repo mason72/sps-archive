@@ -5,6 +5,7 @@ import { fetchGigsInWindow, hasCalendarCredential, windowFor } from "@/lib/event
 import { daysApart, rankGigs, type Gig } from "@/lib/event-intel/match-gig";
 import { parseGig, parseVenue } from "@/lib/event-intel/parse-calendar";
 import { payerDomains } from "@/lib/event-intel/apply-gig";
+import { hasIntelAccess } from "@/lib/event-intel/access";
 
 /**
  * GET /api/events/suggest-gig?q=&date=  — "which job is this?"
@@ -35,6 +36,26 @@ export async function GET(request: NextRequest) {
   try {
     const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
+
+    /**
+     * ⚠️ WHO, not just whether — this is the line that was missing.
+     *
+     * The calendar behind this route is ONE service account on a hardcoded set
+     * of Two Dudes Photo calendars. Authenticating the caller without checking
+     * WHICH caller meant any signed-in Pixeltrunk account got Two Dudes' gigs:
+     * titles, venue addresses, client domains and attendee email addresses in
+     * `unresolvedCrew`. See `access.ts` for the full reasoning and why the gate
+     * is an id list rather than `is_admin`.
+     *
+     * Answered as `unavailable` rather than 403 because the create screen's
+     * name field must keep working as a name field for everyone. For an account
+     * this feature does not belong to, "there is no calendar here" is simply
+     * true.
+     */
+    if (!hasIntelAccess(user?.id)) {
+      return NextResponse.json({ gigs: [], unavailable: "not-enabled" });
+    }
+
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
 

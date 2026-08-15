@@ -765,17 +765,14 @@ export default function ImportFromSpsPage() {
              * Remounted per SPS event (`key`) — the seed query is applied once
              * by design, so a change of subject has to be a change of instance.
              */}
-            <div className="mb-8 max-w-2xl">
-              <p className="label-caps mb-2 text-stone-400">Which job was this?</p>
-              <p className="mb-3 text-[13px] text-stone-400 leading-[1.7]">
-                Attaching the calendar entry brings the venue, the crew and the
-                client across with the photos. Optional — the import runs either way.
-              </p>
+            <div className="mb-8 max-w-2xl empty:mb-0">
               <GigIntelStep
                 key={chosen.id}
                 seedQuery={chosen.name}
                 seedDate={spsShootDate}
                 onChange={setGigIntel}
+                title="Which job was this?"
+                hint="Attaching the calendar entry brings the venue, the crew and the client across with the photos. Optional — the import runs either way."
               />
             </div>
 

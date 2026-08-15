@@ -721,6 +721,8 @@ export function GigIntelStep({
   seedQuery,
   seedDate,
   onChange,
+  title,
+  hint,
 }: {
   /** What to search for first — usually the source system's own event name. */
   seedQuery: string;
@@ -728,6 +730,17 @@ export function GigIntelStep({
   seedDate?: string | null;
   /** The payload to send with whatever creates the event, or null if skipped. */
   onChange: (payload: GigIntelPayload | null) => void;
+  /**
+   * The block's own heading and explanation.
+   *
+   * They live INSIDE the component so the whole block can disappear as one
+   * thing. Left to the caller, an account without Event Intel would keep a
+   * "Which job was this?" heading standing over nothing — the classic orphaned
+   * label, and invisible to whoever ships it because they can always see the
+   * body.
+   */
+  title?: string;
+  hint?: string;
 }) {
   const [query, setQuery] = useState(seedQuery);
   const [picked, setPicked] = useState<SuggestedGig | null>(null);
@@ -747,18 +760,44 @@ export function GigIntelStep({
   // riding along on the request.
   const clear = useCallback(() => { setPicked(null); onChange(null); }, [onChange]);
 
+  /**
+   * Event Intel is not this account's feature — render NOTHING, heading and
+   * all. The calendar behind it is one studio's, so for anybody else there is
+   * no gig to find and no credential they could add; a "no suggestions" line
+   * would describe a door that does not exist for them.
+   *
+   * AFTER every hook, deliberately — an early return above `useDropdownKeys`
+   * changes the hook count between renders, which is the bug this comment
+   * exists to stop someone reintroducing when they move this "up where it
+   * belongs".
+   *
+   * There is a sub-second flash of the block before the first lookup answers.
+   * Accepted over an extra round trip on mount: the owner is the common case
+   * and must not wait to see it.
+   */
+  if (lookup.unavailable === "not-enabled") return null;
+
+  const chrome = (body: React.ReactNode) =>
+    title || hint ? (
+      <div>
+        {title && <p className="label-caps mb-2 text-stone-400">{title}</p>}
+        {hint && (
+          <p className="mb-3 text-[13px] leading-[1.7] text-stone-400">{hint}</p>
+        )}
+        {body}
+      </div>
+    ) : (
+      <>{body}</>
+    );
+
   if (picked) {
-    return (
-      <GigConfirmCard
-        gig={picked}
-        onClear={clear}
-        onChange={onChange}
-      />
+    return chrome(
+      <GigConfirmCard gig={picked} onClear={clear} onChange={onChange} />
     );
   }
 
   if (dismissed) {
-    return (
+    return chrome(
       <p className="text-[13px] text-stone-400">
         No gig attached.{" "}
         <button
@@ -772,7 +811,7 @@ export function GigIntelStep({
     );
   }
 
-  return (
+  return chrome(
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <input
@@ -825,6 +864,7 @@ export function GigIntelStep({
     </div>
   );
 }
+
 
 /**
  * Type a name to add someone the calendar never knew about.

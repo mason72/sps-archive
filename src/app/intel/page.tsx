@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { hasIntelAccess } from "@/lib/event-intel/access";
 import { buildIntelIndex } from "@/lib/event-intel/index-intel";
 import { Nav } from "@/components/layout/Nav";
 import { AppNavServer } from "@/components/layout/AppNavServer";
@@ -29,6 +30,17 @@ export const metadata = {
 export default async function IntelPage() {
   const { user, supabase } = await getAuthUser();
   if (!user) redirect("/login?redirect=/intel");
+
+  /**
+   * Gated BEFORE the fetch, not around the render.
+   *
+   * Under streaming SSR a layout is not a security boundary and neither is a
+   * conditional in JSX — the same rule /ops pages follow (`assertAdminPage()`
+   * before any fetch). `buildIntelIndex` would read nothing but this account's
+   * own rows, so there is no leak either way; the point is that the check runs
+   * where it cannot be skipped.
+   */
+  if (!hasIntelAccess(user.id)) notFound();
 
   const index = await buildIntelIndex(supabase, user.id);
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth/helpers";
+import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { cleanRehire } from "@/lib/event-intel/roles";
 
@@ -36,7 +36,7 @@ const KINDS = ["photographer", "stylist", "makeup artist"];
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
 /** Add someone. Only a name is required — the rest is fill-in-as-you-learn-it. */
 export async function POST(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 /** Edit, archive, or restore. */
 export async function PATCH(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -180,7 +180,7 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError } = await getIntelUser();
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
