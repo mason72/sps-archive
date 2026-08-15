@@ -43,7 +43,14 @@ import {
 export const RASTER_W = 1600;
 export const RASTER_H = 900;
 const RASTER_GAP = 4; // must match MOSAIC_GAP in CoverSection
-const GUTTER_COLOR = "#ffffff"; // email + OG sit on white
+/**
+ * Fallback gutter colour when a mosaic carries no fill.
+ *
+ * The mosaic's own `insert.fill` is preferred and defaults to #FFFFFF anyway,
+ * so this is only reached for a malformed setting. It must stay white: email
+ * and OG cards sit on white, and a coloured default would frame every hero.
+ */
+const GUTTER_COLOR = "#ffffff";
 
 /** Small-concurrency map — tile fetches shouldn't burst R2. */
 async function mapLimit<T, R>(
@@ -255,7 +262,17 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
         width: RASTER_W,
         height: RASTER_H,
         channels: 3,
-        background: GUTTER_COLOR,
+        /**
+         * The same fill the live cover paints into its gaps.
+         *
+         * The tiles cover this canvas edge to edge (see CoverSection's
+         * MosaicLayer for why that is guaranteed), so this shows ONLY in the
+         * gutters — which is what makes the email hero and the gallery agree.
+         * Hardcoding white here was the drift waiting to happen: the moment
+         * gutters became configurable, the raster would have kept rendering
+         * the old look and nobody would see it until a client got the email.
+         */
+        background: m.insert.fill || GUTTER_COLOR,
       },
     })
       .composite(composites)

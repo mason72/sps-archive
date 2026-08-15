@@ -93,6 +93,32 @@ describe("layoutMosaic — justified rows", () => {
     expect(bottom).toBeCloseTo(H, 3);
   });
 
+  /**
+   * The invariant the GUTTER FILL depends on.
+   *
+   * Mason, 2026-08-15: the fill colour should show "in the gaps between images"
+   * and there should be "no light blue above or below the image mosaic". Both
+   * the live cover and the email raster get that by painting the band behind
+   * the tiles and letting the tiles cover it — which is only correct while the
+   * tiles genuinely reach every edge.
+   *
+   * If this ever fails, the fill stops being a gutter colour and becomes a
+   * visible band framing the hero, in a client's email, silently. So it is
+   * asserted across shapes rather than eyeballed on one screenshot.
+   */
+  it("tiles reach every edge of the band, so a background shows ONLY in the gaps", () => {
+    for (const rows of [1, 2, 3, 4]) {
+      for (const [w, h] of [[1200, 420], [1600, 900], [640, 300], [2400, 700]]) {
+        const l = layoutMosaic({ containerW: w, bandH: h, rows, aspects: aspects(120), gap: GAP });
+        expect(l.tiles.length).toBeGreaterThan(0);
+        expect(Math.min(...l.tiles.map((t) => t.y))).toBeCloseTo(0, 3);
+        expect(Math.min(...l.tiles.map((t) => t.x))).toBeCloseTo(0, 3);
+        expect(Math.max(...l.tiles.map((t) => t.y + t.h))).toBeCloseTo(h, 3);
+        expect(Math.max(...l.tiles.map((t) => t.x + t.w))).toBeCloseTo(w, 3);
+      }
+    }
+  });
+
   it("tiles keep ~their natural aspect (no uniform-cell crop)", () => {
     const pool = aspects(80);
     const l = layoutMosaic({ containerW: W, bandH: H, rows: 3, aspects: pool, gap: GAP });

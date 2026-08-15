@@ -69,7 +69,9 @@ export default function NewEventPage() {
       // label. A name he wrote in full is his; the card offers the rename.
       const label = g.client?.trim();
       if (label && isFragmentOf(name, label)) setName(label);
-      if (!eventDate) setEventDate(g.start);
+      // The shoot day, not the gig's first day — a grouped gig usually opens on
+      // its set-up, and dating a gallery to the load-in is wrong.
+      if (!eventDate) setEventDate(g.shootDate);
     },
     [name, eventDate]
   );

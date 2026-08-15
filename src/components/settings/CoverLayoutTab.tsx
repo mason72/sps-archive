@@ -445,17 +445,36 @@ export function CoverLayoutTab({
                       })
                     }
                   />
-                  <ColorRow
-                    label="Fill color"
-                    value={mosaic.insert.fill}
-                    onChange={(fill) =>
-                      onChange({
-                        mosaic: { ...mosaic, insert: { ...mosaic.insert, fill } },
-                      })
-                    }
-                  />
                 </div>
               )}
+
+              {/**
+               * Fill is a MOSAIC property, not a logo property.
+               *
+               * It paints the gaps between tiles as well as the logo panel, so
+               * it applies whether or not there is an insert — and it therefore
+               * cannot live inside the insert-only block, where two of the three
+               * logo modes could never reach it.
+               *
+               * Safe to widen: the default is #FFFFFF, which is exactly the
+               * gutter colour every existing mosaic already renders, so nothing
+               * that was never configured changes appearance.
+               */}
+              <div className="space-y-1">
+                <ColorRow
+                  label="Fill color"
+                  value={mosaic.insert.fill}
+                  onChange={(fill) =>
+                    onChange({
+                      mosaic: { ...mosaic, insert: { ...mosaic.insert, fill } },
+                    })
+                  }
+                />
+                <p className="text-[12px] text-stone-400">
+                  Shows in the gaps between photos
+                  {mosaic.logoMode === "insert" ? " and behind the logo" : ""}.
+                </p>
+              </div>
             </>
           )}
 

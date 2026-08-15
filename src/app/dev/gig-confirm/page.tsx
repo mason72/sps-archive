@@ -34,6 +34,8 @@ const GIGS: SuggestedGig[] = [
     title: "ALEX & RIVER & SAM  //  Northwind SKO  //  Scottsdale",
     start: "2026-08-11",
     end: "2026-08-12",
+    // The 11th is the set-up; the job is the 12th.
+    shootDate: "2026-08-12",
     entryCount: 3,
     city: "Scottsdale",
     venue: {
@@ -62,6 +64,7 @@ const GIGS: SuggestedGig[] = [
     title: "ALEX | Harbor Labs Headshots",
     start: "2026-08-11",
     end: "2026-08-11",
+    shootDate: "2026-08-11",
     entryCount: 1,
     city: null,
     // No venue and an unknown payer — the two empty states side by side.
@@ -80,6 +83,7 @@ const GIGS: SuggestedGig[] = [
     title: "Delta Mutual All Hands // Coppell",
     start: "2026-08-09",
     end: "2026-08-09",
+    shootDate: "2026-08-09",
     entryCount: 1,
     city: "Coppell",
     venue: { name: null, street: "2065 E Hamilton Ave", city: "Coppell", raw: "2065 E Hamilton Ave, Coppell, TX" },

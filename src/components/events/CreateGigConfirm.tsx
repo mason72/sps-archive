@@ -42,6 +42,8 @@ export interface SuggestedGig {
   title: string;
   start: string;
   end: string;
+  /** The day the JOB was shot — a grouped gig often starts on its set-up day. */
+  shootDate: string;
   entryCount: number;
   city: string | null;
   venue: { name: string | null; street: string | null; city: string | null; raw: string } | null;
@@ -235,7 +237,7 @@ export function GigConfirmCard({
   const venue = venueLabel(gig.venue);
   const nameProposal = gig.client?.trim() || null;
   const offerName = !!nameProposal && nameProposal.toLowerCase() !== typedName.trim().toLowerCase();
-  const dateMismatch = typedDate && typedDate !== gig.start;
+  const dateMismatch = typedDate && typedDate !== gig.shootDate;
 
   return (
     <div className="border border-stone-200 bg-white">
@@ -273,10 +275,10 @@ export function GigConfirmCard({
           {dateMismatch && (
             <button
               type="button"
-              onClick={() => onUseDate(gig.start)}
+              onClick={() => onUseDate(gig.shootDate)}
               className="border border-stone-200 px-2.5 py-1 text-[12px] text-stone-600 transition-colors hover:border-stone-800 hover:text-stone-900"
             >
-              Use {fmtDay(gig.start)}
+              Use {fmtDay(gig.shootDate)}
             </button>
           )}
         </div>
@@ -348,32 +350,33 @@ export function GigConfirmCard({
                              * TWO DIFFERENT CONTROLS, because they are two
                              * different questions — and the shapes say so.
                              *
-                             * `lead` is a FLAG: a standalone round tag that is
-                             * on or off. The discipline is a CHOICE: one
-                             * segmented track where picking a segment
+                             * `lead` is a FLAG: a squared-off chip that is on or
+                             * off. The discipline is a CHOICE: one fully
+                             * rounded segmented track where picking a segment
                              * necessarily un-picks the others. Rendering both
                              * as identical pills, which is what shipped first,
                              * made "stylist AND photographer" look like a legal
                              * combination — the API rejects it, so the UI
                              * should not offer it.
+                             *
+                             * The radius carries that distinction on its own,
+                             * so the flag needs no status dot: with the shape
+                             * already saying "toggle", a dot is decoration, and
+                             * this system spends nothing on decoration. On, it
+                             * takes the SAME emerald as a confirmed segment —
+                             * both mean "a human decided this".
                              */}
                             <button
                               type="button"
                               onClick={() => toggleLead(c.crewId)}
                               aria-pressed={p.lead}
                               title={p.lead ? "Led this gig — click to unset" : "Mark as lead"}
-                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+                              className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors ${
                                 p.lead
-                                  ? "border-accent bg-accent-muted text-accent-hover"
+                                  ? "border-accent bg-accent text-white"
                                   : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
                               }`}
                             >
-                              <span
-                                aria-hidden
-                                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                                  p.lead ? "bg-accent" : "bg-stone-300"
-                                }`}
-                              />
                               lead
                             </button>
 
@@ -381,7 +384,7 @@ export function GigConfirmCard({
                             <span
                               role="radiogroup"
                               aria-label="Discipline"
-                              className="inline-flex overflow-hidden rounded-md border border-stone-200"
+                              className="inline-flex overflow-hidden rounded-full border border-stone-200"
                             >
                               {DISCIPLINES.map((role, i) => {
                                 const on = p.discipline === role;
@@ -400,7 +403,9 @@ export function GigConfirmCard({
                                           ? "Confirmed — click to clear"
                                           : "Click to set"
                                     }
-                                    className={`px-2.5 py-1 text-[12px] transition-colors ${
+                                    // Extra padding on the end segments so the
+                                    // text is not crowded by the round caps.
+                                    className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
                                       i > 0 ? "border-l border-stone-200" : ""
                                     } ${
                                       guess

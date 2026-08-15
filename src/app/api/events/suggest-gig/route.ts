@@ -173,22 +173,30 @@ export async function GET(request: NextRequest) {
 
       const domains = payerDomains(parsed.flatMap((p) => p.contactEmails));
 
+      /**
+       * EVERYTHING USER-FACING COMES FROM THE JOB ENTRY, NOT THE SET-UP.
+       *
+       * A grouped gig usually starts with its set-up day, and `groupIntoGigs`
+       * takes its client and start from whichever entry opened the group. So
+       * the obvious fields read "Appfolio Set Up" on 13 July for a job shot on
+       * the 14th — seen in production, where picking that row named the gallery
+       * "Appfolio Set Up" and dated it to the load-in.
+       *
+       * `start`/`end` stay the true RANGE, because the card shows the span and
+       * the set-up day is genuinely part of it. What changes is the three
+       * things that get copied INTO the event.
+       */
+      const jobIdx = parsed.findIndex((p) => p.kind === "gig");
+      const job = jobIdx >= 0 ? { parsed: parsed[jobIdx], event: gig.events[jobIdx] } : null;
+      const jobDay = (job?.event?.start?.date ?? job?.event?.start?.dateTime ?? "").slice(0, 10);
+
       return {
         /** Stable within a response; the client only needs to tell rows apart. */
         key: gig.events.map((e) => e.id).filter(Boolean).join("|") || `${gig.client}-${gig.start}`,
-        client: gig.client,
-        /**
-         * Label the gig by its JOB, not by whichever entry sorted first.
-         *
-         * A grouped gig usually starts with its set-up day, so the obvious
-         * `events[0].summary` reads "Appfolio Set Up" for a two-day shoot —
-         * technically true of one entry and misleading about the gig.
-         */
-        title:
-          gig.events[parsed.findIndex((p) => p.kind === "gig")]?.summary ??
-          gig.events[0]?.summary ??
-          gig.client ??
-          "(untitled)",
+        client: job?.parsed.client ?? gig.client,
+        title: job?.event?.summary ?? gig.events[0]?.summary ?? gig.client ?? "(untitled)",
+        /** The day to date the gallery — the shoot, not the load-in. */
+        shootDate: jobDay || gig.start,
         start: gig.start,
         end: gig.end,
         entryCount: gig.events.length,

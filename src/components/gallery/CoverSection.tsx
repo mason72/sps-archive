@@ -213,8 +213,34 @@ function MosaicLayer({
     });
   }, [box, mosaic.rows, mosaic.logoMode, mosaic.logoUrl, mosaic.insert.padding, arranged, logoAspect]);
 
+  /**
+   * The fill paints the GAPS, and nothing else.
+   *
+   * Mason, 2026-08-15: "when the Fill color of a mosaic is changed, let's update
+   * all of the coloring behind the images... the gaps between images should also
+   * show the light blue. There should be no light blue above or below the image
+   * mosaic though, just in the gaps."
+   *
+   * Painting this container is exactly that, and it is worth saying why rather
+   * than leaving it to look like a lucky accident: `layoutMosaic` justifies
+   * every row to the full container width and sizes rows as
+   * `(bandH - gap×(rows-1)) / rows`, so the last row's bottom lands on `bandH`
+   * precisely. The tiles cover the band edge to edge; the only uncovered pixels
+   * ARE the gutters and the logo hole. No band above or below can exist.
+   *
+   * Gated on there being tiles, because the two states where that invariant does
+   * not hold are exactly the two where a full bleed of colour would be wrong:
+   * before the ResizeObserver has measured, and when the pool is empty.
+   */
+  const gutterFill =
+    layout && layout.tiles.length > 0 ? mosaic.insert.fill : undefined;
+
   return (
-    <div ref={ref} className="relative w-full h-full overflow-hidden">
+    <div
+      ref={ref}
+      className="relative w-full h-full overflow-hidden"
+      style={{ backgroundColor: gutterFill }}
+    >
       {layout &&
         layout.tiles.map((rect, i) => {
           const img = arranged[i];
