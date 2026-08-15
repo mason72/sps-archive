@@ -903,3 +903,51 @@ container** — a parent with `overflow: hidden`, or one with no spare height.
 Diagnose by measuring the PARENT's height against the child's, not by re-reading
 the class list. And test the case with a tall sibling, because the short case
 looks broken and is actually correct.
+
+## 85 — an ownership check missing on a NON-database resource does not trip the database habit (2026-08-15)
+
+Mason: "make sure that none of the crew/location stuff we did will affect other
+accounts." The check found a real leak, live for half a day and widened that
+morning: `/api/events/suggest-gig` verified that a caller was signed in and
+never WHICH caller. The Google Calendar behind it is one service account
+reading a hardcoded set of Two Dudes Photo calendars, so any Pixeltrunk account
+typing 2+ characters into the event-name box received Two Dudes' gig titles,
+venue addresses, client domains and — via `unresolvedCrew` — attendee email
+addresses. A third alpha account existed and belonged to a person ON the
+roster.
+
+This repo has shipped exactly this hole twice before (lessons #2, #14) and grew
+a reflex for it: every table read behind `getAuthUser()` gets an `.eq("user_id",
+…)`. The reflex did not fire here because **the calendar is not a table**. The
+habit was keyed to the query builder, not to the question "whose data is this?"
+— so a studio-owned credential read through `fetch` sailed past a review that
+would have caught the same omission in a Supabase call instantly.
+
+**When a route serves data from ANY shared resource — an env-var credential, a
+third-party API, a file — ask the ownership question explicitly, because no
+query-shaped habit will ask it for you.** The tell: a credential in an env var
+is inherently ONE account's data unless something maps callers to credentials.
+`sps_connections` (per-user rows) is the safe shape; `GOOGLE_CALENDAR_KEY`
+(one env var) is the shape that leaks.
+
+Three more from the same fix:
+
+- **Measure who owns the data BEFORE choosing the gate.** The obvious gate was
+  `is_admin`; measuring showed every crew/venue/org/event row belongs to info@
+  (the shared team login) while `is_admin` belongs only to mason@. Admin-gating
+  would have shown Intel to the account with no data and denied the account
+  with all of it — a fail-closed bug that looks exactly like the fix working.
+- **Ship the gate as a DROP-IN for the function every handler already calls**
+  (`getIntelUser()` returns `getAuthUser()`'s exact shape). Fourteen handlers
+  became a one-word edit each, and a future handler that copies its neighbour
+  inherits the gate instead of a fourteen-place checklist.
+- **A feature gate and an ownership filter are different protections; keep
+  both.** The gate hides the feature from accounts it does not belong to; the
+  `.eq("user_id")` filters are what make the data safe if the gate is ever
+  mis-set. Removing either because the other exists recreates the bug.
+
+Also from the same session's probes: **a result of exactly 1,000 rows is
+PostgREST's default cap wearing the costume of a real number.** The crew-face
+probe printed "1000 person clusters"; the true count was 5,299. A suspiciously
+round total is a truncated query until proven otherwise — page with `.range()`
+before believing any count that lands on the limit.
