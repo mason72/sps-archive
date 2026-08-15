@@ -5,6 +5,7 @@ import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveEventStatuses } from "@/lib/events/status";
 import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
+import type { CrewAssignment } from "@/lib/event-intel/apply-gig";
 
 /**
  * GET /api/events — List all events for the authenticated user.
@@ -288,7 +289,14 @@ export async function POST(request: NextRequest) {
        */
       intel?: {
         venue?: string | null;
-        crew?: { crewId: string; roles?: string[]; confirmedRoles?: string[] }[];
+        /**
+         * `CrewAssignment` rather than a local shape. The local one had drifted
+         * to `{crewId, roles, confirmedRoles}` and was missing `newPerson`,
+         * `rehire` and `note` — all three of which the create screen has been
+         * sending and `applyGigIntel` has been honouring. A body type narrower
+         * than what the handler passes through is a lie that reads as a spec.
+         */
+        crew?: CrewAssignment[];
         orgDomains?: string[];
         calendarEventIds?: string[];
       };

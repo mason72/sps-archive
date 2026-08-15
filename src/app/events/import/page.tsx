@@ -10,6 +10,10 @@ import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
+import {
+  GigIntelStep,
+  type GigIntelPayload,
+} from "@/components/events/CreateGigConfirm";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -124,6 +128,25 @@ export default function ImportFromSpsPage() {
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
 
+  /**
+   * The calendar gig this import is, confirmed here rather than later.
+   *
+   * An import mints an event exactly as the create screen does, so it had the
+   * identical gap: the venue, the crew and the client existed on the calendar
+   * and nothing asked. This is also the moment Mason named as the right one for
+   * rating a local hire — "the lead from the event is uploading just after
+   * working with them."
+   */
+  const [gigIntel, setGigIntel] = useState<GigIntelPayload | null>(null);
+  /**
+   * The SHOOT day, taken from the manifest's event record.
+   *
+   * Not `completedAt`: an SPS event is marked complete whenever the shoot is
+   * wrapped up, which can be days later, and the calendar window is centred on
+   * the day it is given.
+   */
+  const [spsShootDate, setSpsShootDate] = useState<string | null>(null);
+
   // Progress state
   const [job, setJob] = useState<PullJob | null>(null);
   /** The last poll didn't land — say so rather than showing a stale number. */
@@ -194,6 +217,9 @@ export default function ImportFromSpsPage() {
         }
         setImages((prev) => [...prev, ...(data.images as ManifestImage[])]);
         setNextOffset(data.nextOffset ?? null);
+        // SPS's `date` is a timestamp; the calendar lookup wants a day.
+        const day = (data.event?.date as string | null | undefined)?.slice(0, 10);
+        if (day) setSpsShootDate(day);
       } catch {
         setLoadError("Could not read the SPS manifest.");
         setNextOffset(null);
@@ -238,6 +264,8 @@ export default function ImportFromSpsPage() {
     setStage("review");
     setManifestTotal(null);
     setCountPending(true);
+    setGigIntel(null);
+    setSpsShootDate(ev.completedAt ? ev.completedAt.slice(0, 10) : null);
     loadPage(ev.id, 0);
 
     // Count the whole manifest in parallel with the first page, so the screen can
@@ -359,6 +387,9 @@ export default function ImportFromSpsPage() {
           // manifest, never from this.
           // The counted total, not the scrolled-through count.
           expectedTotal: importCount,
+          // Written after the event exists and never able to fail the import —
+          // see the tail of the route.
+          intel: gigIntel ?? undefined,
         }),
       });
       const data = await res.json();
@@ -719,6 +750,33 @@ export default function ImportFromSpsPage() {
                         : "Import every photo"}
                 </BrandButton>
               </div>
+            </div>
+
+            {/**
+             * Which job was this? — the same question the create screen asks,
+             * asked here because an import mints an event too.
+             *
+             * Above the grid on purpose. It is one short decision and the grid
+             * below it is thousands of tiles long; put it under them and it is
+             * a thing nobody scrolls to. Pre-seeded with the SPS event's own
+             * name, which is usually the client, so the answer is normally one
+             * click.
+             *
+             * Remounted per SPS event (`key`) — the seed query is applied once
+             * by design, so a change of subject has to be a change of instance.
+             */}
+            <div className="mb-8 max-w-2xl">
+              <p className="label-caps mb-2 text-stone-400">Which job was this?</p>
+              <p className="mb-3 text-[13px] text-stone-400 leading-[1.7]">
+                Attaching the calendar entry brings the venue, the crew and the
+                client across with the photos. Optional — the import runs either way.
+              </p>
+              <GigIntelStep
+                key={chosen.id}
+                seedQuery={chosen.name}
+                seedDate={spsShootDate}
+                onChange={setGigIntel}
+              />
             </div>
 
             {/* SPS sends a 200px preview per photo. When it doesn't (rows that

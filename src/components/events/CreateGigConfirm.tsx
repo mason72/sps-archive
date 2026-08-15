@@ -148,17 +148,33 @@ export function GigDropdown({
   activeIndex,
   onPick,
   onHover,
+  inline = false,
 }: {
   gigs: SuggestedGig[];
   activeIndex: number;
   onPick: (g: SuggestedGig) => void;
   onHover: (i: number) => void;
+  /**
+   * Sit in the flow instead of floating over it.
+   *
+   * The create screen's list hangs off a name field the photographer is
+   * actively typing into, so it must overlay. The import screen has no such
+   * field — the SPS event already named itself, and the question there is
+   * "which of these is it?", asked of a list that is simply part of the page.
+   * A floating panel that opens by itself over a photo grid reads as an error.
+   * Same rows, same keyboard, different container.
+   */
+  inline?: boolean;
 }) {
   if (!gigs.length) return null;
   return (
     <ul
       role="listbox"
-      className="absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto border border-stone-200 bg-white shadow-[0_8px_24px_-12px_rgba(12,10,9,0.18)]"
+      className={
+        inline
+          ? "max-h-72 overflow-y-auto border border-stone-200 bg-white"
+          : "absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto border border-stone-200 bg-white shadow-[0_8px_24px_-12px_rgba(12,10,9,0.18)]"
+      }
     >
       {gigs.map((g, i) => {
         const venue = venueLabel(g.venue);
@@ -218,10 +234,21 @@ export function GigConfirmCard({
   onChange,
 }: {
   gig: SuggestedGig;
-  typedName: string;
-  typedDate: string;
-  onUseName: (name: string) => void;
-  onUseDate: (date: string) => void;
+  /**
+   * The name and date FIELDS this card may offer to fill, and the handlers that
+   * fill them. All four are optional together, because a screen without those
+   * fields has nothing to offer.
+   *
+   * The import screen is that case: an imported event takes its name and date
+   * from SPS server-side ("never trust the client for either" — see
+   * `startSpsPull`), so a chip proposing a rename there would either do nothing
+   * or quietly become a second source of truth for the event's identity.
+   * Renaming an imported gallery stays the event page's job.
+   */
+  typedName?: string;
+  typedDate?: string;
+  onUseName?: (name: string) => void;
+  onUseDate?: (date: string) => void;
   onClear: () => void;
   onChange: (payload: GigIntelPayload) => void;
 }) {
@@ -365,8 +392,11 @@ export function GigConfirmCard({
 
   const venue = venueLabel(gig.venue);
   const nameProposal = gig.client?.trim() || null;
-  const offerName = !!nameProposal && nameProposal.toLowerCase() !== typedName.trim().toLowerCase();
-  const dateMismatch = typedDate && typedDate !== gig.shootDate;
+  const offerName =
+    !!onUseName &&
+    !!nameProposal &&
+    nameProposal.toLowerCase() !== (typedName ?? "").trim().toLowerCase();
+  const dateMismatch = !!onUseDate && !!typedDate && typedDate !== gig.shootDate;
 
   return (
     <div className="border border-stone-200 bg-white">
@@ -395,7 +425,7 @@ export function GigConfirmCard({
           {offerName && nameProposal && (
             <button
               type="button"
-              onClick={() => onUseName(nameProposal)}
+              onClick={() => onUseName?.(nameProposal)}
               className="border border-stone-200 px-2.5 py-1 text-[12px] text-stone-600 transition-colors hover:border-stone-800 hover:text-stone-900"
             >
               Name it “{nameProposal}”
@@ -404,7 +434,7 @@ export function GigConfirmCard({
           {dateMismatch && (
             <button
               type="button"
-              onClick={() => onUseDate(gig.shootDate)}
+              onClick={() => onUseDate?.(gig.shootDate)}
               className="border border-stone-200 px-2.5 py-1 text-[12px] text-stone-600 transition-colors hover:border-stone-800 hover:text-stone-900"
             >
               Use {fmtDay(gig.shootDate)}
@@ -663,6 +693,135 @@ export function GigConfirmCard({
           </dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+// ── the standalone step ─────────────────────────────────────────────────────
+
+/**
+ * The whole gig-confirmation flow as ONE block, for a screen that has no event
+ * name field to hang it off.
+ *
+ * The create screen doesn't use this: there, the name input IS the search, which
+ * is the entire point of Mason's original ask ("it pre-populates if you use the
+ * autocomplete"). The SPS import has no such field — the event arrives already
+ * named by SPS — so it needs the same three parts wired to a search of its own.
+ *
+ * It exists in this file rather than in the import page because it is about
+ * picking a gig, not about importing. The card underneath carries the whole
+ * three-state role model and the rehire ladder; a second copy of that wiring is
+ * exactly the drift this file was extracted to prevent.
+ *
+ * The seed query is applied ONCE. Remount it (`key={spsEventId}`) when the
+ * subject changes — a prop that silently re-seeds would wipe a selection the
+ * photographer had already made.
+ */
+export function GigIntelStep({
+  seedQuery,
+  seedDate,
+  onChange,
+}: {
+  /** What to search for first — usually the source system's own event name. */
+  seedQuery: string;
+  /** The shoot day, when the source knows it. Narrows the calendar window. */
+  seedDate?: string | null;
+  /** The payload to send with whatever creates the event, or null if skipped. */
+  onChange: (payload: GigIntelPayload | null) => void;
+}) {
+  const [query, setQuery] = useState(seedQuery);
+  const [picked, setPicked] = useState<SuggestedGig | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  const date = seedDate ?? "";
+  const lookup = useGigLookup(query, date, !picked && !dismissed);
+  const gigs = picked || dismissed ? [] : lookup.gigs;
+
+  const keys = useDropdownKeys(
+    gigs.length,
+    (i) => { const g = gigs[i]; if (g) setPicked(g); },
+    () => {}
+  );
+
+  // Clearing the pick must clear the payload too, or an abandoned choice keeps
+  // riding along on the request.
+  const clear = useCallback(() => { setPicked(null); onChange(null); }, [onChange]);
+
+  if (picked) {
+    return (
+      <GigConfirmCard
+        gig={picked}
+        onClear={clear}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (dismissed) {
+    return (
+      <p className="text-[13px] text-stone-400">
+        No gig attached.{" "}
+        <button
+          type="button"
+          onClick={() => setDismissed(false)}
+          className="underline underline-offset-4 transition-colors hover:text-stone-700"
+        >
+          Look again
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={keys.onKeyDown}
+          role="combobox"
+          aria-expanded={gigs.length > 0}
+          aria-label="Search the calendar for this gig"
+          autoComplete="off"
+          placeholder="Search the calendar…"
+          className="min-w-0 flex-1 border-b border-stone-200 bg-transparent py-1.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+        />
+        <button
+          type="button"
+          onClick={() => { setDismissed(true); onChange(null); }}
+          className="text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-700 hover:underline"
+        >
+          Skip this
+        </button>
+      </div>
+
+      <GigDropdown
+        inline
+        gigs={gigs}
+        activeIndex={keys.activeIndex}
+        onPick={setPicked}
+        onHover={keys.setActiveIndex}
+      />
+
+      {/**
+       * Three different silences, said apart. An empty list because the
+       * calendar is unreachable, because nothing matched, and because we are
+       * still asking all look identical — and only the first is something
+       * Mason can act on.
+       */}
+      {lookup.unavailable ? (
+        <p className="text-[12px] text-stone-400">
+          {lookup.unavailable === "no-credential"
+            ? "Calendar lookup is off here — no Google credential is configured."
+            : "The calendar did not answer, so there are no suggestions right now."}
+        </p>
+      ) : lookup.loading ? (
+        <p className="text-[12px] text-stone-400">Searching the calendar…</p>
+      ) : gigs.length === 0 ? (
+        <p className="text-[12px] text-stone-400">
+          Nothing on the calendar matches that. Try the client, the venue or the city.
+        </p>
+      ) : null}
     </div>
   );
 }
