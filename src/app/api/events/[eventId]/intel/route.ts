@@ -93,7 +93,12 @@ export async function GET(
       venue: venue
         ? { id: venue.id, name: venue.name, address: venue.address, city: venue.city, region: venue.region, notes: venue.notes }
         : null,
-      crew: (crewLinkRes.data ?? []).map((r: EventCrewRow) => {
+      // ALPHABETICAL, always. `event_crew` has no name column to ORDER BY, and
+      // Postgres guarantees no order without one — so after any write the rows
+      // can come back rearranged and names visibly jump. Sorted here, after the
+      // join, because this is the first point where the name exists.
+      crew: (crewLinkRes.data ?? [])
+        .map((r: EventCrewRow) => {
         const person = rosterById.get(r.crew_id) as
           | { display_name: string; kind: string; city: string | null; can_lead: string | null }
           | undefined;
@@ -109,7 +114,10 @@ export async function GET(
           wouldRebook: r.would_rebook ?? null,
           note: r.note ?? null,
         };
-      }),
+        })
+        .sort((a: { name: string }, b: { name: string }) =>
+          a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+        ),
       orgs: (orgLinkRes.data ?? []).map((r: { org_id: string; role: string }) => ({
         orgId: r.org_id,
         name: orgById.get(r.org_id)?.name ?? "(unknown)",

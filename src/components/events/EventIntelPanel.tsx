@@ -49,7 +49,6 @@ const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
 export function EventIntelPanel({ eventId }: { eventId: string }) {
   const [data, setData] = useState<IntelPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -66,8 +65,30 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const patch = async (body: Record<string, unknown>, key: string) => {
-    setBusy(key);
+  /**
+   * Write in the BACKGROUND; render the change now.
+   *
+   * The first version awaited the PATCH and then re-fetched the whole panel
+   * before re-rendering — two round trips and a full re-render to toggle one
+   * chip, which Mason clocked at "1-2 sec... very unresponsive for a simple
+   * tool". He is right: nothing here needs a server round trip to be DRAWN.
+   * The server is the record, not the renderer.
+   *
+   * So the local copy updates synchronously and the request goes out behind it.
+   * On failure the previous state is restored and the error is shown — an
+   * optimistic update that silently keeps a change the server rejected is worse
+   * than a slow one, because it lies about what was saved.
+   *
+   * No refetch on success either: we already know what we sent, and refetching
+   * is what made the rows jump around.
+   */
+  const applyLocal = (fn: (d: IntelPayload) => IntelPayload) =>
+    setData((d) => (d ? fn(d) : d));
+
+  const save = async (body: Record<string, unknown>, optimistic: (d: IntelPayload) => IntelPayload) => {
+    const before = data;
+    applyLocal(optimistic);
+    setError(null);
     try {
       const res = await fetch(`/api/events/${eventId}/intel`, {
         method: "PATCH",
@@ -75,13 +96,22 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
-      await load();
     } catch (e) {
+      setData(before);            // put it back — never keep a rejected change
       setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setBusy(null);
     }
   };
+
+  /** Alphabetical, and it STAYS alphabetical — nothing reorders on a write. */
+  const byName = (a: CrewRow, b: CrewRow) =>
+    a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+
+  const setCrew = (crewId: string, patch: Partial<CrewRow>) => (d: IntelPayload) => ({
+    ...d,
+    crew: d.crew
+      .map((c) => (c.crewId === crewId ? { ...c, ...patch, rolesSource: "manual" } : c))
+      .sort(byName),
+  });
 
   if (error && !data) {
     return (
@@ -146,7 +176,16 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
       {/* ── Crew ──────────────────────────────────────────────────────────── */}
       <section className="mt-9">
         <div className="flex items-baseline justify-between">
-          <span className={META}>Crew</span>
+          <span className={META}>
+            Crew
+            {data.crew.length > 0 && data.crew.every((c) => c.kind === "staff") && (
+              /* Otherwise the rebook controls look broken rather than absent —
+                 they are for temps, and this gig had none. */
+              <span className="ml-2 normal-case tracking-normal text-stone-300">
+                all staff — rebook notes appear for local hires
+              </span>
+            )}
+          </span>
           <button
             onClick={() => setAdding((v) => !v)}
             className="text-[12px] text-stone-500 underline underline-offset-4 hover:text-stone-800"
@@ -159,7 +198,23 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
           <div className="mt-3 rounded-md border border-stone-200 bg-white p-3">
             <select
               defaultValue=""
-              onChange={(e) => { if (e.target.value) { void patch({ addCrewId: e.target.value }, "add"); setAdding(false); } }}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                const p = data.roster.find((r) => r.id === id);
+                setAdding(false);
+                void save({ addCrewId: id }, (d) => ({
+                  ...d,
+                  crew: [
+                    ...d.crew,
+                    {
+                      crewId: id, name: p?.name ?? "…", kind: p?.kind ?? null,
+                      homeCity: p?.homeCity ?? null, canLead: null,
+                      roles: [], rolesSource: "manual", wouldRebook: null, note: null,
+                    },
+                  ].sort(byName),
+                }));
+              }}
               className="w-full rounded-md border border-stone-200 px-2 py-1.5 text-[13px] text-stone-800 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
             >
               <option value="" disabled>Choose from the roster…</option>
@@ -185,11 +240,14 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
               key={c.crewId}
               crew={c}
               knownRoles={data.knownRoles}
-              busy={busy === c.crewId}
-              onRoles={(roles) => void patch({ crewId: c.crewId, roles }, c.crewId)}
-              onRebook={(v) => void patch({ crewId: c.crewId, wouldRebook: v }, c.crewId)}
-              onNote={(v) => void patch({ crewId: c.crewId, note: v }, c.crewId)}
-              onRemove={() => void patch({ crewId: c.crewId, remove: true }, c.crewId)}
+              onRoles={(roles) => void save({ crewId: c.crewId, roles }, setCrew(c.crewId, { roles }))}
+              onRebook={(v) => void save({ crewId: c.crewId, wouldRebook: v }, setCrew(c.crewId, { wouldRebook: v }))}
+              onNote={(v) => void save({ crewId: c.crewId, note: v }, setCrew(c.crewId, { note: v }))}
+              onRemove={() =>
+                void save({ crewId: c.crewId, remove: true }, (d) => ({
+                  ...d, crew: d.crew.filter((x) => x.crewId !== c.crewId),
+                }))
+              }
             />
           ))}
         </div>
@@ -232,11 +290,10 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
 /* ── One person's assignment ─────────────────────────────────────────────── */
 
 function CrewLine({
-  crew, knownRoles, busy, onRoles, onRebook, onNote, onRemove,
+  crew, knownRoles, onRoles, onRebook, onNote, onRemove,
 }: {
   crew: CrewRow;
   knownRoles: string[];
-  busy: boolean;
   onRoles: (roles: string[]) => void;
   onRebook: (v: string | null) => void;
   onNote: (v: string) => void;
@@ -246,6 +303,18 @@ function CrewLine({
   const [openNote, setOpenNote] = useState(false);
   const guessed = crew.rolesSource !== "manual";
 
+  /**
+   * Rebook and notes are for people who DON'T work here.
+   *
+   * Mason: "we only need the yes/no/maybe/notes for NON CREW (temps)". You do
+   * not file a rehire judgement on your own team — the question is meaningless
+   * for staff and the control is noise on every row. `kind` is decided once per
+   * PERSON when they are merged (staff | local | client | other), never derived
+   * per gig, so this is stable: Joey never reads as a local hire on an old
+   * event just because that record carried a personal address.
+   */
+  const isTemp = crew.kind !== "staff";
+
   const toggle = (role: string) => {
     const next = crew.roles.includes(role)
       ? crew.roles.filter((r) => r !== role)
@@ -254,11 +323,14 @@ function CrewLine({
   };
 
   return (
-    <div className={`py-4 ${busy ? "opacity-50" : ""}`}>
+    <div className="py-4">
       <div className="flex items-baseline justify-between gap-4">
         <div className="min-w-0">
           <span className="text-[15px] text-stone-900">{crew.name}</span>
           {crew.homeCity && <span className="ml-2 text-[12px] text-stone-400">{crew.homeCity}</span>}
+          {crew.kind && crew.kind !== "staff" && (
+            <span className="ml-2 text-[11px] text-stone-400">{crew.kind}</span>
+          )}
           {guessed && crew.roles.length > 0 && (
             <span
               className="ml-2 text-[11px] italic text-stone-400"
@@ -300,6 +372,7 @@ function CrewLine({
         })}
       </div>
 
+      {isTemp && (
       <div className="mt-2.5 flex flex-wrap items-center gap-4">
         {/* Severity ramp, never the brand accent — a green "yes" beside an
             emerald selection makes the accent mean two things at once. */}
@@ -329,8 +402,9 @@ function CrewLine({
           {crew.note ? "Note" : "Add note"}
         </button>
       </div>
+      )}
 
-      {(openNote || crew.note) && (
+      {isTemp && (openNote || crew.note) && (
         <div className="mt-2">
           <textarea
             value={note}
