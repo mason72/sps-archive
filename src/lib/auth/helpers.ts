@@ -80,3 +80,32 @@ export async function getAuthUser(): Promise<AuthResult> {
 
   return { user, supabase, error: null, realUser: user, actingAs: false };
 }
+
+/**
+ * The signed-in user's id, or null — WITHOUT producing a 401.
+ *
+ * For public routes that must behave differently for the owner but must still
+ * answer everyone. `getAuthUser()` cannot do this: it returns a 401 response
+ * for an anonymous caller, which is correct for an owner-only route and fatal
+ * for a guest gallery.
+ *
+ * The case it exists for: the photographer opening their own live gallery.
+ * Gallery status treats a VIEW as delivery evidence — 6 of 15 live galleries
+ * were known to be opened with no email ever having left Pixeltrunk — so
+ * counting the owner's own visit would mark an unopened gallery as seen by the
+ * client. That is a lie about the one signal that says whether the work landed.
+ *
+ * Deliberately the REAL session, not the act-as identity: an admin checking
+ * someone's gallery while acting as them is still not that client viewing it.
+ */
+export async function getOptionalUserId(): Promise<string | null> {
+  try {
+    const authClient = await createServerSupabaseClient();
+    const { data, error } = await authClient.auth.getUser();
+    if (error || !data.user) return null;
+    return data.user.id;
+  } catch {
+    // A guest with no cookie at all must never fail the page.
+    return null;
+  }
+}

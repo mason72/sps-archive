@@ -12,6 +12,7 @@ import {
 } from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
+import { getOptionalUserId } from "@/lib/auth/helpers";
 import { detectStackable } from "@/lib/gallery/stackable";
 import {
   resolveShareImageScope,
@@ -460,20 +461,39 @@ export async function GET(
       }))
       .filter((s) => s.imageIds.length > 0);
 
-    // 8. Increment view count + log activity (deferred until after response)
-    after(async () => {
-      const svc = createServiceClient();
-      await svc.rpc("increment_share_views", { p_share_id: share.id });
-      // activity_log.user_id is NOT NULL — an ownerless event has nothing to
-      // attribute the view to, so skip the log rather than fail the insert.
-      if (!event.user_id) return;
-      logActivity({
-        userId: event.user_id,
-        action: "share_view",
-        eventId: share.event_id,
-        shareId: share.id,
+    /**
+     * 8. Increment view count + log activity (deferred until after response)
+     *
+     * THE OWNER'S OWN VISIT IS NOT A VIEW. Views are what
+     * `src/lib/events/status.ts` reads as delivery evidence — a gallery counts
+     * as "opened" because someone looked at it, not because an email was sent.
+     * So the photographer opening their own live gallery to check it would mark
+     * it as seen by the client, and there is no way to tell the two apart
+     * afterwards.
+     *
+     * This became load-bearing when the event page grew a "View" button
+     * pointing at the real share (Mason, 2026-08-15: "there's no other way to
+     * click through to the actual public gallery"). Before that, the owner
+     * route was the only way in and the question never arose.
+     */
+    const viewerId = await getOptionalUserId();
+    const isOwnerViewing = !!event.user_id && viewerId === event.user_id;
+
+    if (!isOwnerViewing) {
+      after(async () => {
+        const svc = createServiceClient();
+        await svc.rpc("increment_share_views", { p_share_id: share.id });
+        // activity_log.user_id is NOT NULL — an ownerless event has nothing to
+        // attribute the view to, so skip the log rather than fail the insert.
+        if (!event.user_id) return;
+        logActivity({
+          userId: event.user_id,
+          action: "share_view",
+          eventId: share.event_id,
+          shareId: share.id,
+        });
       });
-    });
+    }
 
     return NextResponse.json({
       eventName: event.name,

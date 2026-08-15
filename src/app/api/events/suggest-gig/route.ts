@@ -113,16 +113,41 @@ export async function GET(request: NextRequest) {
     }
 
     // ── the registries, once, scoped to the caller ──
-    const [crewRes, orgRes] = await Promise.all([
+    const [crewRes, orgRes, mappedRes] = await Promise.all([
       db
         .from("crew")
         .select("id, display_name, primary_email, aliases, kind, is_regular, archived")
         .eq("user_id", user!.id),
       db.from("organizations").select("id, name, domains").eq("user_id", user!.id),
+      /**
+       * Which calendar entries already belong to a gallery.
+       *
+       * Mason, 2026-08-15: "do we ignore/suppress events that have already been
+       * mapped or does the list have all events for all time?" It had all of
+       * them — so a gig you made a gallery for months ago kept offering itself
+       * forever, which is noise at best and a duplicate gallery at worst.
+       *
+       * MARKED, NOT HIDDEN. One gig legitimately produces two galleries
+       * sometimes — a day split into separate deliveries, a re-shoot — and a
+       * silently missing gig is indistinguishable from the calendar having lost
+       * it. Same rule as everywhere else here: explain, never disappear.
+       */
+      db.from("event_intel")
+        .select("event_id, calendar_event_ids, events!inner(name, user_id)")
+        .eq("user_id", user!.id),
     ]);
     // A Supabase error is a RETURN VALUE. `data || []` here would render every
     // known person as "not on the roster" and invite Mason to create duplicates.
-    for (const r of [crewRes, orgRes]) if (r.error) throw r.error;
+    for (const r of [crewRes, orgRes, mappedRes]) if (r.error) throw r.error;
+
+    /** calendar entry id → the gallery that already claims it. */
+    const claimedBy = new Map<string, { eventId: string; eventName: string }>();
+    for (const row of mappedRes.data ?? []) {
+      const ev = row.events as { name?: string } | null;
+      for (const id of row.calendar_event_ids ?? []) {
+        if (id) claimedBy.set(String(id), { eventId: row.event_id, eventName: ev?.name ?? "an event" });
+      }
+    }
 
     const crewByEmail = new Map<
       string,
@@ -213,11 +238,23 @@ export async function GET(request: NextRequest) {
           name: orgByDomain.get(d)?.name ?? null,
         })),
         calendarEventIds: gig.events.map((e) => e.id).filter(Boolean) as string[],
+        /** The gallery that already claims this gig, when there is one. */
+        alreadyIn:
+          gig.events.map((e) => (e.id ? claimedBy.get(String(e.id)) : null)).find(Boolean) ?? null,
         score: Number(score.toFixed(3)),
         matchedOn: shared,
         dayGap,
       };
     });
+
+    /**
+     * Already-used gigs sink to the bottom, in their existing order.
+     *
+     * They stay pickable — see the comment on the query — but they should never
+     * outrank a gig with no gallery yet, because the overwhelmingly common
+     * reason you are on this screen is the one that has not been made.
+     */
+    out.sort((a, b) => Number(!!a.alreadyIn) - Number(!!b.alreadyIn));
 
     return NextResponse.json({ gigs: out, unavailable: null });
   } catch (err) {

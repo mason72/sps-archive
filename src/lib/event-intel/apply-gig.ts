@@ -14,7 +14,7 @@
  * twice. `userId` is not optional and is never taken from the request body.
  */
 import { parseVenue, venueKey, type ParsedVenue } from "./parse-calendar";
-import { cleanConfirmedRoles, cleanRoles } from "./roles";
+import { cleanConfirmedRoles, cleanRehire, cleanRoles } from "./roles";
 
 /** The service client, which has no useful public type here. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -56,9 +56,22 @@ export function domainToName(domain: string): string {
 }
 
 export interface CrewAssignment {
-  crewId: string;
+  /** An existing roster member. Omit when `newPerson` is supplied. */
+  crewId?: string;
+  /**
+   * Someone not on the roster yet — a local hire being added in the moment.
+   *
+   * Carried in the SAME list as existing crew rather than a parallel one, so a
+   * caller never has to cross-reference "the third new person" back to a role
+   * and a rating. Nothing is written until the event is created: a temp typed
+   * into a form that gets abandoned should not leave a person behind.
+   */
+  newPerson?: { name: string; kind?: string; city?: string };
   roles?: string[];
   confirmedRoles?: string[];
+  /** The rehire ladder — see `roles.ts`. */
+  rehire?: string | null;
+  note?: string | null;
 }
 
 export interface ApplyGigInput {
@@ -166,34 +179,73 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
   let crewLinked = 0;
   const asked = input.crew ?? [];
   if (asked.length) {
-    // Verify every person is on the CALLER'S roster before linking them. The
-    // ids arrive from a request body; a crew id belonging to someone else must
-    // not become a row on this user's event.
-    const { data: mine, error: rErr } = await db
-      .from("crew")
-      .select("id")
-      .eq("user_id", userId)
-      .in(
-        "id",
-        asked.map((c) => c.crewId)
-      );
-    if (rErr) {
-      warnings.push(`roster: ${rErr.message}`);
-    } else {
-      const allowed = new Set((mine ?? []).map((c: { id: string }) => c.id));
-      for (const person of asked) {
-        if (!allowed.has(person.crewId)) {
-          warnings.push(`crew ${person.crewId}: not on your roster`);
+    // Verify every EXISTING person is on the CALLER'S roster before linking
+    // them. The ids arrive from a request body; a crew id belonging to someone
+    // else must not become a row on this user's event.
+    const existingIds = asked.map((c) => c.crewId).filter((id): id is string => !!id);
+    let allowed = new Set<string>();
+    if (existingIds.length) {
+      const { data: mine, error: rErr } = await db
+        .from("crew").select("id").eq("user_id", userId).in("id", existingIds);
+      if (rErr) warnings.push(`roster: ${rErr.message}`);
+      else allowed = new Set((mine ?? []).map((c: { id: string }) => c.id));
+    }
+
+    for (const person of asked) {
+      let crewId = person.crewId ?? null;
+
+      /**
+       * A temp gets created here, at the moment the event is.
+       *
+       * `kind` defaults to photographer to match POST /api/crew, and
+       * `is_regular` is false by construction — someone being typed in during
+       * a gig is by definition not who you reach for. Regulars are MARKED,
+       * never derived, so this only ever sets the honest default.
+       */
+      if (!crewId && person.newPerson?.name?.trim()) {
+        const { data: made, error: nErr } = await db
+          .from("crew")
+          .insert({
+            user_id: userId,
+            display_name: person.newPerson.name.trim(),
+            kind: ["photographer", "stylist", "makeup artist"].includes(
+              String(person.newPerson.kind)
+            )
+              ? person.newPerson.kind
+              : "photographer",
+            city: person.newPerson.city?.trim() || null,
+            is_regular: false,
+          })
+          .select("id")
+          .single();
+        if (nErr) {
+          warnings.push(`new crew "${person.newPerson.name}": ${nErr.message}`);
           continue;
         }
+        crewId = made.id;
+        allowed.add(crewId as string);
+      }
+
+      if (!crewId) {
+        warnings.push("crew entry with neither an id nor a name");
+        continue;
+      }
+      if (!allowed.has(crewId)) {
+        warnings.push(`crew ${crewId}: not on your roster`);
+        continue;
+      }
+
+      {
         const roles = cleanRoles(person.roles ?? []);
         const { error: cErr } = await db.from("event_crew").upsert(
           {
             event_id: eventId,
-            crew_id: person.crewId,
+            crew_id: crewId,
             user_id: userId,
             roles,
             confirmed_roles: cleanConfirmedRoles(person.confirmedRoles, roles),
+            would_rebook: cleanRehire(person.rehire),
+            note: person.note?.slice(0, 2000) || null,
             /**
              * Provenance follows the same answer as `confirmed_at`, and is
              * derived rather than hardcoded so the backfill can adopt this
@@ -210,7 +262,7 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
           },
           { onConflict: "event_id,crew_id" }
         );
-        if (cErr) warnings.push(`crew ${person.crewId}: ${cErr.message}`);
+        if (cErr) warnings.push(`crew ${crewId}: ${cErr.message}`);
         else crewLinked++;
       }
     }

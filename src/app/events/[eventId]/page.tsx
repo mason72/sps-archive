@@ -1609,21 +1609,44 @@ export default function EventPage({
           {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
         </button>
 
-        {/* Preview — ALWAYS the owner preview route, never a live share URL.
-            Opening the share meant (a) a selection link could hijack it, which
-            is how Preview once landed on one person's gallery, (b) every
-            preview ran increment_share_views and logged a share_view, so
-            checking your own work inflated the client's view count, and (c) a
-            password-protected gallery made the photographer type the password
-            to see their own event. The preview route mirrors the public
-            gallery by design. */}
+        {/**
+         * Before publishing: PREVIEW, the owner route. After: VIEW, the real
+         * public gallery.
+         *
+         * Mason, 2026-08-15: "once an event is Published, let's change Preview
+         * to View and clicking it just goes to the live site. Currently,
+         * there's no other way to click through to the actual public gallery."
+         * True — the app could show you a mirror of your gallery and never the
+         * thing itself.
+         *
+         * The three reasons this used to be preview-only are all still real,
+         * and two of them are now handled rather than avoided:
+         *
+         *  (a) a SELECTION link could hijack it, which is how Preview once
+         *      landed on one person's gallery. Handled: this uses
+         *      `fullShareSlug` specifically, never whichever share sorts first.
+         *  (b) every visit ran increment_share_views and logged a share_view,
+         *      so checking your own work inflated the client's view count —
+         *      and views are what gallery status reads as DELIVERY EVIDENCE.
+         *      Handled server-side: the gallery route now skips both when the
+         *      requester is the event's owner.
+         *  (c) a password-protected gallery makes you type the password to see
+         *      your own event. NOT handled, and deliberately — that is the
+         *      client's real experience, which is the point of View. Preview
+         *      still exists for the unpublished case.
+         */}
         <a
-          href={`/gallery/preview/${eventId}`}
+          href={hasFullShare ? `/gallery/${fullShareSlug}` : `/gallery/preview/${eventId}`}
           target="_blank"
           rel="noopener noreferrer"
+          title={
+            hasFullShare
+              ? "Open the live gallery your client sees"
+              : "See how this will look before you publish"
+          }
           className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
         >
-          Preview
+          {hasFullShare ? "View" : "Preview"}
         </a>
 
         {/* Publish / Share — both go to email compose page */}

@@ -274,7 +274,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         </p>
       </header>
 
-      {/* ── Axis tabs + search ────────────────────────────────────────────── */}
+      {/* ── Axis tabs ─────────────────────────────────────────────────────── */}
       <div className="mt-10 flex flex-wrap items-end justify-between gap-6">
         {/*
           Wraps rather than scrolls. Four axes at 375px overflowed the row and
@@ -312,18 +312,33 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           })}
         </nav>
 
-        {/* Hidden on Roster: that tab owns its own search, and two boxes where
-            only one works is worse than none. */}
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
-          hidden={axis === "roster"}
-          className="w-full max-w-xs rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
-        />
       </div>
 
       <div className="mt-px"><Rule /></div>
+
+      {/**
+       * Search sits ABOVE THE LIST IT SEARCHES, not in the header.
+       *
+       * Mason, 2026-08-15: "the search is top-right, but I feel like it would be
+       * better just above the list it's searching (e.g. above the list of venues
+       * or cities)." Right — in the header it read as a search over the whole
+       * page, and its scope (this axis only, and it resets when you switch axes)
+       * was invisible. Directly over the column, the thing it filters is the
+       * next thing you look at.
+       *
+       * Still hidden on Roster: that tab owns its own search, and two boxes
+       * where only one works is worse than none.
+       */}
+      {axis !== "roster" && (
+        <div className="mt-4">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
+            className="w-full max-w-sm rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+          />
+        </div>
+      )}
 
       {/* ── List + detail ─────────────────────────────────────────────────── */}
       {axis === "roster" ? (

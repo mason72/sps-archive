@@ -27,7 +27,16 @@ import { reportSystemError } from "@/lib/monitoring/report";
  * other rejects it — enforced in the API rather than only the UI, and therefore
  * worth having exactly one API-side definition.
  */
-import { KNOWN_ROLES, cleanConfirmedRoles, cleanRoles } from "@/lib/event-intel/roles";
+import {
+  KNOWN_ROLES,
+  REHIRE_LADDER,
+  cleanConfirmedRoles,
+  cleanRehire,
+  cleanRoles,
+  compareCrewForPicker,
+  rehireStanding,
+  standingVisibleFor,
+} from "@/lib/event-intel/roles";
 
 interface EventCrewRow {
   crew_id: string;
@@ -97,6 +106,30 @@ export async function GET(
     const roster = rosterRes.data ?? [];
     const rosterById = new Map(roster.map((c: { id: string }) => [c.id, c]));
 
+    /**
+     * Every rating each of these people has ever received, newest first.
+     *
+     * One grouped query for the whole roster rather than one per person — the
+     * same rule the dashboard learned the hard way about embedded counts on a
+     * hot table. `event_crew` is small (40 links today) and this is bounded by
+     * the roster, not by the archive.
+     */
+    const { data: allRatings, error: ratErr } = await db
+      .from("event_crew")
+      .select("crew_id, would_rebook, created_at")
+      .eq("user_id", user!.id)
+      .not("would_rebook", "is", null)
+      .order("created_at", { ascending: false });
+    if (ratErr) throw ratErr;
+
+    const ratingsByCrew = new Map<string, string[]>();
+    for (const r of allRatings ?? []) {
+      const list = ratingsByCrew.get(r.crew_id) ?? [];
+      list.push(r.would_rebook);
+      ratingsByCrew.set(r.crew_id, list);
+    }
+    const standingFor = (crewId: string) => rehireStanding(ratingsByCrew.get(crewId) ?? []);
+
     return NextResponse.json({
       event: { id: event.id, name: event.name, date: event.sort_date },
       confirmed: !!intel?.confirmed_at,
@@ -130,11 +163,21 @@ export async function GET(
           confirmedRoles: r.confirmed_roles ?? [],
           // Row-level provenance, still useful for "has this been looked at".
           rolesSource: r.roles_source ?? "manual",
-          wouldRebook: r.would_rebook ?? null,
+          wouldRebook: cleanRehire(r.would_rebook),
           note: r.note ?? null,
+          /**
+           * Their standing across every OTHER gig — revealed only once this
+           * event has its own rating.
+           *
+           * Mason: show ratings "on events AFTER they've been rated to
+           * eliminate bias". Seeing "First call ×4" while deciding today's
+           * rating is an invitation to agree with yourself, and an independent
+           * judgement per gig is the entire value of the data.
+           */
+          standing: standingVisibleFor(r.would_rebook) ? standingFor(r.crew_id) : null,
         };
         })
-        .sort((a: { name: string }, b: { name: string }) =>
+        .sort((a: { name: string; isRegular: boolean }, b: { name: string; isRegular: boolean }) =>
           a.name.localeCompare(b.name, "en", { sensitivity: "base" })
         ),
       orgs: (orgLinkRes.data ?? []).map((r: { org_id: string; role: string }) => ({
@@ -143,9 +186,28 @@ export async function GET(
         role: r.role,
       })),
       knownRoles: KNOWN_ROLES,
-      roster: roster.map((c: { id: string; display_name: string; kind: string; city: string | null; is_regular: boolean }) => ({
-        id: c.id, name: c.display_name, kind: c.kind, homeCity: c.city, isRegular: !!c.is_regular,
-      })),
+      rehireLadder: REHIRE_LADDER,
+      /**
+       * The picker's roster, with "never again" sunk to the bottom.
+       *
+       * The database ORDER BY cannot express this — `hardNo` comes from
+       * `event_crew` rows, not a `crew` column — so it is sorted here, through
+       * the one comparator every picker shares.
+       */
+      roster: roster
+        .map((c: { id: string; display_name: string; kind: string; city: string | null; is_regular: boolean }) => {
+          const s = standingFor(c.id);
+          return {
+            id: c.id,
+            name: c.display_name,
+            kind: c.kind,
+            homeCity: c.city,
+            isRegular: !!c.is_regular,
+            hardNo: s.hardNo,
+            standing: s.total > 0 ? s : null,
+          };
+        })
+        .sort(compareCrewForPicker),
     });
   } catch (err) {
     await reportSystemError("api.events.intel.GET", err, { eventId });
@@ -292,10 +354,9 @@ export async function PATCH(
       patch.roles = clean;
       patch.confirmed_roles = cleanConfirmedRoles(body.confirmedRoles, clean);
     }
-    if (body.wouldRebook !== undefined) {
-      patch.would_rebook = body.wouldRebook && ["yes", "no", "maybe"].includes(body.wouldRebook)
-        ? body.wouldRebook : null;
-    }
+    // The rehire ladder, normalised in ONE place — legacy yes|maybe|no still
+    // maps forward, so an old row keeps meaning something.
+    if (body.wouldRebook !== undefined) patch.would_rebook = cleanRehire(body.wouldRebook);
     if (body.note !== undefined) patch.note = body.note?.slice(0, 2000) || null;
 
     const { error } = await db.from("event_crew").update(patch)

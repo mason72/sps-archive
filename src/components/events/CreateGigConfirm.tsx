@@ -51,6 +51,8 @@ export interface SuggestedGig {
   unresolvedCrew: { email: string; displayName: string | null }[];
   orgs: { domain: string; orgId: string | null; name: string | null }[];
   calendarEventIds: string[];
+  /** Set when a gallery already exists for this gig. Marked, never hidden. */
+  alreadyIn: { eventId: string; eventName: string } | null;
   score: number;
   matchedOn: string[];
   dayGap: number | null;
@@ -58,12 +60,43 @@ export interface SuggestedGig {
 
 export interface GigIntelPayload {
   venue: string | null;
-  crew: { crewId: string; roles: string[]; confirmedRoles: string[] }[];
+  crew: {
+    crewId?: string;
+    newPerson?: { name: string; kind?: string };
+    roles: string[];
+    confirmedRoles: string[];
+    rehire: string | null;
+    note: string | null;
+  }[];
   orgDomains: string[];
   calendarEventIds: string[];
 }
 
 const DISCIPLINES = ["photographer", "stylist", "makeup artist"];
+
+/**
+ * The rehire ladder, in Mason's own words and in priority order.
+ *
+ * Mirrors `REHIRE_LADDER` in `src/lib/event-intel/roles.ts`, which is the
+ * authority — the server normalises whatever arrives and this list only decides
+ * what is offered. Kept as a literal rather than imported so this client
+ * component does not pull a server module's dependency graph into the bundle.
+ *
+ * Colours come from the SEVERITY ramp (stone / amber-700 / red-700), never
+ * emerald: a rehire judgement about a named person is not the brand's accent.
+ */
+const REHIRE: { value: string; label: string; on: string }[] = [
+  { value: "first_call", label: "First call", on: "bg-stone-900 text-white" },
+  { value: "solid", label: "Solid", on: "bg-stone-500 text-white" },
+  { value: "last_resort", label: "Last resort", on: "bg-amber-700 text-white" },
+  { value: "never", label: "Never again", on: "bg-red-700 text-white" },
+];
+
+interface TempPerson {
+  /** Local only — a temp has no server id until the event is created. */
+  localId: string;
+  name: string;
+}
 
 /** Per-person state on the card. `discipline` may be a guess; `lead` never is. */
 interface CrewPick {
@@ -72,6 +105,9 @@ interface CrewPick {
   discipline: string | null;
   /** True while the discipline is the machine's inference, not his click. */
   disciplineIsGuess: boolean;
+  /** The rehire ladder. Only asked for non-regulars — see the row below. */
+  rehire: string | null;
+  note: string;
 }
 
 const fmtDay = (iso: string) =>
@@ -147,8 +183,21 @@ export function GigDropdown({
                   : "border-l-transparent hover:bg-stone-50"
               }`}
             >
-              <span className="text-[14px] leading-snug text-stone-900">{g.title}</span>
+              <span
+                className={`text-[14px] leading-snug ${
+                  g.alreadyIn ? "text-stone-400" : "text-stone-900"
+                }`}
+              >
+                {g.title}
+              </span>
               <span className="text-[12px] text-stone-400">{meta}</span>
+              {/* Marked, not hidden: one gig can legitimately make two
+                  galleries, and a vanished row reads as a lost calendar. */}
+              {g.alreadyIn && (
+                <span className="text-[11px] text-stone-400 italic">
+                  already in “{g.alreadyIn.eventName}”
+                </span>
+              )}
             </button>
           </li>
         );
@@ -177,45 +226,125 @@ export function GigConfirmCard({
   onChange: (payload: GigIntelPayload) => void;
 }) {
   const [picks, setPicks] = useState<Record<string, CrewPick>>({});
+  /**
+   * Local hires typed in here. They exist ONLY in this component until the
+   * event is created — a temp entered into a form that gets abandoned should
+   * not leave a person behind on the roster.
+   */
+  const [temps, setTemps] = useState<TempPerson[]>([]);
+  const [addingTemp, setAddingTemp] = useState(false);
 
   // Seed once per gig: everyone on, discipline guessed from what they DO.
   useEffect(() => {
     const seed: Record<string, CrewPick> = {};
     for (const c of gig.crew) {
       const guess = c.kind && DISCIPLINES.includes(c.kind) ? c.kind : null;
-      seed[c.crewId] = { on: true, lead: false, discipline: guess, disciplineIsGuess: !!guess };
+      seed[c.crewId] = {
+        on: true, lead: false, discipline: guess, disciplineIsGuess: !!guess,
+        rehire: null, note: "",
+      };
     }
     setPicks(seed);
+    setTemps([]);
+    setAddingTemp(false);
   }, [gig]);
 
   const payload = useMemo<GigIntelPayload>(() => {
-    const crew = gig.crew
+    const rolesFor = (p: CrewPick) => {
+      const roles = [...(p.lead ? ["lead"] : []), ...(p.discipline ? [p.discipline] : [])];
+      // A guessed discipline is a role, not an endorsement. `lead` is only
+      // ever here because he clicked it, so it is always confirmed.
+      const confirmedRoles = roles.filter((r) => !(r === p.discipline && p.disciplineIsGuess));
+      return { roles, confirmedRoles };
+    };
+
+    const crew: GigIntelPayload["crew"] = gig.crew
       .filter((c) => picks[c.crewId]?.on)
       .map((c) => {
         const p = picks[c.crewId];
-        const roles = [...(p.lead ? ["lead"] : []), ...(p.discipline ? [p.discipline] : [])];
-        // A guessed discipline is a role, not an endorsement. `lead` is only
-        // ever here because he clicked it, so it is always confirmed.
-        const confirmedRoles = roles.filter(
-          (r) => !(r === p.discipline && p.disciplineIsGuess)
-        );
-        return { crewId: c.crewId, roles, confirmedRoles };
+        return {
+          crewId: c.crewId,
+          ...rolesFor(p),
+          rehire: p.rehire,
+          note: p.note.trim() || null,
+        };
       });
+
+    // Temps ride the SAME list — the server resolves "create then link" so no
+    // caller has to match up a parallel array of new people to their roles.
+    for (const t of temps) {
+      const p = picks[t.localId];
+      if (!p?.on) continue;
+      crew.push({
+        newPerson: { name: t.name, kind: p.discipline ?? undefined },
+        ...rolesFor(p),
+        rehire: p.rehire,
+        note: p.note.trim() || null,
+      });
+    }
+
     return {
       venue: gig.venue?.raw ?? null,
       crew,
       orgDomains: gig.orgs.map((o) => o.domain),
       calendarEventIds: gig.calendarEventIds,
     };
-  }, [gig, picks]);
+  }, [gig, picks, temps]);
 
   useEffect(() => { onChange(payload); }, [payload, onChange]);
+
+  /**
+   * Calendar crew and hand-added temps render as ONE list.
+   *
+   * Two lists would mean two copies of the row — and the row carries the whole
+   * three-state role model, which is precisely the thing that must not exist
+   * twice. A temp is never a regular by construction: someone typed in during
+   * a gig is by definition not who you reach for.
+   */
+  const rows = useMemo(
+    () => [
+      ...gig.crew.map((c) => ({
+        id: c.crewId, name: c.name, isRegular: c.isRegular, isTemp: false,
+      })),
+      ...temps.map((t) => ({ id: t.localId, name: t.name, isRegular: false, isTemp: true })),
+    ],
+    [gig.crew, temps]
+  );
 
   const toggleOn = (id: string) =>
     setPicks((p) => ({ ...p, [id]: { ...p[id], on: !p[id]?.on } }));
 
   const toggleLead = (id: string) =>
     setPicks((p) => ({ ...p, [id]: { ...p[id], lead: !p[id]?.lead } }));
+
+  const setRehire = (id: string, value: string) =>
+    setPicks((p) => ({
+      ...p,
+      // Clicking the current rating clears it — a judgement you can't take back
+      // is one people stop making.
+      [id]: { ...p[id], rehire: p[id]?.rehire === value ? null : value },
+    }));
+
+  const setNote = (id: string, note: string) =>
+    setPicks((p) => ({ ...p, [id]: { ...p[id], note } }));
+
+  /** Add a local hire, unsaved until the event is created. */
+  const addTemp = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    const localId = `temp:${clean.toLowerCase()}:${temps.length}`;
+    setTemps((t) => [...t, { localId, name: clean }]);
+    setPicks((p) => ({
+      ...p,
+      // Nothing is guessed about someone we have never met — every control
+      // starts empty rather than pre-filled.
+      [localId]: {
+        on: true, lead: false, discipline: null, disciplineIsGuess: false,
+        rehire: null, note: "",
+      },
+    }));
+    setAddingTemp(false);
+  };
 
   /**
    * One discipline, three states.
@@ -295,7 +424,7 @@ export function GigConfirmCard({
 
         <div className="px-5 py-4">
           <dt className="label-caps mb-1 text-stone-400">Crew</dt>
-          {gig.crew.length === 0 ? (
+          {rows.length === 0 ? (
             <dd className="text-[14px] text-stone-400">
               Nobody on this entry matched your roster
               {gig.unresolvedCrew.length > 0 &&
@@ -309,121 +438,178 @@ export function GigConfirmCard({
               </p>
               <dd>
                 <ul className="divide-y divide-stone-100">
-                  {gig.crew.map((c) => {
-                    const p = picks[c.crewId];
+                  {rows.map((c) => {
+                    const p = picks[c.id];
                     if (!p) return null;
                     return (
-                      <li
-                        key={c.crewId}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5 first:pt-0"
-                      >
-                        {/**
-                         * The name and its badge STACK.
-                         *
-                         * Beside each other they pushed the role chips past the
-                         * card's width, so a local hire's row wrapped its chips
-                         * onto a ragged second line while a regular's row did
-                         * not — rows of two different heights for no reason a
-                         * reader could see. Found by looking at it.
-                         */}
-                        <span className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => toggleOn(c.crewId)}
-                            title={p.on ? "They were not here" : "Add them back"}
-                            className={`block text-left text-[14px] transition-colors ${
-                              p.on ? "text-stone-900" : "text-stone-300 line-through"
-                            }`}
-                          >
-                            {c.name}
-                          </button>
-                          {!c.isRegular && p.on && (
-                            <span className="block text-[11px] leading-tight text-stone-400">
-                              not a regular
-                            </span>
-                          )}
-                        </span>
-
-                        {p.on && (
-                          <span className="flex flex-wrap items-center gap-2">
-                            {/**
-                             * TWO DIFFERENT CONTROLS, because they are two
-                             * different questions — and the shapes say so.
-                             *
-                             * `lead` is a FLAG: a squared-off chip that is on or
-                             * off. The discipline is a CHOICE: one fully
-                             * rounded segmented track where picking a segment
-                             * necessarily un-picks the others. Rendering both
-                             * as identical pills, which is what shipped first,
-                             * made "stylist AND photographer" look like a legal
-                             * combination — the API rejects it, so the UI
-                             * should not offer it.
-                             *
-                             * The radius carries that distinction on its own,
-                             * so the flag needs no status dot: with the shape
-                             * already saying "toggle", a dot is decoration, and
-                             * this system spends nothing on decoration. On, it
-                             * takes the SAME emerald as a confirmed segment —
-                             * both mean "a human decided this".
-                             */}
+                      <li key={c.id} className="py-2.5 first:pt-0">
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                          {/**
+                           * The name and its badge STACK.
+                           *
+                           * Beside each other they pushed the role chips past the
+                           * card's width, so a local hire's row wrapped its chips
+                           * onto a ragged second line while a regular's row did
+                           * not — rows of two different heights for no reason a
+                           * reader could see. Found by looking at it.
+                           */}
+                          <span className="min-w-0">
                             <button
                               type="button"
-                              onClick={() => toggleLead(c.crewId)}
-                              aria-pressed={p.lead}
-                              title={p.lead ? "Led this gig — click to unset" : "Mark as lead"}
-                              className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors ${
-                                p.lead
-                                  ? "border-accent bg-accent text-white"
-                                  : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
+                              onClick={() => toggleOn(c.id)}
+                              title={p.on ? "They were not here" : "Add them back"}
+                              className={`block text-left text-[14px] transition-colors ${
+                                p.on ? "text-stone-900" : "text-stone-300 line-through"
                               }`}
                             >
-                              lead
+                              {c.name}
                             </button>
+                            {!c.isRegular && p.on && (
+                              <span className="block text-[11px] leading-tight text-stone-400">
+                                {c.isTemp ? "new — added here" : "not a regular"}
+                              </span>
+                            )}
+                          </span>
 
-                            {/* The segmented control. One track, one answer. */}
+                          {p.on && (
+                            <span className="flex flex-wrap items-center gap-2">
+                              {/**
+                               * TWO DIFFERENT CONTROLS, because they are two
+                               * different questions — and the shapes say so.
+                               *
+                               * `lead` is a FLAG: a squared-off chip that is on
+                               * or off. The discipline is a CHOICE: one fully
+                               * rounded segmented track where picking a segment
+                               * necessarily un-picks the others. Rendering both
+                               * as identical pills, which is what shipped first,
+                               * made "stylist AND photographer" look like a
+                               * legal combination — the API rejects it, so the
+                               * UI should not offer it.
+                               *
+                               * The radius carries that distinction on its own,
+                               * so the flag needs no status dot: with the shape
+                               * already saying "toggle", a dot is decoration,
+                               * and this system spends nothing on decoration.
+                               * On, it takes the SAME emerald as a confirmed
+                               * segment — both mean "a human decided this".
+                               */}
+                              <button
+                                type="button"
+                                onClick={() => toggleLead(c.id)}
+                                aria-pressed={p.lead}
+                                title={p.lead ? "Led this gig — click to unset" : "Mark as lead"}
+                                className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors ${
+                                  p.lead
+                                    ? "border-accent bg-accent text-white"
+                                    : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
+                                }`}
+                              >
+                                lead
+                              </button>
+
+                              {/* The segmented control. One track, one answer. */}
+                              <span
+                                role="radiogroup"
+                                aria-label="Discipline"
+                                className="inline-flex overflow-hidden rounded-full border border-stone-200"
+                              >
+                                {DISCIPLINES.map((role, i) => {
+                                  const on = p.discipline === role;
+                                  const guess = on && p.disciplineIsGuess;
+                                  return (
+                                    <button
+                                      key={role}
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={on}
+                                      onClick={() => pickDiscipline(c.id, role)}
+                                      title={
+                                        guess
+                                          ? "A guess from their roster entry — click to confirm"
+                                          : on
+                                            ? "Confirmed — click to clear"
+                                            : "Click to set"
+                                      }
+                                      // Extra padding on the end segments so the
+                                      // text is not crowded by the round caps.
+                                      className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
+                                        i > 0 ? "border-l border-stone-200" : ""
+                                      } ${
+                                        guess
+                                          ? // Still a guess: the accent is
+                                            // present but unfilled, so it reads
+                                            // as pending rather than decided.
+                                            "bg-accent-muted/60 text-accent-hover italic"
+                                          : on
+                                            ? "bg-accent text-white"
+                                            : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
+                                      }`}
+                                    >
+                                      {role}
+                                    </button>
+                                  );
+                                })}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/**
+                         * The rehire judgement — NON-REGULARS ONLY.
+                         *
+                         * Mason: "for non-regulars, can we come up with some
+                         * sort of rating system so we can quickly identify
+                         * whether they were a solid hire or a last resort."
+                         * Your own team is not something you rate gig to gig;
+                         * a local hire you may never see again is.
+                         *
+                         * And this is the RIGHT MOMENT for it — his reason, and
+                         * it is the strongest argument in the whole feature:
+                         * the lead who just worked with them is the one
+                         * uploading. Any later and it is a form nobody fills in.
+                         *
+                         * Deliberately NOT showing their standing from other
+                         * gigs here: seeing "First call ×4" while deciding
+                         * today's rating is an invitation to agree with
+                         * yourself. It appears once this rating exists.
+                         */}
+                        {p.on && !c.isRegular && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 pl-0">
+                            <span className="text-[11px] text-stone-400">Rehire?</span>
                             <span
                               role="radiogroup"
-                              aria-label="Discipline"
+                              aria-label="Would you hire them again"
                               className="inline-flex overflow-hidden rounded-full border border-stone-200"
                             >
-                              {DISCIPLINES.map((role, i) => {
-                                const on = p.discipline === role;
-                                const guess = on && p.disciplineIsGuess;
-                                return (
-                                  <button
-                                    key={role}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={on}
-                                    onClick={() => pickDiscipline(c.crewId, role)}
-                                    title={
-                                      guess
-                                        ? "A guess from their roster entry — click to confirm"
-                                        : on
-                                          ? "Confirmed — click to clear"
-                                          : "Click to set"
-                                    }
-                                    // Extra padding on the end segments so the
-                                    // text is not crowded by the round caps.
-                                    className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
-                                      i > 0 ? "border-l border-stone-200" : ""
-                                    } ${
-                                      guess
-                                        ? // Still a guess: the accent is present
-                                          // but unfilled, so it reads as pending
-                                          // rather than decided.
-                                          "bg-accent-muted/60 text-accent-hover italic"
-                                        : on
-                                          ? "bg-accent text-white"
-                                          : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
-                                    }`}
-                                  >
-                                    {role}
-                                  </button>
-                                );
-                              })}
+                              {REHIRE.map((r, i) => (
+                                <button
+                                  key={r.value}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={p.rehire === r.value}
+                                  onClick={() => setRehire(c.id, r.value)}
+                                  title={
+                                    p.rehire === r.value ? "Click to clear" : `Mark as ${r.label}`
+                                  }
+                                  className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
+                                    i > 0 ? "border-l border-stone-200" : ""
+                                  } ${
+                                    p.rehire === r.value
+                                      ? r.on
+                                      : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
+                                  }`}
+                                >
+                                  {r.label}
+                                </button>
+                              ))}
                             </span>
-                          </span>
+                            <input
+                              value={p.note}
+                              onChange={(e) => setNote(c.id, e.target.value)}
+                              placeholder="Note (optional)"
+                              className="min-w-0 flex-1 border-b border-stone-200 bg-transparent py-1 text-[12px] text-stone-700 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+                            />
+                          </div>
                         )}
                       </li>
                     );
@@ -432,12 +618,32 @@ export function GigConfirmCard({
                 {gig.unresolvedCrew.length > 0 && (
                   <p className="mt-3 text-[11px] text-stone-400">
                     {gig.unresolvedCrew.length} other attendee
-                    {gig.unresolvedCrew.length === 1 ? " is" : "s are"} not on your roster — add
-                    them on the Intel tab once the event exists.
+                    {gig.unresolvedCrew.length === 1 ? " is" : "s are"} not on your roster.
                   </p>
                 )}
               </dd>
             </>
+          )}
+
+          {/**
+           * Add a local hire, here, now.
+           *
+           * The calendar only knows who was INVITED, so anyone hired on the day
+           * is invisible to it — and that is exactly the person whose rating
+           * matters most, because you have no other record of them. Sending
+           * someone to the Intel tab "once the event exists" meant the one
+           * person worth rating was the one you had to go looking for.
+           */}
+          {addingTemp ? (
+            <TempAdder onAdd={addTemp} onCancel={() => setAddingTemp(false)} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingTemp(true)}
+              className="mt-3 text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-800 hover:underline"
+            >
+              + Someone else worked this
+            </button>
           )}
         </div>
 
@@ -457,6 +663,56 @@ export function GigConfirmCard({
           </dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Type a name to add someone the calendar never knew about.
+ *
+ * Name only. The discipline and the rating are set on the row like everyone
+ * else's, so there is one place to learn the controls — and asking for an email
+ * and a city here would turn "someone else worked this" into a form, which is
+ * the thing that does not get filled in at the end of a long day. The roster
+ * entry can be completed later on /intel.
+ */
+function TempAdder({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter must not submit the surrounding create-event form.
+          if (e.key === "Enter") { e.preventDefault(); onAdd(name); }
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder="Their name"
+        className="min-w-0 flex-1 border-b border-stone-200 bg-transparent py-1 text-[13px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => onAdd(name)}
+        disabled={!name.trim()}
+        className="rounded-[3px] border border-accent bg-accent px-2.5 py-1 text-[12px] text-white transition-opacity disabled:opacity-40"
+      >
+        Add
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="text-[12px] text-stone-400 transition-colors hover:text-stone-700"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
