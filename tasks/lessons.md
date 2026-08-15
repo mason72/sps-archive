@@ -951,3 +951,36 @@ PostgREST's default cap wearing the costume of a real number.** The crew-face
 probe printed "1000 person clusters"; the true count was 5,299. A suspiciously
 round total is a truncated query until proven otherwise — page with `.range()`
 before believing any count that lands on the limit.
+
+## 86 — a best-effort catch with no report is a lie with good intentions (2026-08-15)
+
+The first LIVE confirmation of a crew face — tagging the "Mason Foster" cluster
+to the roster — wrote the `crew_persons` link, toasted "Tagged as Mason Foster
+— their face joins the references", and snapshotted nothing. The Intel panel
+said "No photos of Mason yet" thirty seconds after the toast said otherwise.
+
+Two causes, stacked:
+
+1. **PostgREST refuses an AMBIGUOUS embed outright, and only where the schema
+   makes it ambiguous.** `faces → images → events` failed with "more than one
+   relationship was found for 'images' and 'events'" because those tables are
+   related twice — `images.event_id` up, `events.cover_image_id` back. The
+   identical unhinted embed works on any pair with a single relationship, which
+   is why every other nested embed in the codebase was fine and nothing in
+   typecheck, build or unit tests could catch this one. The fix is a hint:
+   `events!images_event_id_fkey!inner(...)`. **Any embed through `images` ↔
+   `events` needs the hint, in either direction.**
+
+2. **The failure was invisible by my own design.** The enrichment was wrapped
+   in `.catch(() => {})` — "best-effort, must not undo the link". Non-fatal was
+   the right call; SILENT was not. The failure now reports to `system_errors`
+   like every other caught error in this app. The rule: **best-effort means the
+   OUTCOME is optional, never the EVIDENCE.** If a step is allowed to fail,
+   its failure must still land somewhere a human can find, or the first real
+   failure costs a live debugging session — which is exactly what it cost.
+
+The meta-lesson is older than both: this surfaced only because the feature was
+exercised against production with real data before being called done. The
+probe that found it (`scripts/triage/crew-face-probe.ts`) reproduced the exact
+query from the code, per the standing rule: when a guard or write misbehaves,
+reproduce its exact expression before believing or dismissing it.

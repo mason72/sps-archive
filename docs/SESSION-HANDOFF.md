@@ -34,7 +34,7 @@ must pass before every push.
 | Pixieset migration | `docs/PIXIESET-MIGRATION.md`, `tasks/pixieset-migration.md` | The 1,371-collection move |
 | Event Intel | `tasks/event-intel.md` | Venues, crew, clients, and the `/intel` pivot |
 | SPS pull | `tasks/sps-archive-pull-spec.md` | The wire contract; `tasks/sps-pull-build-plan.md` for build notes |
-| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 84 entries and counting |
+| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 86 entries and counting |
 | Queue | `tasks/todo.md` | What is next and why |
 
 Project memory (`MEMORY.md` in the memory namespace) carries the facts that are
@@ -69,6 +69,27 @@ conventions. It is the other entry point.
 - **Intel crew panel is editable** — stars, regular toggle, name/email/location,
   discipline, can-lead, travel, and the rating. This is the tool for seeding the
   61-person roster
+- **Gig confirmation on the SPS IMPORT screen too** (2026-08-15) — the review
+  step asks "Which job was this?", seeded with the SPS event name; shares
+  `GigIntelStep`/`GigConfirmCard` with the create screen. Intel is applied
+  after the event exists, never able to fail the import, skipped on resume
+- **Event Intel is GATED per account** (2026-08-15, lesson 85) —
+  `EVENT_INTEL_USER_IDS` env var, `hasIntelAccess()` /`getIntelUser()` in
+  `src/lib/event-intel/`. The calendar behind suggest-gig is ONE studio's
+  service account and was leaking to any signed-in user; measured ownership
+  first (everything belongs to info@, `is_admin` is mason@'s only). SPS import
+  stays open to all accounts by design
+- **The radius search** (2026-08-15) — "Near [city]" + drivable / short flight
+  / anywhere on the Intel Crew axis. GROUPS, not a filter: within-reach, would
+  travel, further out, can't-place — nobody silently dropped. Client-side over
+  `geo.ts` (24-metro coordinate table, tests against known distances)
+- **Crew faces** (2026-08-15, `tasks/crew-faces.md`) — reference sets in
+  `crew_faces` (migration 061), avatars beside every crew name (initials when
+  empty), upload/tag/star/delete on the Intel panel, "Find them in the
+  archive" via the selfie-match engine, "crew…" tagging from any gallery's
+  People view, and the Your Crew wall on `/people` (regulars default). Crew
+  names never touch `persons.name`. ⚠️ any embed through `images`↔`events`
+  needs the FK hint (`events!images_event_id_fkey`) — lesson 86
 
 ## In flight — pick these up
 
