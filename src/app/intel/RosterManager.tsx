@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatLastHired } from "@/lib/event-intel/last-hired";
 
 /**
  * The roster, editable.
@@ -32,6 +33,10 @@ interface Person {
   notes: string | null;
   eventCount: number;
   is_regular: boolean;
+  /** Hand-entered seed month (YYYY-MM-01) — what the editor edits. */
+  last_hired_on: string | null;
+  /** The EFFECTIVE date: max(seed, newest linked event). What displays. */
+  lastHired: string | null;
 }
 
 const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
@@ -47,16 +52,25 @@ export function RosterManager() {
    * covers 23 of 27 events, so a count would call a regular new and a one-off
    * prolific — and this is the list Mason picks from under time pressure.
    */
-  const [band, setBand] = useState<"all" | "regular" | "other">("all");
-  const [showArchived, setShowArchived] = useState(false);
+  const [band, setBand] = useState<"all" | "regular" | "other" | "archived">("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * EVERYONE, always — archived included, flagged per row.
+   *
+   * The old shape fetched active OR archived behind a "Show archived" toggle,
+   * and Mason couldn't find the archived at all: "there's no way to find
+   * archived people... they should show up in search if I type their name in."
+   * Archived is now a BAND beside the others, and search deliberately ignores
+   * the band entirely (see `shown`), so a typed name finds the person whatever
+   * their state — with an `archived` chip saying which state that is.
+   */
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/crew?archived=${showArchived ? "1" : "0"}`);
+      const res = await fetch(`/api/crew?archived=1`);
       if (!res.ok) throw new Error((await res.json()).error ?? "Could not load");
       const j = await res.json();
       setPeople(j.crew);
@@ -65,22 +79,25 @@ export function RosterManager() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load");
     }
-  }, [showArchived]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    let list = people;
-    if (band === "regular") list = list.filter((p) => p.is_regular);
-    if (band === "other") list = list.filter((p) => !p.is_regular);
     if (s) {
-      list = list.filter((p) =>
+      // Search spans EVERYONE — a band is a browsing cut, and a typed name is
+      // a question about a specific person whose state you may not know.
+      return people.filter((p) =>
         [p.display_name, p.full_name, p.primary_email, p.city, p.kind]
           .some((f) => (f ?? "").toLowerCase().includes(s))
       );
     }
-    return list;
+    if (band === "archived") return people.filter((p) => p.archived);
+    const active = people.filter((p) => !p.archived);
+    if (band === "regular") return active.filter((p) => p.is_regular);
+    if (band === "other") return active.filter((p) => !p.is_regular);
+    return active;
   }, [people, q, band]);
 
   /** Optimistic, like the rest of this feature — the server is the record, not the renderer. */
@@ -103,7 +120,9 @@ export function RosterManager() {
 
   const archiveMany = async (ids: string[], archived: boolean) => {
     const before = people;
-    setPeople(people.filter((p) => !ids.includes(p.id)));
+    // FLIP, don't remove: everyone stays loaded, and an archived person just
+    // moves bands — removing them locally would make Restore look like delete.
+    setPeople(people.map((p) => (ids.includes(p.id) ? { ...p, archived } : p)));
     setPicked(new Set());
     try {
       // Sequential rather than parallel: 70 concurrent writes against one table
@@ -143,11 +162,11 @@ export function RosterManager() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className={META}>Roster</span>
-          <div className="mt-2 flex gap-1">
-            {([["all","All"],["regular","Regulars"],["other","Non-regulars"]] as const).map(([k,label]) => (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {([["all","All"],["regular","Regulars"],["other","Non-regulars"],["archived","Archived"]] as const).map(([k,label]) => (
               <button
                 key={k}
-                onClick={() => setBand(k)}
+                onClick={() => { setBand(k); setPicked(new Set()); }}
                 className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
                   band === k
                     ? "bg-stone-900 text-white"
@@ -158,25 +177,21 @@ export function RosterManager() {
                 {k !== "all" && (
                   <span className="ml-1.5 tabular-nums opacity-60">
                     {k === "regular"
-                      ? people.filter((p) => p.is_regular).length
-                      : people.filter((p) => !p.is_regular).length}
+                      ? people.filter((p) => p.is_regular && !p.archived).length
+                      : k === "other"
+                        ? people.filter((p) => !p.is_regular && !p.archived).length
+                        : people.filter((p) => p.archived).length}
                   </span>
                 )}
               </button>
             ))}
           </div>
           <p className="mt-1 text-[13px] text-stone-500">
-            {people.length} {showArchived ? "archived" : "active"}
-            {q && ` · ${shown.length} matching`}
+            {people.filter((p) => !p.archived).length} active
+            {q && ` · ${shown.length} matching (archived included)`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => { setShowArchived((v) => !v); setPicked(new Set()); }}
-            className="text-[12px] text-stone-500 underline underline-offset-4 hover:text-stone-800"
-          >
-            {showArchived ? "Show active" : "Show archived"}
-          </button>
           <button
             onClick={() => setAddOpen((v) => !v)}
             className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-stone-700"
@@ -225,12 +240,33 @@ export function RosterManager() {
             >
               Mark regular
             </button>
-            <button
-              onClick={() => void archiveMany([...picked], !showArchived)}
-              className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
-            >
-              {showArchived ? "Restore" : "Archive"} {picked.size}
-            </button>
+            {/* Search can mix archived and active into one selection, so the
+                bulk actions split by the rows' ACTUAL state instead of a mode:
+                each button names exactly what it will touch. */}
+            {(() => {
+              const activePicked = [...picked].filter((id) => people.find((p) => p.id === id && !p.archived));
+              const archivedPicked = [...picked].filter((id) => people.find((p) => p.id === id && p.archived));
+              return (
+                <>
+                  {activePicked.length > 0 && (
+                    <button
+                      onClick={() => void archiveMany(activePicked, true)}
+                      className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
+                    >
+                      Archive {activePicked.length}
+                    </button>
+                  )}
+                  {archivedPicked.length > 0 && (
+                    <button
+                      onClick={() => void archiveMany(archivedPicked, false)}
+                      className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
+                    >
+                      Restore {archivedPicked.length}
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             <button onClick={() => setPicked(new Set())} className="text-[12px] text-stone-400 hover:text-stone-700">
               Clear
             </button>
@@ -294,12 +330,29 @@ export function RosterManager() {
                         >
                           ★
                         </button>
-                        <span className="text-[14px] text-stone-900">{p.display_name}</span>
+                        <span className={`text-[14px] ${p.archived ? "text-stone-500" : "text-stone-900"}`}>
+                          {p.display_name}
+                        </span>
+                        {/* Search spans everyone, so a row must SAY when it is
+                            archived — otherwise a found-by-name archived person
+                            is indistinguishable from an active one. */}
+                        {p.archived && (
+                          <span className="rounded-full border border-stone-200 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] text-stone-400">
+                            archived
+                          </span>
+                        )}
                         <span className="text-[11px] text-stone-400">{p.kind}</span>
                         {p.city && <span className="text-[11px] text-stone-400">· {p.city}</span>}
                         {p.eventCount > 0 && (
                           <span className="text-[11px] text-stone-400">
                             · {p.eventCount} event{p.eventCount === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        {/* Non-regulars only — your own team is not something
+                            you track a last-hire date for. */}
+                        {!p.is_regular && formatLastHired(p.lastHired, new Date()) && (
+                          <span className="text-[11px] text-stone-400">
+                            · hired {formatLastHired(p.lastHired, new Date())}
                           </span>
                         )}
                       </div>
@@ -318,15 +371,15 @@ export function RosterManager() {
                       Edit
                     </button>
                     <button
-                      onClick={() => void (showArchived ? archiveMany([p.id], false) : remove(p))}
+                      onClick={() => void (p.archived ? archiveMany([p.id], false) : remove(p))}
                       title={
-                        showArchived ? "Restore"
+                        p.archived ? "Bring them back to the active roster"
                         : p.eventCount > 0 ? `On ${p.eventCount} events — archives instead of deleting`
                         : "Delete"
                       }
-                      className="text-[12px] text-stone-400 hover:text-red-700"
+                      className={`text-[12px] text-stone-400 ${p.archived ? "hover:text-stone-800" : "hover:text-red-700"}`}
                     >
-                      {showArchived ? "Restore" : p.eventCount > 0 ? "Archive" : "Delete"}
+                      {p.archived ? "Restore" : p.eventCount > 0 ? "Archive" : "Delete"}
                     </button>
                   </div>
                 )}
@@ -337,7 +390,7 @@ export function RosterManager() {
 
         {shown.length === 0 && (
           <p className="py-6 text-[13px] text-stone-400">
-            {q ? `Nobody matches “${q}”.` : showArchived ? "Nobody archived." : "Nobody on the roster."}
+            {q ? `Nobody matches “${q}” — archived included.` : band === "archived" ? "Nobody archived." : "Nobody on the roster."}
           </p>
         )}
       </div>
@@ -406,6 +459,8 @@ function EditPerson({
     primary_email: person.primary_email ?? "",
     kind: person.kind,
     city: person.city ?? "",
+    // The month input speaks YYYY-MM; the column stores the month's first day.
+    last_hired_on: (person.last_hired_on ?? "").slice(0, 7),
   });
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -417,6 +472,20 @@ function EditPerson({
       </select>
       <input value={f.city} placeholder="City / region"
         onChange={(e) => setF({ ...f, city: e.target.value })} className={FIELD} />
+      {/* The SEED month only — a newer linked event outranks it on display,
+          which is why the label says "last hired (if we have no record)". */}
+      {!person.is_regular && (
+        <label className="flex items-center gap-2 text-[12px] text-stone-500 sm:col-span-2">
+          Last hired
+          <input
+            type="month"
+            value={f.last_hired_on}
+            onChange={(e) => setF({ ...f, last_hired_on: e.target.value })}
+            className={`${FIELD} w-auto`}
+          />
+          <span className="text-stone-300">linked events update this on their own</span>
+        </label>
+      )}
       <div className="sm:col-span-2 flex items-center gap-3">
         <button
           onClick={() => onSave({
@@ -424,6 +493,7 @@ function EditPerson({
             primary_email: f.primary_email.trim() || null,
             kind: f.kind,
             city: f.city.trim() || null,
+            last_hired_on: f.last_hired_on || null,
           })}
           className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white"
         >

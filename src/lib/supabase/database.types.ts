@@ -123,6 +123,7 @@ export type Database = {
           id: string
           is_regular: boolean
           kind: string
+          last_hired_on: string | null
           notes: string | null
           primary_email: string | null
           region: string | null
@@ -142,6 +143,7 @@ export type Database = {
           id?: string
           is_regular?: boolean
           kind?: string
+          last_hired_on?: string | null
           notes?: string | null
           primary_email?: string | null
           region?: string | null
@@ -161,6 +163,7 @@ export type Database = {
           id?: string
           is_regular?: boolean
           kind?: string
+          last_hired_on?: string | null
           notes?: string | null
           primary_email?: string | null
           region?: string | null

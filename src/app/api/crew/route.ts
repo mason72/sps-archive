@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { cleanRehire } from "@/lib/event-intel/roles";
+import { effectiveLastHired, monthToDate } from "@/lib/event-intel/last-hired";
 
 /**
  * The roster — add, edit, archive.
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     let q = db
       .from("crew")
-      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, can_lead, travels, archived, notes, is_regular")
+      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, can_lead, travels, archived, notes, is_regular, last_hired_on")
       .eq("user_id", user!.id)
       // Regulars first, then alphabetical. The people Mason works with most
       // should never be scrolled past to reach — and this is the ONE place the
@@ -59,18 +60,36 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     // How many events each person is on — the number that decides whether
-    // removing them is safe, so it travels with the row rather than being
-    // fetched again when someone clicks delete.
+    // removing them is safe — and WHEN the newest one was, which feeds the
+    // effective "last hired". Event dates ride the same query: a second pass
+    // over event_crew for dates would be the same rows fetched twice.
     const { data: links, error: linkErr } = await db
-      .from("event_crew").select("crew_id").eq("user_id", user!.id);
+      .from("event_crew")
+      .select("crew_id, events!inner(event_date, created_at)")
+      .eq("user_id", user!.id);
     if (linkErr) throw linkErr;
     const counts = new Map<string, number>();
-    for (const l of links ?? []) counts.set(l.crew_id, (counts.get(l.crew_id) ?? 0) + 1);
+    const datesByCrew = new Map<string, (string | null)[]>();
+    for (const l of links ?? []) {
+      counts.set(l.crew_id, (counts.get(l.crew_id) ?? 0) + 1);
+      const list = datesByCrew.get(l.crew_id) ?? [];
+      list.push(l.events?.event_date ?? l.events?.created_at ?? null);
+      datesByCrew.set(l.crew_id, list);
+    }
 
     return NextResponse.json({
       crew: (data ?? []).map((c: Record<string, unknown>) => ({
         ...c,
         eventCount: counts.get(c.id as string) ?? 0,
+        /**
+         * The EFFECTIVE last-hired date: the newest of the hand-entered seed
+         * and any linked event. Derived here, every read, so confirming a gig
+         * anywhere updates it with no write anyone has to remember.
+         */
+        lastHired: effectiveLastHired(
+          c.last_hired_on as string | null,
+          datesByCrew.get(c.id as string) ?? []
+        ),
       })),
       kinds: KINDS,
     });
@@ -161,6 +180,15 @@ export async function PATCH(request: NextRequest) {
      * drift into different vocabularies.
      */
     if (b.rehire !== undefined) patch.rehire = cleanRehire(b.rehire);
+    /**
+     * The hand-entered "last hired" SEED (a month, stored as its first day).
+     * Only the seed is written — the effective value shown everywhere is
+     * derived on read as max(seed, newest linked event), so this can only
+     * move the date BACK in the display if no event link contradicts it.
+     */
+    if (b.last_hired_on !== undefined) {
+      patch.last_hired_on = b.last_hired_on === null ? null : monthToDate(b.last_hired_on);
+    }
 
     const { error } = await db.from("crew").update(patch).eq("id", id).eq("user_id", user!.id);
     if (error) throw error;

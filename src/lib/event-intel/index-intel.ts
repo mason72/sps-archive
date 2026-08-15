@@ -21,6 +21,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 import { metroKeys, metroKey, metroLabel } from "./geo";
 import { rehireStanding, type RehireStanding } from "./roles";
+import { effectiveLastHired } from "./last-hired";
 
 type DB = ReturnType<typeof createServiceClient>;
 
@@ -88,6 +89,13 @@ export interface IntelPerson {
   standing: RehireStanding;
   /** The seeded opinion itself, so the editor can show what it is editing. */
   rehireBaseline: string | null;
+  /**
+   * The EFFECTIVE last-hired date (ISO) — max of the hand-entered seed and
+   * their newest linked event, so confirming a gig anywhere updates it. The
+   * seed alone is `lastHiredStored`, which is what the editor edits.
+   */
+  lastHired: string | null;
+  lastHiredStored: string | null;
 }
 
 export interface IntelVenue {
@@ -310,6 +318,8 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       isRegular: !!c.is_regular,
       standing,
       rehireBaseline: c.rehire ?? null,
+      lastHired: effectiveLastHired(c.last_hired_on ?? null, evs.map((e) => e.date)),
+      lastHiredStored: c.last_hired_on ?? null,
     };
   });
 

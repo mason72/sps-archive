@@ -1,0 +1,17 @@
+-- Last hired (2026-08-15). Mason: "I'd like to add another item for any
+-- non-regular (including archived people) for Last Hired In... e.g. Aug 2024
+-- (2 yrs). Ideally auto-filled wherever possible, and it should update any
+-- time they work an event."
+--
+-- This column stores only the HAND-ENTERED seed — the month Mason remembers
+-- for people whose gigs predate Event Intel (49 of 61 crew have no event
+-- links). The EFFECTIVE value is derived at read time as
+-- max(last_hired_on, newest linked event date), which is what makes
+-- "updates any time they work an event" true by construction rather than by a
+-- write someone has to remember: confirming a gig on the create or import
+-- screen IS the update. See src/lib/event-intel/last-hired.ts.
+--
+-- A date, not a text month: stored as the first of the month so it compares
+-- with real event dates. Display formatting (the "(2 yrs)" / "(Recent)"
+-- suffix) is entirely read-side.
+alter table crew add column if not exists last_hired_on date;

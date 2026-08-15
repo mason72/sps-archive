@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "./CrewAvatar";
 import { CrewFacesSection } from "./CrewFacesSection";
+import { formatLastHired } from "@/lib/event-intel/last-hired";
 
 /**
  * The crew's own row on /people — between the wall of fame and everyone else.
@@ -28,6 +29,8 @@ interface CrewRow {
   is_regular: boolean;
   archived: boolean;
   eventCount: number;
+  /** Effective last-hired date (seed vs newest linked event, newest wins). */
+  lastHired: string | null;
 }
 
 /**
@@ -217,6 +220,11 @@ function CrewCardModal({
               {person.city ?? "no location on file"}
               {person.eventCount > 0 &&
                 ` · ${person.eventCount} gig${person.eventCount === 1 ? "" : "s"}`}
+              {/* "How long ago did we work with them" — the question this card
+                  answers for a face you half-remember. Non-regulars only. */}
+              {!person.is_regular && formatLastHired(person.lastHired, new Date()) && (
+                <> · last hired {formatLastHired(person.lastHired, new Date())}</>
+              )}
               {person.archived && " · alumni"}
             </p>
           </div>

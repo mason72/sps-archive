@@ -13,6 +13,7 @@ import type {
 } from "@/lib/event-intel/index-intel";
 import type { RehireStanding } from "@/lib/event-intel/roles";
 import { willTravel } from "@/lib/event-intel/roles";
+import { formatLastHired } from "@/lib/event-intel/last-hired";
 import {
   isMappable,
   mappableMetros,
@@ -1022,6 +1023,39 @@ function CrewEditor({
        * same thing as four rated gigs, and the panel should never let those look
        * alike.
        */}
+      {/**
+       * Last hired — non-regulars only, Mason's ask verbatim: "e.g. Aug 2024
+       * (2 yrs)... it should update any time they work an event."
+       *
+       * The DISPLAY is the effective date (seed vs newest linked event, newest
+       * wins — computed in the index); the INPUT edits only the seed. When a
+       * linked event is already newer than anything you could type, the input
+       * is beside the point, so the row says which source is speaking.
+       */}
+      {!p.isRegular && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-stone-400">Last hired</span>
+          {formatLastHired(p.lastHired, new Date()) ? (
+            <span className="text-[12px] text-stone-700">
+              {formatLastHired(p.lastHired, new Date())}
+              {p.lastHired !== p.lastHiredStored && (
+                <span className="ml-1.5 text-[11px] text-stone-400">from a linked gig</span>
+              )}
+            </span>
+          ) : (
+            <span className="text-[12px] text-stone-300">unknown</span>
+          )}
+          <input
+            type="month"
+            value={(p.lastHiredStored ?? "").slice(0, 7)}
+            disabled={busy}
+            onChange={(e) => void save({ last_hired_on: e.target.value || null })}
+            title="The month you last hired them, for history the gig links don't cover"
+            className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px] text-stone-600 focus:border-stone-400 focus:outline-none"
+          />
+        </div>
+      )}
+
       {!p.isRegular && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-[11px] text-stone-400">

@@ -30,7 +30,7 @@ const p = (
   id, name, fullName: null, email: `${id}@example.com`, kind: "staff",
   homeCity: null, canLead: null, travels: null, archived: false, notes: null,
   eventCount: 0, events: [], roleCounts: {}, inferredRoleCount: 0, cities: [], venueIds: [],
-  orgIds: [], coCrewIds: [], standing: { headline: null, tally: { first_call: 0, solid: 0, last_resort: 0, never: 0 }, total: 0, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null, ...over,
+  orgIds: [], coCrewIds: [], standing: { headline: null, tally: { first_call: 0, solid: 0, last_resort: 0, never: 0 }, total: 0, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null, lastHired: null, lastHiredStored: null, ...over,
 });
 
 const EVENTS = [
