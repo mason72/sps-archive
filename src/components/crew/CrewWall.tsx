@@ -26,10 +26,20 @@ interface CrewRow {
   display_name: string;
   city: string | null;
   is_regular: boolean;
+  archived: boolean;
   eventCount: number;
 }
 
-type Show = "regulars" | "non-regulars" | "all";
+/**
+ * "Alumni" is the archived roster, and it lives here ON PURPOSE. Mason,
+ * 2026-08-15: "Archived are people we don't work with any more for various
+ * reasons, but maybe it's fun to see them." Archiving exists to keep people
+ * OUT of staffing lists — this trophy-room wall is the one surface where the
+ * departed belong. It is its own cut, never folded into "All", so the working
+ * cuts can't quietly resurrect anyone. (The Roster tab says "archived" — same
+ * flag, different room: filing language there, reunion language here.)
+ */
+type Show = "regulars" | "non-regulars" | "all" | "alumni";
 
 export function CrewWall() {
   const [crew, setCrew] = useState<CrewRow[] | null>(null);
@@ -53,7 +63,8 @@ export function CrewWall() {
     let live = true;
     (async () => {
       try {
-        const res = await fetch("/api/crew");
+        // archived=1 returns EVERYONE, flagged — one fetch serves all four cuts.
+        const res = await fetch("/api/crew?archived=1");
         if (!res.ok) return; // 403 = not this account's feature: render nothing
         const j = await res.json();
         if (!live) return;
@@ -69,9 +80,11 @@ export function CrewWall() {
 
   const visible = useMemo(() => {
     if (!crew) return [];
-    if (show === "regulars") return crew.filter((c) => c.is_regular);
-    if (show === "non-regulars") return crew.filter((c) => !c.is_regular);
-    return crew;
+    if (show === "alumni") return crew.filter((c) => c.archived);
+    const active = crew.filter((c) => !c.archived);
+    if (show === "regulars") return active.filter((c) => c.is_regular);
+    if (show === "non-regulars") return active.filter((c) => !c.is_regular);
+    return active;
   }, [crew, show]);
 
   if (!crew?.length) return null;
@@ -85,6 +98,7 @@ export function CrewWall() {
             ["regulars", "Regulars"],
             ["non-regulars", "Non-regulars"],
             ["all", "All"],
+            ["alumni", "Alumni"],
           ] as const).map(([value, label]) => (
             <button
               key={value}
@@ -203,6 +217,7 @@ function CrewCardModal({
               {person.city ?? "no location on file"}
               {person.eventCount > 0 &&
                 ` · ${person.eventCount} gig${person.eventCount === 1 ? "" : "s"}`}
+              {person.archived && " · alumni"}
             </p>
           </div>
           <button
