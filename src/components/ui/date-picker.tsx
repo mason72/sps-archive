@@ -291,3 +291,189 @@ export function DatePicker({
     </div>
   );
 }
+
+/**
+ * MonthPicker — the DatePicker's month-granularity sibling, for facts only as
+ * precise as a month ("last hired Aug 2024").
+ *
+ * Exists because the native `<input type="month">` opens Chrome's stock blue
+ * popup — exactly the off-brand chrome this file was written to replace.
+ * Mason's layout: "put the years as a scrollable list on the right of the
+ * months" — so the panel is two columns, months as a 3×4 grid on the left and
+ * a year rail on the right, newest year first because "when did we last hire
+ * them" looks backward from now. The rail auto-centres on the year in view.
+ *
+ * Same vocabulary as the DatePicker above: Playfair header, stone surfaces,
+ * stone-900 selection, the accent reserved for NOW (this month, this year).
+ *
+ * Value speaks `YYYY-MM`, the native input's dialect, so call sites swap
+ * without touching their state.
+ */
+const MONTH_YEARS_BACK = 20;
+
+export function MonthPicker({
+  value,
+  onChange,
+  placeholder = "Month",
+}: {
+  value: string; // YYYY-MM or ""
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(() =>
+    /^\d{4}-\d{2}$/.test(value) ? Number(value.slice(0, 4)) : new Date().getFullYear()
+  );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const yearRailRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setIsOpen(false);
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", key);
+    };
+  }, [isOpen]);
+
+  // Centre the rail on the year in view when the panel opens.
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = yearRailRef.current?.querySelector<HTMLElement>("[data-current='true']");
+    el?.scrollIntoView({ block: "center" });
+  }, [isOpen, viewYear]);
+
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonthStr = `${thisYear}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const years = Array.from({ length: MONTH_YEARS_BACK + 1 }, (_, i) => thisYear - i);
+  const display = /^\d{4}-\d{2}$/.test(value)
+    ? `${MONTHS[Number(value.slice(5, 7)) - 1].slice(0, 3)} ${value.slice(0, 4)}`
+    : null;
+
+  const pick = (monthIndex: number) => {
+    onChange(`${viewYear}-${String(monthIndex + 1).padStart(2, "0")}`);
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative inline-block">
+      {/* ─── Trigger ─── */}
+      <button
+        type="button"
+        onClick={() => {
+          if (!isOpen && /^\d{4}-\d{2}$/.test(value)) setViewYear(Number(value.slice(0, 4)));
+          setIsOpen((v) => !v);
+        }}
+        className="inline-flex items-center gap-2 rounded-md border border-stone-200 bg-white px-2.5 py-1 text-[12px] transition-colors hover:border-stone-400"
+      >
+        <Calendar className="h-3.5 w-3.5 text-stone-300" />
+        <span className={display ? "text-stone-700" : "text-stone-300"}>
+          {display ?? placeholder}
+        </span>
+      </button>
+
+      {/* ─── Panel ─── */}
+      {isOpen && (
+        <div className="fade-in absolute left-0 top-full z-50 mt-2 w-[264px] select-none border border-stone-200 bg-white shadow-xl">
+          {/* The header reads like a sentence being finished: the year in view,
+              set in the editorial serif, same as the DatePicker's header. */}
+          <div className="border-b border-stone-100 px-4 py-3">
+            <span className="font-editorial text-[16px] text-stone-900">
+              {display ?? "Pick a month"}{" "}
+            </span>
+          </div>
+
+          <div className="flex">
+            {/* Months, 3×4 */}
+            <div className="grid flex-1 grid-cols-3 gap-1 p-3">
+              {MONTHS.map((m, i) => {
+                const monthStr = `${viewYear}-${String(i + 1).padStart(2, "0")}`;
+                const isSelected = monthStr === value;
+                const isThisMonth = monthStr === thisMonthStr;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => pick(i)}
+                    className={cn(
+                      "relative h-9 text-[13px] transition-all duration-150",
+                      !isSelected && "text-stone-700 hover:bg-stone-100",
+                      isSelected && "bg-stone-900 text-white hover:bg-stone-800",
+                      isThisMonth && !isSelected && "font-semibold text-accent"
+                    )}
+                  >
+                    {m.slice(0, 3)}
+                    {isThisMonth && !isSelected && (
+                      <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-accent" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* The year rail — scrollable, newest first, auto-centred. */}
+            <div
+              ref={yearRailRef}
+              className="max-h-[192px] w-[68px] overflow-y-auto border-l border-stone-100 py-1.5"
+            >
+              {years.map((y) => {
+                const isViewed = y === viewYear;
+                const isSelectedYear = value.slice(0, 4) === String(y);
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    data-current={isViewed ? "true" : undefined}
+                    onClick={() => setViewYear(y)}
+                    className={cn(
+                      "block w-full px-2 py-1.5 text-center text-[13px] tabular-nums transition-colors duration-150",
+                      isViewed
+                        ? "bg-stone-900 text-white"
+                        : isSelectedYear
+                          ? "text-stone-900 font-semibold hover:bg-stone-100"
+                          : y === thisYear
+                            ? "font-semibold text-accent hover:bg-stone-100"
+                            : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+                    )}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Footer — same grammar as the DatePicker's Clear / Today. */}
+          <div className="flex items-center justify-between border-t border-stone-100 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => { onChange(""); setIsOpen(false); }}
+              className="text-[11px] uppercase tracking-wide text-stone-400 transition-colors hover:text-stone-700"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewYear(thisYear);
+                onChange(thisMonthStr);
+                setIsOpen(false);
+              }}
+              className="text-[11px] font-medium uppercase tracking-wide text-accent transition-colors hover:text-accent-hover"
+            >
+              This month
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
+import { MonthPicker } from "@/components/ui/date-picker";
 
 /**
  * The roster, editable.
@@ -472,19 +473,16 @@ function EditPerson({
       </select>
       <input value={f.city} placeholder="City / region"
         onChange={(e) => setF({ ...f, city: e.target.value })} className={FIELD} />
-      {/* The SEED month only — a newer linked event outranks it on display,
-          which is why the label says "last hired (if we have no record)". */}
+      {/* The SEED month only — a newer linked event outranks it on display. */}
       {!person.is_regular && (
-        <label className="flex items-center gap-2 text-[12px] text-stone-500 sm:col-span-2">
+        <div className="flex items-center gap-2 text-[12px] text-stone-500 sm:col-span-2">
           Last hired
-          <input
-            type="month"
+          <MonthPicker
             value={f.last_hired_on}
-            onChange={(e) => setF({ ...f, last_hired_on: e.target.value })}
-            className={`${FIELD} w-auto`}
+            onChange={(v) => setF({ ...f, last_hired_on: v })}
           />
           <span className="text-stone-300">linked events update this on their own</span>
-        </label>
+        </div>
       )}
       <div className="sm:col-span-2 flex items-center gap-3">
         <button

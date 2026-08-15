@@ -14,6 +14,7 @@ import type {
 import type { RehireStanding } from "@/lib/event-intel/roles";
 import { willTravel } from "@/lib/event-intel/roles";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
+import { MonthPicker } from "@/components/ui/date-picker";
 import {
   isMappable,
   mappableMetros,
@@ -1045,13 +1046,10 @@ function CrewEditor({
           ) : (
             <span className="text-[12px] text-stone-300">unknown</span>
           )}
-          <input
-            type="month"
+          <MonthPicker
             value={(p.lastHiredStored ?? "").slice(0, 7)}
-            disabled={busy}
-            onChange={(e) => void save({ last_hired_on: e.target.value || null })}
-            title="The month you last hired them, for history the gig links don't cover"
-            className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px] text-stone-600 focus:border-stone-400 focus:outline-none"
+            onChange={(v) => void save({ last_hired_on: v || null })}
+            placeholder="set month"
           />
         </div>
       )}
