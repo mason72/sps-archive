@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/layout/Nav";
-import { AppNavServer } from "@/components/layout/AppNavServer";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
@@ -442,7 +442,7 @@ export default function ImportFromSpsPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
-        <AppNavServer />
+        <AppNav />
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-6xl w-full">

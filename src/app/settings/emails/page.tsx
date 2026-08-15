@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
-import { AppNavServer } from "@/components/layout/AppNavServer";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -169,7 +169,7 @@ export default function EmailSettingsPage() {
     <div className="min-h-screen">
       {/* Nav */}
       <Nav>
-        <AppNavServer />
+        <AppNav />
       </Nav>
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-5xl">

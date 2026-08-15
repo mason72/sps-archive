@@ -21,7 +21,15 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
  */
 
 export interface AppNavProps {
-  /** From the server. Controls whether Ops is offered, never whether it is allowed. */
+  /**
+   * Controls whether Ops is OFFERED, never whether it is allowed — /ops
+   * re-gates server-side on every page.
+   *
+   * Server pages pass it via `AppNavServer`. Client pages cannot read the
+   * session synchronously, so leaving it undefined makes the nav ask once
+   * (see below) rather than silently hiding Ops — which is exactly the bug
+   * that unifying the nav introduced.
+   */
   isAdmin?: boolean;
   current?: "archive" | "search" | "people" | "intel" | "account" | "ops";
 }
@@ -140,8 +148,27 @@ function Item({ href, children }: { href: string; children: React.ReactNode }) {
   );
 }
 
-export function AppNav({ isAdmin = false, current }: AppNavProps) {
+export function AppNav({ isAdmin, current }: AppNavProps) {
   const cls = (k: AppNavProps["current"]) => (current === k ? LINK_ON : LINK);
+
+  /**
+   * When the caller could not tell us (a client page), ask.
+   *
+   * One cheap request, and only when the answer is unknown — a server page
+   * that already passed the flag never fires it. The alternative was defaulting
+   * to false, which is what made Ops disappear from six pages.
+   */
+  const [asked, setAsked] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (isAdmin !== undefined) return;
+    let live = true;
+    fetch("/api/ops/whoami")
+      .then((r) => (r.ok ? r.json() : { isAdmin: false }))
+      .then((j) => { if (live) setAsked(!!j.isAdmin); })
+      .catch(() => { if (live) setAsked(false); });
+    return () => { live = false; };
+  }, [isAdmin]);
+  const showOps = isAdmin ?? asked ?? false;
   return (
     <>
       <Link href="/" className={cls("archive")}>Archive</Link>
@@ -154,7 +181,7 @@ export function AppNav({ isAdmin = false, current }: AppNavProps) {
         <Item href="/events/import">Import from SPS</Item>
       </SplitMenu>
 
-      {isAdmin && <Link href="/ops" className={cls("ops")}>Ops</Link>}
+      {showOps && <Link href="/ops" className={cls("ops")}>Ops</Link>}
 
       <SplitMenu
         label="Account"

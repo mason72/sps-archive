@@ -7,7 +7,7 @@ import { BrandButton } from "@/components/ui/brand-button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 import { Nav } from "@/components/layout/Nav";
-import { AppNavServer } from "@/components/layout/AppNavServer";
+import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
 
 const EVENT_TYPES = [
@@ -113,7 +113,7 @@ export default function NewEventPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
-        <AppNavServer />
+        <AppNav />
       </Nav>
 
       <main className="px-8 md:px-16 pt-16 pb-24 max-w-2xl">
