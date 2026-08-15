@@ -3,7 +3,7 @@ import { getAuthUser } from "@/lib/auth/helpers";
 import { buildPeopleIndex } from "@/lib/people/index-people";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { Nav } from "@/components/layout/Nav";
-import { AppNav } from "@/components/layout/AppNav";
+import { AppNavServer } from "@/components/layout/AppNavServer";
 import { Footer } from "@/components/layout/Footer";
 import { PeopleBoard } from "./PeopleBoard";
 
@@ -65,7 +65,7 @@ export default async function PeoplePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <Nav>
-        <AppNav current="people" />
+        <AppNavServer current="people" />
       </Nav>
 
       <div className="px-8 pb-4 pt-16 md:px-16">

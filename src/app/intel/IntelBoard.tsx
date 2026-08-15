@@ -312,10 +312,13 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           })}
         </nav>
 
+        {/* Hidden on Roster: that tab owns its own search, and two boxes where
+            only one works is worse than none. */}
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
+          hidden={axis === "roster"}
           className="w-full max-w-xs rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
         />
       </div>

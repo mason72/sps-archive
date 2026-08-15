@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { buildIntelIndex } from "@/lib/event-intel/index-intel";
 import { Nav } from "@/components/layout/Nav";
-import { AppNav } from "@/components/layout/AppNav";
+import { AppNavServer } from "@/components/layout/AppNavServer";
 import { Footer } from "@/components/layout/Footer";
 import { IntelBoard } from "./IntelBoard";
 
@@ -35,7 +35,7 @@ export default async function IntelPage() {
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       <Nav>
-        <AppNav current="intel" />
+        <AppNavServer current="intel" />
       </Nav>
       <main className="flex-1 w-full max-w-[1400px] mx-auto px-8 py-12 md:px-16">
         <IntelBoard index={index} />

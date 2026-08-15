@@ -6,7 +6,7 @@ import Link from "next/link";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useColumnCount } from "@/hooks/useColumnCount";
 import { Nav } from "@/components/layout/Nav";
-import { AppNav } from "@/components/layout/AppNav";
+import { AppNavServer } from "@/components/layout/AppNavServer";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { Footer } from "@/components/layout/Footer";
 
@@ -58,7 +58,7 @@ function GlobalSearchInner() {
   return (
     <div className="min-h-screen flex flex-col">
       <Nav>
-        <AppNav current="search" />
+        <AppNavServer current="search" />
       </Nav>
 
       <main className="px-8 md:px-16 pt-16 pb-24">
