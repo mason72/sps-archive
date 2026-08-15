@@ -836,3 +836,70 @@ So: one module, two entry points, sharing the signal set —
 `scoreNameAgainstClient` for the backfill, `scoreTypeahead` for the box. **"Share
 the code" and "share the thresholds" are separate decisions**, and conflating
 them is how a strict path gets quietly relaxed by a lenient caller.
+
+## 82 — If a metric is EVIDENCE, it has to know who is looking (2026-08-15)
+
+Mason asked for a "View" link to the real public gallery, because the app could
+show you a mirror of your gallery and never the thing itself. One line of href.
+
+Except `share_views` is not a vanity counter — `src/lib/events/status.ts` reads
+a view as **delivery evidence**: a gallery counts as *opened* because somebody
+looked at it, not because an email was sent (6 of 15 live galleries were opened
+with no email ever leaving Pixeltrunk). So the photographer clicking their own
+link would have marked an unopened gallery as seen by the client, and nothing
+afterwards could tell the two apart.
+
+**Before adding a path to something instrumented, ask what the instrument is
+used to DECIDE.** A counter that only feeds a dashboard tolerates a stray hit; a
+counter that answers "did the client get this?" does not.
+
+The fix is that the public route now recognises its owner (`getOptionalUserId`)
+and skips both the counter and the log. Note it needed a NEW helper:
+`getAuthUser()` returns a 401 for an anonymous caller, which is correct for an
+owner-only route and fatal for a guest gallery. **"Who is asking?" and "is the
+caller allowed?" are different questions and need different functions.**
+
+Verified by fetching the live gallery as the owner and re-reading the count: 0
+before, 0 after, `last_viewed_at` still null.
+
+## 83 — Verify the premise before HIDING a control (2026-08-15)
+
+Mason: "all regulars can lead and travel, so we only need that chip for
+non-regulars", and "all regulars are photographers so they really don't need to
+have the role pill either."
+
+Both are excellent simplifications and both are assertions about data. Hiding a
+control on a false premise does not fail loudly — it silently mislabels every
+person the premise is wrong about, and the UI no longer offers the means to
+notice. So it was checked first (`scripts/triage/regular-kinds.ts`): 15
+regulars, ALL `kind: photographer`; 46 non-regulars, all stylists. True, so the
+controls went.
+
+**Adding a control on a wrong assumption is visible clutter; removing one is an
+invisible cap on what can ever be recorded.** The asymmetry is the whole point:
+verify before you subtract, and put the resulting implication in ONE function
+(`canLead()` / `willTravel()`) so the day the premise changes has a single site.
+
+Corollary that bit in the same feature: **absence is not a value.** 35 of 61
+active crew have `travels` unset. A radius search reading that as "will not
+travel" would silently drop half the roster — so the resolver treats regular as
+implying travel, and everything else unset stays *unknown*, shown rather than
+filtered.
+
+## 84 — `position: sticky` does nothing when its container is its own height (2026-08-15)
+
+The Intel crew list was `max-h-[70vh] overflow-y-auto` in normal flow, so a tall
+detail panel scrolled it off the top and left dead space. Adding `sticky top-6`
+looked correct, computed as `position: sticky`, and still did not stick.
+
+A sticky element only travels **within its containing block**. The grid parent
+sized itself to its tallest child, and when the selected person had a short
+panel the list WAS the tallest child — so the container was exactly 693px, the
+element was 693px, and there was zero distance to travel. Picking a person with
+12 gigs made the grid 1212px and it pinned at exactly `top: 24px`.
+
+**A sticky element that does not stick is almost never the sticky rule; it is the
+container** — a parent with `overflow: hidden`, or one with no spare height.
+Diagnose by measuring the PARENT's height against the child's, not by re-reading
+the class list. And test the case with a tall sibling, because the short case
+looks broken and is actually correct.

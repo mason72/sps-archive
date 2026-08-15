@@ -34,7 +34,7 @@ must pass before every push.
 | Pixieset migration | `docs/PIXIESET-MIGRATION.md`, `tasks/pixieset-migration.md` | The 1,371-collection move |
 | Event Intel | `tasks/event-intel.md` | Venues, crew, clients, and the `/intel` pivot |
 | SPS pull | `tasks/sps-archive-pull-spec.md` | The wire contract; `tasks/sps-pull-build-plan.md` for build notes |
-| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 81 entries and counting |
+| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 84 entries and counting |
 | Queue | `tasks/todo.md` | What is next and why |
 
 Project memory (`MEMORY.md` in the memory namespace) carries the facts that are
@@ -57,9 +57,18 @@ conventions. It is the other entry point.
   client, matched from three Google Calendars
 - **Gig confirmation on the CREATE screen** (built 2026-08-15) — the event-name
   field is a calendar autocomplete; picking a gig pre-fills name, date, venue,
-  crew and payer and confirms them before the event exists. `GOOGLE_CALENDAR_KEY`
-  is set in Vercel production (Sensitive, so it cannot be read back — verify it
-  by exercising `/api/events/suggest-gig`, not by `vercel env pull`)
+  crew and payer and confirms them before the event exists. Already-claimed gigs
+  are greyed and sunk, never hidden. `GOOGLE_CALENDAR_KEY` is set in Vercel
+  production (Sensitive, so it cannot be read back — verify it by exercising
+  `/api/events/suggest-gig`, not by `vercel env pull`)
+- **The rehire ladder** — `first_call | solid | last_resort | never`, rated on
+  the create card at upload time by the lead who just worked with them. Standing
+  is most-recent-not-average, hidden on the event being rated (anti-anchoring),
+  and a hard no sinks in every picker. `crew.rehire` (migration 060) seeds people
+  with no rated gig. Full model in `tasks/event-intel.md`
+- **Intel crew panel is editable** — stars, regular toggle, name/email/location,
+  discipline, can-lead, travel, and the rating. This is the tool for seeding the
+  61-person roster
 
 ## In flight — pick these up
 
