@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight } from "./PersonSpotlight";
+import { CrewWall } from "@/components/crew/CrewWall";
 
 export interface PersonAppearance {
   eventId: string;
@@ -193,6 +194,9 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
           </div>
         </section>
       )}
+
+      {/* ─── Your crew ─── (self-gating: renders nothing without Event Intel) */}
+      <CrewWall />
 
       {/* ─── Everyone ─── */}
       {rest.length > 0 && (

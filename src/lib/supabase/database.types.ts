@@ -126,6 +126,7 @@ export type Database = {
           notes: string | null
           primary_email: string | null
           region: string | null
+          rehire: string | null
           travels: boolean | null
           updated_at: string
           user_id: string
@@ -144,6 +145,7 @@ export type Database = {
           notes?: string | null
           primary_email?: string | null
           region?: string | null
+          rehire?: string | null
           travels?: boolean | null
           updated_at?: string
           user_id: string
@@ -162,11 +164,115 @@ export type Database = {
           notes?: string | null
           primary_email?: string | null
           region?: string | null
+          rehire?: string | null
           travels?: boolean | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      crew_faces: {
+        Row: {
+          bbox: Json | null
+          created_at: string
+          crew_id: string
+          embedding: string | null
+          face_id: string | null
+          id: string
+          image_id: string | null
+          is_avatar: boolean
+          source: string
+          storage_key: string | null
+          user_id: string
+        }
+        Insert: {
+          bbox?: Json | null
+          created_at?: string
+          crew_id: string
+          embedding?: string | null
+          face_id?: string | null
+          id?: string
+          image_id?: string | null
+          is_avatar?: boolean
+          source?: string
+          storage_key?: string | null
+          user_id: string
+        }
+        Update: {
+          bbox?: Json | null
+          created_at?: string
+          crew_id?: string
+          embedding?: string | null
+          face_id?: string | null
+          id?: string
+          image_id?: string | null
+          is_avatar?: boolean
+          source?: string
+          storage_key?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crew_faces_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crew_faces_face_id_fkey"
+            columns: ["face_id"]
+            isOneToOne: false
+            referencedRelation: "faces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crew_faces_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      crew_persons: {
+        Row: {
+          confirmed_by: string
+          created_at: string
+          crew_id: string
+          person_id: string
+          user_id: string
+        }
+        Insert: {
+          confirmed_by?: string
+          created_at?: string
+          crew_id: string
+          person_id: string
+          user_id: string
+        }
+        Update: {
+          confirmed_by?: string
+          created_at?: string
+          crew_id?: string
+          person_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crew_persons_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crew_persons_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       crew_roles: {
         Row: {

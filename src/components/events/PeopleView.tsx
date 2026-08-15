@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { CrewLinkAction } from "@/components/crew/CrewLinkAction";
 import { ArrowRight, Users, X } from "lucide-react";
 
 /** Fixed-overlay modals must not let the page scroll behind them. */
@@ -964,6 +965,10 @@ export function PersonModal({
                     split…
                   </button>
                 )}
+                {/* Renders nothing without Event Intel — the roster is crew
+                    data, and for every other account this action does not
+                    exist. */}
+                <CrewLinkAction personId={personId} />
               </h2>
             )}
             <p className="text-[13px] text-stone-500 mt-1">

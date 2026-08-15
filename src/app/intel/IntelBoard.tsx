@@ -19,6 +19,8 @@ import {
   metroDistance,
   metroLabel,
 } from "@/lib/event-intel/geo";
+import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
+import { CrewFacesSection } from "@/components/crew/CrewFacesSection";
 
 /**
  * The pivot, as a UI.
@@ -263,6 +265,27 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
    */
   const [near, setNear] = useState("");
   const [reach, setReach] = useState<"drivable" | "short flight" | "any">("any");
+
+  /**
+   * One avatar per crew member, fetched ONCE for the whole board.
+   *
+   * A face beside every name is the point of crew faces — "wherever their
+   * names show up" — and 61 circles must not be 61 requests. `avatarBump`
+   * refetches after the panel changes a reference, so the list circle never
+   * disagrees with the panel that just edited it.
+   */
+  const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
+  const [avatarBump, setAvatarBump] = useState(0);
+  useEffect(() => {
+    if (!index.people.length) return;
+    let live = true;
+    const ids = index.people.map((p) => p.id).join(",");
+    fetch(`/api/crew/avatars?ids=${ids}`)
+      .then((r) => (r.ok ? r.json() : { avatars: {} }))
+      .then((j) => { if (live) setAvatars(j.avatars ?? {}); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [index.people, avatarBump]);
 
   const personById = useMemo(() => new Map(index.people.map((p) => [p.id, p])), [index.people]);
   const venueById = useMemo(() => new Map(index.venues.map((v) => [v.id, v])), [index.venues]);
@@ -624,6 +647,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                         key={r.id}
                         r={r}
                         active={r.id === currentId}
+                        leading={<CrewAvatar face={avatars[r.id]} name={r.primary} size={30} />}
                         onClick={() =>
                           setSelected((s) => ({
                             ...s,
@@ -645,6 +669,11 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                   key={r.id}
                   r={r}
                   active={r.id === currentId}
+                  leading={
+                    axis === "people" ? (
+                      <CrewAvatar face={avatars[r.id]} name={r.primary} size={30} />
+                    ) : undefined
+                  }
                   onClick={() =>
                     setSelected((s) => ({ ...s, [axis]: r.id === currentId ? null : r.id }))
                   }
@@ -666,7 +695,15 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
               </p>
             </div>
           ) : axis === "people" ? (
-            <PersonPanel p={personById.get(currentId)!} venueById={venueById} orgById={orgById} personById={personById} jump={jump} />
+            <PersonPanel
+              p={personById.get(currentId)!}
+              venueById={venueById}
+              orgById={orgById}
+              personById={personById}
+              jump={jump}
+              avatar={avatars[currentId] ?? null}
+              onAvatarChange={() => setAvatarBump((b) => b + 1)}
+            />
           ) : axis === "venues" ? (
             <VenuePanel v={venueById.get(currentId)!} personById={personById} orgById={orgById} jump={jump} />
           ) : axis === "cities" ? (
@@ -692,23 +729,27 @@ function ListRow({
   r,
   active,
   onClick,
+  leading,
 }: {
   r: { id: string; primary: string; secondary?: string; count: number; star?: boolean };
   active: boolean;
   onClick: () => void;
+  /** The crew list's avatar circle; other axes pass nothing. */
+  leading?: React.ReactNode;
 }) {
   return (
     <li>
       <button
         type="button"
         onClick={onClick}
-        className={`flex w-full items-baseline justify-between gap-3 border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors duration-200 ${
+        className={`flex w-full ${leading ? "items-center" : "items-baseline"} justify-between gap-3 border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors duration-200 ${
           active
             ? "border-emerald-500 bg-white"
             : "border-transparent hover:border-stone-300 hover:bg-white"
         }`}
       >
-        <span className="min-w-0">
+        {leading}
+        <span className="min-w-0 flex-1">
           <span className="block truncate text-[14px] text-stone-800">
             {r.star && (
               <span className="mr-1.5 text-accent" title="A regular">★</span>
@@ -808,7 +849,7 @@ function InlineEdit({
 /* ── Panels ───────────────────────────────────────────────────────────────── */
 
 function PanelHead({
-  title, sub, action,
+  title, sub, action, portrait,
 }: {
   title: React.ReactNode;
   sub?: React.ReactNode;
@@ -820,12 +861,17 @@ function PanelHead({
    * which are a different kind of thing, and read as if it edited those.
    */
   action?: React.ReactNode;
+  /** The face beside the name — crew panels pass their avatar here. */
+  portrait?: React.ReactNode;
 }) {
   return (
     <header className="flex items-start justify-between gap-4 pb-5">
-      <div className="min-w-0">
-        <h2 className="font-editorial text-[30px] leading-tight text-stone-900">{title}</h2>
-        {sub && <p className="mt-1.5 text-[13px] text-stone-500">{sub}</p>}
+      <div className="flex min-w-0 items-center gap-4">
+        {portrait}
+        <div className="min-w-0">
+          <h2 className="font-editorial text-[30px] leading-tight text-stone-900">{title}</h2>
+          {sub && <p className="mt-1.5 text-[13px] text-stone-500">{sub}</p>}
+        </div>
       </div>
       {action && <div className="shrink-0 pt-2">{action}</div>}
     </header>
@@ -1112,13 +1158,15 @@ function SegChoice({
 }
 
 function PersonPanel({
-  p, venueById, orgById, personById, jump,
+  p, venueById, orgById, personById, jump, avatar, onAvatarChange,
 }: {
   p: IntelPerson;
   venueById: Map<string, IntelVenue>;
   orgById: Map<string, IntelOrg>;
   personById: Map<string, IntelPerson>;
   jump: (a: Axis, id: string) => void;
+  avatar: CrewAvatarFace | null;
+  onAvatarChange: () => void;
 }) {
   const roles = Object.entries(p.roleCounts).sort((a, b) => b[1] - a[1]);
   // Held here so the toggle can sit in the header — beside the name, email and
@@ -1128,6 +1176,7 @@ function PersonPanel({
   return (
     <div>
       <PanelHead
+        portrait={<CrewAvatar face={avatar} name={p.name} size={56} />}
         title={
           <>
             {p.name}
@@ -1158,6 +1207,13 @@ function PersonPanel({
       <Rule />
 
       <CrewEditor p={p} open={editing} setOpen={setEditing} />
+
+      {/* Faces first: for 49 of 61 crew there are no gigs to list below, and
+          this is the section with something to DO — seed a photo, then let the
+          archive search take over. */}
+      <Section title="Faces">
+        <CrewFacesSection crewId={p.id} crewName={p.name} onAvatarChange={onAvatarChange} />
+      </Section>
 
       <Section title={`${p.eventCount} ${p.eventCount === 1 ? "gig" : "gigs"}`}>
         {p.events.length === 0 ? (
