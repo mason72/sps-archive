@@ -172,6 +172,12 @@ export async function PATCH(
     const body = (await request.json()) as {
       crewId?: string;
       addCrewId?: string;
+      /** Attach an existing venue, or `null` to detach. */
+      venueId?: string | null;
+      /** Create a venue and attach it in one step. */
+      newVenue?: { name?: string; address?: string; city?: string };
+      /** Edit the venue already attached. */
+      venuePatch?: { name?: string; address?: string; city?: string; notes?: string };
       remove?: boolean;
       roles?: string[];
       confirmedRoles?: string[];
@@ -179,6 +185,60 @@ export async function PATCH(
       note?: string | null;
       eventNotes?: string;
     };
+
+    /**
+     * Venue, from the event page.
+     *
+     * 10 of 17 venues are named by their street address, because the calendar
+     * gave no venue name. The place that gets noticed is the event you are
+     * looking at, so naming one has to be possible from here rather than only
+     * on /intel.
+     */
+    if (body.newVenue?.name?.trim()) {
+      const { data: v, error: vErr } = await db.from("venues").insert({
+        user_id: user!.id,
+        name: body.newVenue.name.trim(),
+        address: body.newVenue.address?.trim() || null,
+        city: body.newVenue.city?.trim() || null,
+      }).select("id").single();
+      if (vErr) {
+        if (String(vErr.code) === "23505") {
+          return NextResponse.json({ error: "You already have a venue with that name" }, { status: 409 });
+        }
+        throw vErr;
+      }
+      // The intel row may not exist yet — upsert rather than assume.
+      const { error } = await db.from("event_intel").upsert(
+        { event_id: eventId, user_id: user!.id, venue_id: v.id, updated_at: new Date().toISOString() },
+        { onConflict: "event_id" }
+      );
+      if (error) throw error;
+      return NextResponse.json({ ok: true, venueId: v.id });
+    }
+
+    if (body.venuePatch) {
+      const { data: intel, error: iErr } = await db
+        .from("event_intel").select("venue_id").eq("event_id", eventId).eq("user_id", user!.id).maybeSingle();
+      if (iErr) throw iErr;
+      if (!intel?.venue_id) return NextResponse.json({ error: "No venue attached" }, { status: 400 });
+
+      const vp: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof body.venuePatch.name === "string" && body.venuePatch.name.trim()) vp.name = body.venuePatch.name.trim();
+      if (typeof body.venuePatch.address === "string") vp.address = body.venuePatch.address.trim() || null;
+      if (typeof body.venuePatch.city === "string") vp.city = body.venuePatch.city.trim() || null;
+      if (typeof body.venuePatch.notes === "string") vp.notes = body.venuePatch.notes.trim() || null;
+
+      // Scoped to the owner: the venue id came from our own row, but a PATCH
+      // body is still input.
+      const { error } = await db.from("venues").update(vp).eq("id", intel.venue_id).eq("user_id", user!.id);
+      if (error) {
+        if (String(error.code) === "23505") {
+          return NextResponse.json({ error: "Another venue already has that name" }, { status: 409 });
+        }
+        throw error;
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     if (typeof body.eventNotes === "string") {
       const { error } = await db.from("event_intel").upsert(

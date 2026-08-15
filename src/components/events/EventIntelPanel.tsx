@@ -52,6 +52,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
   const [data, setData] = useState<IntelPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [venueEdit, setVenueEdit] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +128,9 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
   }
   if (!data) return <div className="px-8 py-16 text-[13px] text-stone-400">Loading intel…</div>;
 
+  /** A leading digit means the "name" is really the street address. */
+  const venueUnnamed = /^\d/.test((data.venue?.name ?? "").trim());
+
   const unconfirmed = data.crew.filter((c) =>
     c.roles.some((r) => !c.confirmedRoles.includes(r))
   ).length;
@@ -153,14 +157,47 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
 
       {/* ── Venue ─────────────────────────────────────────────────────────── */}
       <section className="mt-8">
-        <span className={META}>Venue</span>
+        <div className="flex items-baseline justify-between">
+          <span className={META}>Venue</span>
+          <button
+            onClick={() => setVenueEdit((x) => !x)}
+            className="text-[12px] text-stone-500 underline underline-offset-4 hover:text-stone-800"
+          >
+            {venueEdit ? "Cancel" : data.venue ? (venueUnnamed ? "Add a name" : "Edit") : "Add a venue"}
+          </button>
+        </div>
+
         <div className="mt-3">
-          {data.venue ? (
+          {venueEdit ? (
+            <VenueEditor
+              venue={data.venue}
+              onSave={async (v) => {
+                // An attached venue is PATCHed; a missing one is created and
+                // attached in the same call, so naming a room is one action.
+                const body = data.venue ? { venuePatch: v } : { newVenue: v };
+                await save(body, (d) => ({
+                  ...d,
+                  venue: {
+                    id: d.venue?.id ?? "pending",
+                    name: v.name, address: v.address || null, city: v.city || null,
+                    region: d.venue?.region ?? null, notes: d.venue?.notes ?? null,
+                  },
+                }));
+                setVenueEdit(false);
+              }}
+              onCancel={() => setVenueEdit(false)}
+            />
+          ) : data.venue ? (
             <>
               <p className="text-[15px] text-stone-900">{data.venue.name}</p>
               {(data.venue.address || data.venue.city) && (
                 <p className="mt-0.5 text-[13px] text-stone-500">
                   {[data.venue.address, data.venue.city, data.venue.region].filter(Boolean).join(", ")}
+                </p>
+              )}
+              {venueUnnamed && (
+                <p className="mt-1 text-[12px] text-stone-400">
+                  No venue name yet — the calendar only gave an address.
                 </p>
               )}
               {data.venue.notes && (
@@ -603,6 +640,82 @@ function CrewPicker({
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[11px] text-stone-300">↑↓ to move · Enter to choose · Esc to close</span>
         <button onClick={onCancel} className="text-[12px] text-stone-500 hover:text-stone-800">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Name a venue, or fix the one that is there.
+ *
+ * Most venues arrived NAMED BY THEIR STREET ADDRESS — the calendar's location
+ * was a bare address and the parser rightly refused to invent a venue name from
+ * one. Finishing that list is human work, and the moment it gets noticed is
+ * while looking at the gig, so it belongs here and not only on /intel.
+ */
+function VenueEditor({
+  venue, onSave, onCancel,
+}: {
+  venue: { name: string; address: string | null; city: string | null } | null;
+  onSave: (v: { name: string; address: string; city: string }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  // A venue named by its address starts BLANK rather than prefilled with that
+  // address — prefilling invites "save" on the very string being replaced.
+  const looksLikeAddress = /^\d/.test((venue?.name ?? "").trim());
+  const [v, setV] = useState({
+    name: venue && !looksLikeAddress ? venue.name : "",
+    address: venue?.address ?? (looksLikeAddress ? venue?.name ?? "" : ""),
+    city: venue?.city ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!v.name.trim()) return;
+    setSaving(true);
+    await onSave({ name: v.name.trim(), address: v.address.trim(), city: v.city.trim() });
+    setSaving(false);
+  };
+
+  return (
+    <div className="rounded-md border border-stone-200 bg-white p-3">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <input
+          autoFocus
+          value={v.name}
+          onChange={(e) => setV({ ...v, name: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") onCancel(); }}
+          placeholder="Venue name"
+          className="w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+        />
+        <input
+          value={v.address}
+          onChange={(e) => setV({ ...v, address: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") onCancel(); }}
+          placeholder="Address"
+          className="w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+        />
+        <input
+          value={v.city}
+          onChange={(e) => setV({ ...v, city: e.target.value })}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") onCancel(); }}
+          placeholder="City"
+          className="w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+        />
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={() => void submit()}
+          disabled={saving || !v.name.trim()}
+          className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white disabled:opacity-40"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={onCancel} className="text-[12px] text-stone-500 hover:text-stone-800">Cancel</button>
+        <span className="text-[11px] text-stone-300">
+          The city here is what groups this gig on the Cities view.
+        </span>
       </div>
     </div>
   );
