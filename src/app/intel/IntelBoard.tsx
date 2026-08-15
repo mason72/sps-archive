@@ -397,7 +397,20 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         </div>
       ) : (
       <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(260px,340px)_1fr]">
-        <div className="max-h-[70vh] overflow-y-auto pr-1">
+        {/**
+         * The list STICKS beside the panel instead of scrolling away with it.
+         *
+         * Mason, 2026-08-15: "the crew list on the left doesn't go down the
+         * whole page, so when I scrolled down on the right side, the list ended
+         * prematurely." It was a fixed 70vh box in normal flow, so a tall
+         * detail panel scrolled the list off the top and left dead space where
+         * it used to be — in a master-detail view, the master should still be
+         * there when you look back at it.
+         *
+         * Sticky from `lg` only: below that the columns stack, and a pinned
+         * list would sit on top of the detail you just tapped through to.
+         */}
+        <div className="pr-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-4rem)] lg:self-start lg:overflow-y-auto">
           {rows.length === 0 ? (
             <Blank>Nothing matches “{query}”.</Blank>
           ) : (

@@ -683,11 +683,44 @@ someone working three markets who should carry SEVERAL bases, not one. So:
 lat/lng table of ~40 metros. No API, no per-lookup cost — the same trade `geo.ts`
 already makes because geography does not move.
 
+### The roster editor — seeding the list from the Crew panel
+
+Built 2026-08-15. Editing lives in the panel you are already investigating,
+because nobody looking at a person wants to go elsewhere to correct them.
+
+**A regular is asked almost nothing.** Mason: "all regulars can lead and travel"
+and "all regulars are photographers ... so they really don't need the role pill
+either, just whether or not they led an event." **Verified before hiding any
+control** — hiding one on a false premise silently mislabels people — and it
+holds: 15 regulars, ALL `kind: photographer`; 46 non-regulars, all stylists
+(`scripts/triage/regular-kinds.ts`). So a regular shows one control, the star,
+and the rest is STATED as implied rather than left blank, since blank reads as
+"not recorded" rather than "not a question".
+
+`canLead()` and `willTravel()` in `roles.ts` are the one home for that
+implication. This matters most for the radius search: **35 of 61 active crew
+have `travels` unset**, so reading absence as "will not travel" would silently
+drop half the roster.
+
+**A person-level rehire baseline** (`crew.rehire`, migration 060) exists because
+most of the roster has no gig to attach a real rating to — 89 crew against 40
+links — and "seed the current list" is a standing opinion about a person, not a
+judgement about a gig. `rehireStanding()` makes a real per-gig rating always
+outrank it, and a seeded value renders italic and says so, so it never looks
+earned.
+
+**Stars are in the list**, not only the panel: scanning 61 people for your own
+team is the common case, and a badge you must open something to see does not
+help with that.
+
+**Colour split.** Brand emerald marks a FACT about a person (discipline, can
+lead, travels, regular). The rehire ladder keeps the severity ramp — "never
+again" in the brand's green would be absurd, and severity is kept separate from
+the accent everywhere in this app.
+
 ### Still not built
 
 - **The SPS import flow (`/events/import`) has no crew card.** It mints events
   too, so it has the identical gap. It should share `CreateGigConfirm`, not grow
   its own.
-- **The standing is not yet rendered on `/intel`.** The API returns it
-  (`rehireStanding` per person, gated); the board does not show it.
-- The radius filter above.
+- The radius filter above, and the `crew.home_metros[]` groundwork it needs.
