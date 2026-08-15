@@ -17,8 +17,24 @@ import { reportSystemError } from "@/lib/monitoring/report";
  * it on the event page, which is where it belongs.
  */
 
-/** The role vocabulary. Free text yields Photographer / photographer / Photog. */
-const KNOWN_ROLES = ["lead", "photographer", "digital tech", "assistant", "stylist", "makeup artist"];
+/**
+ * Two independent questions, not one list.
+ *
+ * Mason, 2026-08-15: "we may want to eliminate Digital Tech. Very rarely we
+ * hire someone just to be a digital tech but 99% of the time the
+ * photographer/digital tech role is shared and the main difference is that
+ * stylists never do the shooting or computer work... lead is more of an on/off
+ * thing while photographer, stylist, MUA is 'select one of these'."
+ *
+ * So `lead` is a FLAG and the discipline is a CHOICE. Modelling all of them as
+ * one free multi-select — which is what I built first — let someone be marked
+ * stylist AND photographer, which his operation says cannot happen.
+ *
+ * "digital tech" is gone because it never named a person, only a shift: the
+ * pair trade off across the day and both do both.
+ */
+const DISCIPLINES = ["photographer", "stylist", "makeup artist"];
+const KNOWN_ROLES = ["lead", ...DISCIPLINES];
 
 interface EventCrewRow {
   crew_id: string;
@@ -281,8 +297,15 @@ export async function PATCH(
     if (body.roles) {
       // Vocabulary only — free text is how a pivot silently splits into
       // Photographer / photographer / Photog.
-      const clean = [...new Set(body.roles.map((r) => String(r).toLowerCase().trim()))]
+      const asked = [...new Set(body.roles.map((r) => String(r).toLowerCase().trim()))]
         .filter((r) => KNOWN_ROLES.includes(r));
+      // At most ONE discipline survives — the flag and the choice are separate
+      // questions and the storage has to enforce that, not just the UI.
+      const disciplines = asked.filter((r) => DISCIPLINES.includes(r));
+      const clean = [
+        ...(asked.includes("lead") ? ["lead"] : []),
+        ...(disciplines.length ? [disciplines[disciplines.length - 1]] : []),
+      ];
       patch.roles = clean;
 
       /**

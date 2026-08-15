@@ -383,18 +383,32 @@ function CrewLine({
    *   dashed   a guess             → click CONFIRMS it (stays, becomes solid)
    *   solid    yours               → click removes it
    */
+  const DISCIPLINES = ["photographer", "stylist", "makeup artist"];
+
   const toggle = (role: string) => {
     const on = crew.roles.includes(role);
     const confirmed = crew.confirmedRoles.includes(role);
-    if (!on) {
-      onRoles([...crew.roles, role], [...crew.confirmedRoles, role]);
-    } else if (!confirmed) {
+
+    // A guess confirms on first click, whichever control it is — dashed means
+    // "not yet yours", so clicking it has to mean yes rather than delete.
+    if (on && !confirmed) {
       onRoles(crew.roles, [...crew.confirmedRoles, role]);
-    } else {
+      return;
+    }
+    if (role === "lead") {
       onRoles(
-        crew.roles.filter((r) => r !== role),
-        crew.confirmedRoles.filter((r) => r !== role)
+        on ? crew.roles.filter((r) => r !== "lead") : [...crew.roles, "lead"],
+        on ? crew.confirmedRoles.filter((r) => r !== "lead") : [...crew.confirmedRoles, "lead"]
       );
+      return;
+    }
+    // Picking a discipline REPLACES the current one; clicking the active one clears it.
+    const keptLead = crew.roles.filter((r) => r === "lead");
+    const keptLeadConfirmed = crew.confirmedRoles.filter((r) => r === "lead");
+    if (on) {
+      onRoles(keptLead, keptLeadConfirmed);
+    } else {
+      onRoles([...keptLead, role], [...keptLeadConfirmed, role]);
     }
   };
 
@@ -423,33 +437,58 @@ function CrewLine({
         </button>
       </div>
 
-      {/* Roles. Clicking any chip is what turns a guess into a decision. */}
-      <div className="mt-2.5 flex flex-wrap gap-1.5">
-        {knownRoles.map((role) => {
-          const on = crew.roles.includes(role);
-          const confirmed = crew.confirmedRoles.includes(role);
-          const state = !on ? "off" : confirmed ? "yours" : "guess";
-          return (
-            <button
-              key={role}
-              onClick={() => toggle(role)}
-              className={`rounded-full px-2.5 py-1 text-[12px] transition-colors duration-150 ${
-                state === "yours"
-                  ? "border border-stone-800 bg-stone-900 text-white"
-                  : state === "guess"
-                    ? "border border-dashed border-stone-400 bg-white text-stone-600 hover:border-stone-800 hover:text-stone-900"
-                    : "border border-stone-200 bg-white text-stone-400 hover:border-stone-400 hover:text-stone-700"
-              }`}
-              title={
-                state === "guess" ? "Guessed from the calendar — click to confirm"
-                : state === "yours" ? "Click to remove"
-                : "Click to add"
-              }
-            >
-              {role}
-            </button>
-          );
-        })}
+      {/*
+        Two controls, because they are two questions.
+        Lead is a flag anyone can carry; the discipline is one of three. A single
+        multi-select let someone be stylist AND photographer, which does not
+        happen on a real gig.
+      */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => toggle("lead")}
+          aria-pressed={crew.roles.includes("lead")}
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+            crew.roles.includes("lead")
+              ? crew.confirmedRoles.includes("lead")
+                ? "border border-stone-800 bg-stone-900 text-white"
+                : "border border-dashed border-stone-400 bg-white text-stone-600"
+              : "border border-stone-200 bg-white text-stone-400 hover:border-stone-400 hover:text-stone-700"
+          }`}
+          title={
+            !crew.roles.includes("lead") ? "Mark as lead"
+            : crew.confirmedRoles.includes("lead") ? "Lead — click to unset"
+            : "Guessed — click to confirm"
+          }
+        >
+          lead
+        </button>
+
+        <span className="inline-flex overflow-hidden rounded-full border border-stone-200">
+          {knownRoles.filter((r) => r !== "lead").map((role, i) => {
+            const on = crew.roles.includes(role);
+            const confirmed = crew.confirmedRoles.includes(role);
+            return (
+              <button
+                key={role}
+                onClick={() => toggle(role)}
+                className={`px-2.5 py-1 text-[12px] transition-colors ${i > 0 ? "border-l border-stone-200" : ""} ${
+                  on
+                    ? confirmed
+                      ? "bg-stone-900 text-white"
+                      : "bg-stone-100 text-stone-700 italic"
+                    : "bg-white text-stone-400 hover:bg-stone-50 hover:text-stone-700"
+                }`}
+                title={
+                  on && !confirmed ? "Guessed — click to confirm"
+                  : on ? "Click to clear"
+                  : `Set as ${role}`
+                }
+              >
+                {role === "makeup artist" ? "MUA" : role}
+              </button>
+            );
+          })}
+        </span>
       </div>
 
       {isTemp && (
