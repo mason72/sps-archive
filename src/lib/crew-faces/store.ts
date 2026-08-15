@@ -215,9 +215,18 @@ export async function addTaggedFace(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   // The face id arrives from a request body: prove it sits in this user's own
   // archive before anything is written.
+  //
+  // The events embed is HINTED (`!images_event_id_fkey`) because images and
+  // events are related twice — images.event_id up, events.cover_image_id back —
+  // and PostgREST refuses an ambiguous path outright: "more than one
+  // relationship was found". Found live, not in review, because the identical
+  // unhinted embed works fine on tables with a single relationship, and the
+  // failure was hiding inside a best-effort catch.
   const { data: face, error: fErr } = await db
     .from("faces")
-    .select("id, image_id, bbox_x, bbox_y, bbox_w, bbox_h, embedding, images!inner(id, events!inner(user_id))")
+    .select(
+      "id, image_id, bbox_x, bbox_y, bbox_w, bbox_h, embedding, images!inner(id, events!images_event_id_fkey!inner(user_id))"
+    )
     .eq("id", faceId)
     .eq("images.events.user_id", userId)
     .maybeSingle();

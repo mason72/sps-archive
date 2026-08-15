@@ -177,14 +177,25 @@ export async function confirmCrewPerson(
 
   if (person.representative_face_id) {
     const { addTaggedFace } = await import("./store");
-    // Best-effort enrichment — the link is the decision; a failed snapshot
-    // must not undo it.
-    await addTaggedFace(db, {
+    // Non-fatal — the link is the decision and a failed snapshot must not undo
+    // it — but REPORTED, never swallowed. A bare .catch(() => {}) here hid a
+    // PostgREST ambiguous-embed error on the very first live confirmation: the
+    // toast said tagged, the panel said no photos, and nothing anywhere said
+    // why.
+    const enriched = await addTaggedFace(db, {
       userId,
       crewId,
       faceId: person.representative_face_id,
       source: "confirmed-suggestion",
-    }).catch(() => {});
+    }).catch((err) => ({ ok: false as const, error: String(err) }));
+    if (!enriched.ok) {
+      const { reportSystemError } = await import("@/lib/monitoring/report");
+      await reportSystemError(
+        "crew.confirm.enrich",
+        new Error(enriched.error),
+        { crewId, personId }
+      );
+    }
   }
   return { ok: true };
 }
