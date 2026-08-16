@@ -473,8 +473,60 @@ export function UploadZone({
 
   const retryAllFailed = useCallback(async () => {
     const errors = allRows.filter((f) => f.status === "error");
-    for (const row of errors) await retryRow(row);
-  }, [allRows, retryRow]);
+    /**
+     * Grouped, not looped. This used to `await retryRow(row)` one at a time,
+     * which minted a one-file batch (its own presign POST, its own duplicate
+     * check) per failure — retrying 50 files meant 100+ requests fired into
+     * the very congestion that failed them. Now: finalize-needed rows retry
+     * their confirm call individually (that IS a single request), and
+     * everything else re-enters as ONE batch per original section, exactly as
+     * if the files had been dropped again.
+     */
+    const finalize = errors.filter((r) => r.finalizeNeeded && r.imageId && r.batchId);
+    for (const row of finalize) await retryFinalize(row.batchId, row);
+
+    const rest = errors.filter((r) => !(r.finalizeNeeded && r.imageId && r.batchId));
+    if (rest.length === 0) return;
+    // Clear leftover rows in one call — best-effort, same as single retry.
+    const staleIds = rest.map((r) => r.imageId).filter(Boolean) as string[];
+    if (staleIds.length) {
+      try {
+        await fetch("/api/images/batch", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageIds: staleIds }),
+        });
+      } catch {
+        /* non-critical */
+      }
+    }
+    const bySection = new Map<string, Row[]>();
+    for (const r of rest) {
+      const key = r.batchId || "detached";
+      (bySection.get(key) ?? bySection.set(key, []).get(key)!).push(r);
+    }
+    for (const [batchId, rows] of bySection) {
+      const batch = myBatches.find((b) => b.id === batchId);
+      for (const r of rows) dropRow(r);
+      void startBatch({
+        eventId,
+        eventName: batch?.eventName ?? eventName ?? null,
+        sectionId: batch?.sectionId ?? sectionId ?? null,
+        sectionName: batch?.sectionName ?? sectionName ?? null,
+        files: rows.map((r) => r.file),
+      });
+    }
+  }, [
+    allRows,
+    retryFinalize,
+    myBatches,
+    dropRow,
+    startBatch,
+    eventId,
+    eventName,
+    sectionId,
+    sectionName,
+  ]);
 
   const dismissErrors = useCallback(() => {
     // `rejected` holds the incompatible files, which live outside any batch.
@@ -764,13 +816,22 @@ export function UploadZone({
               </div>
             )}
             <div className="flex items-center gap-4 shrink-0">
-              {!isUploading && errorCount > 0 && (
+              {/**
+               * Available DURING the upload — the same lesson as Dismiss,
+               * missed on the very next control (Mason: "Why no retry all
+               * button? I hit retry on like all 50 errors"). On a continuous
+               * drop queue, "not uploading" is a state that never arrives;
+               * gating any bulk action on it means the action does not exist.
+               * Retrying mid-run is safe: each retry is just a new one-file
+               * batch at the back of the queue.
+               */}
+              {errorCount > 0 && (
                 <button
                   onClick={retryAllFailed}
                   className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 transition-colors duration-300"
                 >
                   <RotateCcw className="h-3 w-3" />
-                  Retry {errorCount}
+                  Retry {errorCount} failed
                 </button>
               )}
               {isUploading && (

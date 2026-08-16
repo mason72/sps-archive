@@ -51,6 +51,17 @@ const MAX_CONCURRENT_UPLOADS = 6;
  */
 const PATCH_FLUSH_MS = 100;
 const R2_PUT_RETRIES = 2;
+/**
+ * Network-failed tasks go to the BACK OF THE QUEUE this many times before the
+ * file is marked failed. The in-place retry loop above spans only ~7 seconds
+ * (1s/2s/4s backoff), which is SHORTER than the congestion burst that caused
+ * the failure — Safari sheds a few requests under sustained upload load, and
+ * all three attempts land inside the same weather. Requeueing spreads the next
+ * try across the natural drain of the queue (minutes on a big drop), which is
+ * the correct backoff scale. 46 of Mason's 370 were failing terminally on
+ * hiccups the very next pass would have absorbed (2026-08-16).
+ */
+const MAX_REQUEUES = 2;
 const R2_RETRY_BASE_MS = 1000;
 const R2_PUT_TIMEOUT_MS = 120_000;
 const MIN_UPLOAD_BYTES_PER_SEC = 250 * 1024;
@@ -136,6 +147,9 @@ interface UploadTask {
   file: File;
   imageId: string;
   uploadUrl: string;
+  /** How many times this task has been sent to the back of the queue after a
+      network-layer failure. Terminal only past MAX_REQUEUES. */
+  requeues?: number;
 }
 
 export type UploadEvent =
@@ -671,6 +685,28 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
 
       if (!ok) {
         if (isAborted()) return cancelTask(task);
+        /**
+         * A NETWORK failure goes to the back of the queue, not to the
+         * graveyard. The in-place retries above span ~7s — inside the same
+         * congestion burst that dropped the request in the first place. By the
+         * time the queue comes back around (minutes, on a real drop), the
+         * weather has changed. The row and presigned URL stay valid (1h), the
+         * bytes snapshot is re-read cheaply, and the file simply rides again.
+         * Only a task that has been around MAX_REQUEUES times fails for real.
+         * Server ANSWERS (4xx/5xx) skip this — re-asking is not a retry, and
+         * the 404 fast-fail above already broke out with its own message.
+         */
+        if (lastErr instanceof TypeError && (task.requeues ?? 0) < MAX_REQUEUES) {
+          updateFile(task.batchId, task.fileId, {
+            status: "pending",
+            progress: 0,
+          });
+          const q = queues.current.get(task.batchId);
+          if (q && !aborted.current.has(task.batchId)) {
+            q.push({ ...task, requeues: (task.requeues ?? 0) + 1 });
+            return;
+          }
+        }
         const list = failedFiles.current.get(task.batchId) ?? [];
         list.push(task.file);
         failedFiles.current.set(task.batchId, list);

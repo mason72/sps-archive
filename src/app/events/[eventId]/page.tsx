@@ -768,9 +768,16 @@ export default function EventPage({
   const handleUploadComplete = useCallback(
     async (imageIds: string[]) => {
       // Images are already linked to the correct section by /api/upload.
-      // Final refresh to reconcile the grid, then celebrate.
+      // Final refresh to reconcile the grid.
+      //
+      // NO toast here. This fires once per BATCH, and a batch can be one file
+      // (every Retry is), so a run of retries popped "1 images uploaded" over
+      // and over on top of the page that already shows the progress — Mason:
+      // "Showing every single upload pop a toast is dumb." The upload zone and
+      // the dock pill ARE the progress surface; a toast that repeats what the
+      // screen already says is noise on this page and worse noise off it,
+      // where the dock pill still covers it.
       fetchEvent();
-      toast.success(`${imageIds.length} images uploaded`);
       setRetryFiles(undefined);
 
       // Celebrate! Subtle confetti for large uploads (suppress if errors occurred)
