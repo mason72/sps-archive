@@ -22,6 +22,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import { metroKeys, metroKey, metroLabel } from "./geo";
 import { rehireStanding, type RehireStanding } from "./roles";
 import { effectiveLastHired } from "./last-hired";
+import { enrichEvents } from "@/lib/events/enrich";
 
 type DB = ReturnType<typeof createServiceClient>;
 
@@ -45,6 +46,14 @@ export interface IntelEvent {
   id: string;
   name: string;
   date: string | null;
+  /**
+   * The gallery's cover thumbnail + crop anchor, resolved through
+   * `enrichEvents` — the ONE home for what an archive card shows, so the intel
+   * lists can never drift from the dashboard (mosaic/solid covers, stale
+   * imageId, focal crops: all its problems, solved once).
+   */
+  coverUrl: string | null;
+  coverFocal: { x: number; y: number } | null;
   venueId: string | null;
   venueName: string | null;
   city: string | null;
@@ -68,7 +77,7 @@ export interface IntelPerson {
   notes: string | null;
   eventCount: number;
   /** Newest first — what "when did we last use them" needs. */
-  events: { id: string; name: string; date: string | null; roles: string[]; rolesSource: string; wouldRebook: string | null; note: string | null }[];
+  events: { id: string; name: string; date: string | null; coverUrl: string | null; coverFocal: { x: number; y: number } | null; roles: string[]; rolesSource: string; wouldRebook: string | null; note: string | null }[];
   /** Only roles a human confirmed — see the comment where this is built. */
   roleCounts: Record<string, number>;
   /** Gigs whose roles are still a machine's guess. */
@@ -106,7 +115,7 @@ export interface IntelVenue {
   region: string | null;
   notes: string | null;
   eventCount: number;
-  events: { id: string; name: string; date: string | null }[];
+  events: { id: string; name: string; date: string | null; coverUrl: string | null; coverFocal: { x: number; y: number } | null }[];
   crewIds: string[];
   orgIds: string[];
 }
@@ -117,7 +126,7 @@ export interface IntelCity {
   name: string;
   region: string | null;
   eventCount: number;
-  events: { id: string; name: string; date: string | null }[];
+  events: { id: string; name: string; date: string | null; coverUrl: string | null; coverFocal: { x: number; y: number } | null }[];
   venueIds: string[];
   crewIds: string[];
   /**
@@ -136,7 +145,7 @@ export interface IntelOrg {
   domains: string[];
   notes: string | null;
   eventCount: number;
-  events: { id: string; name: string; date: string | null; role: string }[];
+  events: { id: string; name: string; date: string | null; coverUrl: string | null; coverFocal: { x: number; y: number } | null; role: string }[];
   venueIds: string[];
   cities: string[];
   crewIds: string[];
@@ -198,10 +207,14 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
   // rows are a subset, and the difference is the backlog worth reporting.
   const evRes = await anyDb
     .from("events")
-    .select("id,name,sort_date")
+    .select("id,name,sort_date,settings")
     .eq("user_id", userId)
     .order("sort_date", { ascending: false });
   const eventRows = need<any>(evRes, "events");
+
+  // Covers for the gig lists — Mason: "show the cover image next to each gig
+  // for some color". Through the archive's own resolver, never re-derived.
+  const enrichment = await enrichEvents(db as any, eventRows);
 
   const crewById = new Map<string, any>(crewRows.map((c) => [c.id, c]));
   const venueById = new Map<string, any>(venueRows.map((v) => [v.id, v]));
@@ -241,6 +254,8 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       id: e.id,
       name: e.name,
       date: e.sort_date ?? null,
+      coverUrl: enrichment.get(e.id)?.coverThumbnailUrl ?? null,
+      coverFocal: enrichment.get(e.id)?.coverFocal ?? null,
       venueId: venue?.id ?? null,
       venueName: venue?.name ?? null,
       city: venue?.city ?? null,
@@ -265,6 +280,8 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
           id: e.id,
           name: e.name,
           date: e.date,
+          coverUrl: e.coverUrl,
+          coverFocal: e.coverFocal,
           roles: (r.roles ?? []) as string[],
           rolesSource: (r.roles_source ?? "manual") as string,
           wouldRebook: (r.would_rebook ?? null) as string | null,
@@ -334,7 +351,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       region: v.region ?? null,
       notes: v.notes ?? null,
       eventCount: evs.length,
-      events: evs.map((e) => ({ id: e.id, name: e.name, date: e.date })).sort(byDateDesc),
+      events: evs.map((e) => ({ id: e.id, name: e.name, date: e.date, coverUrl: e.coverUrl, coverFocal: e.coverFocal })).sort(byDateDesc),
       crewIds: uniq(evs.flatMap((e) => e.crew.map((c) => c.crewId))),
       orgIds: uniq(evs.flatMap((e) => e.orgs.map((o) => o.orgId))),
     };
@@ -373,7 +390,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
     const c = touchCity(e.city, e.region);
     if (!c) continue;
     c.eventCount++;
-    c.events.push({ id: e.id, name: e.name, date: e.date });
+    c.events.push({ id: e.id, name: e.name, date: e.date, coverUrl: e.coverUrl, coverFocal: e.coverFocal });
     if (e.venueId) c.venueIds.push(e.venueId);
     for (const x of e.crew) c.crewIds.push(x.crewId);
   }
@@ -432,7 +449,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       domains: o.domains ?? [],
       notes: o.notes ?? null,
       eventCount: evs.length,
-      events: evs.map(({ e, role }) => ({ id: e.id, name: e.name, date: e.date, role })).sort(byDateDesc),
+      events: evs.map(({ e, role }) => ({ id: e.id, name: e.name, date: e.date, coverUrl: e.coverUrl, coverFocal: e.coverFocal, role })).sort(byDateDesc),
       venueIds: uniq(evs.map(({ e }) => e.venueId)),
       cities: uniq(evs.map(({ e }) => e.city)),
       crewIds: uniq(evs.flatMap(({ e }) => e.crew.map((c) => c.crewId))),

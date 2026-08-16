@@ -34,10 +34,10 @@ const p = (
 });
 
 const EVENTS = [
-  { id: "e1", name: "Northwind Summit 2026", date: "2026-08-05" },
-  { id: "e2", name: "Harbor Labs Headshots // Jul 2026", date: "2026-07-12" },
-  { id: "e3", name: "Northwind Holiday Party 2025", date: "2025-12-11" },
-  { id: "e4", name: "Delta Mutual // All Hands 2026", date: "2026-04-02" },
+  { coverUrl: null, coverFocal: null, id: "e1", name: "Northwind Summit 2026", date: "2026-08-05" },
+  { coverUrl: null, coverFocal: null, id: "e2", name: "Harbor Labs Headshots // Jul 2026", date: "2026-07-12" },
+  { coverUrl: null, coverFocal: null, id: "e3", name: "Northwind Holiday Party 2025", date: "2025-12-11" },
+  { coverUrl: null, coverFocal: null, id: "e4", name: "Delta Mutual // All Hands 2026", date: "2026-04-02" },
 ];
 
 const INDEX: IntelIndex = {

@@ -2,6 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { cleanRehire } from "@/lib/event-intel/roles";
+
+/**
+ * The rehire ladder's offer list — mirrors REHIRE_LADDER in roles.ts (the
+ * authority; the server normalises whatever arrives). Same literal the create
+ * and import cards carry, same severity styling, for the same reason: a
+ * rehire judgement about a named person is never the brand's accent.
+ */
+const REHIRE: { value: string; label: string; on: string }[] = [
+  { value: "first_call", label: "First call", on: "bg-stone-900 text-white" },
+  { value: "solid", label: "Solid", on: "bg-stone-500 text-white" },
+  { value: "last_resort", label: "Last resort", on: "bg-amber-700 text-white" },
+  { value: "never", label: "Never again", on: "bg-red-700 text-white" },
+];
 
 /**
  * Who worked this event, and where — on the event page, where it was looked for.
@@ -493,23 +507,30 @@ function CrewLine({
 
       {isTemp && (
       <div className="mt-2.5 flex flex-wrap items-center gap-4">
-        {/* Severity ramp, never the brand accent — a green "yes" beside an
-            emerald selection makes the accent mean two things at once. */}
-        <span className="flex items-center gap-1.5">
-          {(["yes", "maybe", "no"] as const).map((v) => {
-            const on = crew.wouldRebook === v;
-            const dot = v === "yes" ? "bg-stone-600" : v === "maybe" ? "bg-amber-600" : "bg-red-700";
+        {/**
+         * THE REHIRE LADDER — the same four words every other surface speaks.
+         *
+         * This panel shipped with the old yes/maybe/no and was missed when the
+         * ladder replaced it; Mason caught it on the Chicago import ("we didn't
+         * update the rating scale... we need to so it matches"). The row's
+         * stored value is normalised through cleanRehire for DISPLAY too, so a
+         * legacy "yes" written before the ladder lights up "Solid" instead of
+         * lighting nothing. Severity ramp, never the brand accent.
+         */}
+        <span className="text-[11px] text-stone-400">Rehire?</span>
+        <span className="inline-flex overflow-hidden rounded-full border border-stone-200">
+          {REHIRE.map((r, i) => {
+            const on = cleanRehire(crew.wouldRebook) === r.value;
             return (
               <button
-                key={v}
-                onClick={() => onRebook(on ? null : v)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[12px] transition-colors ${
-                  on ? "bg-stone-100 text-stone-800" : "text-stone-400 hover:text-stone-700"
-                }`}
-                title={v === "yes" ? "Would rebook" : v === "no" ? "Would not rebook" : "Maybe"}
+                key={r.value}
+                onClick={() => onRebook(on ? null : r.value)}
+                title={on ? "Click to clear" : `Mark as ${r.label}`}
+                className={`px-2.5 py-1 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
+                  i > 0 ? "border-l border-stone-200" : ""
+                } ${on ? r.on : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${on ? dot : "bg-stone-300"}`} />
-                {v}
+                {r.label}
               </button>
             );
           })}

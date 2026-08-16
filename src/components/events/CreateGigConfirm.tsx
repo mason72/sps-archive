@@ -279,19 +279,55 @@ export function GigConfirmCard({
     return () => { live = false; };
   }, [gig]);
 
-  // Seed once per gig: everyone on, discipline guessed from what they DO.
+  /**
+   * Seed once per gig — everyone on, discipline read from what they DO.
+   *
+   * Two rules earned by the Chicago import (2026-08-15):
+   *
+   * A REGULAR'S DISCIPLINE IS FACT, NOT A GUESS. "All regulars are
+   * photographers" is Mason's settled statement about this roster (verified
+   * before any control was hidden on it), so seeding it as a guess made every
+   * import end with "N assignments are still a guess" about his own team —
+   * noise that read as his clicks not landing. A non-regular's kind stays a
+   * guess, because a stylist's roster entry is the machine's inference about
+   * one gig.
+   *
+   * RE-PICKING THE SAME GIG KEEPS YOUR CLICKS. The seed used to key on the
+   * gig OBJECT, so "Not this one" followed by re-picking the same gig wiped
+   * every pick silently — and a wiped LEAD gets re-clicked because the button
+   * is prominent, while a wiped RATING is invisible until it never shows up on
+   * the panel. That is the likeliest path Kelly's First call was lost by.
+   * Keyed on `gig.key` now: a different gig reseeds, the same gig keeps state.
+   */
+  const seededKey = useRef<string | null>(null);
   useEffect(() => {
-    const seed: Record<string, CrewPick> = {};
-    for (const c of gig.crew) {
-      const guess = c.kind && DISCIPLINES.includes(c.kind) ? c.kind : null;
-      seed[c.crewId] = {
-        on: true, lead: false, discipline: guess, disciplineIsGuess: !!guess,
-        rehire: null, note: "",
-      };
+    const sameGig = seededKey.current === gig.key;
+    seededKey.current = gig.key;
+    setPicks((prev) => {
+      const seed: Record<string, CrewPick> = {};
+      for (const c of gig.crew) {
+        if (sameGig && prev[c.crewId]) {
+          seed[c.crewId] = prev[c.crewId];
+          continue;
+        }
+        const guess = c.kind && DISCIPLINES.includes(c.kind) ? c.kind : null;
+        seed[c.crewId] = {
+          on: true, lead: false, discipline: guess,
+          disciplineIsGuess: !!guess && !c.isRegular,
+          rehire: null, note: "",
+        };
+      }
+      if (sameGig) {
+        for (const [k, v] of Object.entries(prev)) {
+          if (k.startsWith("temp:")) seed[k] = v;
+        }
+      }
+      return seed;
+    });
+    if (!sameGig) {
+      setTemps([]);
+      setAddingTemp(false);
     }
-    setPicks(seed);
-    setTemps([]);
-    setAddingTemp(false);
   }, [gig]);
 
   const payload = useMemo<GigIntelPayload>(() => {

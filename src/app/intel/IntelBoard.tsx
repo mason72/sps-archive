@@ -207,15 +207,37 @@ function EventLine({
   id,
   name,
   date,
+  coverUrl,
+  coverFocal,
   trailing,
 }: {
   id: string;
   name: string;
   date: string | null;
+  /** The gallery's cover thumb — "for some color" (Mason). Resolved through
+      enrichEvents upstream, so it can never disagree with the archive card. */
+  coverUrl?: string | null;
+  coverFocal?: { x: number; y: number } | null;
   trailing?: React.ReactNode;
 }) {
   return (
-    <li className="flex items-baseline justify-between gap-4 py-2">
+    <li className="flex items-center justify-between gap-4 py-2">
+      {coverUrl !== undefined && (
+        <Link href={`/events/${id}`} className="shrink-0" tabIndex={-1}>
+          <span className="block h-8 w-12 overflow-hidden rounded-[3px] bg-stone-100">
+            {coverUrl && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={coverUrl}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+                style={coverFocal ? { objectPosition: `${coverFocal.x}% ${coverFocal.y}%` } : undefined}
+              />
+            )}
+          </span>
+        </Link>
+      )}
       <Link
         href={`/events/${id}`}
         className="text-[14px] text-stone-800 underline-offset-4 transition-colors duration-200 hover:text-stone-950 hover:underline"
@@ -1258,6 +1280,8 @@ function PersonPanel({
                 id={e.id}
                 name={e.name}
                 date={e.date}
+                coverUrl={e.coverUrl}
+                coverFocal={e.coverFocal}
                 trailing={
                   <>
                     {e.roles.length > 0 && (
@@ -1614,6 +1638,8 @@ function OrgPanel({
                 id={e.id}
                 name={e.name}
                 date={e.date}
+                coverUrl={e.coverUrl}
+                coverFocal={e.coverFocal}
                 trailing={
                   <span
                     className="text-[12px] text-stone-500"
