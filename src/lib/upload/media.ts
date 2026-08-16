@@ -50,20 +50,38 @@ export function mediaTypeForMime(mime: string): "image" | "video" {
 }
 
 /**
- * Validate an upload candidate by mime + size. Returns a user-facing error
- * message, or null when the file is acceptable.
+ * Camera raw, by extension. Browsers report no MIME for most of these, so the
+ * generic branch would call a .CR3 "unsupported format" — technically true and
+ * useless to a photographer, who wants to know it is the RAW that is the
+ * problem and not the photo. Named formats get named answers.
  */
-export function validateUploadFile(file: {
+const RAW_EXT_RE = /\.(cr2|cr3|nef|nrw|arw|srf|sr2|orf|raf|rw2|pef|dng|3fr|iiq)$/i;
+
+/** Editable/layered documents that land in a photo folder by accident. */
+const DOC_EXT_RE = /\.(psd|psb|ai|indd|xcf|eps)$/i;
+
+/**
+ * Why this file cannot be uploaded, as a bare phrase with NO filename in it —
+ * "camera raw (CR3) isn't supported", not "IMG_0042.CR3: ...".
+ *
+ * Split out from `validateUploadFile` on 2026-08-16. The upload list already
+ * prints the filename in its own column, so a name-prefixed message rendered
+ * there is both redundant and destructive: the row truncates at ~180px, so a
+ * long name ate the entire message and Mason's two rejected files showed
+ * "Daren Matsuoka_25-06-05_a16z..." as their reason. The reason was there; the
+ * filename had pushed it off the end.
+ */
+export function uploadRejectionReason(file: {
   name: string;
   type: string;
   size: number;
 }): string | null {
   if (isVideoMime(file.type)) {
     if (!(file.type in VIDEO_ACCEPT)) {
-      return `${file.name}: only MP4 and QuickTime (H.264) video is supported`;
+      return "only MP4 and QuickTime (H.264) video is supported";
     }
     if (file.size > VIDEO_MAX_BYTES) {
-      return `${file.name}: videos can be up to 500 MB`;
+      return "videos can be up to 500 MB";
     }
     return null;
   }
@@ -71,15 +89,43 @@ export function validateUploadFile(file: {
   // "unsupported" — browsers often report an empty MIME for .heic, so match on
   // the extension too. (See IMAGE_ACCEPT for why we don't accept it.)
   if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) {
-    return `${file.name}: HEIC isn't supported — convert to JPEG first (on a Mac, open in Preview → File → Export → JPEG).`;
+    return "HEIC isn't supported — convert to JPEG first (on a Mac, open in Preview → File → Export → JPEG)";
+  }
+  const raw = file.name.match(RAW_EXT_RE);
+  if (raw) {
+    return `camera raw (${raw[1].toUpperCase()}) isn't supported — export a JPEG`;
+  }
+  const doc = file.name.match(DOC_EXT_RE);
+  if (doc) {
+    return `${doc[1].toUpperCase()} isn't supported — flatten and export a JPEG`;
   }
   if (!(file.type in IMAGE_ACCEPT)) {
-    return `${file.name}: unsupported format`;
+    const ext = file.name.match(/\.([a-z0-9]{1,5})$/i);
+    return ext
+      ? `${ext[1].toUpperCase()} isn't a supported format`
+      : "unsupported format";
   }
   if (file.size > IMAGE_MAX_BYTES) {
-    return `${file.name}: images can be up to 100 MB`;
+    return "images can be up to 100 MB";
   }
   return null;
+}
+
+/**
+ * Validate an upload candidate by mime + size. Returns a user-facing error
+ * message PREFIXED WITH THE FILENAME, or null when the file is acceptable.
+ *
+ * Keep this shape: the presign route reports on a whole batch at once, where
+ * the name is the only thing identifying which file the message is about. Use
+ * `uploadRejectionReason` wherever the name is already on screen.
+ */
+export function validateUploadFile(file: {
+  name: string;
+  type: string;
+  size: number;
+}): string | null {
+  const reason = uploadRejectionReason(file);
+  return reason ? `${file.name}: ${reason}` : null;
 }
 
 /** 73.4 → "1:13"; 3601 → "60:01". Used by the grid's duration badge. */

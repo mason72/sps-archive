@@ -5,7 +5,12 @@ import { useDropzone, type FileRejection } from "react-dropzone";
 import { Upload, Loader2, RotateCcw, ShieldAlert, Copy, Film } from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
-import { UPLOAD_ACCEPT, isVideoMime, validateUploadFile } from "@/lib/upload/media";
+import {
+  UPLOAD_ACCEPT,
+  isVideoMime,
+  uploadRejectionReason,
+  validateUploadFile,
+} from "@/lib/upload/media";
 import {
   useUploadManager,
   unfinishedKey,
@@ -125,6 +130,14 @@ export function UploadZone({
 
   const completedCount = allRows.filter((f) => f.status === "complete").length;
   const errorCount = allRows.filter((f) => f.status === "error").length;
+  /**
+   * Refused at the door — counted and worded APART from failures. Calling a
+   * .psd "1 failed" says the uploader broke; it didn't, it declined. Same rule
+   * as the upload denominators: every subtraction is named on screen.
+   */
+  const incompatibleCount = allRows.filter(
+    (f) => f.status === "incompatible"
+  ).length;
   const duplicateRows = useMemo(
     () => allRows.filter((f) => f.status === "duplicate"),
     [allRows]
@@ -172,7 +185,20 @@ export function UploadZone({
     }
   }, [retryFiles, onDrop]);
 
-  // Politely surface rejected files (wrong format / over the size cap).
+  /**
+   * Files the dropzone refused — wrong format, or over the size cap.
+   *
+   * These are a REFUSAL, not a failure, and 2026-08-16 showed why the
+   * difference has to reach the screen. A .CR3 and a .psd came back styled
+   * exactly like a failed upload: red, with a Retry link. Retry could never
+   * work — the validator rejects them again instantly — and Dismiss was hidden
+   * while an upload ran, so Mason had two permanent red rows he could neither
+   * clear nor act on ("they should show as incompatible file types and be
+   * rejected allowing user to dismiss/clear the notification").
+   *
+   * So they carry their own status. Nothing was attempted, nothing broke, and
+   * the only sensible action is to clear the note.
+   */
   const onDropRejected = useCallback((rejections: readonly FileRejection[]) => {
     if (rejections.length === 0) return;
     const baseId = `rejected-${performance.now()}`;
@@ -182,16 +208,18 @@ export function UploadZone({
         id: `${baseId}-${i}`,
         file: r.file,
         previewUrl: "",
-        status: "error" as FileStatus,
+        status: "incompatible" as FileStatus,
         progress: 0,
+        // The bare reason: the row prints the filename in its own column, so a
+        // name-prefixed message truncates to just the name and says nothing.
         error:
-          validateUploadFile({
+          uploadRejectionReason({
             name: r.file.name,
             type: r.file.type,
             size: r.file.size,
           }) ||
           r.errors[0]?.message ||
-          "Unsupported file",
+          "not a supported file type",
       })),
     ]);
   }, []);
@@ -268,15 +296,25 @@ export function UploadZone({
     () =>
       allRows.filter(
         (f) =>
-          f.status === "pending" || f.status === "uploading" || f.status === "error"
+          f.status === "pending" ||
+          f.status === "uploading" ||
+          f.status === "error" ||
+          f.status === "incompatible"
       ),
     [allRows]
   );
   const renderedFiles = useMemo(() => {
     if (visibleFiles.length <= MAX_RENDERED_ROWS) return visibleFiles;
-    const errors = visibleFiles.filter((f) => f.status === "error");
-    const active = visibleFiles.filter((f) => f.status !== "error");
-    return [...errors, ...active].slice(0, MAX_RENDERED_ROWS);
+    // Rows needing a decision sort to the top, so the 30-row cap can never bury
+    // them under a thousand queued files — which is exactly how two rejected
+    // files stayed on screen but out of reach during a 1,197-file drop.
+    const needsAttention = visibleFiles.filter(
+      (f) => f.status === "error" || f.status === "incompatible"
+    );
+    const active = visibleFiles.filter(
+      (f) => f.status !== "error" && f.status !== "incompatible"
+    );
+    return [...needsAttention, ...active].slice(0, MAX_RENDERED_ROWS);
   }, [visibleFiles]);
   const hiddenRowCount = visibleFiles.length - renderedFiles.length;
 
@@ -286,12 +324,32 @@ export function UploadZone({
       (acc, f) => acc + (f.status === "uploading" ? f.progress : 0),
       0
     );
-    // Settled files (already here, linked or nothing-to-do) and failures are
-    // both RESOLVED — no bytes are owed for them. Counting them keeps the bar
-    // able to reach 100% now that the denominator no longer retreats to meet it.
-    const resolved = completedCount + duplicateCount + linkedCount + errorCount;
+    // Settled files (already here, linked or nothing-to-do), failures and
+    // refusals are all RESOLVED — no bytes are owed for them. Counting them
+    // keeps the bar able to reach 100% now that the denominator no longer
+    // retreats to meet it.
+    //
+    // `incompatibleCount` belongs here for the same reason it stays in
+    // `totalCount`: the denominator is the files the user HANDED OVER, and he
+    // did drop that .psd. Leaving it out of the numerator only would pin the
+    // ring below 100% forever with nothing on screen explaining the gap —
+    // which is the lie this whole arithmetic was rebuilt to stop telling.
+    const resolved =
+      completedCount +
+      duplicateCount +
+      linkedCount +
+      errorCount +
+      incompatibleCount;
     return Math.min(100, ((resolved + inFlightSum / 100) / totalCount) * 100);
-  }, [allRows, completedCount, duplicateCount, linkedCount, errorCount, totalCount]);
+  }, [
+    allRows,
+    completedCount,
+    duplicateCount,
+    linkedCount,
+    errorCount,
+    incompatibleCount,
+    totalCount,
+  ]);
 
   const etaLabel = useMemo(() => {
     if (!speedMbps || speedMbps < 0.05) return null;
@@ -419,10 +477,13 @@ export function UploadZone({
   }, [allRows, retryRow]);
 
   const dismissErrors = useCallback(() => {
+    // `rejected` holds the incompatible files, which live outside any batch.
     setRejected([]);
     for (const b of myBatches) {
       const ids = new Set(
-        b.files.filter((f) => f.status === "error").map((f) => f.id)
+        b.files
+          .filter((f) => f.status === "error" || f.status === "incompatible")
+          .map((f) => f.id)
       );
       if (ids.size) removeFiles(b.id, ids);
     }
@@ -586,7 +647,9 @@ export function UploadZone({
             {linkedCount > 0 &&
               ` · ${linkedCount} added from elsewhere in this gallery`}
             {duplicateCount > 0 && ` · ${duplicateCount} already in this section`}
-            {errorCount > 0 && ` · ${errorCount} failed`} — keep adding files, or
+            {errorCount > 0 && ` · ${errorCount} failed`}
+            {incompatibleCount > 0 &&
+              ` · ${incompatibleCount} incompatible`} — keep adding files, or
             switch sections and keep working
           </p>
         )}
@@ -675,9 +738,15 @@ export function UploadZone({
             <span className="label-caps shrink-0">
               {isUploading
                 ? `Uploading ${completedCount} / ${totalCount}`
-                : errorCount > 0
-                ? `${completedCount} uploaded · ${errorCount} failed`
-                : `${completedCount} uploaded`}
+                : [
+                    `${completedCount} uploaded`,
+                    errorCount > 0 ? `${errorCount} failed` : null,
+                    incompatibleCount > 0
+                      ? `${incompatibleCount} incompatible`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
             </span>
             {isUploading && speedMbps !== null && (
               <span className="shrink-0 text-[12px] tabular-nums text-stone-400 normal-case">
@@ -725,12 +794,12 @@ export function UploadZone({
                * Safe to run mid-flight: it removes rows whose status is already
                * terminal, and touches no queue.
                */}
-              {errorCount > 0 && (
+              {errorCount + incompatibleCount > 0 && (
                 <button
                   onClick={dismissErrors}
                   className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
                 >
-                  Dismiss {errorCount} failed
+                  Dismiss {errorCount + incompatibleCount}
                 </button>
               )}
             </div>
@@ -755,7 +824,9 @@ export function UploadZone({
                   <div
                     className={cn(
                       "h-full w-full transition-opacity duration-300",
-                      f.status === "error" ? "opacity-40" : "opacity-100"
+                      f.status === "error" || f.status === "incompatible"
+                        ? "opacity-40"
+                        : "opacity-100"
                     )}
                   >
                     <FilePreview file={f.file} previewUrl={f.previewUrl} />
@@ -792,6 +863,43 @@ export function UploadZone({
                     >
                       <RotateCcw className="h-3 w-3" />
                       Retry
+                    </button>
+                    <button
+                      onClick={() => dropRow(f)}
+                      aria-label={`Dismiss ${f.file.name}`}
+                      className="text-[13px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-700"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
+                {/**
+                 * Refused at the door. AMBER, not red — red is the house colour
+                 * for something broken, and nothing broke here; the uploader
+                 * declined a file it cannot read. No Retry, because the
+                 * validator would reject it again the instant it ran. Dismiss
+                 * is the whole interaction, per Mason: "they should show as
+                 * incompatible file types and be rejected allowing user to
+                 * dismiss/clear the notification."
+                 */}
+                {f.status === "incompatible" && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-700">
+                      Incompatible
+                    </span>
+                    <span
+                      className="max-w-[220px] truncate text-[11px] text-stone-500"
+                      title={f.error}
+                    >
+                      {f.error}
+                    </span>
+                    <button
+                      onClick={() => dropRow(f)}
+                      aria-label={`Dismiss ${f.file.name}`}
+                      className="text-[13px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-700"
+                    >
+                      ×
                     </button>
                   </div>
                 )}

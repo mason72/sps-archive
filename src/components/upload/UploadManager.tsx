@@ -78,7 +78,17 @@ export type FileStatus =
    * and offering to "replace" a photo that was just correctly added would delete
    * the original to re-upload an identical one.
    */
-  | "linked";
+  | "linked"
+  /**
+   * Refused at the door — camera raw, PSD, HEIC, or past a size cap. Nothing
+   * was attempted and nothing broke, so it is NOT "error": that status offers
+   * Retry, and retrying a file the validator rejects is a loop that can only
+   * end the same way. The one useful action is to clear the note.
+   *
+   * These rows never enter a batch, so they live in UploadZone's own `rejected`
+   * list and never reach the queue, the presign route, or a database row.
+   */
+  | "incompatible";
 
 export interface UploadFile {
   id: string;

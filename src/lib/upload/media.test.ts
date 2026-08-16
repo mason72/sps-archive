@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   validateUploadFile,
+  uploadRejectionReason,
   mediaTypeForMime,
   formatDuration,
   mediaExtension,
@@ -8,6 +9,91 @@ import {
   IMAGE_MAX_BYTES,
   VIDEO_MAX_BYTES,
 } from "./media";
+
+/**
+ * The bare reason, for the upload list — which prints the filename in its own
+ * column, so a name-prefixed message truncates to just the name and tells the
+ * user nothing. That is what happened on 2026-08-16: a rejected .CR3 showed
+ * "Daren Matsuoka_25-06-05_a16z..." as its explanation.
+ */
+describe("uploadRejectionReason", () => {
+  it("says nothing about a file it accepts", () => {
+    expect(
+      uploadRejectionReason({ name: "a.jpg", type: "image/jpeg", size: 5_000 })
+    ).toBeNull();
+  });
+
+  it("never includes the filename — that column already exists", () => {
+    const reason = uploadRejectionReason({
+      name: "Daren Matsuoka_25-06-05_a16z_set1_1080.CR3",
+      type: "",
+      size: 10_700_000,
+    });
+    expect(reason).not.toContain("Daren");
+    expect(reason).not.toContain(".CR3");
+  });
+
+  it("names camera raw as raw, and says what to do instead", () => {
+    // Browsers report no MIME for most raw, so this must match on extension.
+    expect(
+      uploadRejectionReason({ name: "x.CR3", type: "", size: 10_000_000 })
+    ).toBe("camera raw (CR3) isn't supported — export a JPEG");
+    expect(
+      uploadRejectionReason({ name: "x.nef", type: "", size: 10_000_000 })
+    ).toBe("camera raw (NEF) isn't supported — export a JPEG");
+    expect(
+      uploadRejectionReason({ name: "x.arw", type: "", size: 10_000_000 })
+    ).toBe("camera raw (ARW) isn't supported — export a JPEG");
+  });
+
+  it("names layered documents", () => {
+    expect(
+      uploadRejectionReason({
+        name: "CEMA_BOD_19-09-16_0007.psd",
+        type: "image/vnd.adobe.photoshop",
+        size: 356_000_000,
+      })
+    ).toBe("PSD isn't supported — flatten and export a JPEG");
+  });
+
+  it("falls back to naming the extension rather than saying nothing useful", () => {
+    expect(
+      uploadRejectionReason({ name: "notes.pdf", type: "application/pdf", size: 10 })
+    ).toBe("PDF isn't a supported format");
+  });
+
+  it("still routes HEIC to the convert-to-JPEG instructions", () => {
+    expect(
+      uploadRejectionReason({ name: "IMG_1.HEIC", type: "", size: 1_000_000 })
+    ).toContain("HEIC isn't supported");
+  });
+
+  it("checks the size cap only for a format it would otherwise take", () => {
+    // A 300 MB PSD is refused for being a PSD, not for being large — telling
+    // someone to shrink a file we would never accept sends them off to do
+    // useless work.
+    expect(
+      uploadRejectionReason({
+        name: "big.psd",
+        type: "image/vnd.adobe.photoshop",
+        size: 356_000_000,
+      })
+    ).toContain("PSD");
+    expect(
+      uploadRejectionReason({
+        name: "big.jpg",
+        type: "image/jpeg",
+        size: IMAGE_MAX_BYTES + 1,
+      })
+    ).toBe("images can be up to 100 MB");
+  });
+
+  it("keeps validateUploadFile prefixed, since the presign route reports in bulk", () => {
+    expect(
+      validateUploadFile({ name: "x.CR3", type: "", size: 10_000_000 })
+    ).toBe("x.CR3: camera raw (CR3) isn't supported — export a JPEG");
+  });
+});
 
 describe("validateUploadFile", () => {
   it("accepts images within the 100 MB cap", () => {
@@ -77,10 +163,19 @@ describe("validateUploadFile", () => {
     ).toMatch(/MP4 and QuickTime/);
   });
 
-  it("rejects non-media formats", () => {
-    expect(
-      validateUploadFile({ name: "doc.pdf", type: "application/pdf", size: 10 })
-    ).toMatch(/unsupported/i);
+  it("rejects non-media formats, naming the format it turned away", () => {
+    // Was asserting /unsupported/i, which pinned the old copy rather than the
+    // behaviour. The message now names the extension ("PDF isn't a supported
+    // format") because a rejected row shows the reason with no room for the
+    // filename — so what matters is that the reason identifies the format.
+    const msg = validateUploadFile({
+      name: "doc.pdf",
+      type: "application/pdf",
+      size: 10,
+    });
+    expect(msg).toBeTruthy();
+    expect(msg).toMatch(/PDF/);
+    expect(msg).toMatch(/not a supported|isn't a supported/i);
   });
 });
 
