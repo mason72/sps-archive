@@ -902,6 +902,55 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       const batch = batchesRef.current.find((b) => b.id === batchId);
       if (!batch) return;
       const { eventId, sectionId } = batch;
+
+      /**
+       * DROP-TIME READABILITY PROBE — a 1-byte test read per file, before any
+       * row is minted or any byte is queued.
+       *
+       * A dropped file can be a promise with nothing behind it: Dropbox's
+       * "save hard drive space automatically" de-materializes local files on
+       * its own schedule, and its sync touches invalidate the browser's
+       * dropped-file handles — so files that were green-badged at drag time
+       * turn unreadable mid-queue, scattered across folders ("this is
+       * happening in both sections" — Mason, 2026-08-16). Discovering that
+       * three spread-out passes later wasted minutes per file and read as the
+       * uploader failing. A local file answers this probe in microseconds; a
+       * dead handle fails it instantly. Flagged rows never enter the queue,
+       * so no orphan row is ever minted for them.
+       *
+       * A passing probe is NOT a guarantee — eviction can still happen between
+       * probe and upload — which is why the snapshot read keeps its own
+       * requeue. This probe just moves the COMMON case of "already evicted"
+       * from minutes-later to immediately.
+       */
+      const PROBE_CONCURRENCY = 8;
+      const readable: UploadFile[] = [];
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: PROBE_CONCURRENCY }, async () => {
+          while (cursor < entries.length) {
+            const e = entries[cursor++];
+            try {
+              await e.file.slice(0, 1).arrayBuffer();
+              readable.push(e);
+            } catch {
+              const list = failedFiles.current.get(batchId) ?? [];
+              list.push(e.file);
+              failedFiles.current.set(batchId, list);
+              updateFile(batchId, e.id, {
+                status: "error",
+                error:
+                  "Not readable on this Mac — it's likely online-only in Dropbox/iCloud. Download it, then drop it again",
+              });
+            }
+          }
+        })
+      );
+      // Keep the original drop order — concurrent probing interleaves it, and
+      // a lexical sort on ids would put "-10" before "-2".
+      const okIds = new Set(readable.map((e) => e.id));
+      entries = entries.filter((e) => okIds.has(e.id));
+      if (entries.length === 0) return;
       // Files the archive already held, skipped at presign. Reported once at
       // the end — a silent skip is indistinguishable from a lost upload, which
       // is the anxiety this whole area keeps generating.
