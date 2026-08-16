@@ -51,10 +51,15 @@ export function Segmented<T extends string>({
   label?: string;
   size?: "sm" | "xs";
   /**
-   * Fill the container instead of hugging its labels, segments sharing the
-   * width evenly — so the track can line up flush with a field above it.
-   * Equal segments are the conventional segmented-control shape and they stay
-   * put as counts change, which a hugging track does not.
+   * Fill the container instead of hugging its labels, so the track lines up
+   * flush with the field above it.
+   *
+   * Segments GROW equally from their natural width rather than each taking an
+   * exact 1/n: a strict quarter is narrower than "Non-regulars 48", which
+   * wrapped it onto two lines and made the whole bar taller than the field it
+   * was meant to match. `flex-1` + `whitespace-nowrap` distributes the SLACK
+   * evenly instead, which fills the width, never wraps, and still keeps each
+   * segment's position stable as its count ticks between 47 and 48.
    */
   stretch?: boolean;
 }) {
@@ -83,7 +88,7 @@ export function Segmented<T extends string>({
               "transition-colors duration-150",
               pad,
               cap,
-              stretch && "flex-1 text-center",
+              stretch && "flex-1 whitespace-nowrap text-center",
               i > 0 && "border-l border-stone-200",
               on
                 ? "bg-accent text-white"
