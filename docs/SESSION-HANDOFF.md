@@ -119,20 +119,16 @@ conventions. It is the other entry point.
 
 Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
 
-0. **People / group shots — resume here.** The card now means "photos this
-   person is IN": `loadFaceMembership()` is live and adds group shots from named
-   face clusters, and the review modals now RING the claimed face on group shots
-   (`FaceOutline.tsx` + `GET /api/people/[personId]/faces`, fixture at
-   `/dev/face-rings`). Full state: `tasks/people-group-shots.md`. Next, in order:
-   **(a) the naming engine**, which is where the value actually is: only **1.9%**
-   of the 34,769 faces in group shots belong to a NAMED cluster (80.3% anonymous),
-   so today's wiring delivers 84 group shots. Point `findCrewInArchive()` /
-   `matchSelfie()` at guests, using the ~1,440 headshot-day identities as
-   references; AI suggests, a human confirms — and the face ring is what makes
-   that review honest.
-   Also open: duplicate identities from name variants ("Sami Hadouaj" vs "Sami
-   Hadouaj Mundra" are two tiles for one human), and four bad rows on Steven
-   Hughes awaiting Mason's OK to delete (one true dupe pair, three 31×25 junk).
+0. **People / group shots — the whole chapter is LIVE** (2026-08-16, full doc
+   `tasks/people-group-shots.md`): group-shot membership (`loadFaceMembership`),
+   face rings on review modals, the identity merge (`person_aliases`, Sami
+   merged via the real UI), rejected-names durability (migration 063), and THE
+   NAMING ENGINE (migrations 065–067): anonymous clusters matched against 1,447
+   named references at a MEASURED 0.55 floor, review tray on `/people` ("Who is
+   this?" — 50 pending from the backfill), Inngest `identity-scan` after
+   clustering so imports self-suggest. Mason's review of the tray is the open
+   human loop. Next build: **split a shared name by face** (the John Smith
+   case), now possible on confirmed clusters.
 
 1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
    end to end and unblocked: staging is on the INTERNAL disk (deliberately —

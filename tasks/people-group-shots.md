@@ -1,6 +1,7 @@
 # People: group shots on a person's card
 
-**Status: plumbing LIVE (2026-08-16). The naming engine that makes it pay off is NOT built.**
+**Status: COMPLETE (2026-08-16) — plumbing, face rings, identity merge, and the
+naming engine are all LIVE. Remaining sibling: split-a-shared-name-by-face.**
 
 ## What Mason asked for
 
@@ -88,18 +89,43 @@ So-and-so' cards … so it's clear who we're identifying as the matched face."*
 - Visual fixture: `/dev/face-rings` (NODE_ENV-gated) — real NASAI group shots,
   both orientations, both fits, verified by eye.
 
+## The naming engine — BUILT 2026-08-16
+
+Matches the ~4,500 anonymous clusters against 1,447 named-identity reference
+centroids and writes SUGGESTIONS; a human confirms, always.
+
+- **Storage** (migrations 065–067): `person_reference_centroids` (centroid per
+  named cluster, excluded_people filtered, 2+ faces required) and
+  `person_identity_suggestions` (one per cluster, `pending → confirmed |
+  rejected | superseded`). pgvector RPCs `refresh_person_reference_centroids`
+  (event-scoped for routine paths — the FULL rebuild cannot fit PostgREST's 8s
+  budget and runs via `scripts/db-sql.ts`) and `match_person_cluster`.
+- **The bar is measured, not chosen** (`identity-suggestions.ts`): hold-one-out
+  over identities with 2+ named clusters — best WRONG match maxed 0.363 over
+  48 trials, true matches median 0.886. Floor **0.55**.
+- **The human's word is durable on both ends**: confirm writes `persons.name`
+  (human-authored, consensus namer never overwrites) and refreshes that
+  event's centroids — teach-on-confirm. Reject lands in
+  `persons.rejected_names` — the engine can never re-ask.
+- **Inngest `identity-scan`** fires after `face-cluster` (debounced 5m), so
+  future imports self-suggest. Backfill: `scripts/scan-identity-suggestions.ts`
+  (initial run wrote **50 pending** — 33 of them eBay interns at the eBay
+  interns event; old 2014/15 galleries yield ~1 each since references don't
+  reach back a decade).
+- **UI**: the "Who is this?" tray on `/people` (`IdentitySuggestions.tsx`) —
+  payoff-sorted, cluster face beside reference face (`FaceCircleCrop`, now the
+  ONE home for crop geometry), renders nothing when empty.
+- Traps encoded in migrations/commit: data-modifying CTEs share one snapshot
+  (the refresh's DELETE was invisible to its INSERT → plpgsql); the backfill's
+  candidate query silently capped at exactly 1,000 rows with WACA missing —
+  **the tell for truncation is a round number**.
+
 ## NOT built — next session
 
-1. **The naming engine** — the actual payoff. Use the ~1,440 identities already
-   named from headshot days as reference faces and match them against the
-   anonymous clusters, so the party/festival/conference galleries gain names.
-   The machinery exists: `findCrewInArchive()` / `matchSelfie()` from
-   `tasks/crew-faces.md`, generalised from crew to guests. AI suggests, a human
-   confirms — never auto-applied.
-2. **Split a shared name by face** — the inverse of the merge, for the John
+1. **Split a shared name by face** — the inverse of the merge, for the John
    Smith case Mason raised: two different people who share a name are ONE tile
    under filename identity, and only face-anchored identity can pull them
-   apart. Becomes buildable with the naming engine.
+   apart. The naming engine's confirmed clusters make this buildable now.
 
 ## The identity merge — BUILT 2026-08-16
 
