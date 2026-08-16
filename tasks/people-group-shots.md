@@ -1,7 +1,9 @@
 # People: group shots on a person's card
 
-**Status: COMPLETE (2026-08-16) — plumbing, face rings, identity merge, and the
-naming engine are all LIVE. Remaining sibling: split-a-shared-name-by-face.**
+**Status: COMPLETE (2026-08-16) — plumbing, face rings, identity merge, the
+naming engine, and crew-first are all LIVE. Deferred: archive-wide conflation
+cards (same-event cases already covered per event) and cross-event tile
+fan-out (zero real cases today).**
 
 ## What Mason asked for
 
@@ -120,12 +122,48 @@ centroids and writes SUGGESTIONS; a human confirms, always.
   candidate query silently capped at exactly 1,000 rows with WACA missing —
   **the tell for truncation is a round number**.
 
+## Crew-first — BUILT 2026-08-16
+
+Mason, on Staff Photos' garbled names: *"before we try to create a new face,
+shouldn't we look for Crew and ask 'is this Christie?' before we ask if it's
+'Marriott Green'?"* Structurally necessary, not just polite: crew barely exist
+in filenames — Mason is the only crew member with a filename identity (9
+events), Joey/Justin/Jerrick hold ZERO, which is also why Mason alone reached
+the old wall of fame.
+
+- The scan matches every anonymous cluster against `crew_faces` snapshots
+  FIRST (`match_person_cluster_to_crew`, migration 069 — best face per crew is
+  the evidence), falling through to guest identities only on a miss.
+- **A crew confirm is a `crew_persons` LINK via `confirmCrewPerson` (which
+  teaches), never a `persons.name` write** — the crew-faces invariant holds
+  the whole way down. Crew-linked clusters are skipped entirely.
+- First crew-first scan: **37 crew suggestions across 20 crew** — Justin's
+  Staff Photos cluster at 341 photos, Christie at 77 ("is this Christie?"
+  verbatim), Jerrick 0.916, Joey 0.856.
+- Wall of fame: crew excluded from the podium (they stay in Everyone), top 6
+  in two rows. After Mason's 51 confirms the podium is all repeat GUESTS —
+  Sophia Carazo-Ortiz, Jenna Kazim, Aleta Cruel, Edward Jue, Adithri Sharma,
+  Brittany Reed — which is what a trophy shelf should mean.
+
+## Shared-name conflations — measured, groundwork laid, cards NOT built
+
+The centroid detector (2026-08-16) found **17 flagged names**, and every
+real-person case is SAME-EVENT (two "Cooper Scott" clusters at NASAI scoring
+0.057 against each other) — the cross-event John Smith case has ZERO instances
+today. Same-event collisions are already surfaced by the event People view's
+merge/split cards, so the archive-wide card surface was deferred; migration
+068 carries `person_split_dismissals` ready for it. The detector also caught
+reference pollution (marketing-gallery clusters as naming references) — fixed
+via the excluded-gallery param on the refresh.
+
 ## NOT built — next session
 
-1. **Split a shared name by face** — the inverse of the merge, for the John
-   Smith case Mason raised: two different people who share a name are ONE tile
-   under filename identity, and only face-anchored identity can pull them
-   apart. The naming engine's confirmed clusters make this buildable now.
+1. **Archive-wide conflation cards** — surface the 17 flagged shared-name
+   pairs in one place (faces side by side, rename-a-side / same-person /
+   open-event), instead of leaving them to be stumbled on per event.
+   `person_split_dismissals` (068) is the durable "same person" memory.
+2. **True tile fan-out for cross-event shared names** — deferred until a real
+   case exists; the archive currently has none.
 
 ## The identity merge — BUILT 2026-08-16
 
