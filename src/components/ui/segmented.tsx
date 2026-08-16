@@ -40,6 +40,7 @@ export function Segmented<T extends string>({
   counts,
   label,
   size = "sm",
+  stretch = false,
 }: {
   options: readonly (readonly [T, string])[];
   value: T;
@@ -49,6 +50,13 @@ export function Segmented<T extends string>({
   /** Screen-reader name for the group. */
   label?: string;
   size?: "sm" | "xs";
+  /**
+   * Fill the container instead of hugging its labels, segments sharing the
+   * width evenly — so the track can line up flush with a field above it.
+   * Equal segments are the conventional segmented-control shape and they stay
+   * put as counts change, which a hugging track does not.
+   */
+  stretch?: boolean;
 }) {
   const pad = size === "xs" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[12px]";
   const cap = size === "xs" ? "first:pl-3 last:pr-3" : "first:pl-3.5 last:pr-3.5";
@@ -56,7 +64,10 @@ export function Segmented<T extends string>({
     <span
       role="radiogroup"
       aria-label={label}
-      className="inline-flex overflow-hidden rounded-full border border-stone-200 bg-white"
+      className={cn(
+        "overflow-hidden rounded-full border border-stone-200 bg-white",
+        stretch ? "flex w-full" : "inline-flex"
+      )}
     >
       {options.map(([v, text], i) => {
         const on = v === value;
@@ -72,6 +83,7 @@ export function Segmented<T extends string>({
               "transition-colors duration-150",
               pad,
               cap,
+              stretch && "flex-1 text-center",
               i > 0 && "border-l border-stone-200",
               on
                 ? "bg-accent text-white"

@@ -216,8 +216,9 @@ export function RosterManager() {
           className={`${FIELD} max-w-sm`}
         />
         {/* Under the search it narrows — see the `shown` memo. */}
-        <div className="mt-3">
+        <div className="mt-3 w-full max-w-sm">
           <Segmented
+            stretch
             label="Which cut of the roster"
             value={band}
             onChange={(k) => { setBand(k); setPicked(new Set()); }}

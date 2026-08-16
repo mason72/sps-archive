@@ -694,8 +694,9 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
            * everyone, alumni included.
            */}
           {axis === "people" && (
-            <div className="mt-3">
+            <div className="mt-3 w-full max-w-sm">
               <Segmented
+                stretch
                 label="Which crew"
                 value={crewBand}
                 onChange={setCrewBand}
