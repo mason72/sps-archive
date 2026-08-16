@@ -96,6 +96,16 @@ type Events = {
       eventId: string;
     };
   };
+  /**
+   * Ask the naming engine to match an event's anonymous face clusters against
+   * the archive's named identities. Fired after clustering; writes only
+   * SUGGESTIONS — a human confirms, always.
+   */
+  "people/identity-scan.requested": {
+    data: {
+      eventId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

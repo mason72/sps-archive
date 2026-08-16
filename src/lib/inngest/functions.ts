@@ -949,15 +949,67 @@ export const faceCluster = inngest.createFunction(
   },
   { event: "faces/cluster.requested" },
   async ({ event, step }) => {
-    return step.run("cluster", async () => {
+    const result = await step.run("cluster", async () => {
       const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
-      if (!isAiIndexingEnabled()) return { skipped: "disabled" };
+      if (!isAiIndexingEnabled()) return { skipped: "disabled" as const };
       const { clusterEventFaces } = await import("@/lib/faces/cluster-event");
       try {
         return await clusterEventFaces(createServiceClient(), event.data.eventId);
       } catch (err) {
         const { reportSystemError } = await import("@/lib/monitoring/report");
         await reportSystemError("face-cluster", err, { eventId: event.data.eventId });
+        throw err;
+      }
+    });
+    // Fresh clusters exist — ask the naming engine who they look like. This
+    // is what makes a future import self-suggesting: photos land, clustering
+    // runs, and only confident matches against known people surface anything.
+    if (!("skipped" in result)) {
+      await step.sendEvent("scan-identities", {
+        name: "people/identity-scan.requested",
+        data: { eventId: event.data.eventId },
+      });
+    }
+    return result;
+  }
+);
+
+/**
+ * The naming engine's scan lane — matches an event's anonymous face clusters
+ * against the archive's named identities and writes SUGGESTIONS (a human
+ * confirms, always; see src/lib/people/identity-suggestions.ts for the
+ * measured confidence bar). Debounced: clustering re-runs collapse into one
+ * scan.
+ */
+export const identityScan = inngest.createFunction(
+  {
+    id: "identity-scan",
+    retries: 1,
+    concurrency: { limit: 2 },
+    debounce: { key: "event.data.eventId", period: "5m", timeout: "30m" },
+  },
+  { event: "people/identity-scan.requested" },
+  async ({ event, step }) => {
+    return step.run("scan", async () => {
+      const supabase = createServiceClient();
+      const { data: ev } = await supabase
+        .from("events")
+        .select("user_id")
+        .eq("id", event.data.eventId)
+        .maybeSingle();
+      if (!ev) return { skipped: "event-gone" };
+      const { scanEventForIdentitySuggestions } = await import(
+        "@/lib/people/identity-suggestions"
+      );
+      try {
+        return await scanEventForIdentitySuggestions(
+          supabase,
+          ev.user_id,
+          event.data.eventId
+        );
+      } catch (err) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("identity-scan", err, { eventId: event.data.eventId });
         throw err;
       }
     });

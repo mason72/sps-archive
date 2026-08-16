@@ -1005,6 +1005,111 @@ export type Database = {
         }
         Relationships: []
       }
+      person_identity_suggestions: {
+        Row: {
+          confidence: number
+          created_at: string
+          decided_at: string | null
+          event_id: string
+          id: string
+          matched_person_id: string | null
+          person_id: string
+          photo_count: number
+          status: string
+          suggested_key: string
+          suggested_name: string
+          user_id: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          decided_at?: string | null
+          event_id: string
+          id?: string
+          matched_person_id?: string | null
+          person_id: string
+          photo_count?: number
+          status?: string
+          suggested_key: string
+          suggested_name: string
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          decided_at?: string | null
+          event_id?: string
+          id?: string
+          matched_person_id?: string | null
+          person_id?: string
+          photo_count?: number
+          status?: string
+          suggested_key?: string
+          suggested_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_identity_suggestions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "person_identity_suggestions_matched_person_id_fkey"
+            columns: ["matched_person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "person_identity_suggestions_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: true
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      person_reference_centroids: {
+        Row: {
+          centroid: string
+          face_count: number
+          name: string
+          name_key: string
+          person_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          centroid: string
+          face_count: number
+          name: string
+          name_key: string
+          person_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          centroid?: string
+          face_count?: number
+          name?: string
+          name_key?: string
+          person_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_reference_centroids_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: true
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       persons: {
         Row: {
           created_at: string
@@ -1857,9 +1962,23 @@ export type Database = {
         Args: { p_share_id: string }
         Returns: undefined
       }
+      match_person_cluster: {
+        Args: { p_limit?: number; p_person_id: string }
+        Returns: {
+          face_count: number
+          matched_person_id: string
+          name: string
+          name_key: string
+          similarity: number
+        }[]
+      }
       record_auth_attempt: {
         Args: { p_key: string; p_max: number; p_window_seconds: number }
         Returns: boolean
+      }
+      refresh_person_reference_centroids: {
+        Args: { p_event_id?: string; p_user_id: string }
+        Returns: number
       }
       reorder_sections: {
         Args: { p_event_id: string; p_section_ids: string[] }

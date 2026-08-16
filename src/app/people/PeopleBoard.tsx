@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight } from "./PersonSpotlight";
+import { IdentitySuggestions } from "./IdentitySuggestions";
 import { CrewWall } from "@/components/crew/CrewWall";
 
 export interface PersonAppearance {
@@ -182,6 +183,9 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
           {filtered.length.toLocaleString()} shown
         </span>
       </div>
+
+      {/* ─── The naming engine's queue (renders nothing when empty) ─── */}
+      <IdentitySuggestions />
 
       {/* ─── Wall of fame ─── */}
       {podium.length > 0 && (
