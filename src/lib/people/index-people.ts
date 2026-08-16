@@ -15,6 +15,7 @@
 
 import type { createServiceClient } from "@/lib/supabase/server";
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
+import { loadFaceMembership } from "./face-membership";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -229,12 +230,21 @@ export async function buildPersonDetail(
     if (data.length < PAGE) break;
   }
 
+  // Group shots this person is IN — the same resolver the index counts with.
+  // Fetched as its own set because the `ilike` candidate filter above is keyed
+  // on the person's NAME, and a group shot carries somebody else's name or
+  // none at all, so it can never appear in `rows`.
+  const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()]);
+  const faceImageIds = faceMembership.get(key) ?? new Set<string>();
+
   const byEvent = new Map<string, PersonDetailEvent>();
   let display = name;
   let count = 0;
+  const counted = new Set<string>();
 
   for (const row of rows) {
     if (personKeyForImage(row.parsed_name, row.original_filename) !== key) continue;
+    counted.add(row.id);
     const parsed = personNameFromParts(row.parsed_name, row.original_filename).trim();
     const ev = eventById.get(row.event_id);
     if (!ev) continue;
@@ -258,6 +268,40 @@ export async function buildPersonDetail(
     });
     byEvent.set(row.event_id, group);
     count += 1;
+  }
+
+  // Group shots. Fetched by id, because they are exactly the frames the
+  // name-keyed candidate filter above cannot reach.
+  const extraIds = [...faceImageIds].filter((id) => !counted.has(id));
+  for (let i = 0; i < extraIds.length; i += 200) {
+    const slice = extraIds.slice(i, i + 200);
+    const { data, error } = await supabase
+      .from("images")
+      .select("id, event_id, r2_key, original_filename, aesthetic_score")
+      .in("id", slice)
+      .eq("media_type", "image")
+      .eq("processing_status", "complete");
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const ev = eventById.get(row.event_id);
+      if (!ev) continue;
+      const group =
+        byEvent.get(row.event_id) ??
+        ({
+          eventId: ev.id,
+          eventName: ev.name,
+          eventDate: ev.event_date,
+          images: [],
+        } satisfies PersonDetailEvent);
+      group.images.push({
+        id: row.id,
+        r2Key: row.r2_key,
+        filename: row.original_filename,
+        aestheticScore: row.aesthetic_score,
+      });
+      byEvent.set(row.event_id, group);
+      count += 1;
+    }
   }
 
   if (count === 0) return null;
@@ -300,6 +344,10 @@ export async function buildPeopleIndex(
       .map((e) => [e.id, e])
   );
   if (eventById.size === 0) return [];
+
+  // "Who is IN the frame" — group shots. Same resolver the card uses, so the
+  // tile's number and the card's grid can never disagree.
+  const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()]);
 
   const PAGE = 1000;
   type Row = {
@@ -425,6 +473,58 @@ export async function buildPeopleIndex(
     }
     person.events.set(row.event_id, appearance);
     people.set(key, person);
+  }
+
+  // Pass 3: photos this person is IN, from the face clusters — group shots.
+  //
+  // A frame the filename already attributes to this identity was counted
+  // above; adding it again is the double-count of lesson 88 wearing a
+  // different hat, so `seenPerKey` is the guard. Only VOUCHED identities are
+  // admitted: a cluster name reaching an identity the filename corpus never
+  // spelled person-like would import the venue and banner names that
+  // `looksLikePersonName` exists to keep off this page.
+  const seenPerKey = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const parsedRow = parsedByRow.get(row.id);
+    if (!parsedRow || !vouched.has(parsedRow.key)) continue;
+    const set = seenPerKey.get(parsedRow.key) ?? new Set<string>();
+    set.add(row.id);
+    seenPerKey.set(parsedRow.key, set);
+  }
+
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  for (const [key, imageIds] of faceMembership) {
+    if (!vouched.has(key) || excluded.has(key)) continue;
+    const person = people.get(key);
+    if (!person) continue;
+    const seen = seenPerKey.get(key) ?? new Set<string>();
+    for (const imageId of imageIds) {
+      if (seen.has(imageId)) continue;
+      const row = rowById.get(imageId);
+      if (!row) continue; // not a complete image in scope
+      const ev = eventById.get(row.event_id);
+      if (!ev) continue;
+      seen.add(imageId);
+
+      const appearance =
+        person.events.get(row.event_id) ??
+        ({
+          eventId: ev.id,
+          eventName: ev.name,
+          eventDate: ev.event_date,
+          imageCount: 0,
+          heroImageId: null,
+          heroKey: null,
+          bestScore: -1,
+        } as PersonEventAppearance & { bestScore: number });
+
+      appearance.imageCount += 1;
+      // A group shot never becomes the hero: the crop that fronts a card must
+      // unambiguously be this person, and a frame with several faces cannot
+      // promise that. Solo frames (already counted above) own the hero.
+      person.events.set(row.event_id, appearance);
+    }
+    seenPerKey.set(key, seen);
   }
 
   const indexed: IndexedPerson[] = [];
