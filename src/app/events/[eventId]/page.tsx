@@ -272,6 +272,8 @@ export default function EventPage({
   activeSectionRef.current = activeSection;
   // Ensures we only auto-select the default section once, on initial load.
   const didInitSectionRef = useRef(false);
+  /** True once any event payload has rendered — gates the fatal error screen. */
+  const hasLoadedRef = useRef(false);
 
   // Favorites filter (client/team favorites from the event's active share).
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -658,6 +660,8 @@ export default function EventPage({
       setAllImages(data.images);
       setAllStacks(data.stacks);
       setSections(data.sections);
+      hasLoadedRef.current = true;
+      setLoadError(false);
 
       // Auto-show the upload zone ONLY on first load (empty event). On later
       // refreshes — especially the live refresh fired while images are landing
@@ -708,7 +712,17 @@ export default function EventPage({
         // Non-critical — default to no active shares
       }
     } catch {
-      setLoadError(true);
+      /**
+       * Fatal ONLY when there is nothing on screen. This runs every ~1.5s as a
+       * live refresh while images land — and a refresh competes with 12 upload
+       * bodies for the same connection, so one starved fetch is a certainty,
+       * not an edge case. It used to latch loadError unconditionally, which
+       * replaced a fully loaded editor (with an upload in flight!) with the
+       * dead "Failed to load event" screen — Mason hit it three times in an
+       * hour on 2026-08-16. A failed REFRESH keeps the data we have; the next
+       * tick retries anyway.
+       */
+      setLoadError(!hasLoadedRef.current);
     } finally {
       setIsLoading(false);
     }

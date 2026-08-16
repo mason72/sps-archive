@@ -34,7 +34,16 @@ import { waitForQueueRoom } from "@/lib/upload/backpressure";
 
 const PRESIGN_CHUNK = 50;
 /** Workers are a GLOBAL budget: N batches share one uplink, not N uplinks. */
-const MAX_CONCURRENT_UPLOADS = 12;
+/**
+ * 6, down from 12 (2026-08-16). Throughput is uplink-bound, so halving the
+ * workers costs nothing measurable — but 12 concurrent same-origin request
+ * bodies is exactly where Safari's network stack starts shedding requests
+ * ("Load failed" on fetches that lose the scheduling fight), and every shed
+ * request here has a blast radius: a lost presign fails a whole chunk, a lost
+ * refresh used to kill the page. Six is the per-host ceiling every browser is
+ * comfortable with, and it leaves headroom for the page's own traffic.
+ */
+const MAX_CONCURRENT_UPLOADS = 6;
 /**
  * How often coalesced file patches reach React state. See `pendingPatches` for
  * why this exists at all — 100ms is ~10 updates/sec, smooth for a progress bar
@@ -47,6 +56,13 @@ const R2_PUT_TIMEOUT_MS = 120_000;
 const MIN_UPLOAD_BYTES_PER_SEC = 250 * 1024;
 const PROXY_MAX_BYTES = 4 * 1024 * 1024;
 const CORS_FAILURE_THRESHOLD = 3;
+/**
+ * Files at or under this size have their bytes read into memory BEFORE the
+ * PUT — see the snapshot block in uploadOne (the Dropbox stale-handle fix).
+ * Above it (long videos), the File streams as before: 6 workers × 500 MB in
+ * RAM would be its own incident.
+ */
+const SNAPSHOT_MAX_BYTES = 64 * 1024 * 1024;
 const EXIF_SCAN_BYTES = 4 * 1024 * 1024;
 const KEEPALIVE_BYTE_BUDGET = 50 * 1024;
 
@@ -130,7 +146,7 @@ export type UploadEvent =
 /** PUT with real progress events (fetch exposes none). */
 function putWithProgress(
   url: string,
-  file: File,
+  file: Blob,
   opts: {
     timeoutMs: number;
     signal: { aborted: boolean };
@@ -343,7 +359,6 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
   const rrCursor = useRef(0);
   const bytesSentRef = useRef(0);
   const corsFailureCount = useRef(0);
-  const corsBlockedRef = useRef(false);
   const objectUrls = useRef<Set<string>>(new Set());
   const completedIds = useRef<Map<string, string[]>>(new Map());
   const failedFiles = useRef<Map<string, File[]>>(new Map());
@@ -536,18 +551,56 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       const eventId = batch?.eventId ?? "";
       const useProxy = task.file.size <= PROXY_MAX_BYTES;
 
-      if (!useProxy && corsBlockedRef.current) {
-        (failedFiles.current.get(task.batchId) ?? []).push(task.file);
-        await deleteOrphanRow(task.imageId);
-        updateFile(task.batchId, task.fileId, {
-          status: "error",
-          error: "Files over 4 MB need storage (CORS) configured — see settings",
-        });
-        return;
-      }
-
       updateFile(task.batchId, task.fileId, { status: "uploading", progress: 0 });
       const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
+
+      /**
+       * SNAPSHOT THE BYTES BEFORE SENDING — the fix for the Dropbox drops.
+       *
+       * Mason's staff photos live in Dropbox folders, many as online-only
+       * placeholders. Dragging those into the browser hands over a File handle
+       * whose bytes may not be on disk yet, and Dropbox touching the file after
+       * the drop (sync, materialization) makes the handle STALE — Safari then
+       * fails the read mid-send as "Load failed", Chrome as
+       * ERR_UPLOAD_FILE_CHANGED. That is why failures were intermittent, why
+       * Retry re-failed (same stale handle), and why it never reproduced from
+       * a local folder.
+       *
+       * Reading the file into memory first (a) forces macOS to materialize a
+       * cloud placeholder, (b) pins the exact bytes so nothing can change them
+       * mid-send, and (c) turns "the source file is unreadable" into its OWN
+       * error with its own advice, instead of masquerading as a network
+       * failure. Three read attempts with a pause, because materialization is
+       * a download that needs a moment.
+       *
+       * Bounded: videos up to 500 MB keep streaming from the File handle as
+       * before — 6 workers × 500 MB in memory would be its own incident.
+       */
+      let body: Blob = task.file;
+      if (task.file.size <= SNAPSHOT_MAX_BYTES) {
+        let snapshotted = false;
+        for (let attempt = 0; attempt < 3 && !snapshotted; attempt++) {
+          if (isAborted()) return cancelTask(task);
+          try {
+            body = new Blob([await task.file.arrayBuffer()], {
+              type: task.file.type,
+            });
+            snapshotted = true;
+          } catch {
+            await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          }
+        }
+        if (!snapshotted) {
+          (failedFiles.current.get(task.batchId) ?? []).push(task.file);
+          await deleteOrphanRow(task.imageId);
+          updateFile(task.batchId, task.fileId, {
+            status: "error",
+            error:
+              "Couldn't read this file from disk — if it lives in Dropbox or iCloud, let it finish downloading, then Retry",
+          });
+          return;
+        }
+      }
 
       let ok = false;
       let lastErr: unknown;
@@ -556,7 +609,7 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
         try {
           let lastPct = -1;
           let lastLoaded = 0;
-          const res = await putWithProgress(target, task.file, {
+          const res = await putWithProgress(target, body, {
             timeoutMs: uploadTimeoutMs(task.file.size),
             signal: {
               get aborted() {
@@ -576,14 +629,35 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
             break;
           }
           lastErr = new Error(`Upload failed (${res.status})`);
+          /**
+           * 404 = the reservation row is GONE (cancelled run, reconciler
+           * sweep). No retry of this URL can ever succeed, and hammering it
+           * three times with backoff is what produced the repeating 404 bursts
+           * in the 2026-08-16 logs. Fail fast; the row-level Retry button
+           * re-presigns from scratch (new row, new URL), which is the fix.
+           */
+          if (res.status === 404) {
+            lastErr = new Error("Upload slot expired — Retry re-creates it");
+            break;
+          }
         } catch (err) {
           lastErr = err;
+          /**
+           * The CORS counter now only RAISES THE BANNER — it no longer
+           * insta-fails files. It used to: three network-shaped errors flipped
+           * corsBlockedRef and every later >4 MB file was failed WITHOUT AN
+           * ATTEMPT until the tab reloaded. Built for a real misconfigured
+           * bucket (a permanent condition), it latched on three Dropbox
+           * stale-handle reads — a transient one — and turned "a few cloud
+           * files hiccupped" into "everything I drop fails" (Mason,
+           * 2026-08-16). Genuinely broken CORS still surfaces: every file
+           * fails its own attempts and the banner points at settings. A latch
+           * may inform; it must never act.
+           */
           if (!useProxy && err instanceof TypeError) {
             corsFailureCount.current++;
             if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
-              corsBlockedRef.current = true;
               setCorsError(true);
-              break;
             }
           }
         }
@@ -606,9 +680,12 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
         await deleteOrphanRow(task.imageId);
         updateFile(task.batchId, task.fileId, {
           status: "error",
+          // The message is the error we actually saw — never the CORS guess.
+          // "Network error — Retry" beats a wrong instruction to reconfigure
+          // storage that was working a minute ago.
           error:
-            !useProxy && (lastErr instanceof TypeError || corsBlockedRef.current)
-              ? "Files over 4 MB need storage (CORS) configured — see settings"
+            lastErr instanceof TypeError
+              ? "Network hiccup — Retry"
               : lastErr instanceof Error
               ? lastErr.message
               : "Upload failed",
@@ -713,19 +790,44 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
           | Array<{ imageId: string; uploadUrl: string; originalFilename?: string }>
           | undefined;
         try {
-          const response = await fetch("/api/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              eventId,
-              sectionId: sectionId || undefined,
-              files: chunkEntries.map((e) => ({
-                name: e.file.name,
-                type: e.file.type,
-                size: e.file.size,
-              })),
-            }),
-          });
+          /**
+           * The presign POST RETRIES on network failure, because its blast
+           * radius is the whole chunk: this one request stands in for up to 50
+           * files, and it used to fail them all on a single browser-level
+           * "Load failed" — which is exactly what a fetch gets when it loses a
+           * scheduling fight with 12 concurrent upload bodies. Mason watched
+           * failures jump 12 → 24 → 48 in blocks of a chunk (Safari,
+           * 2026-08-16); every block was one lost request.
+           *
+           * Only thrown fetches (network layer) retry. An HTTP error response
+           * is the server's ANSWER and stays terminal — re-asking a question
+           * the server already answered is how you mint duplicate rows.
+           */
+          let response: Response | undefined;
+          let lastNetErr: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            if (aborted.current.has(batchId)) break;
+            try {
+              response = await fetch("/api/upload", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  eventId,
+                  sectionId: sectionId || undefined,
+                  files: chunkEntries.map((e) => ({
+                    name: e.file.name,
+                    type: e.file.type,
+                    size: e.file.size,
+                  })),
+                }),
+              });
+              break;
+            } catch (err) {
+              lastNetErr = err;
+              await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+            }
+          }
+          if (!response) throw lastNetErr ?? new Error("Network error");
           if (!response.ok) {
             for (const e of chunkEntries) {
               const list = failedFiles.current.get(batchId) ?? [];
