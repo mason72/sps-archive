@@ -364,7 +364,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
 
     if (axis === "people")
       return index.people
-        .filter((p) => (q ? true : inCrewBand(p, crewBand)))
+        .filter((p) => inCrewBand(p, crewBand))
         .filter((p) => match(p.name, p.fullName, p.email, p.homeCity, p.kind))
         .map((p) => ({
           id: p.id,
@@ -450,7 +450,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
     const placed: Placed[] = [];
     const unplaced: IntelPerson[] = [];
     for (const p of index.people) {
-      if (!q && !inCrewBand(p, crewBand)) continue;
+      if (!inCrewBand(p, crewBand)) continue;
       if (!match(p.name, p.fullName, p.email, p.homeCity, p.kind)) continue;
       const d = metroDistance(p.homeCity, place);
       if (d) placed.push({ p, miles: d.miles, fromKey: d.fromKey });
@@ -608,27 +608,6 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
               className="w-full max-w-sm rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
             />
 
-            {/* Which cut of the roster — the same four bands as the Roster tab
-                and the /people wall. Search overrides the band, so a typed name
-                finds anyone; the chips are for browsing. */}
-            {axis === "people" && (
-              <Segmented
-                label="Which crew"
-                value={crewBand}
-                onChange={setCrewBand}
-                options={[
-                  ["all", "All"],
-                  ["regular", "Regulars"],
-                  ["other", "Non-regulars"],
-                  ["alumni", "Alumni"],
-                ] as const}
-                counts={{
-                  regular: index.people.filter((p) => inCrewBand(p, "regular")).length,
-                  other: index.people.filter((p) => inCrewBand(p, "other")).length,
-                  alumni: index.people.filter((p) => inCrewBand(p, "alumni")).length,
-                }}
-              />
-            )}
 
             {/* The radius search — see the nearGroups memo for the rules. */}
             {axis === "people" && (
@@ -691,6 +670,39 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
             <p className="mt-2 text-[12px] text-stone-400">
               Can’t put “{nearGroups.unresolved}” on the map — pick a metro from the list.
             </p>
+          )}
+
+          {/**
+           * The band sits UNDER the search it narrows — Mason: "move the filter
+           * pill under search on these screens... if I choose a filter, it
+           * should filter my search results too."
+           *
+           * It NARROWS SEARCH now, which is the simpler rule and the one that
+           * matches the control's position: what you type is filtered by what
+           * is selected. Nothing is lost from the original reason search used
+           * to span every band ("there's no way to find archived people") —
+           * the default is All, so an untouched filter still searches
+           * everyone, alumni included.
+           */}
+          {axis === "people" && (
+            <div className="mt-3">
+              <Segmented
+                label="Which crew"
+                value={crewBand}
+                onChange={setCrewBand}
+                options={[
+                  ["all", "All"],
+                  ["regular", "Regulars"],
+                  ["other", "Non-regulars"],
+                  ["alumni", "Alumni"],
+                ] as const}
+                counts={{
+                  regular: index.people.filter((p) => inCrewBand(p, "regular")).length,
+                  other: index.people.filter((p) => inCrewBand(p, "other")).length,
+                  alumni: index.people.filter((p) => inCrewBand(p, "alumni")).length,
+                }}
+              />
+            </div>
           )}
         </div>
       )}

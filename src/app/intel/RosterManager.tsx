@@ -96,21 +96,31 @@ export function RosterManager() {
     return () => { live = false; };
   }, [people]);
 
+  /**
+   * The band NARROWS the search — Mason: "if I choose a filter, it should
+   * filter my search results too. Currently, it has no effect on search."
+   *
+   * Search used to span every band so an archived person could be found by
+   * name. That reason survives without the exception: the default is All, so
+   * an untouched filter searches everyone, alumni included. Choosing a band is
+   * now a statement about what you are looking for, and it holds.
+   */
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (s) {
-      // Search spans EVERYONE — a band is a browsing cut, and a typed name is
-      // a question about a specific person whose state you may not know.
-      return people.filter((p) =>
-        [p.display_name, p.full_name, p.primary_email, p.city, p.kind]
-          .some((f) => (f ?? "").toLowerCase().includes(s))
-      );
-    }
-    if (band === "archived") return people.filter((p) => p.archived);
-    const active = people.filter((p) => !p.archived);
-    if (band === "regular") return active.filter((p) => p.is_regular);
-    if (band === "other") return active.filter((p) => !p.is_regular);
-    return active;
+    const inBand = (p: Person) =>
+      band === "archived" ? p.archived
+      : p.archived ? false
+      : band === "regular" ? p.is_regular
+      : band === "other" ? !p.is_regular
+      : true;
+    return people.filter(
+      (p) =>
+        inBand(p) &&
+        (!s ||
+          [p.display_name, p.full_name, p.primary_email, p.city, p.kind].some((f) =>
+            (f ?? "").toLowerCase().includes(s)
+          ))
+    );
   }, [people, q, band]);
 
   /** Optimistic, like the rest of this feature — the server is the record, not the renderer. */
@@ -175,27 +185,9 @@ export function RosterManager() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className={META}>Roster</span>
-          <div className="mt-2">
-            <Segmented
-              label="Which cut of the roster"
-              value={band}
-              onChange={(k) => { setBand(k); setPicked(new Set()); }}
-              options={[
-                ["all", "All"],
-                ["regular", "Regulars"],
-                ["other", "Non-regulars"],
-                ["archived", "Alumni"],
-              ] as const}
-              counts={{
-                regular: people.filter((p) => p.is_regular && !p.archived).length,
-                other: people.filter((p) => !p.is_regular && !p.archived).length,
-                archived: people.filter((p) => p.archived).length,
-              }}
-            />
-          </div>
           <p className="mt-1 text-[13px] text-stone-500">
             {people.filter((p) => !p.archived).length} active
-            {q && ` · ${shown.length} matching (alumni included)`}
+            {q && ` · ${shown.length} matching`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -220,6 +212,25 @@ export function RosterManager() {
           placeholder="Search name, email, city…"
           className={`${FIELD} max-w-sm`}
         />
+        {/* Under the search it narrows — see the `shown` memo. */}
+        <div className="mt-3">
+          <Segmented
+            label="Which cut of the roster"
+            value={band}
+            onChange={(k) => { setBand(k); setPicked(new Set()); }}
+            options={[
+              ["all", "All"],
+              ["regular", "Regulars"],
+              ["other", "Non-regulars"],
+              ["archived", "Alumni"],
+            ] as const}
+            counts={{
+              regular: people.filter((p) => p.is_regular && !p.archived).length,
+              other: people.filter((p) => !p.is_regular && !p.archived).length,
+              archived: people.filter((p) => p.archived).length,
+            }}
+          />
+        </div>
       </div>
 
       {error && <p className="mt-3 text-[13px] text-red-700">{error}</p>}
@@ -403,7 +414,9 @@ export function RosterManager() {
 
         {shown.length === 0 && (
           <p className="py-6 text-[13px] text-stone-400">
-            {q ? `Nobody matches “${q}” — alumni included.` : band === "archived" ? "Nobody in alumni." : "Nobody on the roster."}
+            {q
+              ? `Nobody matches “${q}”${band === "all" ? "." : " in this filter."}`
+              : band === "archived" ? "Nobody in alumni." : "Nobody on the roster."}
           </p>
         )}
       </div>
