@@ -1175,3 +1175,80 @@ one screenshot after asserting the opposite.
   than restating.
 - And the process half: **do not assert the preserved case, exercise it.** One
   search would have caught this before the sentence claiming it worked.
+
+## 92 — a LIVELOCK reads exactly like a network problem, and the clean log is the clue (2026-08-16)
+
+Mason dropped 1,197 photos rapid-fire from several folders, tried to create a
+section mid-upload, and everything stopped. Enter appeared to do nothing.
+Uploads fell to **0.2 Mbps with a 26-hour ETA** on a fast connection. He
+cancelled, re-dropped, and got the same thing.
+
+I spent a long time reading the worker pool for a deadlock — the round-robin
+`nextTask`, `activeWorkers` leaks, `waitForQueueRoom` (whose own doc says "if
+workers stall permanently this never resolves, and that is correct"), the
+mid-flight `sectionId` change. **All of it was fine.** There was no deadlock.
+
+`updateFile` called `setBatches` on **every XHR progress event**. XHR fires
+those roughly every 50ms per request; 12 concurrent workers is ~240 state
+writes a second. Each write did `prev.map(...)` over every batch plus a full
+re-map of the target batch's files, allocating a new object per file. **Cost
+per tick was O(total files staged), not O(1)** — and "rapid fire from different
+folders" is precisely the input that maximises it: ~36 concurrent batches,
+~2,600 files, so ~3 million allocations per second to move some progress bars.
+
+The main thread never came up for air. Everything downstream followed:
+
+- **The Enter key "did nothing" — it had worked.** Vercel logged the successful
+  `POST /api/sections` at 17:15:07. React simply never got a frame to render
+  the new section, so he pressed Enter four more times and the server answered
+  `23505 duplicate key` four times, each surfacing as an opaque 500.
+- **Uploads crawled**, because XHR completion callbacks queue behind React work.
+- **Presign loops all parked** at their high-water mark: 52 chunks in 25 minutes.
+
+**The tells, in order of how much time each would have saved:**
+
+1. **The server logs were CLEAN.** 302 × 200, and `/api/upload` answered 200 all
+   52 times. A wedge with no server error and no client error is not a
+   distributed-systems problem — it is one thread doing the wrong work. *Read the
+   durable record FIRST; I read code for far too long before opening Vercel.*
+2. **`/api/upload/[imageId]` never appeared in the route breakdown at all**,
+   while `/api/upload` appeared 52 times. Presign ran; the workers did not. That
+   single asymmetry located the fault on the client in one query.
+3. **A performance cliff that scales with input size is a complexity bug, not a
+   capacity one.** "Fine for 40 files, catastrophic for 1,200" is the shape.
+
+**The rule: never call a React state setter from a high-frequency event.**
+Progress, scroll, pointermove, resize — collect into a ref and flush on a timer.
+Cost must track FLUSHES, not events, and one flush must be one pass regardless
+of how many items changed.
+
+**Use a timer, not `requestAnimationFrame`.** rAF does not fire in a background
+tab, and a long upload is exactly what someone leaves running in one — progress
+would freeze and terminal statuses would sit unapplied until they came back.
+
+**Coalesce by MERGING, not replacing.** `pending.set(fileId, patch)` would let a
+progress tick silently drop a status set earlier in the same window; a file
+would read `pending` at 90%, and `cancelBatch` removes pending files. The test
+for this is worth more than the one for the speedup.
+
+### Three more, all found in the same 25 minutes of logs
+
+- **`check-duplicates` put unbounded lists in two `.in()` filters.** PostgREST
+  puts filter values in the QUERY STRING, so a long enough list comes back a
+  bare **400 "Bad Request"**. It failed 36 times and **left no `system_errors`
+  row, because it reported through a bare `console.error`** — which is why the
+  whole incident had no trace. It also **self-amplified**: `imageIds` was every
+  image already in the section, so the check degraded exactly as the section it
+  protects filled up. *An `.in()` filter is URL length. Page it.*
+- **A unique-constraint violation is the user's answer, not a fault.** `23505`
+  on section name now returns **409 with the real sentence**, and the sidebar
+  prints the server's message instead of throwing a generic one away.
+- **A refusal is not a failure.** Rejected `.CR3`/`.psd` files rendered
+  identically to failed uploads — red, with a **Retry** that could never
+  succeed — and Dismiss was gated on `!isUploading`, so they were unactionable
+  for the whole run. They now carry their own `incompatible` status, amber, with
+  a dismiss and no retry. And **the reason was there the whole time; the layout
+  ate it**: the row prints the filename in its own column and the message was
+  *also* filename-prefixed, so a 180px truncation left
+  `"Daren Matsuoka_25-06-05_a16z..."` as the entire explanation. *When a message
+  renders beside the thing it names, it must not repeat it.*
