@@ -1083,3 +1083,32 @@ like proof when it may only be a quiet moment on the database.
   exactly PostgREST's 1,000-row default limit and truncated him away. A
   truncated read is indistinguishable from a real absence. Same family as
   lesson 87: **check the record, and check you read all of it.**
+
+## 89 — a backtick in a shell-quoted commit message is a COMMAND (2026-08-15)
+
+Writing a commit message inline with `git commit -m "…"`, I referred to a
+column as `` `archived` `` — the way it is written everywhere else in this
+repo's prose. zsh read the backticks as command substitution, ran `archived`,
+printed **"command not found: archived"**, and committed the message with the
+word simply *missing*: "the state key stay  — renaming the data…". The commit
+was already pushed by the time I read the output, so the gap is permanent
+short of a force-push nobody wants for one word.
+
+- **Backticks, `$(…)`, `$VAR` and `!` are all live inside double quotes.** A
+  commit message full of identifiers is exactly the message most likely to
+  contain them.
+- **Use a heredoc with a QUOTED delimiter** (`git commit -F - <<'EOF'`), which
+  suppresses every expansion, or drop the backticks. Anything else is trusting
+  prose not to look like code.
+- **The tell is in the output**: a stray "command not found" line beside a
+  successful commit means the message is not what you wrote. Read the whole
+  output, not just the receipt.
+
+And the second failure in the same command, which is worse because it is
+already written down in `ship-discipline.md`: I ran the passenger check
+`git log --oneline origin/main..HEAD && git commit … && git push`. It printed
+another session's unpushed commit — the warning fired correctly — and the push
+ran anyway, because a guard `&&`-ed to the thing it guards is a log line, not
+a guard. **Read the answer, decide, then act, in separate invocations.** The
+passenger was docs-only this time (a lessons entry whose code had already
+shipped), so nothing broke; that was luck, not diligence.
