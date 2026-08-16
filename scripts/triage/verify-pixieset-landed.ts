@@ -51,10 +51,51 @@ async function main() {
       failed++;
       continue;
     }
-    const expected = row.files ?? 0;
-    const res = await verifyLanded(supabase, row.eventId, expected);
-    console.log(`${res.ok ? "✓" : "✗"} ${slug} — ${res.detail}`);
-    if (!res.ok) failed++;
+    /**
+     * `row.files` counts ZIP ENTRIES, and an entry becomes a SECTION LINK, not an
+     * image: a photo in two Pixieset sets is stored once and linked twice. So the
+     * invariant is `sum(section links) === zip entries`, with images <= links.
+     *
+     * Passing `row.files` to `verifyLanded()` as an image count reports a complete
+     * collection as short — rsac2015 read "1513/2059" and looked like 546 lost
+     * photos when nothing was missing at all. Lesson 87, third instance.
+     */
+    const entries = row.files ?? 0;
+    const { data: secs, error: secErr } = await supabase
+      .from("sections").select("id").eq("event_id", row.eventId);
+    if (secErr) {
+      console.log(`✗ ${slug} — could not read sections: ${secErr.message}`);
+      failed++;
+      continue;
+    }
+    let links = 0;
+    for (const s of secs ?? []) {
+      const r = await supabase
+        .from("section_images").select("*", { count: "exact", head: true }).eq("section_id", s.id);
+      links += r.count ?? 0;
+    }
+    // Images still have to exist, be thumbnailed and be published — verifyLanded
+    // answers that; give it the count it can actually satisfy.
+    const imgRes = await supabase
+      .from("images").select("*", { count: "exact", head: true }).eq("event_id", row.eventId);
+    const images = imgRes.count ?? 0;
+    const res = await verifyLanded(supabase, row.eventId, images);
+    /**
+     * `>=`, not `===`. An event can legitimately hold MORE than the archive put
+     * there — a prior upload, a second collection, an earlier import — and
+     * `microsoftsurfacepro3campuseventheadshots` does exactly that (1,369 links
+     * against 1,185 entries, all 1,185 verified present by name). A SHORT ingest
+     * is the failure mode, and it shows up as fewer links, never more.
+     *
+     * This is a completeness signal, not a release gate. Whether every specific
+     * file arrived is `px-filecheck.ts`, which compares by original_filename.
+     */
+    const linksOk = links >= entries;
+    const ok = res.ok && linksOk && images > 0;
+    console.log(
+      `${ok ? "✓" : "✗"} ${slug} — ${links}/${entries} section links · ${images} images · ${res.detail}`
+    );
+    if (!ok) failed++;
   }
 
   if (failed) {
