@@ -35,6 +35,12 @@ import { waitForQueueRoom } from "@/lib/upload/backpressure";
 const PRESIGN_CHUNK = 50;
 /** Workers are a GLOBAL budget: N batches share one uplink, not N uplinks. */
 const MAX_CONCURRENT_UPLOADS = 12;
+/**
+ * How often coalesced file patches reach React state. See `pendingPatches` for
+ * why this exists at all — 100ms is ~10 updates/sec, smooth for a progress bar
+ * and roughly 24x fewer state writes than one-per-XHR-progress-event.
+ */
+const PATCH_FLUSH_MS = 100;
 const R2_PUT_RETRIES = 2;
 const R2_RETRY_BASE_MS = 1000;
 const R2_PUT_TIMEOUT_MS = 120_000;
@@ -350,21 +356,93 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
     };
   }, []);
 
+  /**
+   * Pending file patches, coalesced and flushed on a timer.
+   *
+   * WHY THIS EXISTS — the 2026-08-16 upload wedge. `updateFile` used to call
+   * `setBatches` directly, and it is called from `onProgress`, which XHR fires
+   * roughly every 50ms PER REQUEST. With 12 concurrent workers that is ~240
+   * state writes a second, and each one rebuilt the whole structure: a map over
+   * every batch, and a full re-map of the target batch's files array, allocating
+   * a new object per file. Cost per tick is O(total files staged), not O(1).
+   *
+   * Mason dropped 1,197 photos "rapid fire ... from different folders", which
+   * is exactly the shape that detonates it: ~36 concurrent batches, ~2,600 files
+   * in state, so every one of those 240 writes/sec re-allocated 2,600 objects
+   * and re-rendered the dock. The main thread never came up for air.
+   *
+   * It was NOT a deadlock, which is why it was so hard to read — it was a
+   * LIVELOCK, and every symptom followed from a starved main thread:
+   *   - "I typed Stylists and pressed ENTER, nothing happened" — the POST fired
+   *     and SUCCEEDED (17:15:07); React just never got a frame to render the
+   *     new section, so he pressed Enter four more times and the server
+   *     answered 23505 duplicate-key four times.
+   *   - "everything seemed stuck" — uploads crawled because XHR completion
+   *     callbacks queue behind React work, so workers rarely finished and the
+   *     presign loops all parked at their high-water mark (52 chunks in 25 min).
+   *   - Vercel logs were CLEAN. The server was healthy throughout. A wedge with
+   *     no server error and no client error is the signature of a busy loop.
+   *
+   * The fix is to make cost proportional to FRAMES, not to ticks: collect
+   * patches in a ref and apply them all in ONE pass at ~10Hz. 240 writes/sec
+   * over 2,600 files becomes 10 writes/sec, and each flush touches the state
+   * once no matter how many files changed in that window.
+   *
+   * A TIMER, not requestAnimationFrame, on purpose: rAF does not fire in a
+   * background tab, and uploads are exactly what people leave running in one.
+   * Progress would freeze and terminal statuses would sit unapplied until they
+   * came back. 100ms is smooth for a progress bar and keeps firing when hidden.
+   */
+  const pendingPatches = useRef<Map<string, Map<string, Partial<UploadFile>>>>(
+    new Map()
+  );
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPatches = useCallback(() => {
+    if (flushTimer.current !== null) {
+      clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+    }
+    const pending = pendingPatches.current;
+    if (pending.size === 0) return;
+    pendingPatches.current = new Map();
+    setBatches((prev) =>
+      prev.map((b) => {
+        const forBatch = pending.get(b.id);
+        if (!forBatch) return b;
+        return {
+          ...b,
+          files: b.files.map((f) => {
+            const patch = forBatch.get(f.id);
+            return patch ? { ...f, ...patch } : f;
+          }),
+        };
+      })
+    );
+  }, []);
+
   const updateFile = useCallback(
     (batchId: string, fileId: string, patch: Partial<UploadFile>) => {
-      setBatches((prev) =>
-        prev.map((b) =>
-          b.id !== batchId
-            ? b
-            : {
-                ...b,
-                files: b.files.map((f) => (f.id === fileId ? { ...f, ...patch } : f)),
-              }
-        )
-      );
+      let forBatch = pendingPatches.current.get(batchId);
+      if (!forBatch) {
+        forBatch = new Map();
+        pendingPatches.current.set(batchId, forBatch);
+      }
+      // Merge, never replace: a progress tick must not drop a status set
+      // earlier in the same window, and vice versa.
+      forBatch.set(fileId, { ...(forBatch.get(fileId) ?? {}), ...patch });
+      if (flushTimer.current === null) {
+        flushTimer.current = setTimeout(flushPatches, PATCH_FLUSH_MS);
+      }
     },
-    []
+    [flushPatches]
   );
+
+  useEffect(() => {
+    return () => {
+      if (flushTimer.current !== null) clearTimeout(flushTimer.current);
+    };
+  }, []);
 
   const removeFiles = useCallback((batchId: string, fileIds: Set<string>) => {
     setBatches((prev) =>
@@ -844,6 +922,11 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
 
   const cancelBatch = useCallback(
     (batchId: string) => {
+      // Apply anything still in flight before reading statuses below: this
+      // drops files whose status is "pending", and a file that started
+      // uploading within the last flush window would otherwise still read
+      // pending and be removed out from under its own worker.
+      flushPatches();
       aborted.current.add(batchId);
       const queued = queues.current.get(batchId) ?? [];
       queues.current.set(batchId, []);
@@ -868,7 +951,7 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       // Cancel runs with the page alive — no keepalive, no byte budget.
       deleteRowsInBatches(queued.map((t) => t.imageId), false);
     },
-    []
+    [flushPatches]
   );
 
   const retryFinalize = useCallback(

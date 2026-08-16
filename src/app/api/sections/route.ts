@@ -145,6 +145,23 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
+    /**
+     * A name collision is the user's answer, not a server fault. `sections`
+     * carries a unique index on (event_id, lower(name)), and this used to fall
+     * through to the catch and answer 500 "Failed to create section".
+     *
+     * On 2026-08-16 that read as the feature being broken: the FIRST Enter
+     * created "Stylists" successfully, the page was too busy to render it (see
+     * UploadManager's `pendingPatches`), so Mason pressed Enter four more times
+     * and got four opaque 500s. The right answer is 409 and the real reason, so
+     * a retry explains itself even when the first success went unseen.
+     */
+    if (error?.code === "23505") {
+      return NextResponse.json(
+        { error: `A section named "${name}" already exists in this event.` },
+        { status: 409 }
+      );
+    }
     if (error) throw error;
 
     return NextResponse.json({

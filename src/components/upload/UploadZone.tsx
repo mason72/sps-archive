@@ -701,7 +701,7 @@ export function UploadZone({
                   className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 transition-colors duration-300"
                 >
                   <RotateCcw className="h-3 w-3" />
-                  Retry {errorCount} failed
+                  Retry {errorCount}
                 </button>
               )}
               {isUploading && (
@@ -712,12 +712,25 @@ export function UploadZone({
                   Cancel
                 </button>
               )}
-              {!isUploading && errorCount > 0 && (
+              {/**
+               * Dismiss is available DURING an upload, not only after it.
+               * Mason, 2026-08-16, mid-way through 1,194 files: "two files
+               * failed b/c of an invalid filetype and I can't dismiss them."
+               * Gating this on `!isUploading` meant a file that failed in the
+               * first minute sat on screen — counted, red, unactionable — until
+               * the whole run finished, which on that run was hours away. The
+               * two he hit were a .CR3 and a .psd, so Retry could never clear
+               * them either; Dismiss was the only exit and it was hidden.
+               *
+               * Safe to run mid-flight: it removes rows whose status is already
+               * terminal, and touches no queue.
+               */}
+              {errorCount > 0 && (
                 <button
                   onClick={dismissErrors}
                   className="text-[12px] text-stone-400 hover:text-stone-700 transition-colors duration-300"
                 >
-                  Dismiss
+                  Dismiss {errorCount} failed
                 </button>
               )}
             </div>

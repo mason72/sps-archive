@@ -466,7 +466,17 @@ function SectionsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId, name: trimmed }),
       });
-      if (!res.ok) throw new Error("Failed to create section");
+      // Surface the server's reason. A name collision comes back as 409 with a
+      // real sentence ("A section named "Stylists" already exists"); throwing a
+      // generic error here is what made four duplicate-key rejections look like
+      // the button simply not working (2026-08-16).
+      if (!res.ok) {
+        const reason = await res
+          .json()
+          .then((j) => (typeof j?.error === "string" ? j.error : null))
+          .catch(() => null);
+        throw new Error(reason ?? "Failed to create section");
+      }
       const data = await res.json();
       const created: SectionItem = {
         id: data.section.id,
@@ -483,8 +493,14 @@ function SectionsPanel({
       toast.success(isWorkGallery ? "Job created" : "Section created");
       // The work gallery opens the job form right away — one flow, no hunting.
       onSectionCreated?.(created);
-    } catch {
-      toast.error(isWorkGallery ? "Failed to create job" : "Failed to create section");
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : isWorkGallery
+          ? "Failed to create job"
+          : "Failed to create section"
+      );
     } finally {
       setIsCreating(false);
     }

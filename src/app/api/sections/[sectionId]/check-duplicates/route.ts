@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { reportSystemError } from "@/lib/monitoring/report";
 
 /**
  * POST /api/sections/[sectionId]/check-duplicates
@@ -62,6 +63,42 @@ export async function POST(
       return NextResponse.json({ duplicates: {} });
     }
 
+    /**
+     * PostgREST puts `.in()` values in the QUERY STRING, so a filter list is
+     * URL length, and a long enough one comes back as a bare 400 "Bad Request"
+     * — which surfaced here as a 500 with no detail at all.
+     *
+     * Both filters below are unbounded in practice: `imageIds` is every image
+     * already linked to the section (thousands), and `filenames` is the whole
+     * drop (Mason dropped 1,197 in one go on 2026-08-16 and this route failed
+     * 36 times). Worse, it SELF-AMPLIFIES — the more that lands in a section,
+     * the longer `imageIds` gets, so the check degrades exactly as the section
+     * it is protecting fills up.
+     *
+     * So page it: chunk the filename side, keep each request's URL bounded, and
+     * merge. The image-id side rides along in each chunk, which is why the
+     * chunk is small — 200 filenames plus the id list still fits comfortably.
+     */
+    const NAME_CHUNK = 200;
+    const ID_CHUNK = 400;
+    const found: Array<{ id: string; original_filename: string }> = [];
+    for (let n = 0; n < filenames.length; n += NAME_CHUNK) {
+      const nameSlice = filenames.slice(n, n + NAME_CHUNK);
+      for (let i = 0; i < imageIds.length; i += ID_CHUNK) {
+        const idSlice = imageIds.slice(i, i + ID_CHUNK);
+        const { data, error } = await supabase
+          .from("images")
+          .select("id, original_filename")
+          .in("id", idSlice)
+          .in("original_filename", nameSlice)
+          .eq("processing_status", "complete");
+        if (error) throw error;
+        for (const row of data ?? []) {
+          found.push(row as { id: string; original_filename: string });
+        }
+      }
+    }
+
     // Only a COMPLETE row proves the photo is actually archived. A "pending"
     // row is a presign reservation whose binary may never have landed — and
     // reporting one as a duplicate is actively dangerous: after the HDC // 2026
@@ -69,23 +106,20 @@ export async function POST(
     // files that went missing would have flagged each one as a duplicate of its
     // own ghost, and "Skip all duplicates" would have skipped precisely the
     // photos the photographer was re-uploading to recover.
-    const { data: imgs, error: imgError } = await supabase
-      .from("images")
-      .select("id, original_filename")
-      .in("id", imageIds)
-      .in("original_filename", filenames)
-      .eq("processing_status", "complete");
-    if (imgError) throw imgError;
-
     const duplicates: Record<string, string[]> = {};
-    for (const img of imgs ?? []) {
+    for (const img of found) {
       const name = img.original_filename;
       (duplicates[name] = duplicates[name] || []).push(img.id);
     }
 
     return NextResponse.json({ duplicates });
   } catch (error) {
-    console.error("Check duplicates error:", error);
+    // Was a bare console.error, and that is WHY the 2026-08-16 upload wedge had
+    // no evidence anywhere: this route failed 36 times in 25 minutes and wrote
+    // not one `system_errors` row. The client swallows a failure here on
+    // purpose (better to allow an upload than to block on a flaky check), so
+    // this report is the only trace it will ever leave.
+    await reportSystemError("api/sections/check-duplicates", error);
     return NextResponse.json(
       { error: "Failed to check duplicates" },
       { status: 500 }
