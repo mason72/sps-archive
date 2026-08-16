@@ -36,6 +36,31 @@ export async function GET(
 
     const data = await loadPeopleData(supabase, eventId, dismissedSetFrom(event.settings));
 
+    // Crew links, so the wall can SAY "Christie Jones · crew" instead of
+    // "Add name". Mason confirmed 22 Staff Photos clusters and the wall kept
+    // rendering them as unidentified — a crew confirm deliberately never
+    // writes persons.name, so without this map his completed work was
+    // indistinguishable from work not done ("why didn't the confirmed names
+    // carry over?!?!"). The link IS the identity; the wall must read it.
+    const crewNameByPersonId = new Map<string, string>();
+    {
+      const personIds = data.persons.map((p) => p.id);
+      for (let i = 0; i < personIds.length; i += 200) {
+        const { data: links, error: linkErr } = await supabase
+          .from("crew_persons")
+          .select("person_id, crew!inner(display_name)")
+          .eq("user_id", user!.id)
+          .in("person_id", personIds.slice(i, i + 200));
+        if (linkErr) throw linkErr;
+        for (const l of links ?? []) {
+          crewNameByPersonId.set(
+            l.person_id,
+            (l.crew as unknown as { display_name: string }).display_name
+          );
+        }
+      }
+    }
+
     const presignFace = async (ref: FaceRef | undefined) =>
       ref
         ? {
@@ -55,6 +80,7 @@ export async function GET(
         .map(async (p) => ({
           id: p.id,
           name: p.name,
+          crewName: crewNameByPersonId.get(p.id) ?? null,
           faceCount: p.face_count,
           imageIds: [...(data.memberImages.get(p.id) ?? [])],
           face: await presignFace(

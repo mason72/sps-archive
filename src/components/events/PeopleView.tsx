@@ -28,6 +28,9 @@ export interface PersonFace {
 export interface Person {
   id: string;
   name: string | null;
+  /** Crew identity via crew_persons link — NEVER stored in persons.name.
+   *  The wall shows it so a crew confirm is visible work, not silent work. */
+  crewName?: string | null;
   faceCount: number;
   imageIds: string[];
   face: PersonFace | null;
@@ -253,14 +256,18 @@ export function PeopleView({
       )
     : scored;
 
-  // Named people A–Z, then the unnamed (largest first) under their own header.
+  // Identified people A–Z (a crew LINK identifies as surely as a name — the
+  // 22 crew-linked Staff Photos clusters sat under "Unnamed" reading
+  // "Add name · 341" until this counted them), then the truly unidentified
+  // (largest first) under their own header.
+  const labelOf = (p: Person) => p.name ?? p.crewName ?? null;
   const named = visible
-    .filter((s) => s.person.name)
+    .filter((s) => labelOf(s.person))
     .sort((a, b) =>
-      a.person.name!.localeCompare(b.person.name!, undefined, { sensitivity: "base" })
+      labelOf(a.person)!.localeCompare(labelOf(b.person)!, undefined, { sensitivity: "base" })
     );
   const unnamed = visible
-    .filter((s) => !s.person.name)
+    .filter((s) => !labelOf(s.person))
     .sort((a, b) => b.person.faceCount - a.person.faceCount);
 
   return (
@@ -506,7 +513,7 @@ export function PeopleView({
             matchCount={q ? matchCount : undefined}
             active={person.id === activePersonId}
             onClick={() =>
-              person.name
+              person.name || person.crewName
                 ? onSelectPerson(person.id === activePersonId ? null : person)
                 : setReviewing(person)
             }
@@ -866,12 +873,25 @@ function PersonCard({
       </button>
       <button
         onClick={onOpenModal}
-        title={person.name ? "Review & rename" : "Review & name"}
+        title={person.name || person.crewName ? "Review & rename" : "Review & name"}
         className="mt-2 block w-full truncate text-[12px] transition-colors"
       >
         {person.name ? (
           <span className="text-stone-700 group-hover:text-stone-900">
             {person.name}{" "}
+            <span className="text-stone-400">
+              · {matchCount !== undefined ? `${matchCount} of ${person.faceCount}` : person.faceCount}
+            </span>
+          </span>
+        ) : person.crewName ? (
+          // Identified through the ROSTER, not a name write — say so. A crew
+          // confirm that leaves the wall reading "Add name" looks like lost
+          // work to the person who did the confirming.
+          <span className="text-stone-700 group-hover:text-stone-900">
+            {person.crewName}{" "}
+            <span className="rounded-full border border-stone-200 px-1 py-px text-[9px] uppercase tracking-[0.12em] text-stone-400">
+              crew
+            </span>{" "}
             <span className="text-stone-400">
               · {matchCount !== undefined ? `${matchCount} of ${person.faceCount}` : person.faceCount}
             </span>
