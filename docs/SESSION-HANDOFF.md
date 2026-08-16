@@ -101,7 +101,26 @@ conventions. It is the other entry point.
 
 ## In flight — pick these up
 
-Full detail in `tasks/todo.md`. Priority as of **2026-08-15**:
+Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
+
+0. **People / group shots — resume here.** The card now means "photos this
+   person is IN": `loadFaceMembership()` is live and adds group shots from named
+   face clusters (`tasks/people-group-shots.md`). Two things are NOT built, in
+   order:
+   **(a) the face outline on confirm cards** — Mason: *"add an outline
+   box/circle on group shots when in the 'Is this So-and-so' cards… so it's
+   clear who we're identifying as the matched face."* A confirm card showing a
+   6-person photo without marking which face is being claimed invites a blind
+   yes. Pure rendering work; `faces.bbox_*` + `images.width/height` already flow
+   through `FaceRef`/`personImageFace` in `src/lib/faces/people-data.ts`.
+   **(b) the naming engine**, which is where the value actually is: only **1.9%**
+   of the 34,769 faces in group shots belong to a NAMED cluster (80.3% anonymous),
+   so today's wiring delivers 84 group shots. Point `findCrewInArchive()` /
+   `matchSelfie()` at guests, using the ~1,440 headshot-day identities as
+   references; AI suggests, a human confirms.
+   Also open: duplicate identities from name variants ("Sami Hadouaj" vs "Sami
+   Hadouaj Mundra" are two tiles for one human), and four bad rows on Steven
+   Hughes awaiting Mason's OK to delete (one true dupe pair, three 31×25 junk).
 
 1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
    end to end and unblocked: staging is on the INTERNAL disk (deliberately —
