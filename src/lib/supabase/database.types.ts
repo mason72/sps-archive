@@ -1009,9 +1009,11 @@ export type Database = {
         Row: {
           confidence: number
           created_at: string
+          crew_id: string | null
           decided_at: string | null
           event_id: string
           id: string
+          kind: string
           matched_person_id: string | null
           person_id: string
           photo_count: number
@@ -1023,9 +1025,11 @@ export type Database = {
         Insert: {
           confidence: number
           created_at?: string
+          crew_id?: string | null
           decided_at?: string | null
           event_id: string
           id?: string
+          kind?: string
           matched_person_id?: string | null
           person_id: string
           photo_count?: number
@@ -1037,9 +1041,11 @@ export type Database = {
         Update: {
           confidence?: number
           created_at?: string
+          crew_id?: string | null
           decided_at?: string | null
           event_id?: string
           id?: string
+          kind?: string
           matched_person_id?: string | null
           person_id?: string
           photo_count?: number
@@ -1049,6 +1055,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "person_identity_suggestions_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "person_identity_suggestions_event_id_fkey"
             columns: ["event_id"]
@@ -1109,6 +1122,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      person_split_dismissals: {
+        Row: {
+          created_at: string
+          name_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          name_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          name_key?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       persons: {
         Row: {
@@ -1972,12 +2003,24 @@ export type Database = {
           similarity: number
         }[]
       }
+      match_person_cluster_to_crew: {
+        Args: { p_limit?: number; p_person_id: string }
+        Returns: {
+          crew_id: string
+          display_name: string
+          similarity: number
+        }[]
+      }
       record_auth_attempt: {
         Args: { p_key: string; p_max: number; p_window_seconds: number }
         Returns: boolean
       }
       refresh_person_reference_centroids: {
-        Args: { p_event_id?: string; p_user_id: string }
+        Args: {
+          p_event_id?: string
+          p_excluded_event_names?: string[]
+          p_user_id: string
+        }
         Returns: number
       }
       reorder_sections: {

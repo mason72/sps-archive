@@ -18,6 +18,8 @@ export interface PersonAppearance {
 export interface PersonCard {
   key: string;
   name: string;
+  /** Crew never take the podium — the trophy shelf is for clients and guests. */
+  isCrew?: boolean;
   eventCount: number;
   imageCount: number;
   heroUrl: string | null;
@@ -108,9 +110,11 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
   // appears solely in rank order, unfiltered, and only for people who have
   // actually returned. With a partially-migrated archive that's often nobody —
   // in which case we say so instead of rendering a hollow trophy shelf.
+  // Top 6 — two rows of three (Mason, 2026-08-16) — and crew are excluded:
+  // being paid to be in frame is not a trophy. They stay in Everyone below.
   const podium =
     sort === "rank" && !query.trim()
-      ? filtered.filter((p) => p.eventCount >= 2).slice(0, 3)
+      ? filtered.filter((p) => p.eventCount >= 2 && !p.isCrew).slice(0, 6)
       : [];
   const rest = filtered.filter((p) => !podium.includes(p));
 

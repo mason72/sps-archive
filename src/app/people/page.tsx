@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { buildPeopleIndex } from "@/lib/people/index-people";
+import { buildPeopleIndex, normalizeNameKey } from "@/lib/people/index-people";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { Nav } from "@/components/layout/Nav";
 import { AppNavServer } from "@/components/layout/AppNavServer";
@@ -28,10 +28,30 @@ export default async function PeoplePage() {
   if (!user) redirect("/login?redirect=/people");
 
   const people = await buildPeopleIndex(supabase, user.id);
+
+  // Crew stay off the PODIUM (Mason: "exclude crew from the wall of fame") —
+  // the trophy shelf is for clients and guests, not the people paid to be in
+  // frame. They remain in Everyone and in search. Keyed the same way identity
+  // is keyed, so any spelling of a crew name is caught. Note the asymmetry
+  // this fixes read backwards: Mason was the ONLY crew on the podium because
+  // he's the only crew whose name appears in filenames (9 events' exports
+  // carry it); Joey/Justin/Jerrick hold zero filename identities.
+  const { data: crewRows } = await supabase
+    .from("crew")
+    .select("display_name, aliases")
+    .eq("user_id", user.id);
+  const crewKeys = new Set<string>();
+  for (const c of crewRows ?? []) {
+    for (const name of [c.display_name, ...((c.aliases as string[] | null) ?? [])]) {
+      const key = normalizeNameKey(name ?? "");
+      if (key) crewKeys.add(key);
+    }
+  }
   const withHeroes = await Promise.all(
     people.map(async (p) => ({
       key: p.key,
       name: p.name,
+      isCrew: crewKeys.has(p.key),
       eventCount: p.eventCount,
       imageCount: p.imageCount,
       heroUrl: p.heroKey

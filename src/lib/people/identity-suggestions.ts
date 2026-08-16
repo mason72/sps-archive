@@ -25,6 +25,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 
 import { nameIsRejected } from "@/lib/faces/cluster-event";
+import { NON_PERSON_GALLERIES } from "./index-people";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -36,6 +37,32 @@ export interface MatchHit {
   name: string;
   face_count: number;
   similarity: number;
+}
+
+export interface CrewHit {
+  crew_id: string;
+  display_name: string;
+  similarity: number;
+}
+
+/**
+ * Crew outrank guests, pure and testable: staff rarely appear in filenames at
+ * all (Joey, Justin and Jerrick hold ZERO filename identities archive-wide),
+ * so a cluster that looks like crew must be asked as "is this Christie?"
+ * BEFORE any filename-derived identity gets a say — Mason's correction,
+ * 2026-08-16, looking at Staff Photos' garbled names.
+ */
+export function decideCrewSuggestion(
+  hits: CrewHit[],
+  opts: { rejectedNames: string[]; threshold?: number }
+): CrewHit | null {
+  const threshold = opts.threshold ?? SUGGESTION_CONFIDENCE_FLOOR;
+  for (const hit of hits) {
+    if (hit.similarity < threshold) return null; // sorted best-first
+    if (nameIsRejected(hit.display_name, opts.rejectedNames)) continue;
+    return hit;
+  }
+  return null;
 }
 
 /**
@@ -93,6 +120,10 @@ export async function scanEventForIdentitySuggestions(
     const { data, error } = await supabase.rpc("refresh_person_reference_centroids", {
       p_user_id: userId,
       p_event_id: eventId,
+      // The marketing galleries mint fake people from filenames; the wall
+      // excludes them, and so must the reference library — "Golden Gate YPO"
+      // was reference material until this list was passed (2026-08-16).
+      p_excluded_event_names: [...NON_PERSON_GALLERIES],
     });
     if (error) throw error;
     refreshedCentroids = data ?? 0;
@@ -117,6 +148,21 @@ export async function scanEventForIdentitySuggestions(
     if (error) throw error;
     clusters.push(...((data ?? []) as ClusterRow[]));
     if (!data || data.length < 1000) break;
+  }
+
+  // Clusters already LINKED to crew are identified — nothing to ask. Without
+  // this, the engine would nag about people the crew machinery already knows.
+  const crewLinked = new Set<string>();
+  if (clusters.length > 0) {
+    const ids = clusters.map((c) => c.id);
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data, error } = await supabase
+        .from("crew_persons")
+        .select("person_id")
+        .in("person_id", ids.slice(i, i + 200));
+      if (error) throw error;
+      for (const r of data ?? []) crewLinked.add(r.person_id);
+    }
   }
 
   // Existing suggestions: decided ones are settled, pending ones may update.
@@ -162,10 +208,44 @@ export async function scanEventForIdentitySuggestions(
   let suggested = 0;
   let skippedDecided = 0;
   for (const cluster of clusters) {
-    if (decided.has(cluster.id)) {
+    if (decided.has(cluster.id) || crewLinked.has(cluster.id)) {
       skippedDecided += 1;
       continue;
     }
+    // CREW FIRST. Staff barely exist in filenames, so the crew reference set
+    // is the only path to recognizing them — and a garbled-filename identity
+    // ("Marriott Green") must never outrank "is this Christie?".
+    const { data: crewHits, error: crewErr } = await supabase.rpc(
+      "match_person_cluster_to_crew",
+      { p_person_id: cluster.id, p_limit: 3 }
+    );
+    if (crewErr) throw crewErr;
+    const crewBest = decideCrewSuggestion((crewHits ?? []) as CrewHit[], {
+      rejectedNames: cluster.rejected_names ?? [],
+      threshold: opts?.threshold,
+    });
+    if (crewBest) {
+      const { error: upsertErr } = await supabase.from("person_identity_suggestions").upsert(
+        {
+          user_id: userId,
+          person_id: cluster.id,
+          event_id: eventId,
+          kind: "crew",
+          crew_id: crewBest.crew_id,
+          suggested_key: "", // crew have no filename identity — the link is the identity
+          suggested_name: crewBest.display_name,
+          matched_person_id: null,
+          confidence: crewBest.similarity,
+          photo_count: cluster.face_count,
+          status: "pending",
+        },
+        { onConflict: "person_id" }
+      );
+      if (upsertErr) throw upsertErr;
+      suggested += 1;
+      continue;
+    }
+
     const { data: hits, error } = await supabase.rpc("match_person_cluster", {
       p_person_id: cluster.id,
       p_limit: 3,
@@ -194,6 +274,8 @@ export async function scanEventForIdentitySuggestions(
         user_id: userId,
         person_id: cluster.id,
         event_id: eventId,
+        kind: "guest",
+        crew_id: null,
         suggested_key: best.name_key,
         suggested_name: best.name,
         matched_person_id: best.matched_person_id,

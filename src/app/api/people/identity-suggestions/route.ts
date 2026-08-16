@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const { data: rows, error } = await supabase
       .from("person_identity_suggestions")
       .select(
-        "id, person_id, event_id, suggested_name, matched_person_id, confidence, photo_count, events!inner(name)"
+        "id, person_id, event_id, kind, crew_id, suggested_name, matched_person_id, confidence, photo_count, events!inner(name)"
       )
       .eq("user_id", user!.id)
       .eq("status", "pending")
@@ -74,6 +74,15 @@ export async function GET(request: NextRequest) {
       .limit(limit);
     if (error) throw error;
 
+    // Crew cards front the crew's own reference avatar — their identity lives
+    // in crew_faces, never in persons.name.
+    const crewIds = [...new Set((rows ?? []).map((r) => r.crew_id).filter((v): v is string => !!v))];
+    let crewAvatarByCrewId: Record<string, { url: string; bbox: { x: number; y: number; w: number; h: number } | null; imageWidth: number | null; imageHeight: number | null } | null> = {};
+    if (crewIds.length > 0) {
+      const { crewAvatars } = await import("@/lib/crew-faces/store");
+      crewAvatarByCrewId = await crewAvatars(supabase, user!.id, crewIds);
+    }
+
     const { count: pendingTotal } = await supabase
       .from("person_identity_suggestions")
       .select("id", { count: "exact", head: true })
@@ -81,17 +90,31 @@ export async function GET(request: NextRequest) {
       .eq("status", "pending");
 
     const suggestions = await Promise.all(
-      (rows ?? []).map(async (r) => ({
-        id: r.id,
-        personId: r.person_id,
-        eventId: r.event_id,
-        eventName: (r.events as unknown as { name: string }).name,
-        suggestedName: r.suggested_name,
-        confidence: r.confidence,
-        photoCount: r.photo_count,
-        clusterFace: await repFaceCrop(supabase, r.person_id),
-        referenceFace: await repFaceCrop(supabase, r.matched_person_id),
-      }))
+      (rows ?? []).map(async (r) => {
+        const crewView = r.crew_id ? crewAvatarByCrewId[r.crew_id] : null;
+        return {
+          id: r.id,
+          personId: r.person_id,
+          eventId: r.event_id,
+          eventName: (r.events as unknown as { name: string }).name,
+          kind: (r.kind ?? "guest") as "guest" | "crew",
+          suggestedName: r.suggested_name,
+          confidence: r.confidence,
+          photoCount: r.photo_count,
+          clusterFace: await repFaceCrop(supabase, r.person_id),
+          referenceFace:
+            r.kind === "crew"
+              ? crewView && crewView.bbox
+                ? {
+                    thumbnailUrl: crewView.url,
+                    bbox: crewView.bbox,
+                    imageWidth: crewView.imageWidth,
+                    imageHeight: crewView.imageHeight,
+                  }
+                : null
+              : await repFaceCrop(supabase, r.matched_person_id),
+        };
+      })
     );
 
     return NextResponse.json({ suggestions, pendingTotal: pendingTotal ?? 0 });
@@ -113,7 +136,7 @@ export async function POST(request: NextRequest) {
 
     const { data: suggestion } = await supabase
       .from("person_identity_suggestions")
-      .select("id, user_id, person_id, event_id, suggested_name, status")
+      .select("id, user_id, person_id, event_id, kind, crew_id, suggested_name, status")
       .eq("id", body.id)
       .maybeSingle();
     if (!suggestion || suggestion.user_id !== user!.id) {
@@ -129,6 +152,26 @@ export async function POST(request: NextRequest) {
       .eq("id", suggestion.person_id)
       .maybeSingle();
     if (!person) return NextResponse.json({ error: "Cluster is gone" }, { status: 410 });
+
+    // Crew confirm is a LINK, never a name — crew names must not touch
+    // persons.name (guest identity space; the standing crew-faces invariant).
+    // confirmCrewPerson also teaches: the cluster's representative face joins
+    // the crew's reference set.
+    if (body.action === "confirm" && suggestion.kind === "crew" && suggestion.crew_id) {
+      const { confirmCrewPerson } = await import("@/lib/crew-faces/match");
+      const linked = await confirmCrewPerson(supabase, {
+        userId: user!.id,
+        crewId: suggestion.crew_id,
+        personId: suggestion.person_id,
+      });
+      if (!linked.ok) throw new Error(linked.error ?? "Crew link failed");
+      const { error: statusErr } = await supabase
+        .from("person_identity_suggestions")
+        .update({ status: "confirmed", decided_at: new Date().toISOString() })
+        .eq("id", suggestion.id);
+      if (statusErr) throw statusErr;
+      return NextResponse.json({ status: "confirmed", crew: true, name: suggestion.suggested_name });
+    }
 
     if (body.action === "confirm") {
       // Named some other way in the meantime? The human's earlier act wins —
@@ -155,9 +198,11 @@ export async function POST(request: NextRequest) {
       // stands either way, but a swallowed failure here would silently slow
       // the engine's learning (best-effort means the outcome is optional,
       // never the evidence).
+      const { NON_PERSON_GALLERIES } = await import("@/lib/people/index-people");
       const { error: refreshErr } = await supabase.rpc("refresh_person_reference_centroids", {
         p_user_id: user!.id,
         p_event_id: suggestion.event_id,
+        p_excluded_event_names: [...NON_PERSON_GALLERIES],
       });
       if (refreshErr) {
         await reportSystemError("people.identity-suggestions.teach", refreshErr, {

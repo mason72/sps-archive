@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { decideSuggestion, type MatchHit } from "./identity-suggestions";
+import {
+  decideCrewSuggestion,
+  decideSuggestion,
+  type CrewHit,
+  type MatchHit,
+} from "./identity-suggestions";
 
 const hit = (over: Partial<MatchHit>): MatchHit => ({
   matched_person_id: "ref-1",
@@ -64,5 +69,30 @@ describe("decideSuggestion", () => {
     // Hits arrive sorted best-first from SQL; a 0.95 AFTER a 0.5 would mean
     // the ordering contract broke, and trusting it would be trusting garbage.
     expect(decideSuggestion(hits, { selfId: "c", rejectedNames: [] })).toBeNull();
+  });
+});
+
+const crewHit = (over: Partial<CrewHit>): CrewHit => ({
+  crew_id: "crew-1",
+  display_name: "Christie Jones",
+  similarity: 0.9,
+  ...over,
+});
+
+describe("decideCrewSuggestion", () => {
+  it("takes a confident crew match", () => {
+    expect(decideCrewSuggestion([crewHit({})], { rejectedNames: [] }))
+      .toMatchObject({ display_name: "Christie Jones" });
+  });
+  it("suggests nothing below the bar", () => {
+    expect(decideCrewSuggestion([crewHit({ similarity: 0.5 })], { rejectedNames: [] })).toBeNull();
+  });
+  it("honours a rejected crew name and falls to the next crew", () => {
+    const hits = [
+      crewHit({ similarity: 0.9 }),
+      crewHit({ similarity: 0.8, crew_id: "crew-2", display_name: "Joey Nagoshiner" }),
+    ];
+    expect(decideCrewSuggestion(hits, { rejectedNames: ["Christie Jones"] }))
+      .toMatchObject({ display_name: "Joey Nagoshiner" });
   });
 });

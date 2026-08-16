@@ -24,6 +24,8 @@ interface SuggestionCard {
   personId: string;
   eventId: string;
   eventName: string;
+  /** crew = confirming creates a crew LINK, never a persons.name write. */
+  kind: "guest" | "crew";
   suggestedName: string;
   confidence: number;
   photoCount: number;
@@ -133,6 +135,14 @@ export function IdentitySuggestions() {
             </div>
             <p className="mt-3 text-center text-[13px] leading-snug text-stone-700">
               Is this <span className="text-stone-900">{card.suggestedName}</span>?
+              {card.kind === "crew" && (
+                <span
+                  className="ml-1.5 align-middle rounded-full border border-stone-200 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-stone-500"
+                  title="Confirming links this face to your crew roster — crew never join the guest index"
+                >
+                  crew
+                </span>
+              )}
             </p>
             <p className="mt-0.5 truncate text-center text-[11px] text-stone-400">
               {card.photoCount} photo{card.photoCount === 1 ? "" : "s"} at {card.eventName}
