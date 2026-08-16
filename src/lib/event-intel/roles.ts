@@ -188,29 +188,23 @@ export function rehireStanding(
 }
 
 /**
- * Can this person lead, and will they travel?
+ * ── `can_lead` and `travels` are GONE (2026-08-15) ──
  *
- * Mason, 2026-08-15: "all regulars can lead and travel, so we only need that
- * chip for non-regulars." So being a regular IMPLIES both, and the two chips
- * are asked only of everyone else — which is also what makes the panel quick
- * enough to seed 61 people through.
+ * Mason: "I still see can lead/Cannot lead toggle throughout and can lead on
+ * regulars. Also seeing travels/local-only. Let's drop these data points
+ * everywhere. We don't need to track."
  *
- * Expressed as functions rather than left to each caller, because the
- * alternative is every query writing `is_regular || travels` and one of them
- * eventually forgetting. It matters most for the coming radius search: 35 of 61
- * active crew have `travels` unset, and reading that as "will not travel" would
- * silently drop half the roster.
+ * Both were standing capabilities that duplicated something better. `can_lead`
+ * overlapped the per-gig `lead` ROLE — who actually led a gig is a fact, and a
+ * standing "could lead" is a guess you then have to maintain. `travels`
+ * overlapped the radius search: distance already says what a trip costs, and
+ * 35 of 61 people had the flag unset, so reading it as "will not travel" would
+ * have dropped half the roster from any search that trusted it.
  *
- * The assumption is his, stated as fact about this roster. If a regular ever
- * cannot travel, this is the one place to make it explicit rather than implied.
+ * The columns are LEFT IN PLACE, unread and unwritten. Dropping a column is
+ * irreversible and these hold no traffic; leaving them dormant costs nothing
+ * and keeps the door open. Nothing in the app reads them.
  */
-export function canLead(p: { is_regular?: boolean | null; can_lead?: string | null }): boolean {
-  return !!p.is_regular || p.can_lead === "yes";
-}
-
-export function willTravel(p: { is_regular?: boolean | null; travels?: boolean | null }): boolean {
-  return !!p.is_regular || p.travels === true;
-}
 
 /**
  * The order EVERY crew picker uses. One home, so pickers cannot disagree.

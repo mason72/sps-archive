@@ -71,8 +71,6 @@ export interface IntelPerson {
   email: string | null;
   kind: string;
   homeCity: string | null;
-  canLead: string | null;
-  travels: boolean | null;
   archived: boolean;
   notes: string | null;
   eventCount: number;
@@ -320,8 +318,6 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
       email: c.primary_email ?? null,
       kind: c.kind ?? "other",
       homeCity: c.city ?? null,
-      canLead: c.can_lead ?? null,
-      travels: c.travels ?? null,
       archived: !!c.archived,
       notes: c.notes ?? null,
       eventCount: evs.length,

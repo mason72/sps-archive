@@ -41,7 +41,6 @@ interface CrewRow {
   name: string;
   kind: string | null;
   homeCity: string | null;
-  canLead: string | null;
   isRegular: boolean;
   roles: string[];
   /** The subset a human has endorsed. The rest are still the backfill guessing. */
@@ -279,7 +278,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   ...d.crew,
                   {
                     crewId: person.id, name: person.name, kind: person.kind ?? null,
-                    homeCity: person.homeCity ?? null, canLead: null,
+                    homeCity: person.homeCity ?? null,
                     isRegular: person.isRegular,
                     roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },
@@ -297,7 +296,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
                   ...d.crew,
                   {
                     crewId: person.id, name: person.name, kind: person.kind,
-                    homeCity: person.homeCity, canLead: null,
+                    homeCity: person.homeCity,
                     isRegular: person.isRegular,
                     roles: [], confirmedRoles: [], rolesSource: "manual", wouldRebook: null, note: null,
                   },

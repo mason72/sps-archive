@@ -73,7 +73,7 @@ export async function GET(
       db.from("event_intel").select("*").eq("event_id", eventId).eq("user_id", user!.id).maybeSingle(),
       db.from("event_crew").select("*").eq("event_id", eventId).eq("user_id", user!.id),
       db.from("event_orgs").select("*").eq("event_id", eventId).eq("user_id", user!.id),
-      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, can_lead, is_regular")
+      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, is_regular")
         .eq("user_id", user!.id).eq("archived", false)
         // Regulars first — the picker shows this order as it arrives.
         .order("is_regular", { ascending: false }).order("display_name"),
@@ -145,7 +145,7 @@ export async function GET(
       crew: (crewLinkRes.data ?? [])
         .map((r: EventCrewRow) => {
         const person = rosterById.get(r.crew_id) as
-          | { display_name: string; kind: string; city: string | null; can_lead: string | null; is_regular: boolean }
+          | { display_name: string; kind: string; city: string | null; is_regular: boolean }
           | undefined;
         return {
           crewId: r.crew_id,
@@ -153,7 +153,6 @@ export async function GET(
           kind: person?.kind ?? null,
           isRegular: !!person?.is_regular,
           homeCity: person?.city ?? null,
-          canLead: person?.can_lead ?? null,
           roles: r.roles ?? [],
           /**
            * The subset Mason has actually endorsed. Per-ROLE, because

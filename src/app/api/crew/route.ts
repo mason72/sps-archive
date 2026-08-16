@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     let q = db
       .from("crew")
-      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, can_lead, travels, archived, notes, is_regular, last_hired_on")
+      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, archived, notes, is_regular, last_hired_on")
       .eq("user_id", user!.id)
       // Regulars first, then alphabetical. The people Mason works with most
       // should never be scrolled past to reach — and this is the ONE place the
@@ -134,8 +134,6 @@ export async function POST(request: NextRequest) {
       kind: KINDS.includes(String(b.kind)) ? b.kind : "photographer",
       is_regular: b.is_regular === true,
       city: String(b.city ?? "").trim() || null,
-      can_lead: ["yes", "maybe", "no"].includes(String(b.can_lead)) ? b.can_lead : null,
-      travels: typeof b.travels === "boolean" ? b.travels : null,
       notes: String(b.notes ?? "").trim() || null,
     }).select("id").single();
     if (error) throw error;
@@ -165,10 +163,6 @@ export async function PATCH(request: NextRequest) {
     if (typeof b.primary_email === "string") patch.primary_email = b.primary_email.trim().toLowerCase() || null;
     if (typeof b.kind === "string" && KINDS.includes(b.kind)) patch.kind = b.kind;
     if (typeof b.city === "string") patch.city = b.city.trim() || null;
-    if (typeof b.can_lead === "string" || b.can_lead === null) {
-      patch.can_lead = ["yes", "maybe", "no"].includes(String(b.can_lead)) ? b.can_lead : null;
-    }
-    if (typeof b.travels === "boolean" || b.travels === null) patch.travels = b.travels;
     if (typeof b.notes === "string") patch.notes = b.notes.trim() || null;
     if (typeof b.archived === "boolean") patch.archived = b.archived;
     if (typeof b.is_regular === "boolean") patch.is_regular = b.is_regular;

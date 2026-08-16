@@ -12,7 +12,6 @@ import type {
   IntelOrg,
 } from "@/lib/event-intel/index-intel";
 import type { RehireStanding } from "@/lib/event-intel/roles";
-import { willTravel } from "@/lib/event-intel/roles";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
 import { MonthPicker } from "@/components/ui/date-picker";
 import {
@@ -370,11 +369,18 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         .map((p) => ({
           id: p.id,
           primary: p.name,
-          // "alumni" rides the meta line because SEARCH SPANS EVERY BAND —
-          // a found-by-name alumni row must not look like working crew.
+          /**
+           * "alumni" rides the meta line because SEARCH SPANS EVERY BAND — a
+           * found-by-name alumni row must not look like working crew. And for
+           * anyone who is NOT a regular, how long since you last hired them:
+           * Mason wants that where he is scanning for someone, not only on the
+           * Roster tab, because "who was that stylist" and "was it recent" are
+           * the same glance.
+           */
           secondary: [
             p.homeCity,
             p.kind !== "other" ? p.kind : null,
+            !p.isRegular ? formatLastHired(p.lastHired, new Date()) : null,
             p.archived ? "alumni" : null,
           ]
             .filter(Boolean)
@@ -419,8 +425,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
    * GROUPS, not a filter. The reach chips decide where the "within reach" line
    * falls — nobody is dropped for being past it, because two of this roster's
    * standing rules forbid exactly that: a traveler beyond the band is precisely
-   * who you fly in (and 35 of 61 have `travels` unset, which is *unknown*, not
-   * "no"), and the three people no map can read ("EU", "Kentucky",
+   * who you fly in, and the three people no map can read ("EU", "Kentucky",
    * "Orlando? Florida?") must surface as fixable work, not vanish. The grouping
    * IS the answer to "who can work San Diego": locals, then who would travel,
    * then the unknowns, each sorted nearest-first.
@@ -462,21 +467,28 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
     const row = ({ p, miles, fromKey }: Placed) => ({
       id: p.id,
       primary: p.name,
-      secondary:
-        `${Math.round(miles).toLocaleString()} mi · ${metroLabel(fromKey)}` +
-        (p.travels === false ? " · local only" : ""),
+      secondary: [
+        `${Math.round(miles).toLocaleString()} mi · ${metroLabel(fromKey)}`,
+        !p.isRegular ? formatLastHired(p.lastHired, new Date()) : null,
+        p.archived ? "alumni" : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       count: p.eventCount,
       star: p.isRegular,
     });
 
+    /**
+     * Two groups past the band, not three.
+     *
+     * There used to be a "Would travel" cut between them, read off the
+     * `travels` flag — which is gone (see roles.ts). No loss: the flag was
+     * unset on 35 of 61 people, so it mostly sorted on ignorance, and the
+     * DISTANCE already answers the question it was standing in for. Anyone
+     * will travel; the miles say what it costs.
+     */
     const within = placed.filter((x) => x.miles <= maxMiles);
     const beyond = placed.filter((x) => x.miles > maxMiles);
-    const travelers = beyond.filter((x) =>
-      willTravel({ is_regular: x.p.isRegular, travels: x.p.travels })
-    );
-    const others = beyond.filter(
-      (x) => !willTravel({ is_regular: x.p.isRegular, travels: x.p.travels })
-    );
 
     return {
       unresolved: null,
@@ -486,14 +498,18 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
             reach === "drivable" ? "Drivable" : reach === "short flight" ? "A short flight" : "Nearest first",
           rows: within.map(row),
         },
-        { label: "Would travel", rows: travelers.map(row) },
-        { label: "Further out", rows: others.map(row) },
+        { label: "Further out", rows: beyond.map(row) },
         {
           label: "Can’t place",
           rows: unplaced.map((p) => ({
             id: p.id,
             primary: p.name,
-            secondary: p.homeCity ? `“${p.homeCity}” isn’t on the map` : "no location on file",
+            secondary: [
+              p.homeCity ? `“${p.homeCity}” isn’t on the map` : "no location on file",
+              !p.isRegular ? formatLastHired(p.lastHired, new Date()) : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
             count: p.eventCount,
             star: p.isRegular,
           })),
@@ -970,9 +986,9 @@ function PanelHead({
  * rather than trusted.
  *
  * So a regular shows ONE control — the star — and everything else is implied
- * through `canLead()` / `willTravel()` in roles.ts. A non-regular is asked the
- * things that actually vary: discipline, whether they can lead, whether they
- * travel, and how eager you are to rehire them.
+ * (`can_lead` and `travels` are gone entirely — see roles.ts). A non-regular
+ * is asked only what actually varies: their discipline and how eager you are
+ * to rehire them.
  *
  * The rating here is a person-level BASELINE (`crew.rehire`). It exists because
  * most of the roster has no gig to attach a real rating to — 89 crew against 40
@@ -1048,9 +1064,7 @@ function CrewEditor({
         {p.isRegular ? (
           // Everything else is implied. Saying so beats an empty space, which
           // reads as "not recorded" rather than "not a question".
-          <span className="text-[12px] text-stone-400">
-            photographer · can lead · travels
-          </span>
+          <span className="text-[12px] text-stone-400">photographer</span>
         ) : (
           <>
             <SegChoice
@@ -1063,23 +1077,6 @@ function CrewEditor({
               value={p.kind}
               busy={busy}
               onPick={(v) => void save({ kind: v })}
-            />
-            <SegChoice
-              label="Can lead"
-              options={[["yes", "can lead"], ["no", "cannot"]]}
-              value={p.canLead}
-              busy={busy}
-              onPick={(v) => void save({ can_lead: p.canLead === v ? null : v })}
-            />
-            <SegChoice
-              label="Travel"
-              options={[["yes", "travels"], ["no", "local only"]]}
-              value={p.travels == null ? null : p.travels ? "yes" : "no"}
-              busy={busy}
-              onPick={(v) => {
-                const next = v === "yes";
-                void save({ travels: p.travels === next ? null : next });
-              }}
             />
           </>
         )}
@@ -1257,7 +1254,7 @@ function SegChoice({
         // that is merely a fact about the person.
         /**
          * Brand emerald for a FACT about the person (discipline, can lead,
-         * travels). The SEVERITY ramp for a rehire judgement — "never again" in
+         * discipline). The SEVERITY ramp for a rehire judgement — "never again" in
          * the brand's green would be absurd, and severity colours are
          * deliberately separate from the accent throughout this app.
          */
@@ -1619,7 +1616,6 @@ function CityPanel({
               return p ? (
                 <Chip key={id} onClick={() => jump("people", id)}>
                   {p.name}
-                  {p.canLead === "yes" && <span className="ml-1.5 text-stone-400">lead</span>}
                 </Chip>
               ) : null;
             })}

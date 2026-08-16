@@ -216,7 +216,7 @@ function CrewCardModal({
               {/* "How long ago did we work with them" — the question this card
                   answers for a face you half-remember. Non-regulars only. */}
               {!person.is_regular && formatLastHired(person.lastHired, new Date()) && (
-                <> · last hired {formatLastHired(person.lastHired, new Date())}</>
+                <> · {formatLastHired(person.lastHired, new Date())}</>
               )}
               {person.archived && " · alumni"}
             </p>

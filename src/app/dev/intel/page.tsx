@@ -28,7 +28,7 @@ const p = (
   over: Partial<IntelIndex["people"][number]> = {}
 ): IntelIndex["people"][number] => ({
   id, name, fullName: null, email: `${id}@example.com`, kind: "staff",
-  homeCity: null, canLead: null, travels: null, archived: false, notes: null,
+  homeCity: null, archived: false, notes: null,
   eventCount: 0, events: [], roleCounts: {}, inferredRoleCount: 0, cities: [], venueIds: [],
   orgIds: [], coCrewIds: [], standing: { headline: null, tally: { first_call: 0, solid: 0, last_resort: 0, never: 0 }, total: 0, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null, lastHired: null, lastHiredStored: null, ...over,
 });
@@ -44,8 +44,7 @@ const INDEX: IntelIndex = {
   events: [],
   people: [
     p("dana", "Dana Whitfield", {
-      fullName: "Dana R. Whitfield", kind: "staff", homeCity: "Bay Area",
-      canLead: "yes", travels: true, eventCount: 3,
+      fullName: "Dana R. Whitfield", kind: "staff", homeCity: "Bay Area", eventCount: 3,
       events: [
         { ...EVENTS[0], roles: ["lead", "photographer"], rolesSource: "manual", wouldRebook: "yes", note: null },
         { ...EVENTS[1], roles: ["photographer"], rolesSource: "manual", wouldRebook: "yes", note: null },
@@ -57,7 +56,7 @@ const INDEX: IntelIndex = {
       coCrewIds: ["milo", "reyna"], standing: { headline: "first_call", tally: { first_call: 2, solid: 0, last_resort: 0, never: 0 }, total: 2, hardNo: false, fromBaseline: false }, isRegular: true, rehireBaseline: null,
     }),
     p("milo", "Milo Vance", {
-      kind: "local", homeCity: "Phoenix", canLead: "maybe", travels: false,
+      kind: "local", homeCity: "Phoenix",
       eventCount: 2,
       events: [
         { ...EVENTS[0], roles: ["digital tech"], rolesSource: "manual", wouldRebook: "maybe", note: "Strong on set, slow to load out." },
@@ -69,14 +68,14 @@ const INDEX: IntelIndex = {
       notes: "Referred by Reyna. Owns his own lighting kit.",
     }),
     p("reyna", "Reyna Okafor", {
-      kind: "local", homeCity: "Phoenix", canLead: "yes", travels: true,
+      kind: "local", homeCity: "Phoenix",
       eventCount: 1,
       events: [{ ...EVENTS[1], roles: [], rolesSource: "manual", wouldRebook: "yes", note: null }],
       cities: ["Oakland"], venueIds: ["v2"], orgIds: ["o2"], coCrewIds: ["dana"],
       standing: { headline: "first_call", tally: { first_call: 1, solid: 0, last_resort: 0, never: 0 }, total: 1, hardNo: false, fromBaseline: false }, isRegular: false, rehireBaseline: null,
     }),
     // The common case today: on the roster, never yet linked to a gig.
-    p("tobias", "Tobias Lund", { kind: "local", homeCity: "Seattle", canLead: "no" }),
+    p("tobias", "Tobias Lund", { kind: "local", homeCity: "Seattle" }),
   ],
   venues: [
     {

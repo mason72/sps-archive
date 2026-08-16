@@ -30,8 +30,6 @@ interface Person {
   primary_email: string | null;
   kind: string;
   city: string | null;
-  can_lead: string | null;
-  travels: boolean | null;
   archived: boolean;
   notes: string | null;
   eventCount: number;
@@ -367,7 +365,7 @@ export function RosterManager() {
                             you track a last-hire date for. */}
                         {!p.is_regular && formatLastHired(p.lastHired, new Date()) && (
                           <span className="text-[11px] text-stone-400">
-                            · hired {formatLastHired(p.lastHired, new Date())}
+                            · {formatLastHired(p.lastHired, new Date())}
                           </span>
                         )}
                       </div>
