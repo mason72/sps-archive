@@ -96,11 +96,26 @@ So-and-so' cards … so it's clear who we're identifying as the matched face."*
    The machinery exists: `findCrewInArchive()` / `matchSelfie()` from
    `tasks/crew-faces.md`, generalised from crew to guests. AI suggests, a human
    confirms — never auto-applied.
-2. **Duplicate identities from name variants.** "Sami Hadouaj" and "Sami Hadouaj
-   Mundra" are two tiles for one human, and face membership now gives them
-   overlapping photos. Each tile is more complete than before; the duplicate
-   identity itself remains. Needs a merge affordance on the people wall.
-3. **Steven Hughes's four bad rows** (awaiting Mason's OK): one true duplicate
-   pair (`DAIS_3409 1.jpg` / `DAIS_3409 2.jpg`, identical size and dimensions)
-   and three 31×25-pixel junk rows (`DAIS_3402 9/10/11.jpg`). His honest count
-   is ~183 of 187.
+2. **The identity-merge affordance** — APPROVED by Mason 2026-08-16. "Sami
+   Hadouaj" and "Sami Hadouaj Mundra" are two tiles for one human; the fix is a
+   durable alias ("these keys are one person") recorded from a people-wall
+   action, with both reference faces shown at confirm time (rings included) so
+   the decision is made on faces. Human-initiated ONLY — nothing merges
+   automatically. Two design notes from Mason's question about common names:
+   the merge can only join different SPELLINGS, and two John Smiths are
+   already conflated today by filename identity — the eventual fix for THAT is
+   the inverse affordance, **split a shared name by face**, which becomes
+   possible once the naming engine anchors identity to faces.
+
+## Resolved
+
+- **Steven Hughes's bad rows** (2026-08-16, Mason: "delete all four", gated on
+  byte-identity). THE GATE FIRED: `DAIS_3409 1/2.jpg` share a byte count
+  (1,220,406) and dimensions but differ in sha256 AND decoded pixel hash —
+  a burst pair from the same second, not copies. Both kept. The three 31×25
+  thumbnails (`DAIS_3402 9/10/11.jpg`) were deleted through the app's own
+  delete semantics (locked-section guard, cascade, `deleteImageAssets`),
+  verified 0 rows remaining. His honest count: **184**. Script:
+  `scripts/triage/delete-steven-bad-rows.ts`. The lesson: **matching byte
+  count + dimensions is strong evidence and still not identity** — the cheap
+  hash is what separates a burst from a dupe.
