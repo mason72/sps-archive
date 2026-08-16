@@ -164,7 +164,7 @@ export function RosterManager() {
         <div>
           <span className={META}>Roster</span>
           <div className="mt-2 flex flex-wrap gap-1">
-            {([["all","All"],["regular","Regulars"],["other","Non-regulars"],["archived","Archived"]] as const).map(([k,label]) => (
+            {([["all","All"],["regular","Regulars"],["other","Non-regulars"],["archived","Alumni"]] as const).map(([k,label]) => (
               <button
                 key={k}
                 onClick={() => { setBand(k); setPicked(new Set()); }}
@@ -189,7 +189,7 @@ export function RosterManager() {
           </div>
           <p className="mt-1 text-[13px] text-stone-500">
             {people.filter((p) => !p.archived).length} active
-            {q && ` · ${shown.length} matching (archived included)`}
+            {q && ` · ${shown.length} matching (alumni included)`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -254,7 +254,7 @@ export function RosterManager() {
                       onClick={() => void archiveMany(activePicked, true)}
                       className="text-[13px] text-stone-700 underline underline-offset-4 hover:text-stone-900"
                     >
-                      Archive {activePicked.length}
+                      Move to alumni {activePicked.length}
                     </button>
                   )}
                   {archivedPicked.length > 0 && (
@@ -339,7 +339,7 @@ export function RosterManager() {
                             is indistinguishable from an active one. */}
                         {p.archived && (
                           <span className="rounded-full border border-stone-200 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] text-stone-400">
-                            archived
+                            alumni
                           </span>
                         )}
                         <span className="text-[11px] text-stone-400">{p.kind}</span>
@@ -375,12 +375,12 @@ export function RosterManager() {
                       onClick={() => void (p.archived ? archiveMany([p.id], false) : remove(p))}
                       title={
                         p.archived ? "Bring them back to the active roster"
-                        : p.eventCount > 0 ? `On ${p.eventCount} events — archives instead of deleting`
+                        : p.eventCount > 0 ? `On ${p.eventCount} events — moves to alumni instead of deleting`
                         : "Delete"
                       }
                       className={`text-[12px] text-stone-400 ${p.archived ? "hover:text-stone-800" : "hover:text-red-700"}`}
                     >
-                      {p.archived ? "Restore" : p.eventCount > 0 ? "Archive" : "Delete"}
+                      {p.archived ? "Restore" : p.eventCount > 0 ? "Alumni" : "Delete"}
                     </button>
                   </div>
                 )}
@@ -391,7 +391,7 @@ export function RosterManager() {
 
         {shown.length === 0 && (
           <p className="py-6 text-[13px] text-stone-400">
-            {q ? `Nobody matches “${q}” — archived included.` : band === "archived" ? "Nobody archived." : "Nobody on the roster."}
+            {q ? `Nobody matches “${q}” — alumni included.` : band === "archived" ? "Nobody in alumni." : "Nobody on the roster."}
           </p>
         )}
       </div>

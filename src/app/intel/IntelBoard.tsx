@@ -75,6 +75,25 @@ const fmtDate = (d: string | null) =>
       })
     : "undated";
 
+/**
+ * Which band a crew member falls in — one predicate, so the flat list and the
+ * radius groups can never disagree about who "Non-regulars" means.
+ *
+ * Alumni is checked FIRST and is exclusive: an archived regular is alumni, not
+ * a regular. Archiving is the statement that you stopped working with them,
+ * and it outranks what they were while you did.
+ */
+function inCrewBand(
+  p: { isRegular: boolean; archived: boolean },
+  band: "all" | "regular" | "other" | "alumni"
+): boolean {
+  if (band === "alumni") return p.archived;
+  if (p.archived) return false;
+  if (band === "regular") return p.isRegular;
+  if (band === "other") return !p.isRegular;
+  return true;
+}
+
 /* ── Small shared pieces ──────────────────────────────────────────────────── */
 
 function Rule() {
@@ -291,6 +310,21 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
   const [reach, setReach] = useState<"drivable" | "short flight" | "any">("any");
 
   /**
+   * Which cut of the roster the Crew axis shows — the same four bands the
+   * Roster tab and the /people wall use, so one vocabulary answers "who am I
+   * looking at" everywhere.
+   *
+   * It matters MORE here than on those surfaces: this axis silently mixed
+   * alumni in with working crew, so a staffing search could surface someone
+   * you stopped hiring in 2017 with nothing to say so. Alumni are their own
+   * band now and every alumni row is badged wherever it appears.
+   *
+   * Search still spans EVERYONE regardless of band, same rule as the roster:
+   * a typed name is a question about a person, not a browse of a cut.
+   */
+  const [crewBand, setCrewBand] = useState<"all" | "regular" | "other" | "alumni">("all");
+
+  /**
    * One avatar per crew member, fetched ONCE for the whole board.
    *
    * A face beside every name is the point of crew faces — "wherever their
@@ -330,11 +364,20 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
 
     if (axis === "people")
       return index.people
+        .filter((p) => (q ? true : inCrewBand(p, crewBand)))
         .filter((p) => match(p.name, p.fullName, p.email, p.homeCity, p.kind))
         .map((p) => ({
           id: p.id,
           primary: p.name,
-          secondary: [p.homeCity, p.kind !== "other" ? p.kind : null].filter(Boolean).join(" · "),
+          // "alumni" rides the meta line because SEARCH SPANS EVERY BAND —
+          // a found-by-name alumni row must not look like working crew.
+          secondary: [
+            p.homeCity,
+            p.kind !== "other" ? p.kind : null,
+            p.archived ? "alumni" : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
           count: p.eventCount,
           // Mason: "show the 'regular' stars next to their name". Scanning for
           // your own team in a list of 61 is the common case; a badge you have
@@ -367,7 +410,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         secondary: o.kind !== "unknown" ? o.kind.replace(/_/g, " ") : "",
         count: o.eventCount,
       }));
-  }, [axis, query, index]);
+  }, [axis, query, index, crewBand]);
 
   /**
    * The crew list, regrouped by distance when a "near" place is set.
@@ -401,6 +444,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
     const placed: Placed[] = [];
     const unplaced: IntelPerson[] = [];
     for (const p of index.people) {
+      if (!q && !inCrewBand(p, crewBand)) continue;
       if (!match(p.name, p.fullName, p.email, p.homeCity, p.kind)) continue;
       const d = metroDistance(p.homeCity, place);
       if (d) placed.push({ p, miles: d.miles, fromKey: d.fromKey });
@@ -455,7 +499,7 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
         },
       ].filter((g) => g.rows.length > 0),
     };
-  }, [axis, near, reach, query, index.people]);
+  }, [axis, near, reach, query, index.people, crewBand]);
 
   const currentId = selected[axis];
   const coverage = index.totalEventCount - index.uncoveredEventCount;
@@ -546,6 +590,38 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
               placeholder={`Search ${axis === "people" ? "crew" : axis}…`}
               className="w-full max-w-sm rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 placeholder:text-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
             />
+
+            {/* Which cut of the roster — the same four bands as the Roster tab
+                and the /people wall. Search overrides the band, so a typed name
+                finds anyone; the chips are for browsing. */}
+            {axis === "people" && (
+              <div className="flex flex-wrap items-center gap-1">
+                {([
+                  ["all", "All"],
+                  ["regular", "Regulars"],
+                  ["other", "Non-regulars"],
+                  ["alumni", "Alumni"],
+                ] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setCrewBand(k)}
+                    className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+                      crewBand === k
+                        ? "bg-stone-900 text-white"
+                        : "border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-800"
+                    }`}
+                  >
+                    {label}
+                    {k !== "all" && (
+                      <span className="ml-1.5 tabular-nums opacity-60">
+                        {index.people.filter((p) => inCrewBand(p, k)).length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* The radius search — see the nearGroups memo for the rules. */}
             {axis === "people" && (
@@ -1034,7 +1110,33 @@ function CrewEditor({
             />
           </>
         )}
-        {p.archived && <Chip>archived</Chip>}
+        {/**
+         * Alumni, as an ACTION — Mason: "we should be able to mark/restore
+         * alumni from the Crew tab as well as the roster tab." Sits last in
+         * the row because it is about the RELATIONSHIP, not the person's
+         * abilities; and it is always offered, so the same control both
+         * retires someone and brings them back.
+         *
+         * Never the accent: retiring someone is not a brand moment. Stone
+         * when they are alumni, a quiet outline when they are not.
+         */}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save({ archived: !p.archived })}
+          title={
+            p.archived
+              ? "Alumni — click to bring them back to the active roster"
+              : "Move to alumni — they drop out of every picker, the record stays"
+          }
+          className={`rounded-[3px] border px-2.5 py-1 text-[12px] transition-colors disabled:opacity-50 ${
+            p.archived
+              ? "border-stone-400 bg-stone-200 text-stone-700"
+              : "border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
+          }`}
+        >
+          {p.archived ? "alumni ↩" : "alumni"}
+        </button>
 
       </div>
 
