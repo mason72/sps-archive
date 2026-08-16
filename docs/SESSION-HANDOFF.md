@@ -119,16 +119,25 @@ conventions. It is the other entry point.
 
 Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
 
-0. **People / group shots — the whole chapter is LIVE** (2026-08-16, full doc
-   `tasks/people-group-shots.md`): group-shot membership (`loadFaceMembership`),
-   face rings on review modals, the identity merge (`person_aliases`, Sami
-   merged via the real UI), rejected-names durability (migration 063), and THE
-   NAMING ENGINE (migrations 065–067): anonymous clusters matched against 1,447
-   named references at a MEASURED 0.55 floor, review tray on `/people` ("Who is
-   this?" — 50 pending from the backfill), Inngest `identity-scan` after
-   clustering so imports self-suggest. Mason's review of the tray is the open
-   human loop. Next build: **split a shared name by face** (the John Smith
-   case), now possible on confirmed clusters.
+0. **The /people identity engine is LIVE end to end** (2026-08-16, full doc
+   `tasks/people-group-shots.md`, invariants in CLAUDE.md): group-shot
+   membership, face rings, the identity merge (Sami merged via the real UI),
+   rejected-names durability, the NAMING ENGINE (measured 0.55 floor; Mason
+   confirmed 51 in one sitting), and CREW-FIRST matching (37 crew suggestions,
+   Justin's Staff Photos cluster at 341 photos; a crew confirm LINKS via
+   crew_persons, never names). Wall of fame: top 6, crew excluded, crew sink
+   to the bottom of ranked Everyone. Open: **~39 tray cards await Mason**
+   (mostly crew), and the Inngest `identity-scan` lane needs its first
+   organic firing verified on the next import.
+   Next builds, in rough order of value:
+   **(a) the crew spotlight** — Mason: "why aren't people like Joey or Justin
+   here? They have far more images than me." Crew have no filename identities,
+   so their photos only surface through crew links; once tray confirms land,
+   clicking a crew face should open every photo they're in (union of linked
+   clusters' images across events), the way guest tiles work.
+   **(b) archive-wide conflation cards** — 17 shared-name pairs measured, all
+   same-event; `person_split_dismissals` (068) ready.
+   **(c) cross-event tile fan-out** — zero real cases today; deferred.
 
 1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
    end to end and unblocked: staging is on the INTERNAL disk (deliberately —

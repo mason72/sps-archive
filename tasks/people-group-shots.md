@@ -140,6 +140,20 @@ the old wall of fame.
 - First crew-first scan: **37 crew suggestions across 20 crew** — Justin's
   Staff Photos cluster at 341 photos, Christie at 77 ("is this Christie?"
   verbatim), Jerrick 0.916, Joey 0.856.
+- **Junk-NAMED clusters are in scope too** (Mason's second catch, same day:
+  "it's still not recognizing that the first person is CHRISTIE… why is it
+  still missing them?" — they weren't anonymous, the consensus namer had
+  stamped them with the files' random names). Named clusters get the crew
+  check ONLY, at a raised bar (**0.65 against a label vs 0.55 against a
+  blank** — a label is a claim someone wrote, even the consensus namer). The
+  card shows what it fixes ("filed as 'Marriott Green'"), and a crew confirm
+  clears the junk name into `rejected_names`, dissolving the same-name split
+  cards as a side effect. Guest identities still only fill blanks.
+- **A crew LINK is identification the event wall must display** (lesson 94):
+  the People view shows "Christie Jones · crew" from a `crew_persons` join —
+  a crew confirm never writes `persons.name`, so without the label Mason's 22
+  confirmed clusters rendered as "Add name", indistinguishable from lost work.
+  Crew-linked clusters sort with the identified, click-to-filter like anyone.
 - Wall of fame: crew excluded from the podium (they stay in Everyone), top 6
   in two rows. After Mason's 51 confirms the podium is all repeat GUESTS —
   Sophia Carazo-Ortiz, Jenna Kazim, Aleta Cruel, Edward Jue, Adithri Sharma,

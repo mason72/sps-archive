@@ -1252,3 +1252,64 @@ for this is worth more than the one for the speedup.
   *also* filename-prefixed, so a 180px truncation left
   `"Daren Matsuoka_25-06-05_a16z..."` as the entire explanation. *When a message
   renders beside the thing it names, it must not repeat it.*
+
+## 93 — the identity-engine day: three DB traps, and a rule I re-broke minutes after citing it (2026-08-16)
+
+The naming engine (migrations 065–069) hit three database traps in one build,
+each already half-known, each now with its tell:
+
+1. **PostgREST's 8s statement budget applies to RPCs too.** The full reference-
+   centroid rebuild (avg over 57k 512-d vectors) died at 57014 on its first
+   live call. The shape of the fix matters: make the ROUTINE path small
+   (event-scoped refresh — clustering and confirms only ever change one event)
+   and reserve the full rebuild for the Management API where the timeout is
+   ours. Don't fight the budget; redesign the unit of work.
+
+2. **Data-modifying CTEs share ONE snapshot.** A `with removed as (delete…)`
+   followed by an insert in the same statement collides with the very rows the
+   delete "removed" (23505) — the insert cannot see the delete. It worked on
+   the first run because the table was empty, which is the trap's favourite
+   disguise. Sequential semantics need plpgsql, full stop.
+
+3. **The tell for silent truncation is a round number.** My backfill's
+   candidate query returned exactly 1,000 rows — seven events summing to
+   1,000, with WACA (the biggest group-shot gallery in the archive) simply
+   absent. Third occurrence of this cap in two days (lesson 88's corollary,
+   the face-membership probe, now this). If a count lands on exactly 1,000,
+   it is the PostgREST default limit wearing a plausible outfit.
+
+And the process miss: Mason asked "why am I still on the wall of fame?" after
+the crew exclusion shipped. ship-discipline.md already says the FIRST
+hypothesis for "the fix didn't take" is a stale build — I instead diagnosed
+grid mechanics and shipped a crew-sink feature. He then said: "oh i was
+looking at an older version." The shipped change was defensible on its own
+merits (crew topping Everyone duplicated the crew wall above it), but the
+sequence was wrong: **ask "did you reload?" BEFORE building the theory that
+explains the report.** One question costs ten seconds; a feature costs a
+deploy — and a fix shipped for a misdiagnosed report is untested against the
+real one.
+
+## 94 — an invariant without a display path makes correct behaviour look like data loss (2026-08-16)
+
+Mason confirmed 22 crew clusters in the /people tray, then opened the Staff
+Photos event and saw "Add name · 341" on every one of them: "I already
+specifically matched some of these images in the People tab so why didn't the
+confirmed names carry over?!?!" They HAD carried over — every link was in
+crew_persons exactly as he made it. But a crew confirm deliberately never
+writes persons.name (crew stay out of guest identity space), and the event
+wall only displayed persons.name. The invariant was correct; the wall made
+it indistinguishable from a bug eating his work.
+
+**When a rule says "this write must not happen", every surface that would
+have shown the write needs another way to show the STATE.** The fix was a
+crew_persons join in the people route and a "Christie Jones · crew" label —
+the link is the identity, so the wall must read the link. Related failure
+earlier the same hour: the crew scan skipped junk-NAMED clusters (only
+unnamed ones), so "Marriott Green" hid Christie — wrongly named is worse
+than unnamed, and it was the one state the engine ignored.
+
+Also cleaned: two crew names had leaked into persons.name via guest confirms
+from the half-day before crew-first existed. An ordering lesson rides along:
+when two identity systems share one corpus, build the PRIORITY rule (crew
+first) before the volume path (guests), because every confirm processed under
+the wrong priority becomes cleanup.
