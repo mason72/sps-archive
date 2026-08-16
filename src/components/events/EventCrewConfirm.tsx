@@ -128,8 +128,8 @@ export function EventCrewConfirm({ eventId }: { eventId: string }) {
                         title={confirmed ? "Confirmed — click to remove" : "Click to confirm"}
                         className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
                           confirmed
-                            ? "border border-stone-800 bg-stone-900 text-white"
-                            : "border border-dashed border-stone-400 bg-white text-stone-600 hover:border-stone-800 hover:text-stone-900"
+                            ? "border border-accent bg-accent text-white"
+                            : "border border-dashed border-accent/50 bg-accent-muted/60 text-accent-hover hover:border-accent hover:text-accent-hover"
                         }`}
                       >
                         {role}

@@ -487,8 +487,8 @@ function CrewLine({
           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
             crew.roles.includes("lead")
               ? crew.confirmedRoles.includes("lead")
-                ? "border border-stone-800 bg-stone-900 text-white"
-                : "border border-dashed border-stone-400 bg-white text-stone-600"
+                ? "border border-accent bg-accent text-white"
+                : "border border-dashed border-accent/50 bg-accent-muted/60 text-accent-hover"
               : "border border-stone-200 bg-white text-stone-400 hover:border-stone-400 hover:text-stone-700"
           }`}
           title={
@@ -511,8 +511,8 @@ function CrewLine({
                 className={`px-2.5 py-1 text-[12px] transition-colors ${i > 0 ? "border-l border-stone-200" : ""} ${
                   on
                     ? confirmed
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-700 italic"
+                      ? "bg-accent text-white"
+                      : "bg-accent-muted/60 text-accent-hover italic"
                     : "bg-white text-stone-400 hover:bg-stone-50 hover:text-stone-700"
                 }`}
                 title={

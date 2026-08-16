@@ -17,9 +17,21 @@ import { cn } from "@/lib/utils";
  * /people wall, so the SAME question ("which cut of the roster?") had three
  * different appearances. One component, one appearance.
  *
- * Selection is stone-900, never the accent — emerald is state for the brand
- * (active tab, progress, focus), and a filter is a view, not a decision about
- * a person. `counts` are optional and render dimmed inside the segment.
+ * SELECTION IS THE BRAND ACCENT. Mason, 2026-08-15: "let's use the brand color
+ * instead of black, except in places where we use a different color for each
+ * value (e.g. rehire ratings)." Correct, and more consistent than the stone I
+ * first reached for: emerald in this app means STATE — the active axis
+ * underline, the progress fill, the selection rail — and a filter is exactly
+ * that, a view you are currently in. The discipline picker already read this
+ * way; now every "pick one" does.
+ *
+ * THE EXCEPTION he names is why this component takes no colour prop: a group
+ * whose VALUES each carry meaning (the rehire ladder — stone → amber → red as
+ * the judgement worsens) is not a view, it is a statement about a person, and
+ * it keeps its severity ramp in its own markup. If a group ever needs per-value
+ * colour, that is the signal it does not belong here.
+ *
+ * `counts` are optional and render dimmed inside the segment.
  */
 export function Segmented<T extends string>({
   options,
@@ -62,7 +74,7 @@ export function Segmented<T extends string>({
               cap,
               i > 0 && "border-l border-stone-200",
               on
-                ? "bg-stone-900 text-white"
+                ? "bg-accent text-white"
                 : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
             )}
           >
