@@ -150,6 +150,14 @@ interface UploadTask {
   /** How many times this task has been sent to the back of the queue after a
       network-layer failure. Terminal only past MAX_REQUEUES. */
   requeues?: number;
+  /**
+   * The bytes are already in storage; only the confirm POST is owed. A task
+   * re-enters the queue with this set when its finalize failed after in-place
+   * retries — the worker then skips the snapshot and the PUT entirely and
+   * just re-confirms. Without this, a requeued finalize would re-upload the
+   * whole file to pay off a 1 KB request.
+   */
+  finalizeOnly?: boolean;
 }
 
 export type UploadEvent =
@@ -576,6 +584,42 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       const eventId = batch?.eventId ?? "";
       const useProxy = task.file.size <= PROXY_MAX_BYTES;
 
+      if (task.finalizeOnly) {
+        // Bytes already in storage — only the confirm is owed. Skip straight
+        // past the snapshot and the PUT; the failure branch below handles the
+        // requeue-or-error decision exactly as it does for a fresh task.
+        const okFin = await finalizeUpload(task.imageId, task.file);
+        if (okFin) {
+          updateFile(task.batchId, task.fileId, {
+            status: "complete",
+            progress: 100,
+            imageId: task.imageId,
+          });
+          const done = completedIds.current.get(task.batchId) ?? [];
+          done.push(task.imageId);
+          completedIds.current.set(task.batchId, done);
+          if (eventId) emit({ type: "image-uploaded", eventId });
+          return;
+        }
+        if ((task.requeues ?? 0) < MAX_REQUEUES) {
+          const q = queues.current.get(task.batchId);
+          if (q && !aborted.current.has(task.batchId)) {
+            q.push({ ...task, requeues: (task.requeues ?? 0) + 1 });
+            return;
+          }
+        }
+        const list = failedFiles.current.get(task.batchId) ?? [];
+        list.push(task.file);
+        failedFiles.current.set(task.batchId, list);
+        updateFile(task.batchId, task.fileId, {
+          status: "error",
+          error: "Uploaded, but not confirmed — retry",
+          imageId: task.imageId,
+          finalizeNeeded: true,
+        });
+        return;
+      }
+
       updateFile(task.batchId, task.fileId, { status: "uploading", progress: 0 });
       const target = useProxy ? `/api/upload/${task.imageId}` : task.uploadUrl;
 
@@ -774,6 +818,31 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
 
       const finalized = await finalizeUpload(task.imageId, task.file);
       if (!finalized) {
+        /**
+         * The confirm was the LAST unprotected fetch in the chain, and it
+         * showed: a healthy 496-file run still leaked a trickle of "Uploaded,
+         * but not confirmed" rows, one per confirm that Safari shed while the
+         * uplink was saturated with photo bodies (Mason: "They keep coming up
+         * here and there... it will feel broken if this is a regular thing
+         * for users"). finalizeUpload's own retries span ~3s — inside the
+         * burst, as always. So the confirm alone rides the queue again,
+         * flagged finalizeOnly so no bytes are ever re-sent for it.
+         */
+        if ((task.requeues ?? 0) < MAX_REQUEUES) {
+          updateFile(task.batchId, task.fileId, {
+            status: "uploading",
+            progress: 100,
+          });
+          const q = queues.current.get(task.batchId);
+          if (q && !aborted.current.has(task.batchId)) {
+            q.push({
+              ...task,
+              requeues: (task.requeues ?? 0) + 1,
+              finalizeOnly: true,
+            });
+            return;
+          }
+        }
         const list = failedFiles.current.get(task.batchId) ?? [];
         list.push(task.file);
         failedFiles.current.set(task.batchId, list);
