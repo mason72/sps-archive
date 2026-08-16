@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "./CrewAvatar";
 import { CrewFacesSection } from "./CrewFacesSection";
+import { CrewArchivePhotos } from "./CrewArchivePhotos";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
 import { Segmented } from "@/components/ui/segmented";
 
@@ -198,7 +199,7 @@ function CrewCardModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-xl overflow-y-auto bg-white p-8"
+        className="max-h-[85vh] w-full max-w-3xl overflow-y-auto bg-white p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center gap-4">
@@ -237,6 +238,9 @@ function CrewCardModal({
           crewName={person.display_name}
           onAvatarChange={onAvatarChange}
         />
+
+        {/* The crew spotlight — every photo they're in, via their links. */}
+        <CrewArchivePhotos crewId={person.id} />
 
         <p className="mt-6 border-t border-stone-100 pt-4 text-[12px] text-stone-400">
           Roles, ratings and details live on{" "}
