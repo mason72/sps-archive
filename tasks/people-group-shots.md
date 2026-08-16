@@ -96,16 +96,32 @@ So-and-so' cards … so it's clear who we're identifying as the matched face."*
    The machinery exists: `findCrewInArchive()` / `matchSelfie()` from
    `tasks/crew-faces.md`, generalised from crew to guests. AI suggests, a human
    confirms — never auto-applied.
-2. **The identity-merge affordance** — APPROVED by Mason 2026-08-16. "Sami
-   Hadouaj" and "Sami Hadouaj Mundra" are two tiles for one human; the fix is a
-   durable alias ("these keys are one person") recorded from a people-wall
-   action, with both reference faces shown at confirm time (rings included) so
-   the decision is made on faces. Human-initiated ONLY — nothing merges
-   automatically. Two design notes from Mason's question about common names:
-   the merge can only join different SPELLINGS, and two John Smiths are
-   already conflated today by filename identity — the eventual fix for THAT is
-   the inverse affordance, **split a shared name by face**, which becomes
-   possible once the naming engine anchors identity to faces.
+2. **Split a shared name by face** — the inverse of the merge, for the John
+   Smith case Mason raised: two different people who share a name are ONE tile
+   under filename identity, and only face-anchored identity can pull them
+   apart. Becomes buildable with the naming engine.
+
+## The identity merge — BUILT 2026-08-16
+
+"Sami Hadouaj" / "Sami Hadouaj Mundra": one human, two tiles, because /people
+identity is the normalized filename name and no corpus proves two spellings are
+one person — only a human can. `person_aliases` (migration 064) records the
+judgement; `src/lib/people/aliases.ts` is the ONE resolver, applied at every
+identity decision point: the index's filename pass, its face-membership pass,
+the detail card (ilike candidate filter ORs across every spelling's token), and
+the event `?person=` deep link (`GET /api/people/aliases` for the key group).
+Two of four folding and two not is the tile/card disagreement of lesson 88.
+
+- **Human-initiated only.** Two John Smiths are already one tile; no automatic
+  signal can safely merge or split a name.
+- UI: spotlight "Same person as…" → search → confirm on FACES side by side.
+  Merges stay visible ("also filed as …" + per-spelling unmerge); undo bar
+  after each merge. Chains flatten at write; cycles refused; resolver follows
+  chains defensively anyway.
+- Proof: `scripts/triage/verify-alias-merge.ts` — merged tile equals the UNION
+  of the two cards (not the sum: face membership had already unified Sami's
+  photo sets, which the first assertion got wrong), card agrees from either
+  spelling, temporary row removed after.
 
 ## Resolved
 
