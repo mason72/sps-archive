@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
+import { formatLastHired } from "@/lib/event-intel/last-hired";
 
 /**
  * Looking a gig up while you name the event — and confirming it before the
@@ -48,7 +49,7 @@ export interface SuggestedGig {
   entryCount: number;
   city: string | null;
   venue: { name: string | null; street: string | null; city: string | null; raw: string } | null;
-  crew: { crewId: string; name: string; isRegular: boolean; kind: string | null }[];
+  crew: { crewId: string; name: string; isRegular: boolean; kind: string | null; lastHired?: string | null }[];
   unresolvedCrew: { email: string; displayName: string | null }[];
   orgs: { domain: string; orgId: string | null; name: string | null }[];
   calendarEventIds: string[];
@@ -386,8 +387,11 @@ export function GigConfirmCard({
     () => [
       ...gig.crew.map((c) => ({
         id: c.crewId, name: c.name, isRegular: c.isRegular, isTemp: false,
+        lastHired: c.lastHired ?? null,
       })),
-      ...temps.map((t) => ({ id: t.localId, name: t.name, isRegular: false, isTemp: true })),
+      ...temps.map((t) => ({
+        id: t.localId, name: t.name, isRegular: false, isTemp: true, lastHired: null,
+      })),
     ],
     [gig.crew, temps]
   );
@@ -559,7 +563,15 @@ export function GigConfirmCard({
                               </button>
                               {!c.isRegular && p.on && (
                                 <span className="block text-[11px] leading-tight text-stone-400">
-                                  {c.isTemp ? "new — added here" : "not a regular"}
+                                  {c.isTemp
+                                    ? "new — added here"
+                                    : /* How long since you last used them —
+                                         the fact that decides whether you
+                                         remember them at all. Falls back to
+                                         "not a regular" when unknown. */
+                                      formatLastHired(c.lastHired, new Date())
+                                        ? `last hired ${formatLastHired(c.lastHired, new Date())}`
+                                        : "not a regular"}
                                 </span>
                               )}
                             </span>

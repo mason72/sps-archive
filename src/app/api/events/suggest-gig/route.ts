@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
     const [crewRes, orgRes, mappedRes] = await Promise.all([
       db
         .from("crew")
-        .select("id, display_name, primary_email, aliases, kind, is_regular, archived")
+        .select("id, display_name, primary_email, aliases, kind, is_regular, archived, last_hired_on")
         .eq("user_id", user!.id),
       db.from("organizations").select("id, name, domains").eq("user_id", user!.id),
       /**
@@ -172,7 +172,14 @@ export async function GET(request: NextRequest) {
 
     const crewByEmail = new Map<
       string,
-      { id: string; display_name: string; kind: string | null; is_regular: boolean; archived: boolean }
+      {
+        id: string;
+        display_name: string;
+        kind: string | null;
+        is_regular: boolean;
+        archived: boolean;
+        last_hired_on: string | null;
+      }
     >();
     for (const c of crewRes.data ?? []) {
       for (const addr of [c.primary_email, ...(c.aliases ?? [])]) {
@@ -195,7 +202,7 @@ export async function GET(request: NextRequest) {
        * Joseph Nagoshiner" — the duplication the alias merge exists to remove,
        * reappearing one layer up.
        */
-      const seen = new Map<string, { crewId: string; name: string; isRegular: boolean; kind: string | null }>();
+      const seen = new Map<string, { crewId: string; name: string; isRegular: boolean; kind: string | null; lastHired: string | null }>();
       const unresolved: { email: string; displayName: string | null }[] = [];
       for (const p of parsed) {
         for (const a of p.attendees) {
@@ -209,6 +216,13 @@ export async function GET(request: NextRequest) {
                 name: hit.display_name,
                 isRegular: !!hit.is_regular,
                 kind: hit.kind ?? null,
+                /**
+                 * How long since we last hired them — Mason: "that's actually
+                 * important information for anyone who is not a regular."
+                 * The SEED only; the card has no event links to max against,
+                 * and this gig is not history yet.
+                 */
+                lastHired: hit.last_hired_on ?? null,
               });
             }
           } else if (!unresolved.some((u) => u.email === a.email)) {

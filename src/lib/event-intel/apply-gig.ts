@@ -161,18 +161,28 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
   }
 
   // ── the intel row ──
-  const { error: iErr } = await db.from("event_intel").upsert(
-    {
-      event_id: eventId,
-      user_id: userId,
-      venue_id: venueId,
-      calendar_event_ids: (input.calendarEventIds ?? []).filter(Boolean),
-      source: "calendar",
-      ...(confirmed ? { confirmed_at: new Date().toISOString() } : {}),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "event_id" }
-  );
+  //
+  // An apply WITHOUT a venue must not detach one that exists. The upsert used
+  // to write venue_id unconditionally, so calling this function for a partial
+  // purpose — re-applying one person's rating, say — silently nulled the
+  // event's venue link. Found live 2026-08-15: the Kelly-rating repair wiped
+  // North Riverside Park Mall off the Chicago import. Detaching a venue is a
+  // deliberate act with its own route; absence here means "nothing to say".
+  const intelRow: Record<string, unknown> = {
+    event_id: eventId,
+    user_id: userId,
+    source: "calendar",
+    ...(confirmed ? { confirmed_at: new Date().toISOString() } : {}),
+    updated_at: new Date().toISOString(),
+  };
+  if (venueId) intelRow.venue_id = venueId;
+  // Same rule as the venue: an empty list is "nothing to say", not "erase
+  // the provenance already recorded".
+  const calIds = (input.calendarEventIds ?? []).filter(Boolean);
+  if (calIds.length) intelRow.calendar_event_ids = calIds;
+  const { error: iErr } = await db.from("event_intel").upsert(intelRow, {
+    onConflict: "event_id",
+  });
   if (iErr) warnings.push(`intel: ${iErr.message}`);
 
   // ── crew ──
