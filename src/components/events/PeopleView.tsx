@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CrewLinkAction } from "@/components/crew/CrewLinkAction";
+import { FaceRings, usePersonFaces } from "./FaceOutline";
 import { ArrowRight, Users, X } from "lucide-react";
 
 /** Fixed-overlay modals must not let the page scroll behind them. */
@@ -653,6 +654,11 @@ function CompareModal({
   const otherIds = (person?.imageIds ?? []).filter((id) => !questionIds.has(id));
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
+  // Ring the claimed face on group shots — "Is this X?" over a six-person
+  // frame is unanswerable without knowing which face is being asked about.
+  const personFaces = usePersonFaces(card.personId);
+  const ringsFor = (id: string) =>
+    personFaces?.multiFace.has(id) ? personFaces.byImage.get(id) : undefined;
   // Inline rename of the person — sometimes neither existing name is right
   // and the fix is typing the correct one, independent of any merge.
   const [renaming, setRenaming] = useState(false);
@@ -755,11 +761,17 @@ function CompareModal({
                 return (
                   <figure key={id}>
                     {entry ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={entry.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={entry.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                        <FaceRings faces={ringsFor(id)} fit="natural" />
+                      </div>
                     ) : card.face && id === card.imageIds[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={card.face.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={card.face.thumbnailUrl} alt="" className="w-full bg-stone-100" />
+                        <FaceRings faces={ringsFor(id)} fit="natural" />
+                      </div>
                     ) : (
                       <div className="aspect-[3/4] bg-stone-100" />
                     )}
@@ -794,13 +806,16 @@ function CompareModal({
                   return (
                     <figure key={id}>
                       {entry ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={entry.thumbnailUrl}
-                          alt=""
-                          loading="lazy"
-                          className="aspect-square w-full object-cover object-top bg-stone-100"
-                        />
+                        <div className="relative aspect-square overflow-hidden bg-stone-100">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={entry.thumbnailUrl}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover object-top"
+                          />
+                          <FaceRings faces={ringsFor(id)} fit="cover-top" />
+                        </div>
                       ) : (
                         <div className="aspect-square bg-stone-100" />
                       )}
@@ -901,6 +916,8 @@ export function PersonModal({
 }) {
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
+  // "Who is this?" needs to know which face on the group shots is theirs.
+  const personFaces = usePersonFaces(personId);
   const [editing, setEditing] = useState(startEditing ?? !personName);
   const [draft, setDraft] = useState(personName ?? "");
   const [saving, setSaving] = useState(false);
@@ -1025,13 +1042,23 @@ export function PersonModal({
               return (
                 <figure key={id}>
                   {entry ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={entry.thumbnailUrl}
-                      alt=""
-                      loading="lazy"
-                      className="aspect-square w-full object-cover object-top bg-stone-100"
-                    />
+                    <div className="relative aspect-square overflow-hidden bg-stone-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={entry.thumbnailUrl}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover object-top"
+                      />
+                      <FaceRings
+                        faces={
+                          personFaces?.multiFace.has(id)
+                            ? personFaces.byImage.get(id)
+                            : undefined
+                        }
+                        fit="cover-top"
+                      />
+                    </div>
                   ) : (
                     <div className="aspect-square bg-stone-100" />
                   )}
@@ -1107,6 +1134,10 @@ function SplitPersonModal({
 }) {
   useBodyScrollLock();
   const [faces, setFaces] = useState<{ faceId: string; imageId: string }[] | null>(null);
+  // Rings here are PER FACE, not per image: a contaminated cluster puts the
+  // same group shot in this list twice (once per claimed face), and the ring
+  // is the only thing telling those two tiles apart.
+  const personFaces = usePersonFaces(card.personId);
   const [showFilenames, setShowFilenames] = useState(true);
   const [inB, setInB] = useState<Set<string>>(new Set());
   const [names, setNames] = useState<[string, string]>(["", ""]);
@@ -1230,6 +1261,13 @@ function SplitPersonModal({
                       className="h-full w-full object-cover object-top"
                     />
                   )}
+                  <FaceRings
+                    faces={(() => {
+                      const g = personFaces?.byFaceId.get(f.faceId);
+                      return g && personFaces?.multiFace.has(g.imageId) ? [g] : undefined;
+                    })()}
+                    fit="cover-top"
+                  />
                 </button>
                 {showFilenames && entry?.filename && (
                   <figcaption className="mt-0.5 text-[9px] leading-tight text-stone-400 truncate">
@@ -1346,6 +1384,10 @@ function MergeCompareModal({
 }) {
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
+  // Each column rings ITS OWN cluster's face — "same person?" over two group
+  // shots is only answerable when both sides mark who they mean.
+  const facesA = usePersonFaces(merge.fromId);
+  const facesB = usePersonFaces(merge.intoId);
   const [merging, setMerging] = useState(false);
   // Per-side rename: when it's genuinely TWO people sharing a misfiled name
   // (seen live: a woman's photos exported under Daniel Nelson's filename),
@@ -1372,7 +1414,9 @@ function MergeCompareModal({
       toast.error("Couldn't save the name");
     }
   };
-  const column = (person: Person | null, label: string, side: 0 | 1) => (
+  const column = (person: Person | null, label: string, side: 0 | 1) => {
+    const personFaces = side === 0 ? facesA : facesB;
+    return (
     <div className="min-h-0 flex flex-col">
       <div className="mb-2 flex items-baseline justify-between gap-3 shrink-0">
         <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
@@ -1412,13 +1456,23 @@ function MergeCompareModal({
             return (
               <figure key={id}>
                 {entry ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={entry.thumbnailUrl}
-                    alt=""
-                    loading="lazy"
-                    className="aspect-square w-full object-cover object-top bg-stone-100"
-                  />
+                  <div className="relative aspect-square overflow-hidden bg-stone-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={entry.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover object-top"
+                    />
+                    <FaceRings
+                      faces={
+                        personFaces?.multiFace.has(id)
+                          ? personFaces.byImage.get(id)
+                          : undefined
+                      }
+                      fit="cover-top"
+                    />
+                  </div>
                 ) : (
                   <div className="aspect-square bg-stone-100" />
                 )}
@@ -1433,7 +1487,8 @@ function MergeCompareModal({
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div
