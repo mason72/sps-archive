@@ -1044,3 +1044,42 @@ Two corollaries worth keeping separate:
   run, when `collection_download: false` had been sitting in
   `pixieset-inventory.json` since the day it was built. Before probing a live
   system for why something failed, grep the inventory you already pulled.
+
+## 88 — OFFSET paging without ORDER BY silently double-counts (2026-08-16)
+
+Mason, looking at `/people`: *"Steven Hughes has 186 photos; I'm thinking some
+of these may be dupes."* Then: *"Jenna shows as 64 photos on the top, but when I
+open her card, it says 35."*
+
+Neither number was duplicate photos. **The index was reading the same rows
+twice.** `buildPeopleIndex` pages ~39k images by firing every `.range()` call
+concurrently. `range()` compiles to OFFSET/LIMIT, and **Postgres guarantees no
+row order without an `ORDER BY`** — worse, its *synchronized sequential scans*
+optimisation deliberately starts a new scan wherever a concurrent scan already
+is, so ~39 parallel page queries each saw the table in a different order. Pages
+overlapped and left gaps. Jenna's 35 real photos landed inside an overlap and
+were counted twice plus change (64); Steven lost one to a gap (186 of 187).
+
+Measured, because a race is only real if you can show it: an unordered control
+scan corrupted **4 of 8 runs**, duplicating up to **10,202 rows** in one run.
+The ordered version was clean 8/8. Harness:
+`scripts/triage/verify-people-counts.ts`, which runs both shapes side by side —
+**the unordered control is the point**, since without it a passing run looks
+like proof when it may only be a quiet moment on the database.
+
+- **Every paged read gets `.order()` on a unique, stable column.** Not "the ones
+  that page concurrently" — the sequential path in `buildPersonDetail` has the
+  same hole, and it only pages for people with 1,000+ frames, which is exactly
+  when a wrong count is hardest to notice.
+- **Dedupe by row id anyway.** Over-counting is the failure a human sees and
+  disbelieves; a row that slips during an active upload comes back on the next
+  load. Belt and braces, and they fail in different directions.
+- **Two surfaces disagreeing is a gift.** The card said 35 and the tile said 64,
+  which is what made this findable at all. When two paths compute the same
+  quantity, diffing their *row sets* (not their counts) names the bug in one
+  run — `scripts/triage/person-count-diff.ts`.
+- **`1000` exactly is never a real answer.** Chasing this, my own probe reported
+  "0 matching clusters" for Steven because an unpaged `persons` select returned
+  exactly PostgREST's 1,000-row default limit and truncated him away. A
+  truncated read is indistinguishable from a real absence. Same family as
+  lesson 87: **check the record, and check you read all of it.**
