@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { cleanRehire } from "@/lib/event-intel/roles";
+import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 
 /**
  * The rehire ladder's offer list — mirrors REHIRE_LADDER in roles.ts (the
@@ -123,6 +124,23 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
   /** Alphabetical, and it STAYS alphabetical — nothing reorders on a write. */
   const byName = (a: CrewRow, b: CrewRow) =>
     a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+
+  /**
+   * A face beside every name — Mason: "we need to show people's avatars
+   * wherever their names appear." One batched call for the whole crew list,
+   * not one per row, and initials stand in until (or unless) it answers.
+   */
+  const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
+  useEffect(() => {
+    const ids = (data?.crew ?? []).map((c) => c.crewId);
+    if (!ids.length) return;
+    let live = true;
+    fetch(`/api/crew/avatars?ids=${ids.join(",")}`)
+      .then((r) => (r.ok ? r.json() : { avatars: {} }))
+      .then((j) => { if (live) setAvatars(j.avatars ?? {}); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [data?.crew]);
 
   const setCrew = (crewId: string, patch: Partial<CrewRow>) => (d: IntelPayload) => ({
     ...d,
@@ -300,6 +318,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
             <CrewLine
               key={c.crewId}
               crew={c}
+              avatar={avatars[c.crewId] ?? null}
               knownRoles={data.knownRoles}
               onRoles={(roles, confirmedRoles) =>
                 void save(
@@ -356,9 +375,10 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
 /* ── One person's assignment ─────────────────────────────────────────────── */
 
 function CrewLine({
-  crew, knownRoles, onRoles, onRebook, onNote, onRemove,
+  crew, avatar, knownRoles, onRoles, onRebook, onNote, onRemove,
 }: {
   crew: CrewRow;
+  avatar: CrewAvatarFace | null;
   knownRoles: string[];
   onRoles: (roles: string[], confirmed: string[]) => void;
   onRebook: (v: string | null) => void;
@@ -428,8 +448,10 @@ function CrewLine({
 
   return (
     <div className="py-4">
-      <div className="flex items-baseline justify-between gap-4">
-        <div className="min-w-0">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <CrewAvatar face={avatar} name={crew.name} size={28} />
+          <span className="min-w-0">
           <span className="text-[15px] text-stone-900">{crew.name}</span>
           {crew.homeCity && <span className="ml-2 text-[12px] text-stone-400">{crew.homeCity}</span>}
           {crew.kind && <span className="ml-2 text-[11px] text-stone-400">{crew.kind}</span>}
@@ -441,6 +463,7 @@ function CrewLine({
               guessed
             </span>
           )}
+          </span>
         </div>
         <button
           onClick={onRemove}

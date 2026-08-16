@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "./CrewAvatar";
 import { CrewFacesSection } from "./CrewFacesSection";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
+import { Segmented } from "@/components/ui/segmented";
 
 /**
  * The crew's own row on /people — between the wall of fame and everyone else.
@@ -96,25 +97,17 @@ export function CrewWall() {
     <section className="mb-16">
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
         <p className="label-caps">Your crew</p>
-        <div className="flex items-center gap-3 text-[12px]">
-          {([
+        <Segmented
+          label="Which cut of the crew"
+          value={show}
+          onChange={setShow}
+          options={[
             ["regulars", "Regulars"],
             ["non-regulars", "Non-regulars"],
             ["all", "All"],
             ["alumni", "Alumni"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setShow(value)}
-              className={`uppercase tracking-[0.12em] transition-colors ${
-                show === value ? "text-emerald-700" : "text-stone-400 hover:text-stone-600"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          ] as const}
+        />
       </div>
 
       {visible.length === 0 ? (

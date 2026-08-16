@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
 import { MonthPicker } from "@/components/ui/date-picker";
+import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
+import { Segmented } from "@/components/ui/segmented";
 
 /**
  * The roster, editable.
@@ -84,6 +86,18 @@ export function RosterManager() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /** A face beside every name here too — one batched call for the roster. */
+  const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
+  useEffect(() => {
+    if (!people.length) return;
+    let live = true;
+    fetch(`/api/crew/avatars?ids=${people.map((p) => p.id).join(",")}`)
+      .then((r) => (r.ok ? r.json() : { avatars: {} }))
+      .then((j) => { if (live) setAvatars(j.avatars ?? {}); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [people]);
+
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (s) {
@@ -163,29 +177,23 @@ export function RosterManager() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className={META}>Roster</span>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {([["all","All"],["regular","Regulars"],["other","Non-regulars"],["archived","Alumni"]] as const).map(([k,label]) => (
-              <button
-                key={k}
-                onClick={() => { setBand(k); setPicked(new Set()); }}
-                className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                  band === k
-                    ? "bg-stone-900 text-white"
-                    : "border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-800"
-                }`}
-              >
-                {label}
-                {k !== "all" && (
-                  <span className="ml-1.5 tabular-nums opacity-60">
-                    {k === "regular"
-                      ? people.filter((p) => p.is_regular && !p.archived).length
-                      : k === "other"
-                        ? people.filter((p) => !p.is_regular && !p.archived).length
-                        : people.filter((p) => p.archived).length}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="mt-2">
+            <Segmented
+              label="Which cut of the roster"
+              value={band}
+              onChange={(k) => { setBand(k); setPicked(new Set()); }}
+              options={[
+                ["all", "All"],
+                ["regular", "Regulars"],
+                ["other", "Non-regulars"],
+                ["archived", "Alumni"],
+              ] as const}
+              counts={{
+                regular: people.filter((p) => p.is_regular && !p.archived).length,
+                other: people.filter((p) => !p.is_regular && !p.archived).length,
+                archived: people.filter((p) => p.archived).length,
+              }}
+            />
           </div>
           <p className="mt-1 text-[13px] text-stone-500">
             {people.filter((p) => !p.archived).length} active
@@ -303,6 +311,12 @@ export function RosterManager() {
                     })
                   }
                   className="mt-1 accent-stone-800"
+                />
+                <CrewAvatar
+                  face={avatars[p.id]}
+                  name={p.display_name}
+                  size={30}
+                  className={`mt-0.5 ${p.archived ? "opacity-60" : ""}`}
                 />
                 <div className="min-w-0 flex-1">
                   {editing === p.id ? (

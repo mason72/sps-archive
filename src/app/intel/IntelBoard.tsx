@@ -23,6 +23,7 @@ import {
 } from "@/lib/event-intel/geo";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 import { CrewFacesSection } from "@/components/crew/CrewFacesSection";
+import { Segmented } from "@/components/ui/segmented";
 
 /**
  * The pivot, as a UI.
@@ -595,32 +596,22 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                 and the /people wall. Search overrides the band, so a typed name
                 finds anyone; the chips are for browsing. */}
             {axis === "people" && (
-              <div className="flex flex-wrap items-center gap-1">
-                {([
+              <Segmented
+                label="Which crew"
+                value={crewBand}
+                onChange={setCrewBand}
+                options={[
                   ["all", "All"],
                   ["regular", "Regulars"],
                   ["other", "Non-regulars"],
                   ["alumni", "Alumni"],
-                ] as const).map(([k, label]) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setCrewBand(k)}
-                    className={`rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                      crewBand === k
-                        ? "bg-stone-900 text-white"
-                        : "border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-800"
-                    }`}
-                  >
-                    {label}
-                    {k !== "all" && (
-                      <span className="ml-1.5 tabular-nums opacity-60">
-                        {index.people.filter((p) => inCrewBand(p, k)).length}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+                ] as const}
+                counts={{
+                  regular: index.people.filter((p) => inCrewBand(p, "regular")).length,
+                  other: index.people.filter((p) => inCrewBand(p, "other")).length,
+                  alumni: index.people.filter((p) => inCrewBand(p, "alumni")).length,
+                }}
+              />
             )}
 
             {/* The radius search — see the nearGroups memo for the rules. */}
@@ -650,35 +641,17 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
                   <>
                     {/* One track, one answer — same control grammar as the
                         discipline picker on the create screen. */}
-                    <span
-                      role="radiogroup"
-                      aria-label="How far is bookable"
-                      className="inline-flex overflow-hidden rounded-full border border-stone-200 bg-white"
-                    >
-                      {([
+                    <Segmented
+                      label="How far is bookable"
+                      value={reach}
+                      onChange={setReach}
+                      options={[
                         ["drivable", "Drivable"],
                         ["short flight", "Short flight"],
                         ["any", "Anywhere"],
-                      ] as const).map(([value, label], i) => (
-                        <button
-                          key={value}
-                          type="button"
-                          role="radio"
-                          aria-checked={reach === value}
-                          onClick={() => setReach(value)}
-                          className={`px-2.5 py-1.5 text-[12px] transition-colors first:pl-3.5 last:pr-3.5 ${
-                            i > 0 ? "border-l border-stone-200" : ""
-                          } ${
-                            reach === value
-                              ? "bg-emerald-600 text-white"
-                              : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </span>
-                    <button
+                      ] as const}
+                    />
+                                        <button
                       type="button"
                       onClick={() => setNear("")}
                       className="text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-700 hover:underline"
