@@ -1142,3 +1142,36 @@ purpose.
 - **My repair caused a bug**, which is the sharper half. A fix that touches a
   shared writer is a change to every caller. Re-read what the writer WRITES,
   not just what you are asking it to write.
+
+## 91 — "All" that is not all puts a hole in the search nothing explains (2026-08-15)
+
+Mason asked for the crew band filter to narrow search results ("if I choose a
+filter, it should filter my search results too"). I made the change and told
+him the original case still worked, in writing: *"the default is All, so an
+untouched filter still searches everyone, alumni included."*
+
+It did not. My `inCrewBand(p, "all")` read:
+
+```ts
+if (band === "alumni") return p.archived;
+if (p.archived) return false;   // ← "All" quietly meant "all ACTIVE"
+```
+
+So typing "Boris" with **All** selected returned "Nothing matches" — Boris
+Zharkov is alumni. That is the exact complaint the alumni band was built to
+fix, reintroduced by the change that was supposed to preserve it. I caught it
+one screenshot after asserting the opposite.
+
+- **A label is a promise the predicate has to keep.** "All" that excludes a
+  category is a lie the UI cannot explain — nothing on screen says why the
+  person you know exists is missing, so the reasonable conclusion is that the
+  search is broken.
+- **The arithmetic was the tell, and it was on screen the whole time:** the
+  tab read `CREW 87` while the bands read 18 + 48 + 21 = 87. If the parts sum
+  to the whole, "All" cannot be a proper subset.
+- **When you change what a filter DOES, re-verify what it SHOWS.** The band
+  went from being bypassed by search to governing it — a change of role, not
+  of value, and every claim about the old behaviour needed re-testing rather
+  than restating.
+- And the process half: **do not assert the preserved case, exercise it.** One
+  search would have caught this before the sentence claiming it worked.

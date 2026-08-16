@@ -79,19 +79,28 @@ const fmtDate = (d: string | null) =>
  * Which band a crew member falls in — one predicate, so the flat list and the
  * radius groups can never disagree about who "Non-regulars" means.
  *
- * Alumni is checked FIRST and is exclusive: an archived regular is alumni, not
- * a regular. Archiving is the statement that you stopped working with them,
- * and it outranks what they were while you did.
+ * **"All" MEANS ALL, alumni included.** It briefly meant "all active", which
+ * was a quiet lie the moment the band started narrowing search: typing "Boris"
+ * with All selected returned NOTHING, because he is alumni — reintroducing the
+ * exact complaint the alumni band was built to fix ("there's no way to find
+ * archived people... they should show up in search if I type their name in").
+ * The default cut has to be the one that finds anybody, or the search has a
+ * hole in it that nothing on screen explains. 18 + 48 + 21 = 87, which is the
+ * count the CREW tab shows — the arithmetic was always the tell.
+ *
+ * Alumni is checked FIRST among the narrowing bands and is exclusive: an
+ * archived regular is alumni, not a regular. Archiving is the statement that
+ * you stopped working with them, and it outranks what they were while you did.
  */
 function inCrewBand(
   p: { isRegular: boolean; archived: boolean },
   band: "all" | "regular" | "other" | "alumni"
 ): boolean {
+  if (band === "all") return true;
   if (band === "alumni") return p.archived;
   if (p.archived) return false;
   if (band === "regular") return p.isRegular;
-  if (band === "other") return !p.isRegular;
-  return true;
+  return !p.isRegular;
 }
 
 /* ── Small shared pieces ──────────────────────────────────────────────────── */

@@ -107,12 +107,15 @@ export function RosterManager() {
    */
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
+    // "All" means ALL — alumni included. See inCrewBand in IntelBoard for why:
+    // a default cut that hides alumni puts a hole in the search nothing on
+    // screen explains.
     const inBand = (p: Person) =>
-      band === "archived" ? p.archived
+      band === "all" ? true
+      : band === "archived" ? p.archived
       : p.archived ? false
       : band === "regular" ? p.is_regular
-      : band === "other" ? !p.is_regular
-      : true;
+      : !p.is_regular;
     return people.filter(
       (p) =>
         inBand(p) &&
@@ -186,7 +189,7 @@ export function RosterManager() {
         <div>
           <span className={META}>Roster</span>
           <p className="mt-1 text-[13px] text-stone-500">
-            {people.filter((p) => !p.archived).length} active
+            {people.length} on the roster · {people.filter((p) => !p.archived).length} active
             {q && ` · ${shown.length} matching`}
           </p>
         </div>

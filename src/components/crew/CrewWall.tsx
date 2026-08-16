@@ -84,11 +84,12 @@ export function CrewWall() {
 
   const visible = useMemo(() => {
     if (!crew) return [];
+    // "All" means ALL here too — one vocabulary across every band filter.
+    if (show === "all") return crew;
     if (show === "alumni") return crew.filter((c) => c.archived);
     const active = crew.filter((c) => !c.archived);
     if (show === "regulars") return active.filter((c) => c.is_regular);
-    if (show === "non-regulars") return active.filter((c) => !c.is_regular);
-    return active;
+    return active.filter((c) => !c.is_regular);
   }, [crew, show]);
 
   if (!crew?.length) return null;
