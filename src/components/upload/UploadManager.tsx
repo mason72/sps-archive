@@ -373,6 +373,17 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
   const rrCursor = useRef(0);
   const bytesSentRef = useRef(0);
   const corsFailureCount = useRef(0);
+  /**
+   * Set the moment any DIRECT (>4 MB, straight-to-R2) PUT succeeds. This is
+   * the one honest discriminator for the CORS banner: a bucket with no CORS
+   * policy fails EVERY direct PUT from the first one — so if even one has
+   * landed, later network errors are weather, not configuration. The banner
+   * fired mid-drop on Mason's fully-configured bucket (2026-08-16) because
+   * three Safari-shed requests matched the "3 TypeErrors" heuristic, and it
+   * told him to go reconfigure Cloudflare while 4 MB+ files were landing in
+   * the same minute.
+   */
+  const directPutOk = useRef(false);
   const objectUrls = useRef<Set<string>>(new Set());
   const completedIds = useRef<Map<string, string[]>>(new Map());
   const failedFiles = useRef<Map<string, File[]>>(new Map());
@@ -605,12 +616,35 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
           }
         }
         if (!snapshotted) {
+          /**
+           * A failed read is NOT proof the file is bad — it is usually proof
+           * the TAB is busy. Under a big drop Safari runs out of per-page file
+           * resources and refuses opens on files that are verifiably local
+           * ("the files are all downloaded and synced" — Mason, 2026-08-16,
+           * while reads failed in bulk). So a failed read requeues like a
+           * network failure: by the time the queue comes back around, the
+           * pressure has drained. Only a file that failed its reads across
+           * MAX_REQUEUES separate passes gets the terminal message — and that
+           * one names BOTH plausible causes and the fix for each.
+           */
+          if ((task.requeues ?? 0) < MAX_REQUEUES) {
+            updateFile(task.batchId, task.fileId, { status: "pending", progress: 0 });
+            const q = queues.current.get(task.batchId);
+            if (q && !aborted.current.has(task.batchId)) {
+              q.push({ ...task, requeues: (task.requeues ?? 0) + 1 });
+              return;
+            }
+          }
           (failedFiles.current.get(task.batchId) ?? []).push(task.file);
           await deleteOrphanRow(task.imageId);
           updateFile(task.batchId, task.fileId, {
             status: "error",
+            // "Drop it again", not "Retry": a Retry re-reads the same dropped
+            // file handle, and a handle that failed this many spread-out reads
+            // is dead — gone stale (cloud sync touched it) or never local.
+            // A fresh drop mints a fresh handle.
             error:
-              "Couldn't read this file from disk — if it lives in Dropbox or iCloud, let it finish downloading, then Retry",
+              "Couldn't read this file after several tries — drop it again (if it shows a cloud icon in Finder, download it first)",
           });
           return;
         }
@@ -668,7 +702,8 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
            * fails its own attempts and the banner points at settings. A latch
            * may inform; it must never act.
            */
-          if (!useProxy && err instanceof TypeError) {
+          if (!useProxy && err instanceof TypeError && !directPutOk.current) {
+            // Only while NO direct PUT has ever succeeded — see directPutOk.
             corsFailureCount.current++;
             if (corsFailureCount.current >= CORS_FAILURE_THRESHOLD) {
               setCorsError(true);
@@ -730,6 +765,12 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
       }
 
       corsFailureCount.current = 0;
+      if (!useProxy) {
+        // A direct PUT landed, so CORS is provably configured — retire the
+        // banner for this session, including one already showing.
+        directPutOk.current = true;
+        setCorsError(false);
+      }
 
       const finalized = await finalizeUpload(task.imageId, task.file);
       if (!finalized) {
@@ -1005,17 +1046,25 @@ export function UploadManagerProvider({ children }: { children: React.ReactNode 
     }) => {
       if (files.length === 0) return;
       const batchId = `${eventId}-${sectionId ?? "intake"}-${performance.now()}`;
-      const entries: UploadFile[] = files.map((file, i) => {
-        const previewUrl = URL.createObjectURL(file);
-        objectUrls.current.add(previewUrl);
-        return {
-          id: `${batchId}-${i}`,
-          file,
-          previewUrl,
-          status: "pending" as FileStatus,
-          progress: 0,
-        };
-      });
+      /**
+       * NO eager object URLs. This used to `URL.createObjectURL(file)` for
+       * every file at drop time — 671 files meant 671 live file references
+       * held by one Safari page, which blows the browser's per-page resource
+       * budget. Past it, EVERY file open fails: previews go blank across the
+       * board, and the upload-time reads start failing on files that are
+       * verifiably local ("the files are all downloaded and synced" — Mason,
+       * 2026-08-16, correctly killing the cloud-placeholder theory as the
+       * whole story). The list renders at most ~30 rows; FilePreview now
+       * mints its own URL on mount and revokes on unmount, so at most ~30
+       * are ever live regardless of drop size.
+       */
+      const entries: UploadFile[] = files.map((file, i) => ({
+        id: `${batchId}-${i}`,
+        file,
+        previewUrl: "",
+        status: "pending" as FileStatus,
+        progress: 0,
+      }));
 
       aborted.current.delete(batchId);
       queues.current.set(batchId, []);

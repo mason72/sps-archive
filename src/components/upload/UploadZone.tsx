@@ -38,11 +38,29 @@ interface UploadZoneProps {
 }
 
 /**
- * List-row preview. Object URLs render in an <img> for images only; videos
- * (and rejected files with no preview) get a film placeholder instead.
+ * List-row preview — LAZY. Mints its own object URL on mount and revokes on
+ * unmount, so only the rendered rows (~30) ever hold a live file reference.
+ * The old design created one per DROPPED file up front; a 671-file drop held
+ * 671 references in one Safari page, blew the per-page resource budget, and
+ * took down every preview AND the upload-time file reads with it. Videos and
+ * unreadable files get the film placeholder.
  */
-function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
-  if (!previewUrl || isVideoMime(file.type)) {
+function FilePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (isVideoMime(file.type)) return;
+    let u: string | null = null;
+    try {
+      u = URL.createObjectURL(file);
+      setUrl(u);
+    } catch {
+      /* placeholder below */
+    }
+    return () => {
+      if (u) URL.revokeObjectURL(u);
+    };
+  }, [file]);
+  if (!url || isVideoMime(file.type)) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-stone-200">
         <Film className="h-4 w-4 text-stone-400" />
@@ -52,10 +70,11 @@ function FilePreview({ file, previewUrl }: { file: File; previewUrl: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={previewUrl}
+      src={url}
       alt=""
       loading="lazy"
       decoding="async"
+      onError={() => setUrl("")}
       className="h-full w-full object-cover"
     />
   );
@@ -754,7 +773,7 @@ export function UploadZone({
                 className="flex items-center gap-3 border-b border-amber-100/70 py-1.5 text-[13px] last:border-b-0"
               >
                 <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-stone-100">
-                  <FilePreview file={f.file} previewUrl={f.previewUrl} />
+                  <FilePreview file={f.file} />
                 </div>
                 <span className="flex-1 truncate text-stone-700">
                   {f.file.name}
@@ -890,7 +909,7 @@ export function UploadZone({
                         : "opacity-100"
                     )}
                   >
-                    <FilePreview file={f.file} previewUrl={f.previewUrl} />
+                    <FilePreview file={f.file} />
                   </div>
                   {(f.status === "pending" || f.status === "uploading") && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20">
