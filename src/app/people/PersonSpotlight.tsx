@@ -424,12 +424,13 @@ export function PersonSpotlight({
                   </figure>
                 ))}
                 <div className="min-w-[180px] flex-1">
+                  {/* No combined count here on purpose: the sum LIES when the
+                      cards overlap (group-shot membership already unified
+                      Sami's two cards, so 27+29 merged into 29, not 56). The
+                      merged card states the real number the moment it exists. */}
                   <p className="text-[13px] leading-snug text-stone-600">
-                    Same person? The two cards become one with{" "}
-                    <span className="tabular-nums text-stone-900">
-                      {(data.imageCount + mergeTarget.imageCount).toLocaleString()}
-                    </span>{" "}
-                    photos — undo any time from the merged card.
+                    Same person? The two cards become one — every photo from
+                    both, counted once. Undo any time from the merged card.
                   </p>
                   {mergeError && (
                     <p className="mt-1 text-[12px] text-red-700">{mergeError}</p>
