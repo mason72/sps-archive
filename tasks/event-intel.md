@@ -731,3 +731,62 @@ the accent everywhere in this app.
   too, so it has the identical gap. It should share `CreateGigConfirm`, not grow
   its own.
 - The radius filter above, and the `crew.home_metros[]` groundwork it needs.
+
+---
+
+## 2026-08-15, later — what the day settled
+
+Everything below came from Mason using the feature on the Chicago import, in
+his words where the wording carries the decision.
+
+**Access is gated per account** (`src/lib/event-intel/access.ts`, lesson 85).
+`EVENT_INTEL_USER_IDS` names the studio; `hasIntelAccess()` / `getIntelUser()`
+are the only gates. Measured before choosing: every crew (86), venue (17), org
+(12), event (44) and intel row (22) belongs to **info@twodudesphoto.com**,
+while `is_admin` is mason@'s alone — so gating on admin would have inverted the
+answer. Intel follows the EFFECTIVE user (data belongs to the archive you are
+looking at); Ops follows the REAL one (a power act-as must not lend). Interim
+by construction: when users connect their own calendars this becomes "do you
+have a calendar connection", exactly as `sps_connections` already works.
+
+**The radius search** — "Near [city]" + drivable / short flight / anywhere,
+client-side over `geo.ts`. GROUPS, not a filter: within reach, further out,
+can't-place. 33 distinct crew locations, only 3 unmappable ("EU", "Kentucky",
+"Orlando? Florida?"), reported rather than dropped. Distances are STRAIGHT-LINE
+and the page says so. No `crew.home_metros` column — 61 people is a roster
+loaded whole, and a stored copy would go stale invisibly when a city is edited.
+
+**`can_lead` and `travels` are gone.** "Let's drop these data points
+everywhere. We don't need to track." `can_lead` duplicated the per-gig `lead`
+role; `travels` duplicated the radius search and was unset on 35 of 61 people,
+so it mostly sorted on ignorance. The "Would travel" group went with it.
+Columns left dormant, unread and unwritten — dropping is irreversible.
+
+**Last hired** (migration 062) — "Aug 2024 (2 yrs)", "(Recent)" inside a year,
+non-regulars only. Stored value is the hand-entered SEED; the displayed value
+is `max(seed, newest linked event)`, derived on read, which is what makes
+"updates any time they work an event" true with no write to remember.
+`scripts/backfill-last-hired.ts` seeded 77 of 87 from twelve years of calendar
+(max-only; studio sittings and future dates excluded). Shows on the Crew list,
+the Roster, the crew panel, the /people person card, and the confirm cards.
+
+**Alumni** — archived crew are "Alumni" in every UI, `archived` in the data.
+Bands (All · Regulars · Non-regulars · Alumni) appear on the Crew axis, the
+Roster and the /people wall; they default to All and NARROW SEARCH. Mark and
+restore work from the Crew panel as well as the Roster.
+
+**Three fixes from the Chicago import**, worth knowing because each was a
+class of bug rather than a typo:
+- The event page's Intel panel still spoke `yes/maybe/no` — it shipped before
+  the rehire ladder and was missed in the swap. It now speaks the ladder, and
+  normalises legacy values for DISPLAY so an old "yes" lights "Solid".
+- The confirm card reseeded every pick when a gig was re-picked, so "Not this
+  one" → pick again silently wiped ratings (a wiped LEAD gets re-clicked; a
+  wiped RATING is invisible). Keyed on `gig.key` now.
+- A regular's discipline seeded as a GUESS, so every import ended with "N
+  assignments are still a guess" about his own team. "All regulars are
+  photographers" is settled, so it seeds confirmed.
+
+**Still open:** alumni panels still offer the full working-crew controls
+(discipline, rehire) — flagged to Mason, undecided. And the two dormant
+columns await a migration if he wants them really gone.

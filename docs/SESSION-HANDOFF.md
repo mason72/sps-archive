@@ -34,7 +34,7 @@ must pass before every push.
 | Pixieset migration | `docs/PIXIESET-MIGRATION.md`, `tasks/pixieset-migration.md` | The 1,371-collection move |
 | Event Intel | `tasks/event-intel.md` | Venues, crew, clients, and the `/intel` pivot |
 | SPS pull | `tasks/sps-archive-pull-spec.md` | The wire contract; `tasks/sps-pull-build-plan.md` for build notes |
-| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 86 entries and counting |
+| Mistakes | `tasks/lessons.md` | **Skim before touching API routes.** 90 entries and counting |
 | Queue | `tasks/todo.md` | What is next and why |
 
 Project memory (`MEMORY.md` in the memory namespace) carries the facts that are
@@ -67,8 +67,9 @@ conventions. It is the other entry point.
   and a hard no sinks in every picker. `crew.rehire` (migration 060) seeds people
   with no rated gig. Full model in `tasks/event-intel.md`
 - **Intel crew panel is editable** — stars, regular toggle, name/email/location,
-  discipline, can-lead, travel, and the rating. This is the tool for seeding the
-  61-person roster
+  discipline, the rating, last-hired and alumni. This is the tool for seeding
+  the 61-person roster. (`can_lead` and `travels` were DROPPED 2026-08-15 —
+  columns dormant, nothing reads them)
 - **Gig confirmation on the SPS IMPORT screen too** (2026-08-15) — the review
   step asks "Which job was this?", seeded with the SPS event name; shares
   `GigIntelStep`/`GigConfirmCard` with the create screen. Intel is applied
@@ -80,8 +81,8 @@ conventions. It is the other entry point.
   first (everything belongs to info@, `is_admin` is mason@'s only). SPS import
   stays open to all accounts by design
 - **The radius search** (2026-08-15) — "Near [city]" + drivable / short flight
-  / anywhere on the Intel Crew axis. GROUPS, not a filter: within-reach, would
-  travel, further out, can't-place — nobody silently dropped. Client-side over
+  / anywhere on the Intel Crew axis. GROUPS, not a filter: within-reach,
+  further out, can't-place — nobody silently dropped. Client-side over
   `geo.ts` (24-metro coordinate table, tests against known distances)
 - **Live SPS events are importable, flagged** (2026-08-15) — SPS's archive list
   now includes `status: 'live'` events with `live: true` (spsv2 commit
@@ -98,6 +99,21 @@ conventions. It is the other entry point.
   People view, and the Your Crew wall on `/people` (regulars default). Crew
   names never touch `persons.name`. ⚠️ any embed through `images`↔`events`
   needs the FK hint (`events!images_event_id_fkey`) — lesson 86
+- **Last hired** (2026-08-15, migration 062) — `Aug 2024 (2 yrs)`, `(Recent)`
+  inside a year, non-regulars only. DERIVED on read as `max(hand-entered seed,
+  newest linked event)`, so it self-updates when a gig is confirmed and has no
+  stored copy to rot. `scripts/backfill-last-hired.ts` seeded 77 of 87 from
+  twelve years of calendar. Memory: `last-hired-is-derived`
+- **Alumni** (2026-08-15) — archived crew read as "Alumni" in every UI
+  (`archived` in the data). Band filters — All · Regulars · Non-regulars ·
+  Alumni — sit under the search on the Crew axis, the Roster and the /people
+  wall; they default to All and NARROW the search. Mark/restore works from the
+  Crew panel and the Roster
+- **`components/ui/segmented.tsx`** — the one control for "pick exactly one".
+  Selection is the brand accent; groups whose VALUES carry meaning (the rehire
+  ladder's severity ramp) keep their own markup and do NOT use it. Also
+  `MonthPicker` in `components/ui/date-picker.tsx` — branded month/year picker
+  with a scrollable year rail, replacing the native `<input type="month">`
 
 ## In flight — pick these up
 

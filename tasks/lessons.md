@@ -1112,3 +1112,33 @@ ran anyway, because a guard `&&`-ed to the thing it guards is a log line, not
 a guard. **Read the answer, decide, then act, in separate invocations.** The
 passenger was docs-only this time (a lessons entry whose code had already
 shipped), so nothing broke; that was luck, not diligence.
+
+## 90 — a partial apply must not erase what it was not told about (2026-08-15)
+
+Repairing one person's rehire rating on the Chicago import, I called
+`applyGigIntel` with only that person in the payload. It wrote the rating
+correctly **and silently detached the event's venue** — North Riverside Park
+Mall — plus its `calendar_event_ids` provenance. Mason found it, not me.
+
+The function upserted the whole intel row every time:
+
+```ts
+{ venue_id: venueId, calendar_event_ids: (input.calendarEventIds ?? []), … }
+```
+
+With no venue in the input, `venueId` is null and `calendarEventIds` is `[]`,
+so a call about CREW erased two facts about the EVENT. The upsert was written
+when the only caller was "apply an entire gig", where every field is always
+present — and it stayed correct exactly until a second caller had a narrower
+purpose.
+
+- **In an upsert, absence must mean "nothing to say", never "set it to
+  empty".** Build the row conditionally: `if (venueId) row.venue_id = venueId`.
+  Clearing a field is a deliberate act and deserves its own path.
+- **The tell is the call site, not the function**: any function whose input
+  type is `Partial`-ish but whose write is total will do this the first time
+  someone calls it partially. Ask "what happens if the caller only cares about
+  one field?" before adding the second caller.
+- **My repair caused a bug**, which is the sharper half. A fix that touches a
+  shared writer is a change to every caller. Re-read what the writer WRITES,
+  not just what you are asking it to write.
