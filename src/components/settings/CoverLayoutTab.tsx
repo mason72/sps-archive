@@ -856,6 +856,24 @@ function LogoUploader({
     if (!eventId) return;
     setBusy(true);
     try {
+      /**
+       * READ THE BYTES FIRST — same doctrine as the photo uploader
+       * (2026-08-16). A dropped/picked file can be an unreadable handle
+       * (Dropbox/iCloud online-only placeholder, or a stale reference), and
+       * PUTting the raw File then fails as Safari's bare "Load failed" toast
+       * with nothing actionable in it — Mason burned several files against
+       * this exact wall. Reading up front pins the bytes, forces macOS to
+       * materialize a cloud file, and turns "unreadable" into its own
+       * sentence. A logo is ≤5 MB, so memory is a non-issue.
+       */
+      let bytes: ArrayBuffer;
+      try {
+        bytes = await file.arrayBuffer();
+      } catch {
+        throw new Error(
+          "Couldn't read that file — if it lives in Dropbox or iCloud, download it first, then pick it again"
+        );
+      }
       const res = await fetch(`/api/events/${eventId}/cover-logo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -869,7 +887,7 @@ function LogoUploader({
       const put = await fetch(uploadUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type },
-        body: file,
+        body: new Blob([bytes], { type: file.type }),
       });
       if (!put.ok) throw new Error("Failed to upload logo");
       setLocalUrl(URL.createObjectURL(file));

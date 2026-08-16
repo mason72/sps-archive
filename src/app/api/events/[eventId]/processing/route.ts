@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { inngest } from "@/lib/inngest/client";
+
+/**
+ * Per-instance throttle for the stalled-lane self-heal below — one kick per
+ * event per window, so a banner polling every few seconds cannot flood the
+ * queue. In-memory on purpose: several serverless instances each kicking once
+ * is still a handful of events against a lane that debounces and de-dupes.
+ */
+const lastIndexKick = new Map<string, number>();
+const INDEX_KICK_THROTTLE_MS = 5 * 60 * 1000;
 
 /**
  * GET /api/events/[eventId]/processing
@@ -131,14 +141,40 @@ export async function GET(
     }
     const startedAt = (firstRes.data as { ai_indexed_at: string } | null)?.ai_indexed_at ?? null;
 
-    // Photos per minute, measured over this event's own run.
+    /**
+     * Photos per minute, measured over a TRAILING WINDOW — never over the
+     * event's lifetime. The lifetime version divided `indexed` by time since
+     * the FIRST ai_indexed_at, which turns any pause into a lie that
+     * compounds: Staff Photos indexed 8 photos on day one, spent a day idle
+     * (the lane debounces while uploads are in flight, and uploads ran all
+     * day), and the "measured rate" became 8 photos / 21 hours — so the
+     * banner told Mason his 1,308-photo event had "about 3475h 7m left" on a
+     * job the pipeline does in ~24 minutes.
+     *
+     * A rate is only a rate while work is HAPPENING. So: count rows indexed
+     * in the last ten minutes. Active lane → honest live throughput. Idle or
+     * freshly-woken lane → no measured rate, and the banner falls back to the
+     * known-throughput forecast below, which is what "no recent evidence"
+     * should read as.
+     */
+    const RATE_WINDOW_MIN = 10;
     let perMinute: number | null = null;
     let etaMinutes: number | null = null;
-    if (startedAt && indexed > 1) {
-      const elapsedMin = (Date.now() - new Date(startedAt).getTime()) / 60000;
-      if (elapsedMin > 0.5) {
-        perMinute = indexed / elapsedMin;
-        if (perMinute > 0) etaMinutes = Math.ceil((total - indexed) / perMinute);
+    if (indexed > 1) {
+      const windowStart = new Date(
+        Date.now() - RATE_WINDOW_MIN * 60000
+      ).toISOString();
+      const { count: recentCount, error: recentErr } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .gte("ai_indexed_at", windowStart);
+      if (recentErr) throw new Error(`recent-rate: ${recentErr.message}`);
+      // A handful of rows in ten minutes is noise, not a rate — below that,
+      // prefer the forecast to a wild extrapolation in either direction.
+      if ((recentCount ?? 0) >= 10) {
+        perMinute = (recentCount ?? 0) / RATE_WINDOW_MIN;
+        etaMinutes = Math.ceil((total - indexed) / perMinute);
       }
     }
     // Before the first batch there is no measured rate, and the banner used to
@@ -153,6 +189,49 @@ export async function GET(
       etaMinutes === null && total > indexed
         ? Math.max(1, Math.ceil((total - indexed) / INDEX_RATE_PER_MIN))
         : null;
+
+    /**
+     * SELF-HEAL A STALLED LANE. Indexing is settlement-triggered: the last
+     * upload's settlement checks countPendingUploads() and SKIPS if any rows
+     * are pending — and if those rows are then cleared by something that emits
+     * no settlement (the reconciler, a sweep, Dismiss), nothing ever re-fires.
+     * Staff Photos sat at 8 of 1,308 for a day this way, and the banner's
+     * lifetime-window "measured rate" turned that stall into "3475h left"
+     * (2026-08-16; same shape as lesson 67's ghost rows).
+     *
+     * This route is the perfect place to notice: it is polled BY the banner
+     * that is showing the stall, and it already holds every fact needed —
+     * work exists, nothing is uploading, nothing has indexed recently. So
+     * notice, and kick. The lane itself debounces and skips when busy, so a
+     * redundant kick is a no-op; fire-and-forget, because a status read must
+     * never fail on a nicety.
+     */
+    if (!importing && uploading === 0 && total > indexed && indexed >= 0) {
+      const newestIdx = await supabase
+        .from("images")
+        .select("ai_indexed_at")
+        .eq("event_id", eventId)
+        .not("ai_indexed_at", "is", null)
+        .order("ai_indexed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const newestMs = newestIdx.data?.ai_indexed_at
+        ? new Date(newestIdx.data.ai_indexed_at as string).getTime()
+        : 0;
+      const idleMs = Date.now() - newestMs;
+      const lastKick = lastIndexKick.get(eventId) ?? 0;
+      if (
+        idleMs > INDEX_KICK_THROTTLE_MS &&
+        Date.now() - lastKick > INDEX_KICK_THROTTLE_MS
+      ) {
+        lastIndexKick.set(eventId, Date.now());
+        inngest
+          .send({ name: "ai/index.requested", data: { eventId } })
+          .catch(() => {
+            /* a status read must never fail on a nicety */
+          });
+      }
+    }
 
     return NextResponse.json({
       total,
