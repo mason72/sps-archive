@@ -68,28 +68,39 @@ Performance: `loadFaceMembership`'s chunks run concurrently — serially they we
 Verification: `scripts/triage/verify-group-shots.ts` (tile == card for people who
 gain group shots) and `scripts/triage/verify-people-counts.ts`.
 
+## The face ring — BUILT 2026-08-16
+
+Mason: *"add an outline box/circle on group shots when in the 'Is this
+So-and-so' cards … so it's clear who we're identifying as the matched face."*
+
+- `GET /api/people/[personId]/faces` — per-image bbox geometry for a cluster +
+  which of its frames hold 2+ faces. Ownership-scoped like the PATCH beside it.
+- `src/components/events/FaceOutline.tsx` — `usePersonFaces()` (best-effort:
+  a failed fetch renders the modals exactly as before) and `FaceRings`, with
+  TWO fit modes: `natural` (percentages map 1:1) and `cover-top` (bbox remapped
+  through the `object-cover object-top` square crop — sides crop on landscape,
+  bottom on portrait; a cropped-away face draws nothing). White ring, dark halo
+  both edges — legible on any photo, deliberately NOT emerald (marks a face in
+  a photograph, not app state).
+- **Rings render only on frames with 2+ faces** — solo portraits stay clean.
+- Wired into all four review surfaces. `SplitPersonModal` keys per-FACE, so a
+  contaminated cluster's twin tiles of one group shot are tellable apart.
+- Visual fixture: `/dev/face-rings` (NODE_ENV-gated) — real NASAI group shots,
+  both orientations, both fits, verified by eye.
+
 ## NOT built — next session
 
-1. **The face outline on confirm cards.** Mason, 2026-08-16: *"We may also want
-   to add an outline box/circle on group shots when in the 'Is this So-and-so'
-   cards to confirm merging or keeping separate so it's clear who we're
-   identifying as the matched face."* Essential once group shots are in play —
-   a confirm card showing a 6-person photo without marking WHICH face is being
-   claimed is asking for a blind yes. The data exists: `faces.bbox_x/y/w/h` plus
-   `images.width/height`, already carried through `FaceRef` in
-   `src/lib/faces/people-data.ts` (`personImageFace` maps `personId:imageId` →
-   the exact face). This is a rendering change, not a data one.
-2. **The naming engine** — the actual payoff. Use the ~1,440 identities already
+1. **The naming engine** — the actual payoff. Use the ~1,440 identities already
    named from headshot days as reference faces and match them against the
    anonymous clusters, so the party/festival/conference galleries gain names.
    The machinery exists: `findCrewInArchive()` / `matchSelfie()` from
    `tasks/crew-faces.md`, generalised from crew to guests. AI suggests, a human
    confirms — never auto-applied.
-3. **Duplicate identities from name variants.** "Sami Hadouaj" and "Sami Hadouaj
+2. **Duplicate identities from name variants.** "Sami Hadouaj" and "Sami Hadouaj
    Mundra" are two tiles for one human, and face membership now gives them
    overlapping photos. Each tile is more complete than before; the duplicate
    identity itself remains. Needs a merge affordance on the people wall.
-4. **Steven Hughes's four bad rows** (awaiting Mason's OK): one true duplicate
+3. **Steven Hughes's four bad rows** (awaiting Mason's OK): one true duplicate
    pair (`DAIS_3409 1.jpg` / `DAIS_3409 2.jpg`, identical size and dimensions)
    and three 31×25-pixel junk rows (`DAIS_3402 9/10/11.jpg`). His honest count
    is ~183 of 187.
