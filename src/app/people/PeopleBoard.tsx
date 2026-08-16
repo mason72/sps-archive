@@ -103,6 +103,15 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       );
     }
     // "rank" arrives pre-sorted from the server (events → photos → name).
+    //
+    // In the RANKED views, crew sink below every guest: excluding Mason from
+    // the podium only promoted him to the top of this grid (9 events beats
+    // every guest's 2), which reads as the same trophy. Your Crew has its own
+    // wall right above; here they close the list. Search and A–Z are exempt —
+    // a typed name is a question about a person, and finding them wins.
+    if (!q && (sort === "rank" || sort === "photos")) {
+      list = [...list.filter((p) => !p.isCrew), ...list.filter((p) => p.isCrew)];
+    }
     return list;
   }, [people, query, sort, repeatOnly, notAPerson.hidden]);
 
