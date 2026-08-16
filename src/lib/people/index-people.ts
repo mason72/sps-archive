@@ -15,6 +15,7 @@
 
 import type { createServiceClient } from "@/lib/supabase/server";
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
+import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
@@ -128,6 +129,9 @@ export interface PersonDetail {
   name: string;
   imageCount: number;
   events: PersonDetailEvent[];
+  /** Other spellings merged into this identity — shown so a merge is visible
+   *  and undoable, never silent. Empty for the un-merged common case. */
+  aliases: string[];
 }
 
 /**
@@ -171,8 +175,16 @@ export async function buildPersonDetail(
   userId: string,
   name: string
 ): Promise<PersonDetail | null> {
-  const key = normalizeNameKey(name);
-  if (!key) return null;
+  const rawKey = normalizeNameKey(name);
+  if (!rawKey) return null;
+
+  // Fold to the canonical identity — the SAME resolver the index folds with,
+  // so the tile you clicked and the card that opens agree on who exists.
+  const aliases = await loadAliasResolver(supabase, userId);
+  const key = aliases.resolve(rawKey);
+  // Every spelling the merge recorded. The requested name rides along for the
+  // un-merged common case (no alias rows know it).
+  const groupSpellings = [...new Set([name, ...aliases.groupNames(key)])];
 
   const { data: events, error: eventsError } = await supabase
     .from("events")
@@ -187,14 +199,29 @@ export async function buildPersonDetail(
   );
   if (eventById.size === 0) return null;
 
-  // Longest word — the most selective token, and the one least likely to be an
-  // initial. PostgREST `or` needs the value inline, so strip anything that
-  // could terminate the filter expression.
-  const token = name
-    .split(/\s+/)
-    .map((w) => w.replace(/[^A-Za-z]/g, ""))
-    .sort((a, b) => b.length - a.length)[0];
-  if (!token || token.length < 2) return null;
+  // Longest word per SPELLING — a merged identity's photos carry any of its
+  // spellings, and one spelling's token can miss another's files entirely
+  // ("Bob Smith" files don't contain "Robert"). The candidate filter widens to
+  // an OR across every spelling's most selective token; membership below still
+  // decides. PostgREST `or` needs values inline, so strip anything that could
+  // terminate the filter expression.
+  const tokens = [
+    ...new Set(
+      groupSpellings
+        .map(
+          (s) =>
+            s
+              .split(/\s+/)
+              .map((w) => w.replace(/[^A-Za-z]/g, ""))
+              .sort((a, b) => b.length - a.length)[0]
+        )
+        .filter((t): t is string => !!t && t.length >= 2)
+    ),
+  ];
+  if (tokens.length === 0) return null;
+  const candidateFilter = tokens
+    .flatMap((t) => [`parsed_name.ilike.%${t}%`, `original_filename.ilike.%${t}%`])
+    .join(",");
 
   const PAGE = 1000;
   type Row = {
@@ -217,7 +244,7 @@ export async function buildPersonDetail(
       // when 9 were ghosts from a died-mid-upload session, and the spotlight
       // rendered them as blank tiles.
       .eq("processing_status", "complete")
-      .or(`parsed_name.ilike.%${token}%,original_filename.ilike.%${token}%`)
+      .or(candidateFilter)
       // Same reason as the index scan above: OFFSET paging without an ORDER BY
       // has no defined page boundaries, so rows can repeat or vanish between
       // pages. This path only paginates for people with 1,000+ frames, which
@@ -235,7 +262,12 @@ export async function buildPersonDetail(
   // on the person's NAME, and a group shot carries somebody else's name or
   // none at all, so it can never appear in `rows`.
   const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()]);
-  const faceImageIds = faceMembership.get(key) ?? new Set<string>();
+  // Union across every key in the identity group — a cluster may be named
+  // with the alias spelling.
+  const faceImageIds = new Set<string>();
+  for (const k of aliases.groupKeys(key)) {
+    for (const id of faceMembership.get(k) ?? []) faceImageIds.add(id);
+  }
 
   const byEvent = new Map<string, PersonDetailEvent>();
   let display = name;
@@ -243,7 +275,8 @@ export async function buildPersonDetail(
   const counted = new Set<string>();
 
   for (const row of rows) {
-    if (personKeyForImage(row.parsed_name, row.original_filename) !== key) continue;
+    if (aliases.resolve(personKeyForImage(row.parsed_name, row.original_filename)) !== key)
+      continue;
     counted.add(row.id);
     const parsed = personNameFromParts(row.parsed_name, row.original_filename).trim();
     const ev = eventById.get(row.event_id);
@@ -318,7 +351,16 @@ export async function buildPersonDetail(
     g.images.sort((a, b) => (b.aestheticScore ?? 0) - (a.aestheticScore ?? 0));
   }
 
-  return { key, name: displayName(display), imageCount: count, events: grouped };
+  const finalName = displayName(display);
+  return {
+    key,
+    name: finalName,
+    imageCount: count,
+    events: grouped,
+    aliases: groupSpellings.filter(
+      (s) => normalizeNameKey(s) !== normalizeNameKey(finalName)
+    ),
+  };
 }
 
 /**
@@ -348,6 +390,12 @@ export async function buildPeopleIndex(
   // "Who is IN the frame" — group shots. Same resolver the card uses, so the
   // tile's number and the card's grid can never disagree.
   const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()]);
+
+  // Human-confirmed identity merges: alias keys fold into their canonical
+  // EVERYWHERE a key is minted below (filename pass AND face membership), so a
+  // merged person is one tile with combined counts. Exclusions are checked on
+  // the folded key — excluding an identity excludes all its spellings.
+  const aliases = await loadAliasResolver(supabase, userId);
 
   const PAGE = 1000;
   type Row = {
@@ -428,7 +476,9 @@ export async function buildPeopleIndex(
   for (const row of rows) {
     const name = personNameFromParts(row.parsed_name, row.original_filename)?.trim();
     if (!name) continue;
-    const key = normalizeNameKey(name);
+    // Fold aliases HERE, where the key is minted — everything downstream
+    // (vouching, counting, face membership, exclusion) sees only canonicals.
+    const key = aliases.resolve(normalizeNameKey(name));
     if (!key) continue;
     parsedByRow.set(row.id, { name, key });
     // An excluded key never gets vouched, so it cannot become an identity —
@@ -493,7 +543,11 @@ export async function buildPeopleIndex(
   }
 
   const rowById = new Map(rows.map((r) => [r.id, r]));
-  for (const [key, imageIds] of faceMembership) {
+  for (const [rawKey, imageIds] of faceMembership) {
+    // Cluster names mint keys too — fold them through the same aliases, or a
+    // cluster named with the alias spelling would strand its group shots on a
+    // tile that no longer exists.
+    const key = aliases.resolve(rawKey);
     if (!vouched.has(key) || excluded.has(key)) continue;
     const person = people.get(key);
     if (!person) continue;

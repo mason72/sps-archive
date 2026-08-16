@@ -34,6 +34,16 @@ interface SpotlightData {
   name: string;
   imageCount: number;
   events: SpotlightEvent[];
+  /** Other spellings merged into this identity — a merge stays visible. */
+  aliases?: string[];
+}
+
+/** A tile the merge picker can offer — the board's own card data. */
+export interface MergeCandidate {
+  key: string;
+  name: string;
+  heroUrl: string | null;
+  imageCount: number;
 }
 
 /** DATE columns are calendar dates — format them in UTC or they slip a day. */
@@ -114,16 +124,30 @@ export function PersonSpotlight({
   onClose,
   onPrev,
   onNext,
+  mergeCandidates,
+  onMerged,
+  onUnmerged,
 }: {
   name: string;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
+  /** Everyone else on the wall — what "same person as…" can pick from. */
+  mergeCandidates?: MergeCandidate[];
+  /** A merge was recorded — the board refreshes and offers undo. */
+  onMerged?: (aliasName: string, canonicalName: string) => void;
+  /** An alias was detached — the board refreshes. */
+  onUnmerged?: () => void;
 }) {
   const [data, setData] = useState<SpotlightData | null>(null);
   const [failed, setFailed] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [zoomed, setZoomed] = useState<SpotlightImage | null>(null);
+  // The merge flow: closed → picking (search) → confirming (faces side by side).
+  const [merging, setMerging] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState("");
+  const [mergeTarget, setMergeTarget] = useState<MergeCandidate | null>(null);
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -140,6 +164,9 @@ export function PersonSpotlight({
     setData(null);
     setFailed(false);
     setZoomed(null);
+    setMerging(false);
+    setMergeQuery("");
+    setMergeTarget(null);
     fetch(`/api/people/detail?name=${encodeURIComponent(name)}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((json: SpotlightData) => {
@@ -153,14 +180,53 @@ export function PersonSpotlight({
     };
   }, [name]);
 
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const confirmMerge = async () => {
+    if (!mergeTarget || !data || mergeBusy) return;
+    setMergeBusy(true);
+    setMergeError(null);
+    try {
+      const res = await fetch("/api/people/aliases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // The open person folds INTO the picked one — "this person IS that
+        // person". Display name still resolves by preferredSpelling over the
+        // combined photos, so direction never changes what the tile says.
+        body: JSON.stringify({ aliasName: data.name, canonicalName: mergeTarget.name }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to merge");
+      }
+      onMerged?.(data.name, mergeTarget.name);
+    } catch (e) {
+      setMergeError(e instanceof Error ? e.message : "Failed to merge");
+      setMergeBusy(false);
+    }
+  };
+  const unmerge = async (alias: string) => {
+    const res = await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
+      method: "DELETE",
+    });
+    if (res.ok) onUnmerged?.();
+  };
+
   const onKey = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape") return zoomed ? setZoomed(null) : onClose();
-      if (zoomed) return;
+      if (e.key === "Escape") {
+        if (zoomed) return setZoomed(null);
+        if (merging) {
+          setMerging(false);
+          setMergeTarget(null);
+          return;
+        }
+        return onClose();
+      }
+      if (zoomed || merging) return;
       if (e.key === "ArrowLeft") onPrev?.();
       if (e.key === "ArrowRight") onNext?.();
     },
-    [onClose, onPrev, onNext, zoomed]
+    [onClose, onPrev, onNext, zoomed, merging]
   );
   useEffect(() => {
     window.addEventListener("keydown", onKey);
@@ -215,8 +281,44 @@ export function PersonSpotlight({
                   ? "Couldn't load these photos."
                   : "Gathering their photos…"}
             </p>
+            {/* A merge stays visible — silent identity surgery is how trust
+                in the wall dies. Each spelling detaches with one click. */}
+            {data && (data.aliases?.length ?? 0) > 0 && (
+              <p className="mt-1 text-[12px] text-stone-400">
+                also filed as{" "}
+                {data.aliases!.map((a, i) => (
+                  <span key={a}>
+                    {i > 0 && " · "}
+                    <span className="text-stone-600">&ldquo;{a}&rdquo;</span>{" "}
+                    <button
+                      onClick={() => unmerge(a)}
+                      className="underline hover:text-stone-600"
+                      title={`Undo the merge — "${a}" becomes its own card again`}
+                    >
+                      unmerge
+                    </button>
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-3">
+            {mergeCandidates && data && (
+              <button
+                onClick={() => {
+                  setMerging((v) => !v);
+                  setMergeTarget(null);
+                  setMergeQuery("");
+                  setMergeError(null);
+                }}
+                className={`text-[11px] transition-colors ${
+                  merging ? "text-stone-600" : "text-stone-300 hover:text-stone-500"
+                }`}
+                title="Two cards for one human? Fold this one into the other."
+              >
+                Same person as…
+              </button>
+            )}
             <button
               onClick={() => setShowFilenames((v) => !v)}
               className={`text-[11px] transition-colors ${
@@ -234,6 +336,124 @@ export function PersonSpotlight({
             </button>
           </div>
         </div>
+
+        {/* ─── The merge flow: pick who they really are, confirm on faces ─── */}
+        {merging && data && mergeCandidates && (
+          <div className="shrink-0 border-b border-stone-100 bg-stone-50/70 px-8 py-4">
+            {!mergeTarget ? (
+              <>
+                <p className="text-[13px] text-stone-600">
+                  Fold <span className="text-stone-900">{data.name}</span> into another
+                  card — their photos combine, and the merge is undoable.
+                </p>
+                <input
+                  autoFocus
+                  value={mergeQuery}
+                  onChange={(e) => setMergeQuery(e.target.value)}
+                  placeholder="Search for the other spelling…"
+                  className="mt-2 w-full max-w-sm border-b border-stone-300 bg-transparent py-1.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+                />
+                {mergeQuery.trim() && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {mergeCandidates
+                      .filter(
+                        (c) =>
+                          c.key !== data.key &&
+                          c.name.toLowerCase().includes(mergeQuery.trim().toLowerCase())
+                      )
+                      .slice(0, 8)
+                      .map((c) => (
+                        <button
+                          key={c.key}
+                          onClick={() => setMergeTarget(c)}
+                          className="flex items-center gap-2.5 border border-stone-200 bg-white py-1 pl-1 pr-3 transition-colors hover:border-stone-400"
+                        >
+                          <span className="relative block h-8 w-8 shrink-0 overflow-hidden bg-stone-100">
+                            {c.heroUrl && (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img
+                                src={c.heroUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                                style={{ objectPosition: "center 25%" }}
+                              />
+                            )}
+                          </span>
+                          <span className="text-left">
+                            <span className="block text-[12px] text-stone-900">{c.name}</span>
+                            <span className="block text-[11px] tabular-nums text-stone-400">
+                              {c.imageCount} photo{c.imageCount === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-wrap items-center gap-5">
+                {/* The decision is made on FACES, not strings — both cards'
+                    heroes side by side, exactly what the wall shows. */}
+                {[
+                  {
+                    name: data.name,
+                    heroUrl:
+                      mergeCandidates.find((c) => c.key === data.key)?.heroUrl ?? null,
+                    imageCount: data.imageCount,
+                  },
+                  mergeTarget,
+                ].map((p, i) => (
+                  <figure key={i} className="w-24 text-center">
+                    <div className="relative aspect-square w-24 overflow-hidden bg-stone-100">
+                      {p.heroUrl && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={p.heroUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          style={{ objectPosition: "center 25%" }}
+                        />
+                      )}
+                    </div>
+                    <figcaption className="mt-1.5 truncate text-[11px] text-stone-700">
+                      {p.name}
+                      <span className="block tabular-nums text-stone-400">
+                        {p.imageCount} photo{p.imageCount === 1 ? "" : "s"}
+                      </span>
+                    </figcaption>
+                  </figure>
+                ))}
+                <div className="min-w-[180px] flex-1">
+                  <p className="text-[13px] leading-snug text-stone-600">
+                    Same person? The two cards become one with{" "}
+                    <span className="tabular-nums text-stone-900">
+                      {(data.imageCount + mergeTarget.imageCount).toLocaleString()}
+                    </span>{" "}
+                    photos — undo any time from the merged card.
+                  </p>
+                  {mergeError && (
+                    <p className="mt-1 text-[12px] text-red-700">{mergeError}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    onClick={confirmMerge}
+                    disabled={mergeBusy}
+                    className="border border-emerald-200 px-4 py-1.5 text-[12px] font-medium text-emerald-700 transition-colors hover:border-emerald-500 disabled:opacity-40"
+                  >
+                    {mergeBusy ? "Merging…" : "Same person — merge"}
+                  </button>
+                  <button
+                    onClick={() => setMergeTarget(null)}
+                    className="px-3 py-1.5 text-[12px] text-stone-400 transition-colors hover:text-stone-600"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Event chips — the same affordance the index uses under a face. */}
         {data && data.events.length > 0 && (

@@ -239,18 +239,34 @@ export default function EventPage({
     // arriving from a URL gets the personhood guard before it can filter.
     if (!looksLikePersonName(raw)) return;
     const key = normalizeNameKey(raw);
-    const imageIds = allImages
-      .filter((img) => personKeyForImage(img.parsedName, img.originalFilename) === key)
-      .map((img) => img.id);
-    // Strip the param either way — a reload shouldn't resurrect a filter the
-    // photographer cleared, and a miss shouldn't leave a lying URL behind.
-    window.history.replaceState(null, "", window.location.pathname);
-    if (imageIds.length === 0) {
-      toast.error(`No photos of ${raw} in this event`);
-      return;
-    }
-    setPersonFilter({ id: `name:${key}`, name: raw, imageIds, byName: true });
-    setActiveSection(null);
+    (async () => {
+      // A merged identity's photos are filed under ANY of its spellings, so
+      // ask for the whole key group (falls back to just this key when the
+      // lookup fails — a chip from an un-merged card must never break on a
+      // network hiccup).
+      let keys = new Set([key]);
+      try {
+        const res = await fetch(`/api/people/aliases?name=${encodeURIComponent(raw)}`);
+        if (res.ok) {
+          const body = (await res.json()) as { keys?: string[] };
+          if (body.keys?.length) keys = new Set(body.keys);
+        }
+      } catch {
+        // fall through with the single key
+      }
+      const imageIds = allImages
+        .filter((img) => keys.has(personKeyForImage(img.parsedName, img.originalFilename)))
+        .map((img) => img.id);
+      // Strip the param either way — a reload shouldn't resurrect a filter the
+      // photographer cleared, and a miss shouldn't leave a lying URL behind.
+      window.history.replaceState(null, "", window.location.pathname);
+      if (imageIds.length === 0) {
+        toast.error(`No photos of ${raw} in this event`);
+        return;
+      }
+      setPersonFilter({ id: `name:${key}`, name: raw, imageIds, byName: true });
+      setActiveSection(null);
+    })();
   }, [allImages]);
 
   const [sortBy, setSortByState] = useState<GallerySortMode>("upload");

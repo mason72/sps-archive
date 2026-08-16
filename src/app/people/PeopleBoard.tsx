@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight } from "./PersonSpotlight";
 import { CrewWall } from "@/components/crew/CrewWall";
@@ -68,12 +69,17 @@ function useNotAPerson() {
 
 export function PeopleBoard({ people }: { people: PersonCard[] }) {
   const notAPerson = useNotAPerson();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("rank");
   const [repeatOnly, setRepeatOnly] = useState(false);
   /** The open person, held by KEY rather than index: sorting or searching
    *  while the spotlight is open must not silently swap who you're reading. */
   const [openKey, setOpenKey] = useState<string | null>(null);
+  /** A just-recorded merge, held for the undo bar. */
+  const [mergeUndo, setMergeUndo] = useState<{ aliasName: string; canonicalName: string } | null>(
+    null
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -256,7 +262,57 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
               ? () => setOpenKey(filtered[openAt + 1].key)
               : undefined
           }
+          mergeCandidates={people.map((p) => ({
+            key: p.key,
+            name: p.name,
+            heroUrl: p.heroUrl,
+            imageCount: p.imageCount,
+          }))}
+          onMerged={(aliasName, canonicalName) => {
+            // The folded tile is about to vanish from the server data — close
+            // rather than leave the spotlight pointing at an identity that no
+            // longer exists, and hold the undo.
+            setOpenKey(null);
+            setMergeUndo({ aliasName, canonicalName });
+            router.refresh();
+          }}
+          onUnmerged={() => {
+            setOpenKey(null);
+            router.refresh();
+          }}
         />
+      )}
+
+      {mergeUndo && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-stone-300 bg-white px-4 py-2 text-[13px] text-stone-700 shadow-lg"
+        >
+          Merged <span className="text-stone-900">{mergeUndo.aliasName}</span> into{" "}
+          <span className="text-stone-900">{mergeUndo.canonicalName}</span>
+          <button
+            type="button"
+            onClick={async () => {
+              const alias = mergeUndo.aliasName;
+              setMergeUndo(null);
+              await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
+                method: "DELETE",
+              });
+              router.refresh();
+            }}
+            className="ml-3 text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={() => setMergeUndo(null)}
+            aria-label="Dismiss"
+            className="ml-3 text-stone-400 hover:text-stone-700"
+          >
+            ×
+          </button>
+        </div>
       )}
     </div>
   );

@@ -978,6 +978,33 @@ export type Database = {
         }
         Relationships: []
       }
+      person_aliases: {
+        Row: {
+          alias_key: string
+          alias_name: string
+          canonical_key: string
+          canonical_name: string
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          alias_key: string
+          alias_name: string
+          canonical_key: string
+          canonical_name: string
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          alias_key?: string
+          alias_name?: string
+          canonical_key?: string
+          canonical_name?: string
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       persons: {
         Row: {
           created_at: string
