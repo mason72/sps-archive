@@ -129,9 +129,19 @@ export async function scanEventForIdentitySuggestions(
     refreshedCentroids = data ?? 0;
   }
 
-  // This event's anonymous clusters, with the rejection memory.
+  // This event's clusters, with the rejection memory. NAMED clusters are
+  // included on purpose: the consensus namer stamps clusters with whatever
+  // the files say, and staff images routinely carry random names — Mason,
+  // looking at Staff Photos: "it's still not recognizing that the first
+  // person is CHRISTIE… These are staff people, why is it still missing
+  // them?" Because they weren't anonymous — they were WRONGLY NAMED
+  // ("Marriott Green"), and the first scan only looked at unnamed clusters.
+  // Named clusters get the CREW check only (a junk label is a symptom crew
+  // recognition can cure); the guest fallthrough stays unnamed-only, because
+  // renaming a named guest cluster is the mislabel machinery's job.
   type ClusterRow = {
     id: string;
+    name: string | null;
     face_count: number;
     rejected_names: string[] | null;
   };
@@ -139,9 +149,8 @@ export async function scanEventForIdentitySuggestions(
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
       .from("persons")
-      .select("id, face_count, rejected_names")
+      .select("id, name, face_count, rejected_names")
       .eq("event_id", eventId)
-      .is("name", null)
       .gte("face_count", 2)
       .order("id")
       .range(page * 1000, page * 1000 + 999);
@@ -167,37 +176,45 @@ export async function scanEventForIdentitySuggestions(
 
   // Existing suggestions: decided ones are settled, pending ones may update.
   const decided = new Set<string>();
-  const pendingByPerson = new Map<string, string>(); // person_id → suggestion id
+  const pendingByPerson = new Map<string, { id: string; kind: string }>();
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
       .from("person_identity_suggestions")
-      .select("id, person_id, status")
+      .select("id, person_id, status, kind")
       .eq("event_id", eventId)
       .order("id")
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
     for (const s of data ?? []) {
-      if (s.status === "pending") pendingByPerson.set(s.person_id, s.id);
+      if (s.status === "pending")
+        pendingByPerson.set(s.person_id, { id: s.id, kind: s.kind ?? "guest" });
       else decided.add(s.person_id);
     }
     if (!data || data.length < 1000) break;
   }
 
-  // A pending suggestion whose cluster got NAMED some other way (a human used
-  // the People view directly) is settled business — supersede, don't re-ask.
+  // A pending GUEST suggestion whose cluster got NAMED some other way (a human
+  // used the People view directly) is settled business — supersede, don't
+  // re-ask. Crew pendings are exempt: a crew suggestion on a junk-NAMED
+  // cluster is exactly the point.
   let superseded = 0;
   if (pendingByPerson.size > 0) {
-    const { data: named, error } = await supabase
-      .from("persons")
-      .select("id")
-      .in("id", [...pendingByPerson.keys()])
-      .not("name", "is", null);
+    const guestPendingIds = [...pendingByPerson.entries()]
+      .filter(([, v]) => v.kind === "guest")
+      .map(([personId]) => personId);
+    const { data: named, error } = guestPendingIds.length
+      ? await supabase
+          .from("persons")
+          .select("id")
+          .in("id", guestPendingIds)
+          .not("name", "is", null)
+      : { data: [], error: null };
     if (error) throw error;
     for (const n of named ?? []) {
       const { error: upErr } = await supabase
         .from("person_identity_suggestions")
         .update({ status: "superseded", decided_at: new Date().toISOString() })
-        .eq("id", pendingByPerson.get(n.id)!);
+        .eq("id", pendingByPerson.get(n.id)!.id);
       if (upErr) throw upErr;
       pendingByPerson.delete(n.id);
       decided.add(n.id);
@@ -225,6 +242,15 @@ export async function scanEventForIdentitySuggestions(
       threshold: opts?.threshold,
     });
     if (crewBest) {
+      // A crew match on a NAMED cluster must beat the junk label decisively:
+      // the label came from filenames (someone wrote it, even if it was the
+      // consensus namer), so only a stronger-than-usual face match may
+      // question it. Names a human might have typed deserve the extra margin.
+      if (cluster.name && crewBest.similarity < 0.65) {
+        // Not confident enough to challenge an existing label — fall through
+        // to nothing rather than to guest (named clusters get no guest pass).
+        continue;
+      }
       const { error: upsertErr } = await supabase.from("person_identity_suggestions").upsert(
         {
           user_id: userId,
@@ -246,6 +272,10 @@ export async function scanEventForIdentitySuggestions(
       continue;
     }
 
+    // Guest identities only ever fill BLANKS — renaming a named cluster is
+    // the mislabel machinery's job, not the engine's.
+    if (cluster.name !== null) continue;
+
     const { data: hits, error } = await supabase.rpc("match_person_cluster", {
       p_person_id: cluster.id,
       p_limit: 3,
@@ -256,7 +286,7 @@ export async function scanEventForIdentitySuggestions(
       rejectedNames: cluster.rejected_names ?? [],
       threshold: opts?.threshold,
     });
-    const existingPendingId = pendingByPerson.get(cluster.id);
+    const existingPendingId = pendingByPerson.get(cluster.id)?.id;
     if (!best) {
       // A pending suggestion the engine no longer stands behind (references
       // changed, threshold raised) goes away rather than lingering stale.

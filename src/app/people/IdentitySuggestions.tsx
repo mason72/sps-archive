@@ -26,6 +26,8 @@ interface SuggestionCard {
   eventName: string;
   /** crew = confirming creates a crew LINK, never a persons.name write. */
   kind: "guest" | "crew";
+  /** A junk label the confirm will clear ("Marriott Green" on Christie). */
+  currentName?: string | null;
   suggestedName: string;
   confidence: number;
   photoCount: number;
@@ -119,8 +121,11 @@ export function IdentitySuggestions() {
                 <div className="relative mx-auto h-20 w-20 overflow-hidden rounded-full bg-stone-100">
                   {card.clusterFace && <FaceCircleCrop face={card.clusterFace} />}
                 </div>
-                <figcaption className="mt-1.5 text-[10px] uppercase tracking-[0.14em] text-stone-400">
-                  unnamed
+                <figcaption
+                  className="mt-1.5 max-w-[96px] truncate text-[10px] uppercase tracking-[0.14em] text-stone-400"
+                  title={card.currentName ? `Filed as "${card.currentName}" — confirming clears it` : undefined}
+                >
+                  {card.currentName ? `"${card.currentName}"` : "unnamed"}
                 </figcaption>
               </figure>
               <ArrowRight className="h-4 w-4 shrink-0 text-stone-300" />

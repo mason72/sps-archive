@@ -65,7 +65,10 @@ export async function GET(request: NextRequest) {
     const { data: rows, error } = await supabase
       .from("person_identity_suggestions")
       .select(
-        "id, person_id, event_id, kind, crew_id, suggested_name, matched_person_id, confidence, photo_count, events!inner(name)"
+        // persons is embedded TWICE from this table (person_id and
+        // matched_person_id both point at it) — the hint is mandatory or
+        // PostgREST refuses the path outright (the lesson-86 ambiguity).
+        "id, person_id, event_id, kind, crew_id, suggested_name, matched_person_id, confidence, photo_count, events!inner(name), persons!person_identity_suggestions_person_id_fkey(name)"
       )
       .eq("user_id", user!.id)
       .eq("status", "pending")
@@ -98,6 +101,9 @@ export async function GET(request: NextRequest) {
           eventId: r.event_id,
           eventName: (r.events as unknown as { name: string }).name,
           kind: (r.kind ?? "guest") as "guest" | "crew",
+          /** The junk label a crew confirm will clear — shown so the card
+           *  explains what it fixes ("currently filed as 'Marriott Green'"). */
+          currentName: (r.persons as unknown as { name: string | null } | null)?.name ?? null,
           suggestedName: r.suggested_name,
           confidence: r.confidence,
           photoCount: r.photo_count,
@@ -165,6 +171,19 @@ export async function POST(request: NextRequest) {
         personId: suggestion.person_id,
       });
       if (!linked.ok) throw new Error(linked.error ?? "Crew link failed");
+      // A junk label on a crew cluster dies WITH the confirm: the name came
+      // from random filenames ("Marriott Green" on Christie's faces), and
+      // clearing it into rejected_names means the consensus namer can never
+      // re-apply it. Crew identity lives in the link, never in persons.name.
+      if (person.name) {
+        const rejected = new Set(person.rejected_names ?? []);
+        rejected.add(person.name);
+        const { error: clearErr } = await supabase
+          .from("persons")
+          .update({ name: null, rejected_names: [...rejected] })
+          .eq("id", suggestion.person_id);
+        if (clearErr) throw clearErr;
+      }
       const { error: statusErr } = await supabase
         .from("person_identity_suggestions")
         .update({ status: "confirmed", decided_at: new Date().toISOString() })
