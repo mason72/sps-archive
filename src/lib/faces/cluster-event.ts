@@ -100,6 +100,19 @@ export function consensusName(
   return personLike(best.display) ? best.display : null;
 }
 
+/**
+ * Has a human already said this cluster is NOT this name? Compared on a
+ * letters-only lowercase key, so "Jenna Wombles", "jenna wombles" and a
+ * run-together filename blob of the same identity all stay rejected. Gates
+ * only the automatic namer — a human typing a name is never blocked (the
+ * PATCH route un-rejects on explicit set).
+ */
+export function nameIsRejected(candidate: string, rejectedNames: string[]): boolean {
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+  const c = key(candidate);
+  return rejectedNames.some((r) => key(r) === c);
+}
+
 export async function clusterEventFaces(
   supabase: SupabaseDB,
   eventId: string,
@@ -196,7 +209,7 @@ export async function clusterEventFaces(
 
   const { data: allPersons, error: apErr } = await supabase
     .from("persons")
-    .select("id, name, face_count, representative_face_id")
+    .select("id, name, face_count, representative_face_id, rejected_names")
     .eq("event_id", eventId);
   if (apErr) throw apErr;
 
@@ -227,7 +240,7 @@ export async function clusterEventFaces(
     );
     const representative = (solo[0] ?? list[0]).id;
     // Fill-nulls-only filename consensus naming (never overwrites a name).
-    const autoName = p.name
+    const consensus = p.name
       ? null
       : consensusName(
           list.map((m) => imageIdOfFace.get(m.id)!).filter(Boolean),
@@ -235,6 +248,11 @@ export async function clusterEventFaces(
           extractPersonName,
           isPersonLike
         );
+    // …and never re-applies a name a human explicitly cleared. A cleared name
+    // is a null, and nulls get refilled — which un-did the human's correction
+    // every clustering run until rejected_names existed (migration 063).
+    const autoName =
+      consensus && !nameIsRejected(consensus, p.rejected_names ?? []) ? consensus : null;
     if (autoName) personsNamed += 1;
     if (
       p.face_count !== list.length ||

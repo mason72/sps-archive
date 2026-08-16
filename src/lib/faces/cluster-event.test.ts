@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { consensusName } from "./cluster-event";
+import { consensusName, nameIsRejected } from "./cluster-event";
 
 const extract = (filename: string) => {
   // Toy extractor: "First Last_001.jpg" → "First Last"; camera codes → "".
@@ -68,5 +68,22 @@ describe("consensusName", () => {
       b: "Jenna Loeser_002.jpg",
     });
     expect(consensusName(ids, map, extract, rejectAll)).toBeNull();
+  });
+});
+
+describe("nameIsRejected", () => {
+  it("rejects the exact cleared name", () => {
+    expect(nameIsRejected("Jenna Wombles", ["Jenna Wombles"])).toBe(true);
+  });
+  it("rejects spelling variants of a cleared name", () => {
+    expect(nameIsRejected("jenna wombles", ["Jenna Wombles"])).toBe(true);
+    expect(nameIsRejected("JennaWombles", ["Jenna Wombles"])).toBe(true);
+    expect(nameIsRejected("Jenna-Wombles", ["Jenna Wombles"])).toBe(true);
+  });
+  it("does not reject a different person's name", () => {
+    expect(nameIsRejected("Jenna Loeser", ["Jenna Wombles"])).toBe(false);
+  });
+  it("is a no-op with nothing rejected", () => {
+    expect(nameIsRejected("Jenna Wombles", [])).toBe(false);
   });
 });

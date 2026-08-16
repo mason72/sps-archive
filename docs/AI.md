@@ -76,6 +76,14 @@ work (catches SPS imports). Backfill/ops: `scripts/backfill-ai-index.ts`
   representative face prefers SOLO-portrait faces (group-photo reps can show
   the wrong person). Inngest `face-cluster` after indexing; ops:
   `scripts/cluster-all-events.ts`.
+  **A human clearing a name is durable** (migration 063): the cleared name
+  lands in `persons.rejected_names` and `nameIsRejected()` blocks the
+  consensus namer from re-applying it (letters-only compare, so spelling
+  variants stay rejected). Without this, a cleared name was a null and nulls
+  get refilled — the human's "this filename is wrong" undid itself every
+  clustering run (seen live: a stranger's photos exported under "Jenna
+  Wombles"'s filename). Typing a name un-rejects it; rejection gates only the
+  automatic path. Proof harness: `scripts/triage/verify-rejected-name.ts`.
 - `suggestions.ts` (pure) + `people-data.ts` (assembly) + people routes: the
   identity-correction engine. Card types: mislabel (SOLO portraits only —
   group photos would ping-pong renames; grouped per person+label),

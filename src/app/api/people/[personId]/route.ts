@@ -26,14 +26,33 @@ export async function PATCH(
 
     const { data: person } = await supabase
       .from("persons")
-      .select("id, events!inner(user_id)")
+      .select("id, name, rejected_names, events!inner(user_id)")
       .eq("id", personId)
       .maybeSingle();
     if (!person || (person.events as unknown as { user_id: string }).user_id !== user!.id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const { error } = await supabase.from("persons").update({ name }).eq("id", personId);
+    // Clearing a name is a statement — "the filename is wrong" — and it must
+    // outlive this request. Without recording it, the fill-nulls-only
+    // consensus namer re-applies the SAME wrong name on the next clustering
+    // run (seen live 2026-08-16: a stranger's photos exported under "Jenna
+    // Wombles"'s filename). Rejection gates only the AUTOMATIC path — a human
+    // typing a name is never blocked.
+    const rejected = new Set(person.rejected_names ?? []);
+    if (person.name && name === null) rejected.add(person.name);
+    // Typing a name un-rejects it: the human is overriding their own earlier
+    // clear, and the auto-namer should be allowed to agree with them again.
+    if (name) {
+      for (const r of [...rejected]) {
+        if (r.toLowerCase() === name.toLowerCase()) rejected.delete(r);
+      }
+    }
+
+    const { error } = await supabase
+      .from("persons")
+      .update({ name, rejected_names: [...rejected] })
+      .eq("id", personId);
     if (error) throw error;
 
     return NextResponse.json({ id: personId, name });

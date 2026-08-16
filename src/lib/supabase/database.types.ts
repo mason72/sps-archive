@@ -985,6 +985,7 @@ export type Database = {
           face_count: number
           id: string
           name: string | null
+          rejected_names: string[]
           representative_face_id: string | null
         }
         Insert: {
@@ -993,6 +994,7 @@ export type Database = {
           face_count?: number
           id?: string
           name?: string | null
+          rejected_names?: string[]
           representative_face_id?: string | null
         }
         Update: {
@@ -1001,6 +1003,7 @@ export type Database = {
           face_count?: number
           id?: string
           name?: string | null
+          rejected_names?: string[]
           representative_face_id?: string | null
         }
         Relationships: [
