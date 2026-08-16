@@ -217,6 +217,11 @@ export async function buildPersonDetail(
       // rendered them as blank tiles.
       .eq("processing_status", "complete")
       .or(`parsed_name.ilike.%${token}%,original_filename.ilike.%${token}%`)
+      // Same reason as the index scan above: OFFSET paging without an ORDER BY
+      // has no defined page boundaries, so rows can repeat or vanish between
+      // pages. This path only paginates for people with 1,000+ frames, which
+      // is exactly when a wrong count would be least obvious.
+      .order("id")
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
@@ -308,6 +313,16 @@ export async function buildPeopleIndex(
   // Count first, then pull every page CONCURRENTLY. Sequential paging meant
   // ~18 round-trips before a single face could render, each waiting on the
   // last for no reason — the dominant cost of loading /people.
+  //
+  // ⚠️ Every page MUST carry `.order("id")`. `range()` is OFFSET/LIMIT, and
+  // Postgres gives no row order without an ORDER BY — its synchronized
+  // sequential scans deliberately start a new scan wherever a concurrent one
+  // already is, so 39 parallel pages can each see the table differently.
+  // Pages then overlap and leave gaps: measured 2026-08-15, two runs in five
+  // fetched one page twice (and 7,521 rows twice in the worst case), which is
+  // how Jenna Loeser's tile read 64 photos for a 35-photo shoot while Steven
+  // Hughes lost one to a gap. Dedupe below is the belt to this braces —
+  // over-counting is the lie a human sees.
   const { count: rowCount, error: countError } = await supabase
     .from("images")
     .select("id", { count: "exact", head: true })
@@ -329,12 +344,18 @@ export async function buildPeopleIndex(
         // when 9 were ghosts from a died-mid-upload session, and the spotlight
         // rendered them as blank tiles.
         .eq("processing_status", "complete")
+        .order("id")
         .range(i * PAGE, i * PAGE + PAGE - 1)
     )
   );
+  const seenRowIds = new Set<string>();
   for (const page of pages) {
     if (page.error) throw page.error;
-    rows.push(...((page.data ?? []) as Row[]));
+    for (const row of (page.data ?? []) as Row[]) {
+      if (seenRowIds.has(row.id)) continue;
+      seenRowIds.add(row.id);
+      rows.push(row);
+    }
   }
 
   // person key → event id → appearance
