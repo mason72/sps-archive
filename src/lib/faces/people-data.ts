@@ -34,6 +34,8 @@ export interface PeopleData {
     face_count: number;
     representative_face_id: string | null;
   }[];
+  /** personId → crew display name, for clusters linked via crew_persons. */
+  crewNameByPersonId: Map<string, string>;
   memberImages: Map<string, Set<string>>;
   /** faceId → face (bbox + image dims + key). */
   faceById: Map<string, FaceRef>;
@@ -108,7 +110,28 @@ export async function loadPeopleData(
     if (!rows || rows.length < 1000) break;
   }
 
-  const suggestions = computeSuggestions(
+  // Crew links, loaded HERE so both consumers agree: the people route needs
+  // them for the "Christie Jones · crew" labels, and the suggestion filter
+  // below needs them so the badge count matches the cards shown.
+  const crewNameByPersonId = new Map<string, string>();
+  {
+    const personIds = (persons ?? []).map((p) => p.id);
+    for (let i = 0; i < personIds.length; i += 200) {
+      const { data: links, error: linkErr } = await supabase
+        .from("crew_persons")
+        .select("person_id, crew!inner(display_name)")
+        .in("person_id", personIds.slice(i, i + 200));
+      if (linkErr) throw linkErr;
+      for (const l of links ?? []) {
+        crewNameByPersonId.set(
+          l.person_id,
+          (l.crew as unknown as { display_name: string }).display_name
+        );
+      }
+    }
+  }
+
+  const raw = computeSuggestions(
     (persons ?? []).map((p) => ({
       id: p.id,
       name: p.name,
@@ -122,7 +145,29 @@ export async function loadPeopleData(
     dismissed
   );
 
-  return { persons: persons ?? [], memberImages, faceById, personImageFace, suggestions };
+  // A crew LINK is a human's identity statement, and it outranks every
+  // filename-derived guess. Without this filter, Christie's crew-linked
+  // 77-face cluster kept getting "might be two people — files split 4/3
+  // between Marriott Green and Tjeerd Jan" cards from the junk names on her
+  // costume shoot — the split engine second-guessing an identity a human
+  // already settled. Same rule for mislabels, merges and refinements: junk
+  // filenames say nothing about a cluster whose person is KNOWN.
+  const linked = (id: string) => crewNameByPersonId.has(id);
+  const suggestions = {
+    mislabels: raw.mislabels.filter((s) => !linked(s.personId)),
+    merges: raw.merges.filter((s) => !linked(s.fromId) && !linked(s.intoId)),
+    refinements: raw.refinements.filter((s) => !linked(s.personId)),
+    splits: raw.splits.filter((s) => !linked(s.personId)),
+  };
+
+  return {
+    persons: persons ?? [],
+    memberImages,
+    faceById,
+    personImageFace,
+    suggestions,
+    crewNameByPersonId,
+  };
 }
 
 export function dismissedSetFrom(settings: unknown): Set<string> {
