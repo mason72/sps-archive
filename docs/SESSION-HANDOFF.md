@@ -129,15 +129,16 @@ Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
    to the bottom of ranked Everyone. Open: **~39 tray cards await Mason**
    (mostly crew), and the Inngest `identity-scan` lane needs its first
    organic firing verified on the next import.
-   Next builds, in rough order of value:
-   **(a) the crew spotlight** — Mason: "why aren't people like Joey or Justin
-   here? They have far more images than me." Crew have no filename identities,
-   so their photos only surface through crew links; once tray confirms land,
-   clicking a crew face should open every photo they're in (union of linked
-   clusters' images across events), the way guest tiles work.
-   **(b) archive-wide conflation cards** — 17 shared-name pairs measured, all
-   same-event; `person_split_dismissals` (068) ready.
-   **(c) cross-event tile fan-out** — zero real cases today; deferred.
+   **The crew spotlight is BUILT** (2026-08-16 evening): the crew card on
+   /people carries "In the archive" — every linked cluster's photos grouped by
+   shoot, 80/event cap with true counts, ?face= deep links
+   (`/api/crew/[crewId]/photos`, intel-gated). Crew-linked clusters are
+   labeled on event walls ("Christie Jones · crew") and SILENCE all
+   filename-derived suggestions (splits/mislabels/merges/refinements) — a
+   human's identity outranks filename guessing (lesson 94 family).
+   Next builds: **(a) archive-wide conflation cards** — 17 shared-name pairs
+   measured, all same-event; `person_split_dismissals` (068) ready.
+   **(b) cross-event tile fan-out** — zero real cases today; deferred.
 
 1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
    end to end and unblocked: staging is on the INTERNAL disk (deliberately —
