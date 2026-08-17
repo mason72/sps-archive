@@ -105,6 +105,26 @@ export function PeopleView({
 }) {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
+  /** Roster names for the rename autocomplete — typing a crew member links
+   *  them instead of naming, so offering their exact spelling matters.
+   *  Best-effort: 403 (no Intel) leaves this empty and nothing changes. */
+  const [rosterNames, setRosterNames] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/crew?archived=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live && j?.crew) {
+          setRosterNames(
+            (j.crew as { display_name: string }[]).map((c) => c.display_name)
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [compare, setCompare] = useState<MislabelCard | null>(null);
   // Review/name a person (face or caption click) — the one "who is this?"
   // surface; unnamed clusters open straight into the name field.
@@ -260,13 +280,44 @@ export function PeopleView({
   // 22 crew-linked Staff Photos clusters sat under "Unnamed" reading
   // "Add name · 341" until this counted them), then the truly unidentified
   // (largest first) under their own header.
+  //
+  // Clusters linked to the SAME crew member collapse into ONE tile first:
+  // clustering fragments a person across looks (Sergio plain + Sergio in a
+  // helmet), and two tiles both chipped "crew · Sergio Gomez" reads as a bug
+  // ("it didn't merge them" — Mason). Same crew id = same human; the tile
+  // carries the union and selecting it filters every fragment's photos.
   const labelOf = (p: Person) => p.name ?? p.crewName ?? null;
-  const named = visible
+  const byCrew = new Map<string, { person: Person; matchCount: number }[]>();
+  const solo: typeof visible = [];
+  for (const s of visible) {
+    if (s.person.crewName && !s.person.name) {
+      const list = byCrew.get(s.person.crewName) ?? [];
+      list.push(s);
+      byCrew.set(s.person.crewName, list);
+    } else {
+      solo.push(s);
+    }
+  }
+  const collapsed: typeof visible = [...solo];
+  for (const group of byCrew.values()) {
+    const biggest = group.reduce((a, b) =>
+      b.person.faceCount > a.person.faceCount ? b : a
+    );
+    collapsed.push({
+      person: {
+        ...biggest.person,
+        faceCount: group.reduce((n, g) => n + g.person.faceCount, 0),
+        imageIds: [...new Set(group.flatMap((g) => g.person.imageIds))],
+      },
+      matchCount: group.reduce((n, g) => n + g.matchCount, 0),
+    });
+  }
+  const named = collapsed
     .filter((s) => labelOf(s.person))
     .sort((a, b) =>
       labelOf(a.person)!.localeCompare(labelOf(b.person)!, undefined, { sensitivity: "base" })
     );
-  const unnamed = visible
+  const unnamed = collapsed
     .filter((s) => !labelOf(s.person))
     .sort((a, b) => b.person.faceCount - a.person.faceCount);
 
@@ -517,7 +568,14 @@ export function PeopleView({
                 ? onSelectPerson(person.id === activePersonId ? null : person)
                 : setReviewing(person)
             }
-            onOpenModal={() => setReviewing(person)}
+            // A crew tile's identity is managed on the roster, not the rename
+            // modal — renaming one fragment of a collapsed crew group would
+            // quietly mint a guest identity again. Caption clicks select.
+            onOpenModal={() =>
+              person.crewName && !person.name
+                ? onSelectPerson(person.id === activePersonId ? null : person)
+                : setReviewing(person)
+            }
           />
         ))}
       </div>
@@ -600,6 +658,14 @@ export function PeopleView({
           personName={reviewing.name}
           imageIds={reviewing.imageIds}
           imageById={imageById}
+          nameSuggestions={[
+            ...new Set([
+              ...rosterNames,
+              ...(people ?? [])
+                .map((p) => p.name ?? p.crewName)
+                .filter((n): n is string => !!n),
+            ]),
+          ].sort()}
           onSaved={(name) => {
             setPeople((prev) =>
               prev ? prev.map((p) => (p.id === reviewing.id ? { ...p, name } : p)) : prev
@@ -921,6 +987,7 @@ export function PersonModal({
   imageIds,
   imageById,
   startEditing,
+  nameSuggestions,
   onSaved,
   onSplit,
   onClose,
@@ -930,6 +997,9 @@ export function PersonModal({
   imageIds: string[];
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
   startEditing?: boolean;
+  /** Known identities to autocomplete — typing a fresh spelling of someone
+   *  who already exists is how duplicate people get minted. */
+  nameSuggestions?: string[];
   onSaved: (name: string | null) => void;
   /** Present only where a split can be reviewed (the People view). */
   onSplit?: () => void;
@@ -963,8 +1033,12 @@ export function PersonModal({
         body: JSON.stringify({ name: name || null }),
       });
       if (!res.ok) throw new Error();
-      // The server normalizes (e.g. a typed "Unnamed" clears) — trust it.
-      const data = (await res.json()) as { name: string | null };
+      // The server normalizes (a typed "Unnamed" clears; a CREW name becomes
+      // a roster link, never a persons.name write) — trust it.
+      const data = (await res.json()) as { name: string | null; linkedCrew?: string };
+      if (data.linkedCrew) {
+        toast.success(`Linked to your crew: ${data.linkedCrew}`);
+      }
       onSaved(data.name);
       setEditing(false);
     } catch {
@@ -995,9 +1069,17 @@ export function PersonModal({
                     if (e.key === "Enter") save();
                     if (e.key === "Escape") setEditing(false);
                   }}
+                  list={nameSuggestions?.length ? `person-names-${personId}` : undefined}
                   placeholder={personName ? "Blank moves them to Unnamed…" : "Type their name…"}
                   className="font-editorial text-2xl text-stone-900 bg-transparent border-b border-stone-300 focus:border-stone-900 focus:outline-none w-full max-w-sm placeholder:text-stone-300"
                 />
+                {(nameSuggestions?.length ?? 0) > 0 && (
+                  <datalist id={`person-names-${personId}`}>
+                    {nameSuggestions!.map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                )}
                 <button
                   onClick={save}
                   disabled={saving || (!draft.trim() && !personName)}
