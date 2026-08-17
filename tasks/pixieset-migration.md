@@ -713,6 +713,41 @@ DerivedData + iOS DeviceSupport gave another 9.4 GB. **23 GB → 192 GB free.**
   resolution. **The width guard, not the driver's flag, is what answers this
   question** — which is exactly what the driver's own docstring says.
 
+## The migration is a SERVICE now — 2026-08-16
+
+It runs as two launchd agents, `com.twodudes.pixieset.watch` and
+`com.twodudes.pixieset.ingest`. Setup, commands and traps:
+**`scripts/pixieset/launchd/README.md`**. Logs: `~/pixieset-staging/logs/`.
+
+Why: the pipeline stopped **three times in one day**, and every time Mason found
+it by asking, not the tooling. The loop lived inside a session's shell and died
+with it; then a partial ingest halted 1,342 collections over 9 transient upload
+errors; then a reboot took everything including the logs, which were in `/tmp`.
+Twice I told him it was running when it was not. A multi-week job cannot depend
+on a human noticing it stopped.
+
+Both agents were **verified by killing them** and watching launchd respawn each
+with a new PID. An untested restart policy is a belief.
+
+### What the day actually measured
+
+- **The ingest is NOT bandwidth-bound.** 1.1 MB/s on a 238 Mbps link, against
+  1.5 MB/s on the old ~10 Mbps one. It is bound by uploading one photo at a time
+  and waiting for each R2 round-trip. **Parallelising the upload loop is the
+  single biggest available win** and is not yet done.
+- **Mason's upload was ~8 Mbps and is now 238 Mbps.** Not Xfinity, not the plan,
+  not the radio: a downstream router at `192.168.4.1`. The modem-direct network
+  ("Foster Shire", gateway `10.0.0.1`) measures 238 up / 337 down via
+  `networkQuality`. Every theory offered before measuring was wrong.
+- **TLS `bad record mac` at ~3% appeared on the new network** (9 of 322 uploads)
+  and **cleared completely on retry** — kiamom finished at 1,026/1,026. Transient,
+  not a reason to avoid that path. But it left **10 rows with bytes in R2 and no
+  thumbnail**, and the ingest correctly refused to release the archive over it.
+  `scripts/repair-stranded-images.ts <eventId> --apply` fixed all 10.
+- **A partial ingest is normal.** The loop now retries the same collection —
+  the ingest keeps the archive and leaves the collection `verified`, so a retry
+  fills only the gaps — and gives up only after 3 passes with no progress.
+
 ## Restart — 2026-08-15
 
 Loop restarted after ~20 hours idle. It does not self-drive: the watcher only

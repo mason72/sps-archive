@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twodudes.pixieset.ingest</string>
+
+  <!-- Turns staged, verified Pixieset archives into Pixeltrunk events. Runs
+       with --forever so it IDLES when nothing is staged rather than exiting;
+       a script that exits under KeepAlive gets relaunched instantly and spins. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>scripts/pixieset/ingest-loop.sh</string>
+    <string>--forever</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+  <!-- The ingest shells out to `npx tsx`, which is not on launchd's default
+       PATH. Without this every pass fails and nothing reports it. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/ingest.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/ingest.log</string>
+
+  <!-- Background: lower I/O and CPU priority, so a multi-week migration never
+       competes with what Mason is actually doing on this Mac. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>5</integer>
+</dict>
+</plist>

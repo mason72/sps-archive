@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twodudes.pixieset.watch</string>
+
+  <!-- Proves downloaded Pixieset ZIPs and stages them. Never talks to Pixieset
+       itself; an idle watcher is the normal resting state. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>scripts/pixieset/watch.mjs</string>
+    <string>watch</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+  <!-- launchd's default PATH has no Homebrew, which is how these agents fail
+       silently. Set it explicitly. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Do not respawn faster than this if it exits immediately. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- NOT in /tmp: macOS clears that on boot, and a reboot on 2026-08-16 took
+       the only record of what the pipeline had done. -->
+  <key>StandardOutPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/watch.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
