@@ -47,7 +47,12 @@ while :; do
   # nightly ai-index sweep picks these events up. Not worth a stack trace a pass.
   echo "$out" | grep -vE "^\s+at |Inngest API Error|settlement dispatch"
 
-  if echo "$out" | grep -qiE "nothing to ingest|no verified|no collection"; then
+  # The ingest prints "nothing is verified and waiting to ingest." — which
+  # matched NONE of the original alternatives ("nothing to ingest" needs those
+  # two words adjacent). The guard therefore never fired: 3,013 passes, 0
+  # idles, respawning tsx every ~4s for 34h until 2026-08-18. Keep the old
+  # spellings for safety and match the real one.
+  if echo "$out" | grep -qiE "nothing (is verified|to ingest)|no verified|no collection"; then
     if [ "$FOREVER" -eq 1 ]; then
       echo "--- nothing staged; idling ${IDLE_SLEEP}s · $(date '+%H:%M:%S') ---"
       sleep "$IDLE_SLEEP"
@@ -84,7 +89,18 @@ while :; do
       continue
     fi
   else
+    # Output matched neither "nothing staged" nor an ingest result. A guard
+    # that keys on wording fails OPEN when the wording drifts, and failing
+    # open here means a tight respawn loop. Fail CLOSED instead: idle, and say
+    # so loudly, so the next drift costs 5 minutes of latency and not 34 hours
+    # of pinned CPU. A real ingest always prints "archive KEPT"/"N failed", so
+    # this branch cannot slow a draining queue.
     consecutive=0
+    if [ "$FOREVER" -eq 1 ]; then
+      echo "--- UNRECOGNIZED ingest output; idling ${IDLE_SLEEP}s (output above) ---"
+      sleep "$IDLE_SLEEP"
+      continue
+    fi
   fi
 done
 
