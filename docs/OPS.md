@@ -188,3 +188,49 @@ Playground: `/dev/loading`. Currently used by `/people`'s `loading.tsx`.
 NOT used in the guest gallery — those are white-labelled with the
 photographer's branding, so putting our mark in a client's search wait is
 Mason's call, not a default.
+
+## Ingest service — the two launchd agents (added 2026-08-18)
+
+The Pixieset→Pixeltrunk drain runs as two user agents, not as a session job:
+
+| Agent | Runs | Log |
+|---|---|---|
+| `com.twodudes.pixieset.watch` | `scripts/pixieset/watch.mjs watch` | `~/pixieset-staging/logs/watch.log` |
+| `com.twodudes.pixieset.ingest` | `scripts/pixieset/ingest-loop.sh --forever` | `~/pixieset-staging/logs/ingest.log` |
+
+Restart either with `launchctl kickstart -k gui/$(id -u)/<label>`. The pass
+counter in the log resets to 1 on restart — that is how you tell a new process
+from the old one.
+
+**Health check, and it is one line.** A drained queue must produce an `idling`
+line every 5 minutes:
+
+```
+grep -c "idling" ~/pixieset-staging/logs/ingest.log
+```
+
+**Zero is a red flag, not a quiet day.** On 2026-08-18 that count was 0 across
+**3,013 passes** going back to 2026-08-16 21:40. The idle guard matched on the
+ingest's wording:
+
+```bash
+grep -qiE "nothing to ingest|no verified|no collection"
+```
+
+and the ingest actually prints `nothing is verified and waiting to ingest.` —
+which contains none of those (`nothing to ingest` needs the words adjacent).
+So the guard never fired, the loop fell through with no sleep, and it respawned
+`npx tsx` every ~4 seconds for 34 hours. Node startup plus TypeScript transpile
+plus module resolution, roughly 24,000 times.
+
+**What it looked like from the outside was not a loop at all.** It presented as
+`fileproviderd` pinned at 100%+, Time Machine unable to finish an hourly backup
+(3.1M-file scans stacking up), 8,000–10,000 disk IOPS, load average above 60,
+and Claude Code sessions timing out. Two hours went into Time Machine and
+Dropbox before anything pointed here. **When this machine is inexplicably slow,
+check the ingest idle count before you touch the backup or sync layers** — it is
+one command and it would have been the first correct answer.
+
+The guard now matches the real wording *and* the unrecognized-output branch
+fails closed (idle + shout) instead of open (spin), so the next wording drift
+costs five minutes of latency rather than a day of CPU.
