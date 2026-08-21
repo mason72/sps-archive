@@ -103,7 +103,13 @@ export function computeSuggestions(
   // is the better explanation of the same disagreement.
   const splitFlagged = new Set<string>();
   for (const person of persons) {
-    const camps = filenameSplitGroups(person.imageIds, filenameOf, extractName, personLike);
+    const camps = filenameSplitGroups(
+      person.imageIds,
+      filenameOf,
+      extractName,
+      personLike,
+      faceCountByImage
+    );
     if (!camps) continue;
     splitFlagged.add(person.id);
     const key = `split:${person.id}`;
@@ -215,7 +221,15 @@ export function computeSuggestions(
     if (group.length < 2) continue;
     const sorted = [...group].sort((a, b) => b.faceCount - a.faceCount);
     const into = sorted[0];
+    const intoImages = new Set(into.imageIds);
     for (const from of sorted.slice(1)) {
+      // Two clusters that share a FRAME cannot be one person — a person
+      // appears once per photo. The same-name test alone offered to merge
+      // Kaitlin Kinzer with a 5-face cluster that was her DOG (detected in
+      // her five dog-in-lap frames, named by filename consensus); pressing
+      // Merge would have taught her face set a Maltese (2026-08-21). Same
+      // rule face-membership already uses to drop contaminated clusters.
+      if (from.imageIds.some((id) => intoImages.has(id))) continue;
       const key = `merge:${from.id}:${into.id}`;
       if (dismissed.has(key)) continue;
       merges.push({ key, type: "merge", fromId: from.id, intoId: into.id, name: into.name! });

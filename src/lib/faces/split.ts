@@ -61,10 +61,21 @@ export function filenameSplitGroups(
   imageIds: string[],
   filenameOf: Map<string, string>,
   extractName: (filename: string) => string,
-  personLike: (name: string) => boolean
+  personLike: (name: string) => boolean,
+  /**
+   * Faces per image. SOLO FRAMES ONLY seed a split — the same rule mislabels
+   * follow. A group shot is filed under whoever booked it ("Justin Group_…",
+   * four faces), and that label is a person-looking name that is NOT in the
+   * subject's name family, so a headshot day with eight group frames read as
+   * "might be two people — 14 / 8" for Justin and 18 / 4 for Angela
+   * (2026-08-21). Group frames are FOUND via faces, never used as evidence of
+   * who a face is. Omitted = every frame counts (legacy callers/tests).
+   */
+  faceCountByImage?: Map<string, number>
 ): { name: string; imageIds: string[] }[] | null {
   const byName = new Map<string, { display: string; imageIds: string[] }>();
   for (const imageId of new Set(imageIds)) {
+    if ((faceCountByImage?.get(imageId) ?? 1) > 1) continue;
     const filename = filenameOf.get(imageId);
     if (!filename) continue;
     const name = extractName(filename).trim();
@@ -109,7 +120,8 @@ export function proposeSplit(
   faces: SplitFace[],
   filenameOf: Map<string, string>,
   extractName: (filename: string) => string,
-  personLike: (name: string) => boolean
+  personLike: (name: string) => boolean,
+  faceCountByImage?: Map<string, number>
 ): SplitProposal | null {
   if (faces.length < 2) return null;
 
@@ -117,7 +129,8 @@ export function proposeSplit(
     faces.map((f) => f.imageId),
     filenameOf,
     extractName,
-    personLike
+    personLike,
+    faceCountByImage
   );
 
   if (nameGroups) {

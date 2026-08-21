@@ -215,3 +215,57 @@ describe("splits", () => {
     expect(mislabels).toHaveLength(1);
   });
 });
+
+describe("group-shot immunity (2026-08-21)", () => {
+  it("a split is never seeded from group frames — 'Justin Group' files are not a second person", () => {
+    const justin: SuggestionPerson = {
+      id: "p-justin",
+      name: "Justin Vittitoe",
+      imageIds: ["s1", "s2", "s3", "s4", "g1", "g2", "g3", "g4"],
+      faceCount: 8,
+    };
+    const m = meta({
+      s1: "Justin Vittitoe_001.jpg",
+      s2: "Justin Vittitoe_002.jpg",
+      s3: "Justin Vittitoe_003.jpg",
+      s4: "Justin Vittitoe_004.jpg",
+      g1: "Justin Group_021.jpg",
+      g2: "Justin Group_022.jpg",
+      g3: "Justin Group_023.jpg",
+      g4: "Justin Group_024.jpg",
+    });
+    // Counting every frame, this is a 4/4 split; counting solo frames, it is not.
+    expect(run([justin], m, faceCounts(justin.imageIds)).splits).toHaveLength(1);
+    expect(
+      run([justin], m, faceCounts(justin.imageIds, ["g1", "g2", "g3", "g4"])).splits
+    ).toHaveLength(0);
+  });
+
+  it("two same-name clusters that share a frame are not offered a merge (the dog)", () => {
+    const kaitlin: SuggestionPerson = {
+      id: "p-k",
+      name: "Kaitlin Kinzer",
+      imageIds: ["k1", "k2", "k3", "d1", "d2"],
+      faceCount: 5,
+    };
+    const dog: SuggestionPerson = {
+      id: "p-dog",
+      name: "Kaitlin Kinzer",
+      imageIds: ["d1", "d2"],
+      faceCount: 2,
+    };
+    const twin: SuggestionPerson = {
+      id: "p-twin",
+      name: "Kaitlin Kinzer",
+      imageIds: ["t1", "t2"],
+      faceCount: 2,
+    };
+    const m = meta({
+      k1: "Kaitlin Kinzer_1.jpg", k2: "Kaitlin Kinzer_2.jpg", k3: "Kaitlin Kinzer_3.jpg",
+      d1: "Kaitlin Kinzer_4.jpg", d2: "Kaitlin Kinzer_5.jpg",
+      t1: "Kaitlin Kinzer_6.jpg", t2: "Kaitlin Kinzer_7.jpg",
+    });
+    const { merges } = run([kaitlin, dog, twin], m, faceCounts(["k1","k2","k3","d1","d2","t1","t2"], ["d1","d2"]));
+    expect(merges.map((s) => s.fromId)).toEqual(["p-twin"]);
+  });
+});

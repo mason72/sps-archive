@@ -135,3 +135,18 @@ describe("fallback minority guard", () => {
     expect(proposeSplit(faces, filenames({}), extract, personLike)).toBeNull();
   });
 });
+
+describe("group frames never seed a filename split (2026-08-21)", () => {
+  it("proposeSplit ignores 'Justin Group' frames when told they hold several faces", () => {
+    const solo = ["i1", "i2", "i3"].map((id) => face(near(A), id));
+    const group = ["g1", "g2", "g3"].map((id) => face(near(A), id));
+    const map = filenames({
+      i1: "Justin Vittitoe_1.jpg", i2: "Justin Vittitoe_2.jpg", i3: "Justin Vittitoe_3.jpg",
+      g1: "Justin Group_1.jpg", g2: "Justin Group_2.jpg", g3: "Justin Group_3.jpg",
+    });
+    const counts = new Map([["g1", 4], ["g2", 4], ["g3", 4]]);
+    expect(proposeSplit([...solo, ...group], map, extract, personLike)?.basis).toBe("filenames");
+    // Same faces, one person — the face-basis fallback sees one tight cluster.
+    expect(proposeSplit([...solo, ...group], map, extract, personLike, counts)).toBeNull();
+  });
+});

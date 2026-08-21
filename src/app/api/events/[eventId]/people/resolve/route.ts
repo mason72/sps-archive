@@ -98,7 +98,30 @@ export async function POST(
 
       const faces = await loadPersonFaces(body.personId);
       const filenameOf = new Map(faces.map((f) => [f.imageId, f.filename]));
-      const proposal = proposeSplit(faces, filenameOf, extractPersonName, isPersonLike);
+      // Faces per frame (ALL people's faces, not just this person's), so group
+      // shots cannot seed the filename split — same rule as the suggestion
+      // card, or Review would propose a split the card refused to show.
+      const faceCountByImage = new Map<string, number>();
+      const imageIds = [...new Set(faces.map((f) => f.imageId))];
+      for (let i = 0; i < imageIds.length; i += 150) {
+        const chunk = imageIds.slice(i, i + 150);
+        const { data: rows, error } = await supabase
+          .from("faces")
+          .select("image_id")
+          .in("image_id", chunk)
+          .order("id", { ascending: true });
+        if (error) throw error;
+        for (const row of rows ?? []) {
+          faceCountByImage.set(row.image_id, (faceCountByImage.get(row.image_id) ?? 0) + 1);
+        }
+      }
+      const proposal = proposeSplit(
+        faces,
+        filenameOf,
+        extractPersonName,
+        isPersonLike,
+        faceCountByImage
+      );
       if (!proposal) {
         // Manual split (opened from the person modal, no suggestion card):
         // the photographer knows better than the algorithm — hand them all

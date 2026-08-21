@@ -1345,3 +1345,31 @@ and then the panel stayed frozen after AI finished because it fetched its plan
 that works now, and a state that depends on a background job must re-read
 when that job reports done — the page already had the live `aiStatus`; the
 panel just never asked for it.
+
+## 96 — a group shot is evidence of WHERE a face is, never of WHO it is (2026-08-21)
+
+Justin, from the People tab: "You may want to prevent PT from doing its split
+suggestions when it comes to group photos" — 14 / 8 for him, 18 / 4 for Angela.
+And a merge card offering to fold a 5-face "Kaitlin Kinzer" cluster into her
+7-face one, where the 5-face cluster was her DOG.
+
+- **Split camps now count SOLO frames only.** Group files are named for whoever
+  booked them (`Justin Group_26-08-19_Appfolio_1021.jpg`, four faces), and
+  "Justin Group" passes `looksLikePersonName` and is not in Justin's name
+  family. The mislabel engine had this rule from day one ("SOLO PORTRAITS ONLY
+  … group photos are FOUND via faces, never re-labeled"); the split engine was
+  written beside it and skipped it. Same input (`faceCountByImage`) was already
+  on the call. The Review proposal (`resolve` route) got the same counts so it
+  cannot propose what the card refuses to show.
+- **Two clusters that share a frame are never offered a merge.** A person
+  appears once per photo — the rule `loadFaceMembership` already uses to drop
+  contaminated clusters. Verified in the DB before touching anything: the
+  5-face cluster's faces sat in 5 frames that also held a face from the
+  7-face cluster (5 of 5), avg detector quality 0.56 vs 0.82. Merge would have
+  taught her reference set a Maltese.
+- **Not done, worth doing:** the dog cluster still exists, named, on the event
+  wall. A "this may not be a person" card (unname + mark not-a-face) is the
+  clean end of this; today the only path is to manually clear the name.
+- The general shape: **when two engines read the same data and one has a
+  hard-won rule, grep the sibling for the rule before shipping it.** Rules
+  written as comments in one function do not propagate.
