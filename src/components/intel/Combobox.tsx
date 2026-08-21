@@ -23,6 +23,9 @@ export interface ComboValue {
   id: string;
   name: string;
   sub?: string;
+  /** Venues only — what the photo overlay prints after the name. */
+  city?: string | null;
+  region?: string | null;
 }
 
 export function Combobox({

@@ -361,31 +361,27 @@ function PhotoRow({ it, saving, canCopyAbove, onChange, onSameAsAbove, onRemove 
   onChange: (p: Partial<Item>) => void; onSameAsAbove: () => void; onRemove: () => void;
 }) {
   const assigned = hasSubject(it.subject);
-  const a = "text-[12px] text-stone-500 underline-offset-4 hover:text-stone-900 hover:underline disabled:opacity-40";
   return (
     <li className="flex flex-col gap-4 py-5 sm:flex-row">
-      {/* The photo — big enough to recognise a loading dock. */}
-      <div className="relative w-full shrink-0 overflow-hidden rounded-md bg-stone-100 sm:w-64 md:w-72">
-        <div className="aspect-[4/3] w-full">
-          {it.prep ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={it.prep.previewUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="flex h-full items-center justify-center px-3 text-center text-[12px] text-stone-400">
-              {it.status === "error" ? it.error : "Reading…"}
-            </span>
-          )}
-        </div>
+      {/* The photo — big enough to recognise a loading dock. `self-start` so
+          the box never stretches with the row; everything overlaid sits
+          INSIDE the 4:3 box, which is what kept the date badge from drifting
+          when a row grew a line. */}
+      <div className="relative aspect-[4/3] w-full shrink-0 self-start overflow-hidden rounded-md bg-stone-100 sm:w-64 md:w-72">
+        {it.prep ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={it.prep.previewUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full items-center justify-center px-3 text-center text-[12px] text-stone-400">
+            {it.status === "error" ? it.error : "Reading…"}
+          </span>
+        )}
         {!assigned && it.status !== "error" && (
           <span className="absolute left-2 top-2 rounded-full bg-amber-600 px-2 py-0.5 text-[11px] text-white">Needs a home</span>
         )}
+        <PhotoCaptionOverlay subject={it.subject} takenAt={it.prep?.takenAt ?? null} />
         {(it.status === "uploading" || it.status === "done") && (
           <span className={`absolute inset-x-0 bottom-0 h-1 ${it.status === "done" ? "bg-emerald-500" : "animate-pulse bg-emerald-500/50"}`} />
-        )}
-        {it.prep?.takenAt && (
-          <span className="absolute bottom-2 right-2 rounded bg-stone-950/60 px-1.5 py-0.5 text-[11px] text-white">
-            {new Date(it.prep.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-          </span>
         )}
       </div>
 
@@ -397,24 +393,24 @@ function PhotoRow({ it, saving, canCopyAbove, onChange, onSameAsAbove, onRemove 
           near={it.prep?.gps ?? null}
           takenOn={it.prep?.takenAt ?? null}
         />
-        <input
+        <textarea
           value={it.caption}
           onChange={(e) => onChange({ caption: e.target.value })}
-          placeholder="Caption — “don’t use these stairs, elevator to the right”"
+          placeholder="Caption or note — “don’t use these stairs, elevator to the right”"
           disabled={saving}
-          className={`${FIELD} mt-3`}
+          rows={2}
+          className={`${FIELD} mt-3 min-h-[64px] resize-y leading-relaxed`}
         />
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-[12px] text-stone-400">
-            {it.subject.venue && it.subject.client ? "Shows on the venue and the client pages"
-              : it.subject.venue ? "Shows on the venue page — add a client to show there too"
-              : it.subject.client ? "Shows on the client page — add a venue to show there too"
-              : it.subject.gig ? "Linked to the gig only — add a venue or client to show on their pages"
-              : null}
-          </span>
-          <span className="ml-auto inline-flex items-center gap-4">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+          <span className="inline-flex items-center gap-4">
             {canCopyAbove && !saving && (
-              <button type="button" className={a} onClick={onSameAsAbove}>Same as above</button>
+              <button
+                type="button"
+                onClick={onSameAsAbove}
+                className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-[12px] text-stone-700 transition-colors hover:border-stone-800 hover:text-stone-900"
+              >
+                Same as above
+              </button>
             )}
             {!saving && (
               <button type="button" onClick={onRemove} className="text-stone-300 hover:text-stone-700" aria-label="Remove"><X className="h-4 w-4" /></button>
@@ -423,5 +419,39 @@ function PhotoRow({ it, saving, canCopyAbove, onChange, onSameAsAbove, onRemove 
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * What the photo will be filed under, printed on the photo.
+ *
+ *   Docusign
+ *   MOSCONE · SAN FRANCISCO, CA · MAR 2026
+ *
+ * Client first; without a client the second line stands alone. The venue
+ * shows only when it has a real NAME — a venue named by its street address
+ * (the calendar's "301 Battery St") is skipped, the city still prints. The
+ * date is the month the photo was taken. Same family as the TDP website's
+ * hero caption, in Pixeltrunk's type: a quiet gradient, Inter, the second
+ * line tracked small caps.
+ */
+function PhotoCaptionOverlay({ subject, takenAt }: { subject: Subject; takenAt: string | null }) {
+  const v = subject.venue;
+  const venueNamed = v && !/^\d/.test(v.name.trim()) ? v.name : null;
+  const where = v ? [v.city, v.region].filter(Boolean).join(", ") : "";
+  const when = takenAt ? new Date(takenAt).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "";
+  const line2 = [venueNamed, where, when].filter(Boolean);
+  if (!subject.client && !line2.length) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/80 via-stone-950/40 to-transparent px-3 pb-2.5 pt-10 text-white">
+      {subject.client && (
+        <p className="truncate text-[15px] font-medium leading-tight drop-shadow-sm">{subject.client.name}</p>
+      )}
+      {line2.length > 0 && (
+        <p className={`truncate text-[10.5px] uppercase tracking-[0.14em] text-white/85 ${subject.client ? "mt-1" : ""}`}>
+          {line2.join("  ·  ")}
+        </p>
+      )}
+    </div>
   );
 }

@@ -37,7 +37,7 @@ export async function completeFromGig(s: Subject): Promise<Subject> {
     const payer = (j.orgs ?? []).find((o: { role: string }) => o.role === "payer") ?? (j.orgs ?? [])[0];
     return {
       ...s,
-      venue: s.venue ?? (j.venue ? { id: j.venue.id, name: j.venue.name } : null),
+      venue: s.venue ?? (j.venue ? { id: j.venue.id, name: j.venue.name, city: j.venue.city ?? null, region: j.venue.region ?? null } : null),
       client: s.client ?? (payer ? { id: payer.orgId, name: payer.name } : null),
     };
   } catch { return s; }

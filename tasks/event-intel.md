@@ -857,3 +857,20 @@ filters but are derived from presence in `createNotes` / `patchNote` /
 venue-only, clear its client. Each row says in one line where it will show.
 Rejected: a three-way pill (a second statement that can contradict the
 fields) and a pill that filters the fields (a step before every row).
+
+### Row polish (2026-08-21, Mason's review of the live screen)
+
+- The assignment prints ON the photo, TDP-hero style in Pixeltrunk type:
+  client on line one, then `VENUE · CITY, ST · MON YYYY` tracked small caps
+  over a quiet gradient. A venue named by its street address is skipped on
+  that line (the city still prints); no client → line two alone; no venue →
+  client then the date. `PhotoCaptionOverlay` in `BulkComposer.tsx`.
+- "Shows on the client page" is GONE — Mason: "makes it sound like the
+  client will see it - that's scary." Nothing on an intel surface may read
+  as if a client can see it. The overlay says where it files instead.
+- Captions are a resizable two-line textarea (notes run longer than a line).
+- "Same as above" is a bordered button, not grey link text.
+- Bug: the date badge drifted below the image after "Same as above". The
+  thumbnail wrapper stretched with the row (flex default) while the 4:3 box
+  inside it did not, and the badge was anchored to the wrapper. Fixed with
+  `self-start` and by overlaying inside the box.

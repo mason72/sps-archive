@@ -222,14 +222,6 @@ export function NoteComposer({
         className={`${FIELD} mt-4 resize-y leading-relaxed`}
       />
 
-      <p className="mt-2 text-[12px] text-stone-400">
-        {venue && client ? "Shows on the venue and the client pages."
-          : venue ? "Shows on the venue page. Add a client to show there too."
-          : client ? "Shows on the client page. Add a venue to show there too."
-          : eventId || gig ? "Linked to the gig. Add a venue or client to show on their pages."
-          : null}
-      </p>
-
       {/* ── Photos ─────────────────────────────────────────────────────── */}
       <div className="mt-4">
         {items.length > 0 && (
@@ -250,11 +242,12 @@ export function NoteComposer({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <input
+                  <textarea
                     value={it.caption}
                     onChange={(e) => setItems((xs) => xs.map((x) => (x.key === it.key ? { ...x, caption: e.target.value } : x)))}
                     placeholder="Caption — “don’t use these stairs, elevator to the right”"
-                    className={`${FIELD} py-1.5 text-[13px]`}
+                    rows={2}
+                    className={`${FIELD} resize-y py-1.5 text-[13px] leading-relaxed`}
                     disabled={saving}
                   />
                   <div className="mt-2 flex items-center gap-1.5">

@@ -102,7 +102,7 @@ export function VenuePicker({
     const [kind, rest] = [o.key.slice(0, o.key.indexOf(":")), o.key.slice(o.key.indexOf(":") + 1)];
     if (kind === "mine" || kind === "near") {
       const v = known?.find((x) => x.id === rest);
-      if (v) onChange({ id: v.id, name: v.name, sub: [v.address, v.city].filter(Boolean).join(", ") || undefined });
+      if (v) onChange({ id: v.id, name: v.name, sub: [v.address, v.city].filter(Boolean).join(", ") || undefined, city: v.city, region: v.region ?? null });
       return;
     }
     if (kind === "maps") {
@@ -117,9 +117,9 @@ export function VenuePicker({
       });
       const cj = await c.json();
       if (!c.ok) { setError(cj.error ?? "Could not add venue"); return; }
-      const row: KnownVenue = { id: cj.id, name: cj.name ?? p.name, address: p.address, city: p.city, lat: p.lat, lng: p.lng, eventCount: 0 };
+      const row: KnownVenue = { id: cj.id, name: cj.name ?? p.name, address: p.address, city: p.city, region: p.region, lat: p.lat, lng: p.lng, eventCount: 0 };
       venueRegistry.add(row);
-      onChange({ id: row.id, name: row.name, sub: [p.address, p.city].filter(Boolean).join(", ") || undefined });
+      onChange({ id: row.id, name: row.name, sub: [p.address, p.city].filter(Boolean).join(", ") || undefined, city: p.city, region: p.region });
       return;
     }
     if (kind === "new") {
@@ -129,7 +129,7 @@ export function VenuePicker({
       });
       const cj = await c.json();
       if (!c.ok) { setError(cj.error ?? "Could not add venue"); return; }
-      const row: KnownVenue = { id: cj.id, name: rest, address: null, city: null, lat: null, lng: null, eventCount: 0 };
+      const row: KnownVenue = { id: cj.id, name: rest, address: null, city: null, region: null, lat: null, lng: null, eventCount: 0 };
       venueRegistry.add(row);
       onChange({ id: row.id, name: row.name });
     }
