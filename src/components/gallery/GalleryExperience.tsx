@@ -86,6 +86,98 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
  * next original downloaded, and the caption — which had already switched —
  * named a photo that was not on screen (Mason, 2026-08-21).
  */
+/**
+ * Filename as a copyable metadata chip. Middle-ellipsis is MEASURED against
+ * the room the chip actually has (canvas measureText in the chip's own font),
+ * because CSS can only cut the end and the end is where the frame number
+ * lives. Hover reads "Click to copy", a tap copies the full filename (with
+ * extension) and shows "Copied" for a beat. Every label renders into the
+ * same grid cell so the chip's width never jumps (Mason, 2026-08-21).
+ */
+function FilenameChip({
+  filename,
+  style,
+}: {
+  filename: string;
+  style: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [hover, setHover] = useState(false);
+  const [label, setLabel] = useState(() => stripMediaExtension(filename));
+  const ref = useRef<HTMLButtonElement>(null);
+  const full = stripMediaExtension(filename);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const cs = getComputedStyle(el);
+      const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (!ctx) return setLabel(full);
+      ctx.font = font;
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2;
+      const room = el.getBoundingClientRect().width - pad;
+      // The chip is allowed to shrink (min-w-0 in a flex row); measure against
+      // its max possible width instead: the parent's free space.
+      const parent = el.parentElement;
+      const avail = parent ? Math.max(room, parent.getBoundingClientRect().width - pad) : room;
+      if (ctx.measureText(full).width <= avail) return setLabel(full);
+      let head = Math.floor(full.length / 2);
+      let tail = full.length - head;
+      let out = full;
+      while (head + tail > 8) {
+        if (head > tail) head -= 1;
+        else tail -= 1;
+        out = `${full.slice(0, head)}…${full.slice(full.length - tail)}`;
+        if (ctx.measureText(out).width <= avail) break;
+      }
+      setLabel(out);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    if (el.parentElement) ro.observe(el.parentElement);
+    return () => ro.disconnect();
+  }, [full]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(filename);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error("Couldn't copy — select the text instead");
+    }
+  };
+
+  const shown = copied ? "Copied" : hover ? "Click to copy" : label;
+  return (
+    <button
+      ref={ref}
+      type="button"
+      title={copied ? "Copied" : "Click to copy the filename"}
+      aria-label={`Copy filename ${filename}`}
+      onClick={copy}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="grid h-7 min-w-0 shrink items-center border px-2.5 font-mono text-[10.5px] tracking-tight backdrop-blur-md transition-colors"
+      style={{ ...style, opacity: copied ? 1 : 0.85 }}
+    >
+      {/* Width-holder: the measured label, invisible, keeps the box stable
+          while the hover/copied text sits over it. */}
+      <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">
+        {label}
+      </span>
+      <span
+        className="col-start-1 row-start-1 truncate text-center whitespace-nowrap"
+        style={copied ? { color: style.color, fontWeight: 600 } : undefined}
+      >
+        {shown}
+      </span>
+    </button>
+  );
+}
+
 function LightboxImage({
   image,
   onBackdropClick,
@@ -1507,126 +1599,101 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </button>
           )}
 
-          {/* Actions — top-right, in the same chrome row as the metadata
-              chips: "♡ Favorite" and "↓ Download" as labelled glass chips,
-              then close. They used to float over the bottom of the photo
-              (a heart on someone's wrist, unlabelled), which was hard to
-              see and harder to read (Mason, 2026-08-21). The row above the
-              photo is the one place that never covers a face or hands. */}
+          {/* Chrome row — ONE flex row across the top so the metadata chips
+              (left) and the actions (right) share a baseline and can never
+              run into each other: the left group shrinks, the filename chip
+              middle-ellipsises to the room it has. All chips are h-7 and the
+              close button is boxed to the same height (Mason, 2026-08-21). */}
           <div
-            className="absolute top-4 right-4 z-10 flex items-center gap-1.5"
+            className="absolute inset-x-4 top-4 z-10 flex items-center justify-between gap-3"
             onClick={(e) => e.stopPropagation()}
           >
             {(() => {
-              const fav = favoriteIds.has(selectedImage.id);
-              const chip = (active = false) => ({
-                color: active ? colors.accent : lbFg,
-                backgroundColor: active
-                  ? `${colors.accent}1f`
-                  : isDarkBg
-                    ? "rgba(0,0,0,0.35)"
-                    : "rgba(255,255,255,0.72)",
-                borderColor: active
-                  ? `${colors.accent}66`
-                  : isDarkBg
-                    ? "rgba(255,255,255,0.16)"
-                    : `${colors.secondary}33`,
-              });
-              const cls =
-                "flex items-center gap-1.5 border px-2.5 py-1 text-[11px] font-medium backdrop-blur-md transition-colors hover:opacity-90";
-              return (
-                <>
-                  {allowFavorites && (
-                    <button
-                      className={cls}
-                      style={chip(fav)}
-                      aria-pressed={fav}
-                      aria-label={fav ? "Remove from favorites" : "Add to favorites"}
-                      onClick={(e) => {
-                        if (favoriteIds.size === 0 && !fav) {
-                          pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
-                        }
-                        handleFavorite(selectedImage.id);
-                      }}
-                    >
-                      <Heart
-                        className="h-3.5 w-3.5"
-                        fill={fav ? "currentColor" : "none"}
-                        strokeWidth={1.75}
-                      />
-                      <span className="hidden sm:inline">{fav ? "Favorited" : "Favorite"}</span>
-                    </button>
-                  )}
-                  {/* A PIN-gated share ships no downloadUrl — the button is
-                      driven by the share's permission, not by a URL. */}
-                  {allowDownload && (
-                    <button
-                      className={cls}
-                      style={chip()}
-                      aria-label="Download this photo"
-                      onClick={() => handleIndividualDownload(selectedImage)}
-                    >
-                      <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      <span className="hidden sm:inline">Download</span>
-                    </button>
-                  )}
-                  <button
-                    aria-label="Close image viewer"
-                    className="ml-1 p-2 transition-opacity hover:opacity-100"
-                    style={{ color: lbFgMuted }}
-                    onClick={() => setSelectedImageId(null)}
-                  >
-                    <X className="h-5 w-5" strokeWidth={1.5} />
-                  </button>
-                </>
-              );
-            })()}
-          </div>
-
-          {/* Metadata chips — top-left, OVER the photo by design. A bare
-              string over a portrait read as broken; a hairline container on a
-              blurred ground reads as a label. Counter + person in one chip,
-              the filename in a second, monospaced, so it is plainly metadata
-              and not a caption (Mason, 2026-08-21). */}
-          <div
-            className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {(() => {
-              const chip = {
-                color: lbFgMuted,
+              const ground = {
                 backgroundColor: isDarkBg ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.72)",
                 borderColor: isDarkBg ? "rgba(255,255,255,0.16)" : `${colors.secondary}33`,
               };
+              const chip = (active = false) => ({
+                color: active ? colors.accent : lbFg,
+                backgroundColor: active ? `${colors.accent}1f` : ground.backgroundColor,
+                borderColor: active ? `${colors.accent}66` : ground.borderColor,
+              });
               const person =
                 (stackNav && openStack?.personName) || stackPersonName(selectedImage);
+              const fav = favoriteIds.has(selectedImage.id);
+              const actionCls =
+                "flex h-7 shrink-0 items-center gap-1.5 border px-2.5 text-[11px] font-medium backdrop-blur-md transition-colors hover:opacity-90";
               return (
                 <>
-                  <span
-                    className="flex items-center gap-2 border px-2.5 py-1 text-[11px] tabular-nums backdrop-blur-md"
-                    style={chip}
-                  >
-                    <span style={{ opacity: 0.7 }}>
-                      {selectedIndex + 1} / {navImages.length}
-                    </span>
-                    {person && (
-                      <>
-                        <span aria-hidden style={{ opacity: 0.35 }}>·</span>
-                        <span className="font-medium" style={{ color: lbFg, opacity: 0.85 }}>
-                          {person}
-                        </span>
-                      </>
-                    )}
-                  </span>
-                  {selectedImage.originalFilename && (
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
                     <span
-                      className="max-w-[50vw] truncate border px-2.5 py-1 font-mono text-[10.5px] tracking-tight backdrop-blur-md"
-                      style={{ ...chip, opacity: 0.85 }}
-                      title={selectedImage.originalFilename}
+                      className="flex h-7 shrink-0 items-center gap-2 border px-2.5 text-[11px] tabular-nums backdrop-blur-md"
+                      style={{ color: lbFgMuted, ...ground }}
                     >
-                      {stripMediaExtension(selectedImage.originalFilename)}
+                      <span style={{ opacity: 0.7 }}>
+                        {selectedIndex + 1} / {navImages.length}
+                      </span>
+                      {person && (
+                        <>
+                          <span aria-hidden style={{ opacity: 0.35 }}>·</span>
+                          <span className="font-medium" style={{ color: lbFg, opacity: 0.85 }}>
+                            {person}
+                          </span>
+                        </>
+                      )}
                     </span>
-                  )}
+                    {selectedImage.originalFilename && (
+                      <FilenameChip
+                        key={selectedImage.id}
+                        filename={selectedImage.originalFilename}
+                        style={{ color: lbFgMuted, ...ground }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {allowFavorites && (
+                      <button
+                        className={actionCls}
+                        style={chip(fav)}
+                        aria-pressed={fav}
+                        aria-label={fav ? "Remove from favorites" : "Add to favorites"}
+                        onClick={(e) => {
+                          if (favoriteIds.size === 0 && !fav) {
+                            pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
+                          }
+                          handleFavorite(selectedImage.id);
+                        }}
+                      >
+                        <Heart
+                          className="h-3.5 w-3.5"
+                          fill={fav ? "currentColor" : "none"}
+                          strokeWidth={1.75}
+                        />
+                        <span className="hidden sm:inline">{fav ? "Favorited" : "Favorite"}</span>
+                      </button>
+                    )}
+                    {/* A PIN-gated share ships no downloadUrl — the button is
+                        driven by the share's permission, not by a URL. */}
+                    {allowDownload && (
+                      <button
+                        className={actionCls}
+                        style={chip()}
+                        aria-label="Download this photo"
+                        onClick={() => handleIndividualDownload(selectedImage)}
+                      >
+                        <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                        <span className="hidden sm:inline">Download</span>
+                      </button>
+                    )}
+                    <button
+                      aria-label="Close image viewer"
+                      className="ml-0.5 flex h-7 w-7 items-center justify-center transition-opacity hover:opacity-100"
+                      style={{ color: lbFgMuted }}
+                      onClick={() => setSelectedImageId(null)}
+                    >
+                      <X className="h-5 w-5" strokeWidth={1.5} />
+                    </button>
+                  </div>
                 </>
               );
             })()}
@@ -1639,14 +1706,16 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             onBackdropClick={() => setSelectedImageId(null)}
           />
 
-          {/* Stack filmstrip — thumbnails of the person's other shots, so it's
-              clear you're browsing inside a stack. Click to jump. */}
-          {stackNav && (
+          {/* Filmstrip — thumbnails of the set you are paging through (a
+              person's stack, the section, or the search results). It used to
+              appear only inside a stack; Mason wanted it everywhere
+              (2026-08-21). Lazy thumbnails, the active one scrolled into view. */}
+          {navImages.length > 1 && (
             <div
               className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex max-w-[90vw] gap-1.5 overflow-x-auto px-2 py-1"
               onClick={(e) => e.stopPropagation()}
             >
-              {stackNav.map((img) => {
+              {navImages.map((img) => {
                 const isActive = img.id === selectedImageId;
                 return (
                   <button
@@ -1683,7 +1752,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             <div
               className="absolute left-1/2 -translate-x-1/2 z-10 px-3.5 py-1.5 text-[11px] uppercase tracking-[0.18em] backdrop-blur-sm pointer-events-none reveal"
               style={{
-                bottom: stackNav ? "5.5rem" : "1.5rem",
+                bottom: "5.5rem",
                 color: lbFgMuted,
                 backgroundColor: isDarkBg
                   ? "rgba(255,255,255,0.08)"
