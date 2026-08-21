@@ -77,6 +77,44 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
  * progress line — a toast is 380px wide and the trees would be noise at that
  * size (detail budget has to match display size).
  */
+/**
+ * The lightbox photo, swapped ATOMICALLY with its caption. Keyed on the image
+ * id by the caller, so each photo mounts fresh: the grid's thumbnail (already
+ * cached) paints at once and the multi-MB original fades in over it when it
+ * lands. Without this the browser kept painting the PREVIOUS photo while the
+ * next original downloaded, and the caption — which had already switched —
+ * named a photo that was not on screen (Mason, 2026-08-21).
+ */
+function LightboxImage({ image }: { image: GalleryImage }) {
+  const [loaded, setLoaded] = useState(false);
+  const alt = image.parsedName || image.originalFilename;
+  const original = image.originalUrl;
+  return (
+    <div
+      className="relative max-h-full max-w-full lightbox-image-enter"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={image.thumbnailUrl}
+        alt={alt}
+        className="max-h-full max-w-full object-contain"
+        style={{ maxHeight: "inherit" }}
+      />
+      {original && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={original}
+          alt=""
+          onLoad={() => setLoaded(true)}
+          className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
+          style={{ opacity: loaded ? 1 : 0 }}
+        />
+      )}
+    </div>
+  );
+}
+
 function ZipProgressToast({ label }: { label: string }) {
   return (
     <div className="flex w-[360px] items-center gap-3 border border-stone-200 bg-white px-4 py-3 shadow-lg">
@@ -1394,7 +1432,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           aria-modal="true"
           aria-label="Image viewer"
           tabIndex={-1}
-          className="fixed inset-0 z-50 flex items-center justify-center lightbox-open"
+          className="fixed inset-0 z-50 flex flex-col lightbox-open"
           style={{ backgroundColor: lightboxBg, color: lbFg }}
           onClick={() => setSelectedImageId(null)}
           onKeyDown={(e) => {
@@ -1443,24 +1481,46 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </button>
           )}
 
-          {/* Close */}
-          <button
-            aria-label="Close image viewer"
-            className="absolute top-4 right-4 p-3 transition-opacity hover:opacity-100 z-10"
-            style={{ color: lbFgMuted }}
-            onClick={() => setSelectedImageId(null)}
-          >
-            <X className="h-6 w-6" strokeWidth={1.5} />
-          </button>
-
-          {/* Image — show full-res original in lightbox */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={selectedImage.originalUrl || selectedImage.thumbnailUrl}
-            alt={selectedImage.parsedName || selectedImage.originalFilename}
-            className="max-h-[90vh] max-w-[90vw] object-contain lightbox-image-enter"
+          {/* Header band — counter + name on the left, close on the right.
+              A real row the photo sits BELOW, never an overlay: the old
+              absolute caption landed on the top-left of every tall photo and
+              read as broken (Mason, 2026-08-21). */}
+          <div
+            className="flex h-14 shrink-0 items-center justify-between pl-5 pr-2"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <div className="min-w-0">
+              <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
+                {selectedIndex + 1} / {navImages.length}
+                {stackNav && openStack && (
+                  <span className="ml-2 not-italic">· {openStack.personName}</span>
+                )}
+              </p>
+              {selectedImage.originalFilename && (
+                <p className="text-[13px] max-w-[60vw] truncate" style={{ color: lbFgMuted }}>
+                  {selectedImage.originalFilename}
+                </p>
+              )}
+            </div>
+            <button
+              aria-label="Close image viewer"
+              className="p-3 transition-opacity hover:opacity-100"
+              style={{ color: lbFgMuted }}
+              onClick={() => setSelectedImageId(null)}
+            >
+              <X className="h-6 w-6" strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* Image area — the remaining height, minus the band the bottom bar
+              (and filmstrip, inside a stack) occupies, so nothing overlaps the
+              photo. Keyed on the id: photo and caption change together. */}
+          <div
+            className="flex min-h-0 flex-1 items-center justify-center px-16"
+            style={{ paddingBottom: stackNav ? "8.5rem" : "4.5rem" }}
+          >
+            <LightboxImage key={selectedImage.id} image={selectedImage} />
+          </div>
 
           {/* Stack filmstrip — thumbnails of the person's other shots, so it's
               clear you're browsing inside a stack. Click to jump. */}
@@ -1557,19 +1617,45 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </div>
           )}
 
-          {/* Counter + filename (+ stack context when inside one) */}
-          <div className="absolute top-4 left-4">
-            <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
-              {selectedIndex + 1} / {navImages.length}
-              {stackNav && openStack && (
-                <span className="ml-2 not-italic">· {openStack.personName}</span>
-              )}
-            </p>
-            {selectedImage.originalFilename && (
-              <p className="text-[13px] mt-1 max-w-[280px] truncate" style={{ color: lbFgMuted }}>
-                {selectedImage.originalFilename}
+          {/* Header band — counter + name on the left, close on the right.
+              A real row the photo sits BELOW, never an overlay: the old
+              absolute caption landed on the top-left of every tall photo and
+              read as broken (Mason, 2026-08-21). */}
+          <div
+            className="flex h-14 shrink-0 items-center justify-between pl-5 pr-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="min-w-0">
+              <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
+                {selectedIndex + 1} / {navImages.length}
+                {stackNav && openStack && (
+                  <span className="ml-2 not-italic">· {openStack.personName}</span>
+                )}
               </p>
-            )}
+              {selectedImage.originalFilename && (
+                <p className="text-[13px] max-w-[60vw] truncate" style={{ color: lbFgMuted }}>
+                  {selectedImage.originalFilename}
+                </p>
+              )}
+            </div>
+            <button
+              aria-label="Close image viewer"
+              className="p-3 transition-opacity hover:opacity-100"
+              style={{ color: lbFgMuted }}
+              onClick={() => setSelectedImageId(null)}
+            >
+              <X className="h-6 w-6" strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* Image area — the remaining height, minus the band the bottom bar
+              (and filmstrip, inside a stack) occupies, so nothing overlaps the
+              photo. Keyed on the id: photo and caption change together. */}
+          <div
+            className="flex min-h-0 flex-1 items-center justify-center px-16"
+            style={{ paddingBottom: stackNav ? "8.5rem" : "4.5rem" }}
+          >
+            <LightboxImage key={selectedImage.id} image={selectedImage} />
           </div>
         </div>
       )}
