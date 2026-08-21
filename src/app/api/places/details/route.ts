@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const sp = new URL(request.url).searchParams;
     const id = sp.get("id") ?? "";
     const session = sp.get("session") ?? "";
-    if (!id || !session) return NextResponse.json({ error: "id and session required" }, { status: 400 });
+    if (!id || !session || session.length > 64) return NextResponse.json({ error: "id and session required" }, { status: 400 });
 
     const place = await placeDetails(id, session);
     return NextResponse.json({ place });

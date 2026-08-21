@@ -266,7 +266,16 @@ export async function PATCH(
      * looking at, so naming one has to be possible from here rather than only
      * on /intel.
      */
+    /** The venue before this write — `repointEventNotes` moves only entries still on it. */
+    const previousVenueId = async (): Promise<string | null> => {
+      const { data, error } = await db
+        .from("event_intel").select("venue_id").eq("event_id", eventId).eq("user_id", user!.id).maybeSingle();
+      if (error) throw error;
+      return data?.venue_id ?? null;
+    };
+
     if (body.newVenue?.name?.trim()) {
+      const prevVenue = await previousVenueId();
       const { data: v, error: vErr } = await db.from("venues").insert({
         user_id: user!.id,
         name: body.newVenue.name.trim(),
@@ -286,7 +295,7 @@ export async function PATCH(
       );
       if (error) throw error;
       // Entries that inherited this event's venue follow it (store.ts).
-      await repointEventNotes(supabase, user!.id, eventId, v.id);
+      await repointEventNotes(supabase, user!.id, eventId, v.id, prevVenue);
       return NextResponse.json({ ok: true, venueId: v.id });
     }
 
@@ -298,12 +307,13 @@ export async function PATCH(
         if (vErr) throw vErr;
         if (!v) return NextResponse.json({ error: "Venue not found" }, { status: 400 });
       }
+      const prevVenue = await previousVenueId();
       const { error } = await db.from("event_intel").upsert(
         { event_id: eventId, user_id: user!.id, venue_id: body.venueId, updated_at: new Date().toISOString() },
         { onConflict: "event_id" }
       );
       if (error) throw error;
-      await repointEventNotes(supabase, user!.id, eventId, body.venueId);
+      await repointEventNotes(supabase, user!.id, eventId, body.venueId, prevVenue);
       return NextResponse.json({ ok: true, venueId: body.venueId });
     }
 

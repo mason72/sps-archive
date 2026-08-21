@@ -53,8 +53,8 @@ async function readExif(file: File): Promise<{ takenAt: string | null; gps: { la
     const exifr = await import("exifr");
     const data = (await exifr.parse(file, {
       pick: ["DateTimeOriginal", "CreateDate", "GPSLatitude", "GPSLongitude", "GPSLatitudeRef", "GPSLongitudeRef"],
-      // exifr returns GPS as DMS tuples unless asked to convert — parse-filename.ts
-      // learned this the hard way; ask for decimal degrees outright.
+      // `gps: true` reads the GPS block; exifr then derives decimal
+      // `latitude`/`longitude` from the DMS tuples (which is what we read).
       gps: true,
     })) as Record<string, unknown> | undefined;
     const when = (data?.DateTimeOriginal ?? data?.CreateDate) as Date | string | undefined;

@@ -814,7 +814,17 @@ event's Intel tab, the venue and client panels on `/intel`, and a bulk screen at
   `/api/intel/notes/presign` POST, `/api/intel/gigs` GET (gigs at a venue / for a
   client / within a day of a date), `/api/places/autocomplete` + `/details`
   (server-side proxy, session tokens). All behind `getIntelUser()` + `user_id`.
-- **UI:** `NoteComposer` (one component, three hosts), `VenuePicker` (yours →
+- **Bulk screen is photos-first, per-photo subjects** (Mason: "every photo
+  should get a separate client/venue tag … dozens/hundreds from over the
+  years … all over the place"). `BulkComposer`: drop everything; photos sort
+  newest-first by EXIF date into sections by day + GPS (≤300 m); a section
+  offers "Use <nearest venue> · <the one gig that day>" for its unassigned
+  photos; select any set (shift-click ranges) and apply a subject from the
+  sticky bar; every card has its own venue/client/gig (tap the chip), caption
+  and tags. Save uploads only ASSIGNED photos, one POST per distinct subject;
+  unassigned ones stay on screen, counted. Uploaded slots are kept in a ref so
+  a failed POST retries without re-uploading (review finding).
+- **UI:** `NoteComposer` (single-subject; event tab + venue/client panels), `SubjectFields` (venue/client/gig block shared with the bulk screen), `VenuePicker` (yours →
   "Near this photo" → Google Maps → create by name), `ClientPicker`, `NotesLog`
   (photo strip + lightbox + dated log, inline caption/tag/pin/delete),
   `GigNotes` on the event panel (renders `event_intel.notes`, which the API had

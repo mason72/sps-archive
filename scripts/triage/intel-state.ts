@@ -4,7 +4,7 @@ async function main(){
   const { createServiceClient } = await import("../../src/lib/supabase/server");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createServiceClient() as any;
-  for (const t of ["venues","crew","organizations","crew_roles","event_intel","event_crew","event_orgs","venue_notes"]) {
+  for (const t of ["venues","crew","organizations","crew_roles","event_intel","event_crew","event_orgs","intel_notes"]) {
     const { count, error } = await db.from(t).select("*", { count: "exact", head: true });
     console.log(`  ${t.padEnd(16)} ${error ? "ERR " + error.message : count}`);
   }

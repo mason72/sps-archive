@@ -97,6 +97,30 @@ export async function POST(request: NextRequest) {
     // The unique index is on (user_id, lower(name)) — say so in words.
     if (error) {
       if (String(error.code) === "23505") {
+        /**
+         * A Maps pick whose NAME matches a venue that predates place ids (10 of
+         * 17 did) is the same building — backfill the geo onto that row and
+         * hand it back, rather than a 409 with no way forward.
+         */
+        if (placeId) {
+          const { data: same, error: sErr } = await db
+            .from("venues").select("id, name").eq("user_id", user!.id).ilike("name", name).is("place_id", null).maybeSingle();
+          if (sErr) throw sErr;
+          if (same) {
+            const { error: uErr } = await db.from("venues").update({
+              place_id: placeId,
+              lat: Number.isFinite(lat) ? lat : null,
+              lng: Number.isFinite(lng) ? lng : null,
+              address: String(b.address ?? "").trim() || null,
+              city: String(b.city ?? "").trim() || null,
+              region: String(b.region ?? "").trim() || null,
+              country: String(b.country ?? "").trim() || null,
+              updated_at: new Date().toISOString(),
+            }).eq("id", same.id).eq("user_id", user!.id);
+            if (uErr) throw uErr;
+            return NextResponse.json({ ok: true, id: same.id, existing: true, name: same.name });
+          }
+        }
         return NextResponse.json({ error: `You already have a venue called “${name}”` }, { status: 409 });
       }
       throw error;

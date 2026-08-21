@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { NoteComposer } from "@/components/intel/NoteComposer";
+import { BulkComposer } from "@/components/intel/BulkComposer";
 import type { IntelNote } from "@/lib/intel-notes/store";
 
 /**
- * The bulk screen. Nothing is known up front; the photos and the pickers
- * supply it. After a save the receipt says where things went, with links —
- * and the composer is immediately ready for the next batch, because a
- * camera roll is several venues.
+ * The bulk screen. Photos first; every photo gets its own venue, client and
+ * gig (see BulkComposer). After a save the receipt says where things went,
+ * per subject, with links.
  */
 export function BulkNotes() {
   const [saved, setSaved] = useState<IntelNote[][]>([]);
@@ -22,35 +21,36 @@ export function BulkNotes() {
         </p>
         <h1 className="mt-2 font-editorial text-[32px] leading-tight text-stone-900">Add notes &amp; BTS photos</h1>
         <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-stone-500">
-          Drop photos from a gig, say which venue or client they’re about, caption the ones
-          worth a sentence. Photos with a date and a location will suggest the gig and the venue.
+          Drop everything — years of it. Photos sort themselves by date and place; you say
+          which venue and client each belongs to, and caption the ones worth a sentence.
         </p>
       </header>
 
-      <NoteComposer onSaved={(notes) => setSaved((s) => [notes, ...s])} />
+      <BulkComposer onSaved={(notes) => setSaved((s) => [notes, ...s])} />
 
       {saved.length > 0 && (
         <section className="mt-8">
           <span className="text-[11px] uppercase tracking-[0.14em] text-stone-400">Saved</span>
           <ul className="mt-3 divide-y divide-stone-100 rounded-lg border border-stone-200 bg-white">
-            {saved.map((batch, i) => {
-              const first = batch[0];
-              const photos = batch.filter((n) => n.thumbUrl).length;
-              const texts = batch.length - photos;
-              return (
-                <li key={i} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px]">
-                  <span className="text-stone-800">
-                    {photos > 0 && `${photos} photo${photos === 1 ? "" : "s"}`}
-                    {photos > 0 && texts > 0 && " and "}
-                    {texts > 0 && `${texts} note${texts === 1 ? "" : "s"}`}
-                  </span>
-                  <span className="flex flex-wrap gap-3 text-stone-500">
-                    {first?.venue && <Link href={`/intel?axis=venues&id=${first.venue.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.venue.name}</Link>}
-                    {first?.org && <Link href={`/intel?axis=clients&id=${first.org.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.org.name}</Link>}
-                    {first?.event && <Link href={`/events/${first.event.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.event.name}</Link>}
-                  </span>
-                </li>
-              );
+            {saved.flatMap((batch, bi) => {
+              const groups = new Map<string, typeof batch>();
+              for (const n of batch) {
+                const k = `${n.event?.id ?? ""}|${n.venue?.id ?? ""}|${n.org?.id ?? ""}`;
+                groups.set(k, [...(groups.get(k) ?? []), n]);
+              }
+              return [...groups.entries()].map(([k, ns]) => {
+                const first = ns[0];
+                return (
+                  <li key={`${bi}-${k}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px]">
+                    <span className="text-stone-800">{ns.length} photo{ns.length === 1 ? "" : "s"}</span>
+                    <span className="flex flex-wrap gap-3 text-stone-500">
+                      {first.venue && <Link href={`/intel?axis=venues&id=${first.venue.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.venue.name}</Link>}
+                      {first.org && <Link href={`/intel?axis=clients&id=${first.org.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.org.name}</Link>}
+                      {first.event && <Link href={`/events/${first.event.id}`} className="underline underline-offset-4 hover:text-stone-800">{first.event.name}</Link>}
+                    </span>
+                  </li>
+                );
+              });
             })}
           </ul>
         </section>

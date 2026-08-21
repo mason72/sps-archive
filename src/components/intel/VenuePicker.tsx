@@ -107,7 +107,7 @@ export function VenuePicker({
       out.push({ key: `maps:${m.placeId}`, label: m.name, sub: m.secondary, group: "Google Maps" });
     }
     if (q.length >= 2 && !mine.some((v) => v.name.toLowerCase() === q)) {
-      out.push({ key: `new:${q}`, label: `Create “${query.trim()}”`, sub: "A venue with no map behind it — you can add the address later", group: "New" });
+      out.push({ key: `new:${query.trim()}`, label: `Create “${query.trim()}”`, sub: "A venue with no map behind it — you can add the address later", group: "New" });
     }
     return out;
   }, [query, known, maps, nearby]);
@@ -144,7 +144,7 @@ export function VenuePicker({
       });
       const cj = await c.json();
       if (!c.ok) { setError(cj.error ?? "Could not add venue"); return; }
-      const row: KnownVenue = { id: cj.id, name: query.trim(), address: null, city: null, lat: null, lng: null, eventCount: 0 };
+      const row: KnownVenue = { id: cj.id, name: rest, address: null, city: null, lat: null, lng: null, eventCount: 0 };
       setKnown((k) => [...(k ?? []), row]);
       onChange({ id: row.id, name: row.name });
     }

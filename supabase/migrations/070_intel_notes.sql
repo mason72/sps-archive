@@ -75,6 +75,8 @@ create index if not exists intel_notes_venue_idx on intel_notes (venue_id, pinne
 create index if not exists intel_notes_org_idx   on intel_notes (org_id, pinned desc, created_at desc) where org_id is not null;
 
 alter table intel_notes enable row level security;
+drop policy if exists "Service role manages intel_notes" on intel_notes;
+drop policy if exists "Users manage own intel_notes" on intel_notes;
 create policy "Service role manages intel_notes" on intel_notes
   for all using (auth.role() = 'service_role');
 create policy "Users manage own intel_notes" on intel_notes

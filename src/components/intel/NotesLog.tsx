@@ -41,7 +41,8 @@ export function NotesLog({
   const [notes, setNotes] = useState<IntelNote[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [open, setOpen] = useState<number | null>(null);
+  /** The OPEN photo by id, not position — pinning re-sorts the strip. */
+  const [open, setOpen] = useState<string | null>(null);
 
   const scopeKey = JSON.stringify(scope);
   const load = useCallback(async () => {
@@ -65,7 +66,12 @@ export function NotesLog({
     });
     const j = await res.json();
     if (!res.ok) { setError(j.error ?? "Could not save"); return; }
-    setNotes((xs) => sortNotes((xs ?? []).map((n) => (n.id === id ? (j.note as IntelNote) : n))));
+    const next = j.note as IntelNote;
+    // Un-tagging "Venue" on the venue page removes it from this page — the
+    // server scope would on reload, so do it now rather than show a ghost.
+    const still = "venueId" in scope ? next.aboutVenue : "orgId" in scope ? next.aboutClient : true;
+    setNotes((xs) => sortNotes((xs ?? []).flatMap((n) => (n.id === id ? (still ? [next] : []) : [n]))));
+    if (!still && open === id) setOpen(null);
   };
   const remove = async (id: string) => {
     if (!confirm("Delete this entry? The photo goes with it.")) return;
@@ -121,13 +127,12 @@ export function NotesLog({
       {photos.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-2">
           {photos.map((n) => {
-            const i = photos.indexOf(n);
             const ar = n.width && n.height ? n.width / n.height : 4 / 3;
             return (
               <li key={n.id}>
                 <button
                   type="button"
-                  onClick={() => setOpen(i)}
+                  onClick={() => setOpen(n.id)}
                   className="group relative block h-24 overflow-hidden rounded bg-stone-100 sm:h-28"
                   style={{ width: `${Math.max(64, Math.min(220, Math.round(112 * ar)))}px` }}
                   title={n.body ?? undefined}
@@ -155,19 +160,22 @@ export function NotesLog({
         </ul>
       )}
 
-      {open !== null && photos[open] && (
+      {open !== null && photos.some((p) => p.id === open) && (() => {
+        const i = photos.findIndex((p) => p.id === open);
+        return (
         <Lightbox
-          n={photos[open]}
+          n={photos[i]}
           scope={scope}
-          hasPrev={open > 0}
-          hasNext={open < photos.length - 1}
-          onPrev={() => setOpen((i) => (i ?? 0) - 1)}
-          onNext={() => setOpen((i) => (i ?? 0) + 1)}
+          hasPrev={i > 0}
+          hasNext={i < photos.length - 1}
+          onPrev={() => setOpen(photos[i - 1]?.id ?? null)}
+          onNext={() => setOpen(photos[i + 1]?.id ?? null)}
           onClose={() => setOpen(null)}
           onPatch={patch}
           onDelete={remove}
         />
-      )}
+        );
+      })()}
     </div>
   );
 }

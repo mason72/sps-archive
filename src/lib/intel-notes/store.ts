@@ -417,16 +417,27 @@ export async function deleteNote(db: DB, userId: string, id: string): Promise<bo
 }
 
 /**
- * The event's venue changed: every entry that inherited the old venue follows.
- * Called from the event-intel PATCH — the one writer of `event_intel.venue_id`
- * — so the copied venue_id can never drift from the fact it was copied from.
+ * The event's venue changed: entries that INHERITED the old venue follow it.
+ *
+ * Only rows still pointing at the previous venue (or at none) move — an entry
+ * whose venue was chosen by hand to differ from the event's is a decision, and
+ * a later venue correction on the event must not overwrite it (review finding).
+ * Called from the event-intel PATCH, the one writer of `event_intel.venue_id`.
  */
-export async function repointEventNotes(db: DB, userId: string, eventId: string, venueId: string | null) {
+export async function repointEventNotes(
+  db: DB,
+  userId: string,
+  eventId: string,
+  venueId: string | null,
+  previousVenueId: string | null
+) {
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const { error } = await (db as any)
+  let q = (db as any)
     .from("intel_notes")
     .update({ venue_id: venueId, updated_at: new Date().toISOString() })
     .eq("event_id", eventId)
     .eq("user_id", userId);
+  q = previousVenueId ? q.or(`venue_id.eq.${previousVenueId},venue_id.is.null`) : q.is("venue_id", null);
+  const { error } = await q;
   if (error) throw error;
 }
