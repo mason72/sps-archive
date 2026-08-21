@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twodudes.pixieset.stallcheck</string>
+
+  <!-- Hourly pulse check on the migration. Emails only when something is wrong,
+       on a change of verdict, or once a day while it stays wrong. Exists because
+       the pipeline ran dry on 2026-08-17 and nobody noticed for four days. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/npx</string>
+    <string>tsx</string>
+    <string>scripts/pixieset/stall-check.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- StartInterval, not KeepAlive: this is a periodic job that EXITS, and a
+       KeepAlive job that exits gets relaunched instantly and spins. -->
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/stall-check.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/stall-check.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
