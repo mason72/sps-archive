@@ -7,7 +7,7 @@ import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
 import { buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
-import { parseFilename } from "@/lib/upload/parse-filename";
+import { stripMediaExtension } from "@/lib/upload/media";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
@@ -86,22 +86,45 @@ function PinPromptModal({ onSubmit, onClose }: { onSubmit: (pin: string) => void
  * next original downloaded, and the caption — which had already switched —
  * named a photo that was not on screen (Mason, 2026-08-21).
  */
-function LightboxImage({ image }: { image: GalleryImage }) {
+function LightboxImage({
+  image,
+  onBackdropClick,
+}: {
+  image: GalleryImage;
+  /** Click on the letterbox (outside the painted photo) closes the viewer. */
+  onBackdropClick: () => void;
+}) {
   const [loaded, setLoaded] = useState(false);
   const alt = image.parsedName || image.originalFilename;
   const original = image.originalUrl;
+  // Both layers share one 90vh × 90vw box and letterbox with object-contain,
+  // so the box is sized by the viewport, never by the thumbnail's pixels.
+  // The element box is larger than the painted photo, so hit-test the click
+  // against the contained rect and treat the margin as backdrop.
+  const handleClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    const el = e.currentTarget;
+    const nw = el.naturalWidth;
+    const nh = el.naturalHeight;
+    if (!nw || !nh) return e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    const scale = Math.min(r.width / nw, r.height / nh);
+    const pw = nw * scale;
+    const ph = nh * scale;
+    const x0 = r.left + (r.width - pw) / 2;
+    const y0 = r.top + (r.height - ph) / 2;
+    const inside =
+      e.clientX >= x0 && e.clientX <= x0 + pw && e.clientY >= y0 && e.clientY <= y0 + ph;
+    e.stopPropagation();
+    if (!inside) onBackdropClick();
+  };
   return (
-    // Both layers fill the image AREA (a definite flex-1 box) and letterbox
-    // with object-contain, so the box is sized by the viewport — never by the
-    // thumbnail's natural pixels, which is what shrank the photo to a stamp on
-    // the first cut. Clicks on the letterbox still reach the backdrop (close).
-    <div className="relative h-full w-full lightbox-image-enter">
+    <div className="relative h-[90vh] w-[90vw] lightbox-image-enter">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={image.thumbnailUrl}
         alt={alt}
         className="absolute inset-0 h-full w-full object-contain"
-        onClick={(e) => e.stopPropagation()}
+        onClick={handleClick}
       />
       {original && (
         /* eslint-disable-next-line @next/next/no-img-element */
@@ -111,7 +134,7 @@ function LightboxImage({ image }: { image: GalleryImage }) {
           onLoad={() => setLoaded(true)}
           className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
           style={{ opacity: loaded ? 1 : 0 }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={handleClick}
         />
       )}
     </div>
@@ -1435,7 +1458,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           aria-modal="true"
           aria-label="Image viewer"
           tabIndex={-1}
-          className="fixed inset-0 z-50 flex flex-col lightbox-open"
+          className="fixed inset-0 z-50 flex items-center justify-center lightbox-open"
           style={{ backgroundColor: lightboxBg, color: lbFg }}
           onClick={() => setSelectedImageId(null)}
           onKeyDown={(e) => {
@@ -1484,61 +1507,71 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </button>
           )}
 
-          {/* Header band — counter + name on the left, close on the right.
-              A real row the photo sits BELOW, never an overlay: the old
-              absolute caption landed on the top-left of every tall photo and
-              read as broken (Mason, 2026-08-21). */}
+          {/* Close */}
+          <button
+            aria-label="Close image viewer"
+            className="absolute top-4 right-4 p-3 transition-opacity hover:opacity-100 z-10"
+            style={{ color: lbFgMuted }}
+            onClick={() => setSelectedImageId(null)}
+          >
+            <X className="h-6 w-6" strokeWidth={1.5} />
+          </button>
+
+          {/* Metadata chips — top-left, OVER the photo by design. A bare
+              string over a portrait read as broken; a hairline container on a
+              blurred ground reads as a label. Counter + person in one chip,
+              the filename in a second, monospaced, so it is plainly metadata
+              and not a caption (Mason, 2026-08-21). */}
           <div
-            className="flex h-12 shrink-0 items-center justify-between pl-5 pr-2"
+            className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-1.5"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* One line, no raw filename: a guest reads "40 / 60 · Alex
-                Williams · 050" — the person (same resolver as the stack
-                labels) and the frame number, which is what a client quotes
-                back when picking ("I like 050"). The filename itself is what
-                the download is named, and that is where it belongs. */}
-            <p
-              className="min-w-0 truncate text-[12px] tabular-nums"
-              style={{ color: lbFgMuted }}
-            >
-              <span style={{ opacity: 0.7 }}>
-                {selectedIndex + 1} / {navImages.length}
-              </span>
-              {(() => {
-                const person =
-                  (stackNav && openStack?.personName) || stackPersonName(selectedImage);
-                const seq = parseFilename(selectedImage.originalFilename).sequence;
-                return (
-                  <>
-                    {person && <span className="ml-2">· {person}</span>}
-                    {seq !== null && (
-                      <span className="ml-2" style={{ opacity: 0.7 }}>
-                        · {String(seq).padStart(3, "0")}
-                      </span>
+            {(() => {
+              const chip = {
+                color: lbFgMuted,
+                backgroundColor: isDarkBg ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.72)",
+                borderColor: isDarkBg ? "rgba(255,255,255,0.16)" : `${colors.secondary}33`,
+              };
+              const person =
+                (stackNav && openStack?.personName) || stackPersonName(selectedImage);
+              return (
+                <>
+                  <span
+                    className="flex items-center gap-2 border px-2.5 py-1 text-[11px] tabular-nums backdrop-blur-md"
+                    style={chip}
+                  >
+                    <span style={{ opacity: 0.7 }}>
+                      {selectedIndex + 1} / {navImages.length}
+                    </span>
+                    {person && (
+                      <>
+                        <span aria-hidden style={{ opacity: 0.35 }}>·</span>
+                        <span className="font-medium" style={{ color: lbFg, opacity: 0.85 }}>
+                          {person}
+                        </span>
+                      </>
                     )}
-                  </>
-                );
-              })()}
-            </p>
-            <button
-              aria-label="Close image viewer"
-              className="p-3 transition-opacity hover:opacity-100"
-              style={{ color: lbFgMuted }}
-              onClick={() => setSelectedImageId(null)}
-            >
-              <X className="h-6 w-6" strokeWidth={1.5} />
-            </button>
+                  </span>
+                  {selectedImage.originalFilename && (
+                    <span
+                      className="max-w-[50vw] truncate border px-2.5 py-1 font-mono text-[10.5px] tracking-tight backdrop-blur-md"
+                      style={{ ...chip, opacity: 0.85 }}
+                      title={selectedImage.originalFilename}
+                    >
+                      {stripMediaExtension(selectedImage.originalFilename)}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
-          {/* Image area — the remaining height, minus the band the bottom bar
-              (and filmstrip, inside a stack) occupies, so nothing overlaps the
-              photo. Keyed on the id: photo and caption change together. */}
-          <div
-            className="flex min-h-0 flex-1 items-center justify-center px-14"
-            style={{ paddingBottom: stackNav ? "7.5rem" : "3.75rem" }}
-          >
-            <LightboxImage key={selectedImage.id} image={selectedImage} />
-          </div>
+          {/* Image — 90vh, keyed on the id so photo and chips change together */}
+          <LightboxImage
+            key={selectedImage.id}
+            image={selectedImage}
+            onBackdropClick={() => setSelectedImageId(null)}
+          />
 
           {/* Stack filmstrip — thumbnails of the person's other shots, so it's
               clear you're browsing inside a stack. Click to jump. */}
@@ -1635,46 +1668,6 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </div>
           )}
 
-          {/* Header band — counter + name on the left, close on the right.
-              A real row the photo sits BELOW, never an overlay: the old
-              absolute caption landed on the top-left of every tall photo and
-              read as broken (Mason, 2026-08-21). */}
-          <div
-            className="flex h-14 shrink-0 items-center justify-between pl-5 pr-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="min-w-0">
-              <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
-                {selectedIndex + 1} / {navImages.length}
-                {stackNav && openStack && (
-                  <span className="ml-2 not-italic">· {openStack.personName}</span>
-                )}
-              </p>
-              {selectedImage.originalFilename && (
-                <p className="text-[13px] max-w-[60vw] truncate" style={{ color: lbFgMuted }}>
-                  {selectedImage.originalFilename}
-                </p>
-              )}
-            </div>
-            <button
-              aria-label="Close image viewer"
-              className="p-3 transition-opacity hover:opacity-100"
-              style={{ color: lbFgMuted }}
-              onClick={() => setSelectedImageId(null)}
-            >
-              <X className="h-6 w-6" strokeWidth={1.5} />
-            </button>
-          </div>
-
-          {/* Image area — the remaining height, minus the band the bottom bar
-              (and filmstrip, inside a stack) occupies, so nothing overlaps the
-              photo. Keyed on the id: photo and caption change together. */}
-          <div
-            className="flex min-h-0 flex-1 items-center justify-center px-16"
-            style={{ paddingBottom: stackNav ? "8.5rem" : "4.5rem" }}
-          >
-            <LightboxImage key={selectedImage.id} image={selectedImage} />
-          </div>
         </div>
       )}
 
