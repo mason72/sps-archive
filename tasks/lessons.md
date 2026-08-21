@@ -1313,3 +1313,35 @@ from the half-day before crew-first existed. An ordering lesson rides along:
 when two identity systems share one corpus, build the PRIORITY rule (crew
 first) before the volume path (guests), because every confirm processed under
 the wrong priority becomes cleanup.
+
+## 95 — a gate named for one action was firing on every action that shared its code path (2026-08-21)
+
+Mason, poking at a PIN-gated headshot gallery as a client: opening one person's
+18-shot group and pressing "Download all 18" demanded the download PIN. The
+setting is called **PIN for Download All** and means the whole gallery; the
+code gated on "is this a ZIP" — and a person's stack, a section, favorites and
+a picked selection all ship as ZIPs. Same shape as the `linked`/`duplicate`
+status trap: a mechanism (ZIP vs single file) stood in for the meaning (the
+entire gallery vs a subset), and they stopped agreeing the day stacks got a
+download button.
+
+- **The rule now has one pure home, `src/lib/gallery/download-gate.ts`**:
+  `bulk` = empty scope on a non-curated share; everything else is `individual`.
+  The three ZIP routes pass the scope into `authorizeShareDownload`, which
+  derives the gate — routes no longer name a kind — and the client imports the
+  same function so the prompt and the refusal cannot disagree. A curated
+  (selection) share link's "Download all" is a subset too.
+- **The status route reads the job BEFORE the gate** because the stored scope
+  decides which PIN applies; share ownership is still checked after, so nothing
+  from the row escapes on a mismatch.
+- **When a toggle's label names an action, grep for where the flag is READ**
+  and check each reader agrees with the label. The sidebar copy said "Download
+  All"; three routes and one client branch read it as "any ZIP".
+
+Same day, the Highlights generator: Justin read "Still reading the photos —
+Highlights waits for the whole event" as *uploading to Highlights is blocked*,
+and then the panel stayed frozen after AI finished because it fetched its plan
+**once on mount**. A waiting state that fills the screen must name the path
+that works now, and a state that depends on a background job must re-read
+when that job reports done — the page already had the live `aiStatus`; the
+panel just never asked for it.
