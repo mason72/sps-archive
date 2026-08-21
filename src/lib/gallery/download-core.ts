@@ -5,6 +5,7 @@ import { timingSafeEqualStr } from "@/lib/shares/hash";
 import { verifyDownloadToken } from "@/lib/shares/download-token";
 import { checkAuthRateLimit } from "@/lib/security/rate-limit";
 import { resolveShareImageScope } from "@/lib/gallery/share-scope";
+import { downloadGateKind } from "@/lib/gallery/download-gate";
 
 /**
  * Shared core for gallery ZIP downloads — used by the synchronous streaming
@@ -77,9 +78,13 @@ export type DownloadAuthResult =
  * downloads allowed, password cookie, PIN (download token preferred, raw PIN
  * honored as fallback, rate-limited).
  *
- * `kind` picks which PIN gate applies — the bulk-ZIP one or the per-image one.
- * Both PINs are the share's single `download_pin`; the flags only decide which
- * actions demand it, so one verified token satisfies either.
+ * Which PIN gate applies comes from `downloadGateKind`: the bulk one ONLY for
+ * the whole gallery of a full share; every subset (a person's stack, a section,
+ * favorites, a picked selection, a curated share link) is gated like a single
+ * photo. Pass the ZIP `scope`; `kind: "individual"` is the per-image route's
+ * explicit override. Both PINs are the share's single `download_pin`; the
+ * flags only decide which actions demand it, so one verified token satisfies
+ * either.
  */
 export async function authorizeShareDownload(
   supabase: DB,
@@ -89,7 +94,9 @@ export async function authorizeShareDownload(
     downloadToken: string | null;
     pin: string | null;
     ip: string;
-    kind?: "bulk" | "individual";
+    kind?: "individual";
+    /** The ZIP scope being requested — decides bulk vs individual gate. */
+    scope?: DownloadScope;
   }
 ): Promise<DownloadAuthResult> {
   const { data: share, error } = await supabase
@@ -105,9 +112,10 @@ export async function authorizeShareDownload(
   if (share.expires_at && new Date(share.expires_at) < new Date()) {
     return { ok: false, status: 410, message: "Link expired" };
   }
+  const shareScope = resolveShareImageScope(share);
   // A share type nothing knows how to narrow exposes no images, so there is
   // nothing to authorize a download of (see share-scope).
-  if (resolveShareImageScope(share).kind === "none") {
+  if (shareScope.kind === "none") {
     return { ok: false, status: 404, message: "Gallery not found" };
   }
   if (!share.allow_download) {
@@ -117,8 +125,14 @@ export async function authorizeShareDownload(
     return { ok: false, status: 401, message: "Authentication required" };
   }
 
+  const kind =
+    opts.kind ??
+    downloadGateKind({
+      curated: shareScope.kind === "images",
+      scope: opts.scope ?? {},
+    });
   const pinRequired =
-    opts.kind === "individual"
+    kind === "individual"
       ? share.require_pin_individual
       : share.require_pin_bulk;
 

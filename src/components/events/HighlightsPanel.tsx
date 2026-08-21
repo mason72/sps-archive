@@ -28,6 +28,7 @@ export function HighlightsPanel({
   columnCount,
   gap,
   existingCount = 0,
+  aiReady = true,
   onApplied,
   onDismiss,
 }: {
@@ -36,6 +37,15 @@ export function HighlightsPanel({
   gap?: "tight" | "normal" | "loose";
   /** Photos already in Highlights — a re-run REPLACES them, so say so. */
   existingCount?: number;
+  /**
+   * The page's live AI status (from the processing banner's poll). The plan is
+   * re-read when this flips true, so the "Still reading the photos" state turns
+   * into the generator on its own. It used to be fetched once on mount, which
+   * froze the progress bar at whatever it said when the section was opened —
+   * Justin watched AI finish in the banner and had to reload to get Highlights
+   * back (2026-08-21).
+   */
+  aiReady?: boolean;
   /** Refresh the editor's sections/images once a set has been saved. */
   onApplied: () => void;
   /** Leave the generator without saving (re-run only). */
@@ -50,9 +60,14 @@ export function HighlightsPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [coverage, setCoverage] = useState(true);
 
+  const waiting = indexing !== null && indexing.indexed < indexing.total;
+
+  // Read the plan on mount, again whenever AI reports ready, and on a slow
+  // poll while indexing is incomplete (belt and braces: the banner's own poll
+  // can miss the flip if the page was opened after it settled).
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch(`/api/events/${eventId}/highlights/plan`);
         if (!res.ok) throw new Error(String(res.status));
@@ -71,11 +86,14 @@ export function HighlightsPanel({
       } catch {
         if (!cancelled) toast.error("Could not read this event");
       }
-    })();
+    };
+    void load();
+    const timer = waiting ? setInterval(load, 30_000) : null;
     return () => {
       cancelled = true;
+      if (timer) clearInterval(timer);
     };
-  }, [eventId]);
+  }, [eventId, aiReady, waiting]);
 
   const propose = useCallback(
     async (opts: { count: number; coverage: boolean }, mode: "first" | "refresh") => {

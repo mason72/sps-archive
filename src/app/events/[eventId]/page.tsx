@@ -2520,6 +2520,7 @@ export default function EventPage({
                       columnCount={gridSettings?.columns}
                       gap={gridSettings?.gap}
                       existingCount={activeSectionData?.imageIds?.length ?? 0}
+                      aiReady={aiReady}
                       onApplied={() => {
                         setHighlightsRerun(false);
                         fetchEvent();

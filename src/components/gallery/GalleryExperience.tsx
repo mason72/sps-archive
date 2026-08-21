@@ -7,6 +7,7 @@ import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
 import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
+import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
@@ -596,7 +597,15 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     if (!gallery) return;
     setDownloadMenuOpen(false);
     const token = tokenOverride ?? downloadToken;
-    if (gallery.requirePinBulk && !token) {
+    // Mirrors the server's gate: only the WHOLE gallery of a full share is
+    // "bulk". One person's stack, a section, favorites, a picked selection, or
+    // a curated share link's "download all" are subsets, gated like a single
+    // photo — so a PIN-gated headshot day no longer walls off "Download all
+    // 18" on one person's group (Mason, 2026-08-21).
+    const gate = downloadGateKind({ curated: !!gallery.curated, scope: query });
+    const pinRequired =
+      gate === "bulk" ? gallery.requirePinBulk : gallery.requirePinIndividual;
+    if (pinRequired && !token) {
       setPinAction({ type: "bulk", query });
       setShowPinModal(true);
       return;

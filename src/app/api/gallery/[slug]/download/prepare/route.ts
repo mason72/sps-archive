@@ -39,23 +39,24 @@ export async function POST(
     // empty body = full-gallery scope
   }
 
-  const auth = await authorizeShareDownload(supabase, slug, {
-    cookieShareId: request.cookies.get(`gallery_auth_${slug}`)?.value ?? null,
-    downloadToken: typeof body.dt === "string" ? body.dt : null,
-    pin: typeof body.pin === "string" ? body.pin : null,
-    ip: clientIp(request),
-  });
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.message }, { status: auth.status });
-  }
-  const { share } = auth;
-
   const scope = scopeFrom({
     favorites: body.favorites as string | boolean | undefined,
     section: body.section as string | undefined,
     images: body.images as string | string[] | undefined,
     name: body.name as string | undefined,
   });
+  const auth = await authorizeShareDownload(supabase, slug, {
+    cookieShareId: request.cookies.get(`gallery_auth_${slug}`)?.value ?? null,
+    downloadToken: typeof body.dt === "string" ? body.dt : null,
+    pin: typeof body.pin === "string" ? body.pin : null,
+    ip: clientIp(request),
+    scope,
+  });
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
+  }
+  const { share } = auth;
+
 
   const selection = await selectDownloadImages(supabase, share, scope);
   if (!selection.ok) {

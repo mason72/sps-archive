@@ -112,8 +112,16 @@ export function HighlightsEmptyState({
             ? ` · about ${formatSpan(indexing.etaMinutes)} left`
             : ""}
         </p>
-        <p className="mt-6 max-w-xs text-[12px] leading-relaxed text-stone-300">
-          You can keep working. Nothing here needs you.
+        {/* Name the path that works NOW. This waiting state is the whole
+            screen, titled "Highlights", so without this line it reads as
+            "Highlights is blocked until AI finishes" — which is how Justin
+            read it (2026-08-21). Only the generator waits; uploading into
+            Highlights by hand never did. */}
+        <p className="mt-6 max-w-sm text-[12px] leading-relaxed text-stone-400">
+          Only the automatic picks wait for this. You can add photos to
+          Highlights yourself right now — drop them in the upload box above, or
+          drag them onto Highlights in the sidebar — and this will update on its
+          own when the reading finishes.
         </p>
       </Shell>
     );

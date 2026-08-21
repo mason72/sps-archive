@@ -42,23 +42,24 @@ export async function GET(
   const supabase = createServiceClient();
   const sp = request.nextUrl.searchParams;
 
-  const auth = await authorizeShareDownload(supabase, slug, {
-    cookieShareId: request.cookies.get(`gallery_auth_${slug}`)?.value ?? null,
-    downloadToken: sp.get("dt"),
-    pin: sp.get("pin"),
-    ip: clientIp(request),
-  });
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.message }, { status: auth.status });
-  }
-  const { share } = auth;
-
   const scope = scopeFrom({
     favorites: sp.get("favorites"),
     section: sp.get("section"),
     images: sp.get("images"),
     name: sp.get("name"),
   });
+  const auth = await authorizeShareDownload(supabase, slug, {
+    cookieShareId: request.cookies.get(`gallery_auth_${slug}`)?.value ?? null,
+    downloadToken: sp.get("dt"),
+    pin: sp.get("pin"),
+    ip: clientIp(request),
+    scope,
+  });
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
+  }
+  const { share } = auth;
+
 
   const selection = await selectDownloadImages(supabase, share, scope);
   if (!selection.ok) {

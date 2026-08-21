@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { clientIp } from "@/lib/security/rate-limit";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
-import { authorizeShareDownload } from "@/lib/gallery/download-core";
+import {
+  authorizeShareDownload,
+  type DownloadScope,
+} from "@/lib/gallery/download-core";
 
 /**
  * GET /api/gallery/[slug]/download/status?job=<id>&dt=<token>
@@ -24,23 +27,29 @@ export async function GET(
     return NextResponse.json({ error: "job is required" }, { status: 400 });
   }
 
+  // The job is read BEFORE the gates because its stored scope decides which
+  // PIN gate applies (a person's stack is not "the whole gallery"). Nothing
+  // from the row leaves this function until share ownership is checked below.
+  const { data: job } = await supabase
+    .from("zip_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .single();
+  if (!job) {
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
+
   const auth = await authorizeShareDownload(supabase, slug, {
     cookieShareId: request.cookies.get(`gallery_auth_${slug}`)?.value ?? null,
     downloadToken: sp.get("dt"),
     pin: sp.get("pin"),
     ip: clientIp(request),
+    scope: (job.scope ?? {}) as DownloadScope,
   });
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-
-  const { data: job } = await supabase
-    .from("zip_jobs")
-    .select("*")
-    .eq("id", jobId)
-    .eq("share_id", auth.share.id)
-    .single();
-  if (!job) {
+  if (job.share_id !== auth.share.id) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 

@@ -1547,7 +1547,10 @@ function DetailsPanel({
             </button>
           </div>
 
-          {/* PIN for bulk download. Turning it OFF also clears the per-image
+          {/* PIN for downloading the WHOLE gallery — and only that. One
+              person's group, a section, favorites and curated share links are
+              subsets, gated by the per-image toggle below (download-gate.ts).
+              Turning it OFF also clears the per-image
               escalation nested under it — gating single photos while
               "Download All" stays open gates nothing, since the guest just
               takes the ZIP instead. normalizeDownloadPins is the same rule,
@@ -1579,9 +1582,9 @@ function DetailsPanel({
           {sharing.requirePinBulk && (
             <div className="flex items-center justify-between pl-3 border-l border-stone-200">
               <span className="text-[12px] text-stone-600">
-                Also for single photos
+                Also for single photos and groups
                 <span className="block text-[10px] text-stone-400">
-                  Same PIN, asked before each download
+                  Same PIN, asked before each photo, person or section
                 </span>
               </span>
               <button
