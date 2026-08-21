@@ -447,9 +447,11 @@ function PhotoCaptionOverlay({ subject, takenAt }: { subject: Subject; takenAt: 
       {subject.client && (
         <p className="truncate text-[15px] font-medium leading-tight drop-shadow-sm">{subject.client.name}</p>
       )}
+      {/* Line two wraps to two lines rather than truncating — the date sits
+          at the end, and it is the part a cut would take. */}
       {line2.length > 0 && (
-        <p className={`truncate text-[10.5px] uppercase tracking-[0.14em] text-white/85 ${subject.client ? "mt-1" : ""}`}>
-          {line2.join("  ·  ")}
+        <p className={`line-clamp-2 text-[10.5px] uppercase leading-[1.5] tracking-[0.12em] text-white/85 ${subject.client ? "mt-1" : ""}`}>
+          {line2.join(" · ")}
         </p>
       )}
     </div>
