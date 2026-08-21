@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { ImagePlus, X } from "lucide-react";
 import type { ComboValue } from "./Combobox";
-import { FIELD, SubjectFields, Tag, type Subject } from "./SubjectFields";
+import { FIELD, SubjectFields, type Subject } from "./SubjectFields";
 import { prepareImage, putBlob, type PreparedImage } from "@/lib/intel-notes/client-image";
 import type { IntelNote } from "@/lib/intel-notes/store";
 
@@ -15,10 +15,10 @@ import type { IntelNote } from "@/lib/intel-notes/store";
  * (one side known), and the bulk screen (nothing known). Same control
  * everywhere, so "caption, then tag Venue / Client" is learned once.
  *
- * Each photo is its OWN entry with its own caption and tags — Mason: "allow
- * uploading multiple images and each can be tagged for either/both and notes
- * can be blank IF they have an image." The top-level toggles set every photo
- * at once; a per-photo toggle overrides just that one.
+ * Each photo is its OWN entry with its own caption — Mason: "allow uploading
+ * multiple images … and notes can be blank IF they have an image." Where an
+ * entry shows is decided by the FIELDS: venue filled → venue page, client
+ * filled → client page. No tag control; clear a field to leave that page.
  *
  * Photos tell us things before you type: the EXIF date proposes the gig, the
  * GPS proposes the venue. Both are pre-filled pickers, never silent writes —
@@ -30,8 +30,6 @@ interface Item {
   file: File;
   prep: PreparedImage | null;
   caption: string;
-  aboutVenue: boolean;
-  aboutClient: boolean;
   status: "preparing" | "ready" | "uploading" | "done" | "error";
   error?: string;
 }
@@ -59,8 +57,6 @@ export function NoteComposer({
   const { venue, client, gig } = subject;
   const [text, setText] = useState("");
   const [items, setItems] = useState<Item[]>([]);
-  const [allVenue, setAllVenue] = useState(true);
-  const [allClient, setAllClient] = useState(true);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +77,7 @@ export function NoteComposer({
     if (!accepted.length) return;
     const fresh: Item[] = accepted.map((file) => ({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
-      file, prep: null, caption: "", aboutVenue: allVenue, aboutClient: allClient, status: "preparing",
+      file, prep: null, caption: "", status: "preparing",
     }));
     setItems((xs) => [...xs, ...fresh]);
     // Prepare sequentially — decoding twelve 12MP frames at once is how a
@@ -97,7 +93,7 @@ export function NoteComposer({
         }
       }
     })();
-  }, [allVenue, allClient]);
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
@@ -166,14 +162,13 @@ export function NoteComposer({
       await Promise.all(Array.from({ length: Math.min(4, pending.length) }, worker));
 
       const entries: Record<string, unknown>[] = [];
-      if (text.trim()) entries.push({ body: text.trim(), aboutVenue: allVenue, aboutClient: allClient });
+      if (text.trim()) entries.push({ body: text.trim() });
       for (const it of photos) {
         const slot = keyed.current.get(it.key)!;
         entries.push({
           body: it.caption.trim() || null,
           storageKey: slot.storageKey, thumbKey: slot.thumbKey,
           width: it.prep!.width, height: it.prep!.height, takenAt: it.prep!.takenAt,
-          aboutVenue: it.aboutVenue, aboutClient: it.aboutClient,
         });
       }
       const res = await fetch("/api/intel/notes", {
@@ -203,11 +198,6 @@ export function NoteComposer({
     }
   };
 
-  const setAll = (side: "venue" | "client", on: boolean) => {
-    if (side === "venue") { setAllVenue(on); setItems((xs) => xs.map((x) => ({ ...x, aboutVenue: on }))); }
-    else { setAllClient(on); setItems((xs) => xs.map((x) => ({ ...x, aboutClient: on }))); }
-  };
-
   return (
     <div {...getRootProps()} className={`rounded-lg border bg-white p-4 sm:p-5 ${isDragActive ? "border-emerald-500 ring-2 ring-emerald-500/20" : "border-stone-200"}`}>
       <input {...getInputProps()} />
@@ -232,13 +222,13 @@ export function NoteComposer({
         className={`${FIELD} mt-4 resize-y leading-relaxed`}
       />
 
-      {/* ── Tags (for the note and, by default, every photo) ───────────── */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-[12px] text-stone-400">About</span>
-        <Tag on={allVenue} onClick={() => setAll("venue", !allVenue)} disabled={!venue && !eventId && !gig}>Venue</Tag>
-        <Tag on={allClient} onClick={() => setAll("client", !allClient)} disabled={!client && !eventId && !gig}>Client</Tag>
-        {items.length > 1 && <span className="text-[12px] text-stone-300">sets every photo — change any one below</span>}
-      </div>
+      <p className="mt-2 text-[12px] text-stone-400">
+        {venue && client ? "Shows on the venue and the client pages."
+          : venue ? "Shows on the venue page. Add a client to show there too."
+          : client ? "Shows on the client page. Add a venue to show there too."
+          : eventId || gig ? "Linked to the gig. Add a venue or client to show on their pages."
+          : null}
+      </p>
 
       {/* ── Photos ─────────────────────────────────────────────────────── */}
       <div className="mt-4">
@@ -268,8 +258,6 @@ export function NoteComposer({
                     disabled={saving}
                   />
                   <div className="mt-2 flex items-center gap-1.5">
-                    <Tag small on={it.aboutVenue} onClick={() => setItems((xs) => xs.map((x) => (x.key === it.key ? { ...x, aboutVenue: !x.aboutVenue } : x)))}>Venue</Tag>
-                    <Tag small on={it.aboutClient} onClick={() => setItems((xs) => xs.map((x) => (x.key === it.key ? { ...x, aboutClient: !x.aboutClient } : x)))}>Client</Tag>
                     <span className="ml-auto text-[11px] text-stone-400">
                       {it.status === "error" ? <span className="text-red-700">{it.error}</span>
                         : it.status === "preparing" ? "Reading…"

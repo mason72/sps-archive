@@ -140,24 +140,3 @@ export function SubjectFields({
     </div>
   );
 }
-
-/** Venue / Client toggle, shared by every caption row. */
-export function Tag({ on, onClick, children, small, disabled, title }: {
-  on: boolean; onClick: () => void; children: React.ReactNode; small?: boolean; disabled?: boolean; title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={on}
-      disabled={disabled}
-      title={title}
-      onClick={onClick}
-      className={`rounded-full border ${small ? "px-2 py-0.5 text-[11px]" : "min-h-[32px] px-3 text-[12px]"} transition-colors disabled:opacity-40 ${
-        on ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-500 hover:border-stone-300"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}

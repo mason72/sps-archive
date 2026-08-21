@@ -263,8 +263,6 @@ export interface NewNoteInput {
   width?: number | null;
   height?: number | null;
   takenAt?: string | null;
-  aboutVenue?: boolean;
-  aboutClient?: boolean;
   pinned?: boolean;
 }
 
@@ -313,17 +311,17 @@ export async function createNotes(
       ]);
       if (!a || !b) return { error: `Photo ${i + 1} did not finish uploading`, status: 409 };
     }
-    const aboutVenue = n.aboutVenue !== false;
-    const aboutClient = n.aboutClient !== false;
     rows.push({
       user_id: userId,
       event_id: subject.eventId,
-      // An entry tagged "not about the venue" still keeps venue_id — the tag is
-      // what the venue page filters on, the id is provenance.
       venue_id: subject.venueId,
       org_id: subject.orgId,
-      about_venue: aboutVenue,
-      about_client: aboutClient,
+      // THE FIELDS DECIDE (Mason, 2026-08-21): a venue filled in means "on the
+      // venue page", a client filled in means "on the client page". No tag
+      // control — to make a gig's photo venue-only you clear its client. The
+      // columns stay as the page filters; they are derived here, never input.
+      about_venue: !!subject.venueId,
+      about_client: !!subject.orgId,
       body,
       storage_key: storageKey,
       thumb_key: storageKey ? thumbKey : null,
@@ -342,8 +340,6 @@ export async function createNotes(
 
 export interface NotePatch {
   body?: string | null;
-  aboutVenue?: boolean;
-  aboutClient?: boolean;
   pinned?: boolean;
   /** Re-home the entry; each id is proven before use. */
   eventId?: string | null;
@@ -370,8 +366,6 @@ export async function patchNote(
     if (!body && !cur.storage_key) return { error: "A note without a photo needs some text", status: 400 };
     upd.body = body;
   }
-  if (typeof patch.aboutVenue === "boolean") upd.about_venue = patch.aboutVenue;
-  if (typeof patch.aboutClient === "boolean") upd.about_client = patch.aboutClient;
   if (typeof patch.pinned === "boolean") upd.pinned = patch.pinned;
 
   if (patch.eventId !== undefined || patch.venueId !== undefined || patch.orgId !== undefined) {
@@ -384,6 +378,9 @@ export async function patchNote(
     upd.event_id = subject.eventId;
     upd.venue_id = subject.venueId;
     upd.org_id = subject.orgId;
+    // The fields decide — re-homing re-derives the page flags.
+    upd.about_venue = !!subject.venueId;
+    upd.about_client = !!subject.orgId;
   }
 
   const { data, error } = await anyDb
@@ -434,7 +431,7 @@ export async function repointEventNotes(
   /* eslint-disable @typescript-eslint/no-explicit-any */
   let q = (db as any)
     .from("intel_notes")
-    .update({ venue_id: venueId, updated_at: new Date().toISOString() })
+    .update({ venue_id: venueId, about_venue: !!venueId, updated_at: new Date().toISOString() })
     .eq("event_id", eventId)
     .eq("user_id", userId);
   q = previousVenueId ? q.or(`venue_id.eq.${previousVenueId},venue_id.is.null`) : q.is("venue_id", null);

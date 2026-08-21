@@ -67,8 +67,8 @@ export function NotesLog({
     const j = await res.json();
     if (!res.ok) { setError(j.error ?? "Could not save"); return; }
     const next = j.note as IntelNote;
-    // Un-tagging "Venue" on the venue page removes it from this page — the
-    // server scope would on reload, so do it now rather than show a ghost.
+    // An entry re-homed away from this page leaves it now, as the server
+    // scope would on reload, rather than sitting here as a ghost.
     const still = "venueId" in scope ? next.aboutVenue : "orgId" in scope ? next.aboutClient : true;
     setNotes((xs) => sortNotes((xs ?? []).flatMap((n) => (n.id === id ? (still ? [next] : []) : [n]))));
     if (!still && open === id) setOpen(null);
@@ -206,17 +206,6 @@ function Provenance({ n, scope }: { n: IntelNote; scope: NoteScope }) {
   );
 }
 
-function Tags({ n, onPatch }: { n: IntelNote; onPatch: (id: string, b: Record<string, unknown>) => Promise<void> }) {
-  const cls = (on: boolean) =>
-    `rounded-full border px-2 py-0.5 text-[11px] transition-colors ${on ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-stone-200 text-stone-400 hover:border-stone-300"}`;
-  return (
-    <span className="inline-flex gap-1.5">
-      <button type="button" className={cls(n.aboutVenue)} onClick={() => void onPatch(n.id, { aboutVenue: !n.aboutVenue })} disabled={!n.venueId} title={n.venueId ? "About the venue" : "No venue on this entry"}>Venue</button>
-      <button type="button" className={cls(n.aboutClient)} onClick={() => void onPatch(n.id, { aboutClient: !n.aboutClient })} disabled={!n.orgId} title={n.orgId ? "About the client" : "No client on this entry"}>Client</button>
-    </span>
-  );
-}
-
 function Actions({ n, onPatch, onDelete, editing, setEditing }: {
   n: IntelNote;
   onPatch: (id: string, b: Record<string, unknown>) => Promise<void>;
@@ -282,7 +271,6 @@ function TextEntry({ n, scope, onPatch, onDelete }: {
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <Provenance n={n} scope={scope} />
-            <Tags n={n} onPatch={onPatch} />
             <Actions n={n} onPatch={onPatch} onDelete={onDelete} editing={editing} setEditing={setEditing} />
           </div>
         </div>
@@ -341,7 +329,6 @@ function Lightbox({ n, scope, hasPrev, hasNext, onPrev, onNext, onClose, onPatch
           </p>
         )}
         <div className="mt-3"><Provenance n={n} scope={scope} /></div>
-        <div className="mt-3"><Tags n={n} onPatch={onPatch} /></div>
         <div className="mt-4 border-t border-stone-100 pt-3">
           <Actions n={n} onPatch={onPatch} onDelete={onDelete} editing={editing} setEditing={setEditing} />
         </div>

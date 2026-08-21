@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { ImagePlus, X } from "lucide-react";
-import { FIELD, SubjectFields, Tag, completeFromGig, type Gig, type Subject } from "./SubjectFields";
+import { FIELD, SubjectFields, completeFromGig, type Gig, type Subject } from "./SubjectFields";
 import { unreadable } from "./NoteComposer";
 import { metresBetween, prepareImage, putBlob, type PreparedImage } from "@/lib/intel-notes/client-image";
 import type { IntelNote } from "@/lib/intel-notes/store";
@@ -18,8 +18,10 @@ import { venues as venueRegistry, useRegistry } from "./registry-cache";
  * image has the client/venue fields next to it, so it's per-image not one
  * edit box at the top of all the images."
  *
- * So: a big thumbnail on the left, and that photo's own venue, client, gig,
- * caption and tags beside it. No selection model, no shared control panel —
+ * So: a big thumbnail on the left, and that photo's own venue, client, gig
+ * and caption beside it. THE FIELDS DECIDE where it shows — venue filled
+ * means the venue page, client filled means the client page; there is no
+ * tag control (Mason: "we just let the fields do the work"). No selection model, no shared control panel —
  * the per-photo fields ARE the interface. What makes hundreds bearable:
  *
  *   - rows line up newest-first by EXIF date, under day + place headers
@@ -39,8 +41,6 @@ interface Item {
   file: File;
   prep: PreparedImage | null;
   caption: string;
-  aboutVenue: boolean;
-  aboutClient: boolean;
   subject: Subject;
   status: "preparing" | "ready" | "uploading" | "done" | "error";
   error?: string;
@@ -77,7 +77,7 @@ export function BulkComposer({ onSaved }: { onSaved: (notes: IntelNote[]) => voi
     if (!accepted.length) return;
     const fresh: Item[] = accepted.map((file) => ({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
-      file, prep: null, caption: "", aboutVenue: true, aboutClient: true, subject: EMPTY, status: "preparing",
+      file, prep: null, caption: "", subject: EMPTY, status: "preparing",
     }));
     setItems((xs) => [...xs, ...fresh]);
     (async () => {
@@ -181,7 +181,7 @@ export function BulkComposer({ onSaved }: { onSaved: (notes: IntelNote[]) => voi
     const i = order.indexOf(key);
     if (i <= 0) return;
     const above = items.find((x) => x.key === order[i - 1]);
-    if (above) patch(key, { subject: { ...above.subject }, aboutVenue: above.aboutVenue, aboutClient: above.aboutClient });
+    if (above) patch(key, { subject: { ...above.subject } });
   };
 
   /* ── Save ──────────────────────────────────────────────────────────────── */
@@ -243,7 +243,6 @@ export function BulkComposer({ onSaved }: { onSaved: (notes: IntelNote[]) => voi
               return {
                 body: it.caption.trim() || null, storageKey: slot.storageKey, thumbKey: slot.thumbKey,
                 width: it.prep!.width, height: it.prep!.height, takenAt: it.prep!.takenAt,
-                aboutVenue: it.aboutVenue, aboutClient: it.aboutClient,
               };
             }),
           }),
@@ -406,10 +405,12 @@ function PhotoRow({ it, saving, canCopyAbove, onChange, onSameAsAbove, onRemove 
           className={`${FIELD} mt-3`}
         />
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="mr-1 text-[12px] text-stone-400">About</span>
-            <Tag on={it.aboutVenue} onClick={() => onChange({ aboutVenue: !it.aboutVenue })} disabled={!it.subject.venue && !it.subject.gig}>Venue</Tag>
-            <Tag on={it.aboutClient} onClick={() => onChange({ aboutClient: !it.aboutClient })} disabled={!it.subject.client && !it.subject.gig}>Client</Tag>
+          <span className="text-[12px] text-stone-400">
+            {it.subject.venue && it.subject.client ? "Shows on the venue and the client pages"
+              : it.subject.venue ? "Shows on the venue page — add a client to show there too"
+              : it.subject.client ? "Shows on the client page — add a venue to show there too"
+              : it.subject.gig ? "Linked to the gig only — add a venue or client to show on their pages"
+              : null}
           </span>
           <span className="ml-auto inline-flex items-center gap-4">
             {canCopyAbove && !saving && (

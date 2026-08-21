@@ -844,3 +844,16 @@ event's Intel tab, the venue and client panels on `/intel`, and a bulk screen at
   details sit in the free tier at this volume.
 - **Not built:** face-matching crew in BTS shots; a pre-gig crew brief email
   with the venue's pinned notes and photos; bulk import of old BTS folders.
+
+### Tagging, settled (2026-08-21, later the same day)
+
+The first build carried Venue / Client chips per entry (default both). Mason:
+"It's not clear that Venue / Client are a toggle … Or do we not need the
+field at all and we just let the fields do the work." Settled on the latter:
+**the fields decide.** Venue filled → on the venue page; client filled → on the
+client page; both → both. `about_venue` / `about_client` remain as the page
+filters but are derived from presence in `createNotes` / `patchNote` /
+`repointEventNotes`, never accepted as input. To make a gig's photo
+venue-only, clear its client. Each row says in one line where it will show.
+Rejected: a three-way pill (a second statement that can contradict the
+fields) and a pill that filters the fields (a step before every row).
