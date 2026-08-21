@@ -1401,3 +1401,19 @@ worst of the three states (hidden / disabled-with-reason / live).
 - The tell for the move bug was the screenshot itself: two menus with the
   same shape behaving differently from the same place. **When two siblings
   differ, diff their gates before reading either one's handler.**
+
+## 98 — a native `confirm()` is browser chrome, and it freezes the tab for every automated check (2026-08-21)
+
+Verifying the BTS delete path on production through Chrome automation, the
+`window.confirm("Delete this entry?")` froze the renderer: CDP cannot see or
+dismiss a native dialog, every screenshot timed out, and the only way out was
+closing the tab. The row was never deleted, so the test reported nothing.
+- **Design rule first:** a native dialog is the default-browser look this
+  project bans everywhere else. Confirm inline — a two-step "Delete? / Keep"
+  in the actions row — which is also one tap on a phone and undoable by
+  looking away.
+- **Automation rule second:** anything that must be verifiable from a script
+  or a browser bridge must not depend on a native dialog. `grep -rn
+  "confirm(" src` before calling a surface done.
+- The durable record told the truth when the screenshot could not: the DB
+  still held both rows. Read the record, not the stuck page.

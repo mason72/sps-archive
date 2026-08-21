@@ -73,8 +73,8 @@ export function NotesLog({
     setNotes((xs) => sortNotes((xs ?? []).flatMap((n) => (n.id === id ? (still ? [next] : []) : [n]))));
     if (!still && open === id) setOpen(null);
   };
+  /** No native confirm(): it is browser chrome, and it freezes the tab for automation. The Actions row asks inline. */
   const remove = async (id: string) => {
-    if (!confirm("Delete this entry? The photo goes with it.")) return;
     const res = await fetch(`/api/intel/notes/${id}`, { method: "DELETE" });
     if (!res.ok) { setError("Could not delete"); return; }
     setNotes((xs) => (xs ?? []).filter((n) => n.id !== id));
@@ -225,11 +225,21 @@ function Actions({ n, onPatch, onDelete, editing, setEditing }: {
   setEditing: (b: boolean) => void;
 }) {
   const a = "text-[12px] text-stone-400 underline-offset-4 hover:text-stone-800 hover:underline";
+  const [arming, setArming] = useState(false);
+  useEffect(() => setArming(false), [n.id]);
   return (
     <span className="inline-flex items-center gap-3">
       <button type="button" className={a} onClick={() => void onPatch(n.id, { pinned: !n.pinned })}>{n.pinned ? "Unpin" : "Pin"}</button>
       {!editing && <button type="button" className={a} onClick={() => setEditing(true)}>{n.body ? "Edit" : "Caption"}</button>}
-      <button type="button" className={`${a} hover:text-red-700`} onClick={() => void onDelete(n.id)}>Delete</button>
+      {arming ? (
+        <span className="inline-flex items-center gap-2 text-[12px]">
+          <span className="text-stone-500">{n.thumbUrl ? "Delete photo and caption?" : "Delete this note?"}</span>
+          <button type="button" className="rounded-md border border-red-700 bg-red-700 px-2 py-0.5 text-white" onClick={() => void onDelete(n.id)}>Delete</button>
+          <button type="button" className={a} onClick={() => setArming(false)}>Keep</button>
+        </span>
+      ) : (
+        <button type="button" className={`${a} hover:text-red-700`} onClick={() => setArming(true)}>Delete</button>
+      )}
     </span>
   );
 }
