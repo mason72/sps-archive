@@ -27,6 +27,22 @@ export interface Subject {
 export const FIELD =
   "w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25";
 
+/** A gig knows its venue and its payer; fill whatever the subject lacks. */
+export async function completeFromGig(s: Subject): Promise<Subject> {
+  if (!s.gig || (s.venue && s.client)) return s;
+  try {
+    const r = await fetch(`/api/events/${s.gig.id}/intel`);
+    if (!r.ok) return s;
+    const j = await r.json();
+    const payer = (j.orgs ?? []).find((o: { role: string }) => o.role === "payer") ?? (j.orgs ?? [])[0];
+    return {
+      ...s,
+      venue: s.venue ?? (j.venue ? { id: j.venue.id, name: j.venue.name } : null),
+      client: s.client ?? (payer ? { id: payer.orgId, name: payer.name } : null),
+    };
+  } catch { return s; }
+}
+
 export function SubjectFields({
   value,
   onChange,
@@ -70,7 +86,10 @@ export function SubjectFields({
       if (takenOn && !gig && !proposed.current && list.length === 1) {
         proposed.current = true;
         setGigHint("from the photos’ date");
-        onChange({ ...latest.current, gig: list[0] });
+        // The same fill a hand-picked gig gets: its venue and payer, where
+        // nothing was chosen yet. A proposal that stops at the gig leaves the
+        // client blank on a row whose gig already knows it.
+        void completeFromGig({ ...latest.current, gig: list[0] }).then((next) => { if (alive) onChange(next); });
       }
     }).catch(() => { if (alive) setGigs([]); });
     return () => { alive = false; };
@@ -80,17 +99,7 @@ export function SubjectFields({
   const pickGig = async (g: Gig | null) => {
     setGigHint(null);
     if (!g) { onChange({ ...value, gig: null }); return; }
-    let next: Subject = { ...value, gig: g };
-    try {
-      const r = await fetch(`/api/events/${g.id}/intel`);
-      if (r.ok) {
-        const j = await r.json();
-        if (!next.venue && j.venue) next = { ...next, venue: { id: j.venue.id, name: j.venue.name } };
-        const payer = (j.orgs ?? []).find((o: { role: string }) => o.role === "payer") ?? (j.orgs ?? [])[0];
-        if (!next.client && payer) next = { ...next, client: { id: payer.orgId, name: payer.name } };
-      }
-    } catch { /* the pickers still work by hand */ }
-    onChange(next);
+    onChange(await completeFromGig({ ...value, gig: g }));
   };
 
   return (

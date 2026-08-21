@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { ImagePlus, X } from "lucide-react";
-import { FIELD, SubjectFields, Tag, type Gig, type Subject } from "./SubjectFields";
+import { FIELD, SubjectFields, Tag, completeFromGig, type Gig, type Subject } from "./SubjectFields";
 import { unreadable } from "./NoteComposer";
 import { metresBetween, prepareImage, putBlob, type PreparedImage } from "@/lib/intel-notes/client-image";
 import type { IntelNote } from "@/lib/intel-notes/store";
@@ -165,22 +165,6 @@ export function BulkComposer({ onSaved }: { onSaved: (notes: IntelNote[]) => voi
       : null;
     const gigs = s.day ? gigsByDay[s.day] ?? [] : [];
     return { venue, gig: gigs.length === 1 ? gigs[0] : null };
-  };
-
-  /** Fill venue/client from a gig, as SubjectFields does on a pick. */
-  const completeFromGig = async (s: Subject): Promise<Subject> => {
-    if (!s.gig || (s.venue && s.client)) return s;
-    try {
-      const r = await fetch(`/api/events/${s.gig.id}/intel`);
-      if (!r.ok) return s;
-      const j = await r.json();
-      const payer = (j.orgs ?? []).find((o: { role: string }) => o.role === "payer") ?? (j.orgs ?? [])[0];
-      return {
-        ...s,
-        venue: s.venue ?? (j.venue ? { id: j.venue.id, name: j.venue.name } : null),
-        client: s.client ?? (payer ? { id: payer.orgId, name: payer.name } : null),
-      };
-    } catch { return s; }
   };
 
   const applySuggestion = async (s: Section) => {
