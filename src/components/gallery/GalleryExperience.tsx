@@ -90,16 +90,17 @@ function LightboxImage({ image }: { image: GalleryImage }) {
   const alt = image.parsedName || image.originalFilename;
   const original = image.originalUrl;
   return (
-    <div
-      className="relative max-h-full max-w-full lightbox-image-enter"
-      onClick={(e) => e.stopPropagation()}
-    >
+    // Both layers fill the image AREA (a definite flex-1 box) and letterbox
+    // with object-contain, so the box is sized by the viewport — never by the
+    // thumbnail's natural pixels, which is what shrank the photo to a stamp on
+    // the first cut. Clicks on the letterbox still reach the backdrop (close).
+    <div className="relative h-full w-full lightbox-image-enter">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={image.thumbnailUrl}
         alt={alt}
-        className="max-h-full max-w-full object-contain"
-        style={{ maxHeight: "inherit" }}
+        className="absolute inset-0 h-full w-full object-contain"
+        onClick={(e) => e.stopPropagation()}
       />
       {original && (
         /* eslint-disable-next-line @next/next/no-img-element */
@@ -109,6 +110,7 @@ function LightboxImage({ image }: { image: GalleryImage }) {
           onLoad={() => setLoaded(true)}
           className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
           style={{ opacity: loaded ? 1 : 0 }}
+          onClick={(e) => e.stopPropagation()}
         />
       )}
     </div>
