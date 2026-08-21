@@ -10,6 +10,7 @@ import {
   Download,
   Trash2,
   FolderPlus,
+  Plus,
   FolderOpen,
   ArrowRight,
   Pencil,
@@ -37,6 +38,13 @@ interface SelectionToolbarProps {
   onDownload: () => void;
   onAddToSection?: (sectionId: string) => void;
   onMoveToSection?: (sectionId: string) => void;
+  /**
+   * Create a section by name and return it (null on failure — the callback
+   * owns the toast). Powers "+ New section" at the foot of both flyouts, so
+   * organising a fresh dump never means closing the selection, going to the
+   * sidebar, and re-selecting (Mason, 2026-08-21).
+   */
+  onCreateSection?: (name: string) => Promise<SectionOption | null>;
   /** Open the cross-gallery picker in copy mode ("Another gallery…"). */
   onCopyToGallery?: () => void;
   /** Open the cross-gallery picker in move mode ("Another gallery…"). */
@@ -79,6 +87,7 @@ export function SelectionToolbar({
   onMoveToSection,
   onCopyToGallery,
   onMoveToGallery,
+  onCreateSection,
   onRename,
   singleImageName,
   onSetCover,
@@ -327,6 +336,7 @@ export function SelectionToolbar({
                       setShowMovePicker(false);
                     }, 800);
                   }}
+                  onCreate={onCreateSection}
                   onGallery={
                     onMoveToGallery
                       ? () => {
@@ -340,11 +350,11 @@ export function SelectionToolbar({
             </div>
           )}
 
-          {/* Copy to section (secondary action). From All Images the
-              within-gallery rows hide (copying is section-scoped there) but
-              "Another gallery…" stays reachable. */}
-          {((activeSection && onAddToSection && sections.length > 0) ||
-            onCopyToGallery) && (
+          {/* Copy to section (secondary action). Offered from All Images too:
+              copying is a LINK into the target and needs no source section.
+              It used to hide the within-gallery rows there, which read as
+              "this gallery has no sections" (Mason, 2026-08-21). */}
+          {((onAddToSection && sections.length > 0) || onCopyToGallery) && (
             <div className="relative" ref={pickerRef}>
               <ToolbarButton
                 icon={<FolderPlus className="h-4 w-4" />}
@@ -355,7 +365,9 @@ export function SelectionToolbar({
               {showSectionPicker && (
                 <SectionFlyout
                   title="Copy to section"
-                  sections={activeSection && onAddToSection ? sections : []}
+                  sections={
+                    onAddToSection ? sections.filter((s) => s.id !== activeSection) : []
+                  }
                   pickedId={addedToSection}
                   lockHint="Locked — unlock to copy images here"
                   onPick={(id) => {
@@ -366,6 +378,7 @@ export function SelectionToolbar({
                       setShowSectionPicker(false);
                     }, 800);
                   }}
+                  onCreate={onAddToSection ? onCreateSection : undefined}
                   onGallery={
                     onCopyToGallery
                       ? () => {
@@ -477,6 +490,7 @@ function SectionFlyout({
   pickedId,
   lockHint,
   onPick,
+  onCreate,
   onGallery,
 }: {
   title: string;
@@ -484,9 +498,29 @@ function SectionFlyout({
   pickedId: string | null;
   lockHint: string;
   onPick: (sectionId: string) => void;
+  /** "+ New section": create by name, then pick it as the target. */
+  onCreate?: (name: string) => Promise<SectionOption | null>;
   onGallery?: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submitCreate = async () => {
+    const name = newName.trim();
+    if (!name || !onCreate || busy) return;
+    setBusy(true);
+    try {
+      const created = await onCreate(name);
+      if (created) {
+        setCreating(false);
+        setNewName("");
+        onPick(created.id);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   const showSearch = sections.length > 5;
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -542,9 +576,55 @@ function SectionFlyout({
         </>
       )}
 
-      {onGallery && (
+      {onCreate && (
         <>
           {sections.length > 0 && <div className="my-1 border-t border-stone-100" />}
+          {creating ? (
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <Plus size={13} className="shrink-0 text-stone-400" />
+              <input
+                autoFocus
+                type="text"
+                value={newName}
+                disabled={busy}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submitCreate();
+                  if (e.key === "Escape") {
+                    setCreating(false);
+                    setNewName("");
+                  }
+                }}
+                placeholder="New section name…"
+                className="w-full bg-transparent py-1 text-[13px] outline-none placeholder:text-stone-300"
+              />
+              {newName.trim() && (
+                <button
+                  onClick={() => void submitCreate()}
+                  disabled={busy}
+                  className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                >
+                  {busy ? "…" : "Add"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => setCreating(true)}
+              className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"
+            >
+              <Plus size={13} className="shrink-0 text-stone-400" />
+              <span className="flex-1 truncate">New section…</span>
+            </button>
+          )}
+        </>
+      )}
+
+      {onGallery && (
+        <>
+          {(sections.length > 0 || onCreate) && (
+            <div className="my-1 border-t border-stone-100" />
+          )}
           <button
             onClick={onGallery}
             className="w-full text-left px-3 py-2 text-[13px] hover:bg-stone-50 transition-colors flex items-center gap-2"

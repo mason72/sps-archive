@@ -1373,3 +1373,31 @@ And a merge card offering to fold a 5-face "Kaitlin Kinzer" cluster into her
 - The general shape: **when two engines read the same data and one has a
   hard-won rule, grep the sibling for the rule before shipping it.** Rules
   written as comments in one function do not propagate.
+
+## 97 — a flyout that lists targets while its handler silently returns (2026-08-21)
+
+Mason, from All Images with 36 group shots selected: Copy to… showed only
+"Another gallery…" and no sections. Reading the gate explained it — and found
+its sibling was worse: Move to… DID list the sections from All Images, but
+`handleMoveToSection` began with `if (!activeSection) return`. Pick a target,
+nothing happens, no toast. A control that looks live and does nothing is the
+worst of the three states (hidden / disabled-with-reason / live).
+
+- Copy from All Images now lists the sections: copying is a LINK into the
+  target and needs no source. The old comment ("copying is section-scoped
+  there") described a constraint that did not exist.
+- Move from All Images means "this section and no other": ADD FIRST, then
+  unlink from every other unlocked section. Add-first matters — the section
+  DELETE only unlinks, but a failure midway must leave a photo in two places,
+  never none.
+- "+ New section" lives in both flyouts (Mason's ask), same POST the sidebar
+  uses; the created section is picked immediately.
+- Tori Marifian Marifian: ONE file at the shoot carried the doubled surname,
+  and that single file named her 37-face cluster and minted a second /people
+  identity. `collapseRepeatedWords` now runs at every name-extraction home
+  (`extractPersonName`, `nameBeforeDate`, `parseFilename`); the row and the
+  cluster were repaired by hand in production (image 6a7b34e3…, person
+  07342b30…).
+- The tell for the move bug was the screenshot itself: two menus with the
+  same shape behaving differently from the same place. **When two siblings
+  differ, diff their gates before reading either one's handler.**

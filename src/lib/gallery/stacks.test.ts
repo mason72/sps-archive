@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  collapseRepeatedWords,
   buildNameCleaner,
   buildStacks,
   displayName,
@@ -43,6 +44,21 @@ describe("extractPersonName", () => {
 
   it("handles double-dash separators", () => {
     expect(extractPersonName("Jane Doe--042.jpg")).toBe("Jane Doe");
+  });
+});
+
+describe("collapseRepeatedWords (2026-08-21)", () => {
+  it("a back-to-back repeated word is a typo, not a name", () => {
+    expect(extractPersonName("Tori Marifian Marifian_26-08-19_Appfolio_699.jpg")).toBe(
+      "Tori Marifian"
+    );
+    expect(nameBeforeDate("Tori Marifian Marifian_26-08-19_Appfolio_699.jpg")).toBe(
+      "Tori Marifian"
+    );
+    expect(collapseRepeatedWords("Ann ann Lee")).toBe("Ann Lee");
+  });
+  it("a legitimately repeated name survives when the words are not adjacent", () => {
+    expect(collapseRepeatedWords("Jean Luc Jean")).toBe("Jean Luc Jean");
   });
 });
 

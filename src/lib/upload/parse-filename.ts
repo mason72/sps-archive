@@ -25,6 +25,8 @@ export interface ParsedFilename {
 const CAMERA_PREFIXES = /^(IMG|DSC|DSCF|DSCN|P|_MG|_DSC|SAM|GOPR|DJI|R0|DCIM)/i;
 
 /** Common separators used in filenames */
+import { collapseRepeatedWords } from "@/lib/gallery/stacks";
+
 const SEPARATORS = /[_\- ]+/;
 
 export function parseFilename(filename: string): ParsedFilename {
@@ -75,8 +77,9 @@ export function parseFilename(filename: string): ParsedFilename {
     }
   }
 
-  // Multiple parts: assume "Last_First" or "First_Last"
-  const name = nameParts.join(" ");
+  // Multiple parts: assume "Last_First" or "First_Last". A word repeated
+  // back-to-back ("Tori Marifian Marifian") is a shoot-time typo, not a name.
+  const name = collapseRepeatedWords(nameParts.join(" "));
   return { name: name || null, sequence, stem, extension };
 }
 

@@ -25,7 +25,25 @@ export function extractPersonName(filename: string): string {
   } else {
     name = base.split("_")[0];
   }
-  return name.replace(/([a-z])([A-Z])/g, "$1 $2").trim();
+  return collapseRepeatedWords(name.replace(/([a-z])([A-Z])/g, "$1 $2").trim());
+}
+
+/**
+ * "Tori Marifian Marifian" → "Tori Marifian". A word repeated back-to-back in
+ * a filename is a typo at the shoot, never a name — one such file on the
+ * Appfolio day minted a second Tori on /people AND renamed her 37-face
+ * cluster (2026-08-21). Applied at every name-extraction home so the
+ * filename, the stack label, the cluster name and the /people identity all
+ * agree. Case-insensitive; keeps the first spelling.
+ */
+export function collapseRepeatedWords(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of words) {
+    if (out.length && out[out.length - 1].toLowerCase() === w.toLowerCase()) continue;
+    out.push(w);
+  }
+  return out.join(" ");
 }
 
 /**
@@ -39,7 +57,7 @@ export function nameBeforeDate(filename: string): string | null {
   const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
   if (!match) return null;
   const name = match[1].replace(/_/g, " ").trim();
-  return name.replace(/([a-z])([A-Z])/g, "$1 $2").trim() || null;
+  return collapseRepeatedWords(name.replace(/([a-z])([A-Z])/g, "$1 $2").trim()) || null;
 }
 
 /**

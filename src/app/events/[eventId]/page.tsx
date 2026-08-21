@@ -1054,15 +1054,16 @@ export default function EventPage({
 
   const handleMoveToSection = useCallback(
     async (targetSectionId: string) => {
-      if (!activeSection) return;
+      // Inside a section, "move" leaves THIS section. From All Images there
+      // is no source, so move means "this section and no other" — leave every
+      // other unlocked section. It used to `return` silently from All Images
+      // while the flyout happily listed the targets (Mason, 2026-08-21).
+      const sources = activeSection
+        ? [activeSection]
+        : sections.filter((s) => s.id !== targetSectionId && !s.locked).map((s) => s.id);
       try {
-        const removeRes = await fetch(`/api/sections/${activeSection}/images`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageIds: selectedArray }),
-        });
-        if (!removeRes.ok)
-          throw new Error(await apiError(removeRes, "Failed to move images"));
+        // ADD FIRST. The section DELETE only unlinks, but add-first means a
+        // failure midway leaves the photo in two places, never in none.
         const addRes = await fetch(`/api/sections/${targetSectionId}/images`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1070,6 +1071,15 @@ export default function EventPage({
         });
         if (!addRes.ok)
           throw new Error(await apiError(addRes, "Failed to move images"));
+        for (const sourceId of sources) {
+          const removeRes = await fetch(`/api/sections/${sourceId}/images`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageIds: selectedArray }),
+          });
+          if (!removeRes.ok)
+            throw new Error(await apiError(removeRes, "Failed to move images"));
+        }
         deselectAll();
         fetchEvent();
         toast.success("Moved to section");
@@ -1078,7 +1088,28 @@ export default function EventPage({
         toast.error(err instanceof Error ? err.message : "Failed to move images");
       }
     },
-    [activeSection, selectedArray, deselectAll, fetchEvent]
+    [activeSection, sections, selectedArray, deselectAll, fetchEvent]
+  );
+
+  /** "+ New section" inside the Move/Copy flyouts — same POST the sidebar uses. */
+  const handleCreateSectionFromToolbar = useCallback(
+    async (name: string) => {
+      try {
+        const res = await fetch("/api/sections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId, name }),
+        });
+        if (!res.ok) throw new Error(await apiError(res, "Failed to create section"));
+        const data = await res.json();
+        await fetchEvent();
+        return { id: data.section.id as string, name: data.section.name as string };
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to create section");
+        return null;
+      }
+    },
+    [eventId, fetchEvent]
   );
 
   const handleDropImagesToSection = useCallback(
@@ -2633,6 +2664,7 @@ export default function EventPage({
           onDownload={handleBatchDownload}
           onAddToSection={handleAddToSection}
           onMoveToSection={handleMoveToSection}
+          onCreateSection={isWorkGallery ? undefined : handleCreateSectionFromToolbar}
           onRename={handleBatchRename}
           singleImageName={
             selection.count === 1
