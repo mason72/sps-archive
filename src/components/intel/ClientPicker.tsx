@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Combobox, type ComboOption, type ComboValue } from "./Combobox";
-
-interface KnownOrg { id: string; name: string; kind: string; domains: string[]; eventCount?: number }
+import { orgs as orgRegistry, useRegistry, type KnownOrg } from "./registry-cache";
 
 /** Pick a client: yours, or create one by name. Domains are added later on /intel. */
 export function ClientPicker({
@@ -15,18 +14,9 @@ export function ClientPicker({
   onChange: (v: ComboValue | null) => void;
   disabled?: boolean;
 }) {
-  const [known, setKnown] = useState<KnownOrg[] | null>(null);
+  const known = useRegistry(orgRegistry);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/organizations")
-      .then((r) => r.json())
-      .then((j) => { if (alive) setKnown((j.organizations ?? j.orgs ?? []) as KnownOrg[]); })
-      .catch(() => { if (alive) setKnown([]); });
-    return () => { alive = false; };
-  }, []);
 
   const options = useMemo<ComboOption[]>(() => {
     const q = query.trim().toLowerCase();
@@ -56,7 +46,7 @@ export function ClientPicker({
     const cj = await c.json();
     if (!c.ok) { setError(cj.error ?? "Could not add client"); return; }
     const row: KnownOrg = { id: cj.id, name: rest, kind: "unknown", domains: [] };
-    setKnown((k) => [...(k ?? []), row]);
+    orgRegistry.add(row);
     onChange({ id: row.id, name: row.name });
   };
 

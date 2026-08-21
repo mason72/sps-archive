@@ -814,16 +814,21 @@ event's Intel tab, the venue and client panels on `/intel`, and a bulk screen at
   `/api/intel/notes/presign` POST, `/api/intel/gigs` GET (gigs at a venue / for a
   client / within a day of a date), `/api/places/autocomplete` + `/details`
   (server-side proxy, session tokens). All behind `getIntelUser()` + `user_id`.
-- **Bulk screen is photos-first, per-photo subjects** (Mason: "every photo
-  should get a separate client/venue tag … dozens/hundreds from over the
-  years … all over the place"). `BulkComposer`: drop everything; photos sort
-  newest-first by EXIF date into sections by day + GPS (≤300 m); a section
-  offers "Use <nearest venue> · <the one gig that day>" for its unassigned
-  photos; select any set (shift-click ranges) and apply a subject from the
-  sticky bar; every card has its own venue/client/gig (tap the chip), caption
-  and tags. Save uploads only ASSIGNED photos, one POST per distinct subject;
-  unassigned ones stay on screen, counted. Uploaded slots are kept in a ref so
-  a failed POST retries without re-uploading (review finding).
+- **Bulk screen is photos-first, ONE ROW PER PHOTO** (Mason: "every photo
+  should get a separate client/venue tag … a larger image thumbnail and each
+  image has the client/venue fields next to it, so it's per-image not one edit
+  box at the top"). `BulkComposer`: big thumbnail left, that photo's own
+  venue / client / gig / caption / tags beside it. No selection model, no
+  shared control panel — the first version had a sticky apply-to-selection bar
+  and Mason called it out: the DATA was per-photo, the experience was not.
+  What makes hundreds bearable: rows line up newest-first under day + GPS
+  (≤300 m) headers; a header fills its still-empty rows with the nearest venue
+  and the one gig that day in a click; "Same as above" copies the previous
+  row. Every row mounts its own pickers, so the venue and client lists live in
+  ONE shared store (`registry-cache.ts`) — one fetch per list per page, and a
+  venue created in row 12 appears in row 13. Save uploads only assigned rows,
+  one POST per distinct subject; uploaded slots are kept in a ref so a failed
+  POST retries without re-uploading.
 - **UI:** `NoteComposer` (single-subject; event tab + venue/client panels), `SubjectFields` (venue/client/gig block shared with the bulk screen), `VenuePicker` (yours →
   "Near this photo" → Google Maps → create by name), `ClientPicker`, `NotesLog`
   (photo strip + lightbox + dated log, inline caption/tag/pin/delete),

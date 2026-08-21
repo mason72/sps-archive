@@ -1417,3 +1417,20 @@ closing the tab. The row was never deleted, so the test reported nothing.
   "confirm(" src` before calling a surface done.
 - The durable record told the truth when the screenshot could not: the DB
   still held both rows. Read the record, not the stuck page.
+
+## 99 — "the data is per-item but the USER EXPERIENCE isn't" (2026-08-21)
+
+Mason asked for a bulk BTS screen where every photo carries its own venue and
+client. I built exactly that in the data model — and put a single sticky
+"apply to selected" bar above a grid, because that is how bulk tools usually
+look. He: "the data is but not the USER EXPERIENCE." He had pictured a large
+thumbnail with the fields right beside each image.
+- **When a requirement says "each X has its own Y", the Y belongs NEXT TO
+  the X on screen.** A shared control panel that writes per-item data still
+  reads as one box for everything. Satisfying the model is half the ask.
+- **Ask for the picture, not just the rule.** One sentence — "do you see a
+  grid with a control bar, or a row per photo with fields beside it?" —
+  would have saved a rebuild. Layout is a decision Mason has opinions on;
+  treat it as a question card, not an implementation detail.
+- The per-row layout has a cost the grid hid: N pickers mount N times.
+  Shared registry store, one fetch per list. Plan for that the first time.

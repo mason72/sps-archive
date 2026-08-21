@@ -21,8 +21,8 @@ export function BulkNotes() {
         </p>
         <h1 className="mt-2 font-editorial text-[32px] leading-tight text-stone-900">Add notes &amp; BTS photos</h1>
         <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-stone-500">
-          Drop everything — years of it. Photos sort themselves by date and place; you say
-          which venue and client each belongs to, and caption the ones worth a sentence.
+          Drop everything — years of it. Each photo gets its own venue, client and gig right
+          beside it; they line up by date and place so one gig’s shots sit together.
         </p>
       </header>
 

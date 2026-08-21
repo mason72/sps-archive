@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox, type ComboOption, type ComboValue } from "./Combobox";
 import { metresBetween } from "@/lib/intel-notes/client-image";
+import { venues as venueRegistry, useRegistry, type KnownVenue } from "./registry-cache";
 
-export interface KnownVenue {
-  id: string;
-  name: string;
-  address: string | null;
-  city: string | null;
-  lat: number | null;
-  lng: number | null;
-  eventCount: number;
-}
+export type { KnownVenue } from "./registry-cache";
 
 /**
  * Pick a venue: yours first, then Google Maps, then "create by name".
@@ -38,22 +31,14 @@ export function VenuePicker({
   autoFocus?: boolean;
   disabled?: boolean;
 }) {
-  const [known, setKnown] = useState<KnownVenue[] | null>(null);
+  // Shared across every picker on the page (the bulk screen has one per photo).
+  const known = useRegistry(venueRegistry);
   const [query, setQuery] = useState("");
   const [maps, setMaps] = useState<{ placeId: string; name: string; secondary: string }[]>([]);
   const [mapsOn, setMapsOn] = useState<boolean | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const session = useRef<string>(crypto.randomUUID());
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/venues")
-      .then((r) => r.json())
-      .then((j) => { if (alive) setKnown((j.venues ?? []) as KnownVenue[]); })
-      .catch(() => { if (alive) setKnown([]); });
-    return () => { alive = false; };
-  }, []);
 
   // Maps, debounced, one session token per typing session.
   useEffect(() => {
@@ -133,7 +118,7 @@ export function VenuePicker({
       const cj = await c.json();
       if (!c.ok) { setError(cj.error ?? "Could not add venue"); return; }
       const row: KnownVenue = { id: cj.id, name: cj.name ?? p.name, address: p.address, city: p.city, lat: p.lat, lng: p.lng, eventCount: 0 };
-      setKnown((k) => (k ?? []).some((x) => x.id === row.id) ? k : [...(k ?? []), row]);
+      venueRegistry.add(row);
       onChange({ id: row.id, name: row.name, sub: [p.address, p.city].filter(Boolean).join(", ") || undefined });
       return;
     }
@@ -145,7 +130,7 @@ export function VenuePicker({
       const cj = await c.json();
       if (!c.ok) { setError(cj.error ?? "Could not add venue"); return; }
       const row: KnownVenue = { id: cj.id, name: rest, address: null, city: null, lat: null, lng: null, eventCount: 0 };
-      setKnown((k) => [...(k ?? []), row]);
+      venueRegistry.add(row);
       onChange({ id: row.id, name: row.name });
     }
   };
