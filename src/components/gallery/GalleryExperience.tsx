@@ -1507,15 +1507,81 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </button>
           )}
 
-          {/* Close */}
-          <button
-            aria-label="Close image viewer"
-            className="absolute top-4 right-4 p-3 transition-opacity hover:opacity-100 z-10"
-            style={{ color: lbFgMuted }}
-            onClick={() => setSelectedImageId(null)}
+          {/* Actions — top-right, in the same chrome row as the metadata
+              chips: "♡ Favorite" and "↓ Download" as labelled glass chips,
+              then close. They used to float over the bottom of the photo
+              (a heart on someone's wrist, unlabelled), which was hard to
+              see and harder to read (Mason, 2026-08-21). The row above the
+              photo is the one place that never covers a face or hands. */}
+          <div
+            className="absolute top-4 right-4 z-10 flex items-center gap-1.5"
+            onClick={(e) => e.stopPropagation()}
           >
-            <X className="h-6 w-6" strokeWidth={1.5} />
-          </button>
+            {(() => {
+              const fav = favoriteIds.has(selectedImage.id);
+              const chip = (active = false) => ({
+                color: active ? colors.accent : lbFg,
+                backgroundColor: active
+                  ? `${colors.accent}1f`
+                  : isDarkBg
+                    ? "rgba(0,0,0,0.35)"
+                    : "rgba(255,255,255,0.72)",
+                borderColor: active
+                  ? `${colors.accent}66`
+                  : isDarkBg
+                    ? "rgba(255,255,255,0.16)"
+                    : `${colors.secondary}33`,
+              });
+              const cls =
+                "flex items-center gap-1.5 border px-2.5 py-1 text-[11px] font-medium backdrop-blur-md transition-colors hover:opacity-90";
+              return (
+                <>
+                  {allowFavorites && (
+                    <button
+                      className={cls}
+                      style={chip(fav)}
+                      aria-pressed={fav}
+                      aria-label={fav ? "Remove from favorites" : "Add to favorites"}
+                      onClick={(e) => {
+                        if (favoriteIds.size === 0 && !fav) {
+                          pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
+                        }
+                        handleFavorite(selectedImage.id);
+                      }}
+                    >
+                      <Heart
+                        className="h-3.5 w-3.5"
+                        fill={fav ? "currentColor" : "none"}
+                        strokeWidth={1.75}
+                      />
+                      <span className="hidden sm:inline">{fav ? "Favorited" : "Favorite"}</span>
+                    </button>
+                  )}
+                  {/* A PIN-gated share ships no downloadUrl — the button is
+                      driven by the share's permission, not by a URL. */}
+                  {allowDownload && (
+                    <button
+                      className={cls}
+                      style={chip()}
+                      aria-label="Download this photo"
+                      onClick={() => handleIndividualDownload(selectedImage)}
+                    >
+                      <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      <span className="hidden sm:inline">Download</span>
+                    </button>
+                  )}
+                  <button
+                    aria-label="Close image viewer"
+                    className="ml-1 p-2 transition-opacity hover:opacity-100"
+                    style={{ color: lbFgMuted }}
+                    onClick={() => setSelectedImageId(null)}
+                  >
+                    <X className="h-5 w-5" strokeWidth={1.5} />
+                  </button>
+                </>
+              );
+            })()}
+          </div>
 
           {/* Metadata chips — top-left, OVER the photo by design. A bare
               string over a portrait read as broken; a hairline container on a
@@ -1611,53 +1677,13 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             </div>
           )}
 
-          {/* Bottom bar — lifted above the filmstrip when inside a stack */}
-          <div
-            className={`absolute ${stackNav ? "bottom-24" : "bottom-4"} left-1/2 -translate-x-1/2 flex items-center gap-4 z-10`}
-          >
-            {allowFavorites && (
-              <button
-                className="p-2.5 backdrop-blur-sm transition-opacity hover:opacity-100"
-                style={{
-                  color: favoriteIds.has(selectedImage.id) ? colors.accent : lbFgMuted,
-                  backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (favoriteIds.size === 0 && !favoriteIds.has(selectedImage.id)) {
-                    pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
-                  }
-                  handleFavorite(selectedImage.id);
-                }}
-              >
-                <Heart className="h-5 w-5" fill={favoriteIds.has(selectedImage.id) ? "currentColor" : "none"} strokeWidth={1.5} />
-              </button>
-            )}
-            {/* A PIN-gated share ships no downloadUrl — the button is driven
-                by the share's permission, not by a URL in the payload. */}
-            {allowDownload && (
-              <button
-                className="p-2.5 backdrop-blur-sm transition-opacity hover:opacity-100"
-                style={{
-                  color: lbFgMuted,
-                  backgroundColor: isDarkBg ? "rgba(255,255,255,0.1)" : `${colors.secondary}14`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleIndividualDownload(selectedImage);
-                }}
-              >
-                <Download className="h-5 w-5" strokeWidth={1.5} />
-              </button>
-            )}
-          </div>
 
           {/* First-open keyboard hint — fades after a moment, never again */}
           {showKeyHint && navImages.length > 1 && (
             <div
               className="absolute left-1/2 -translate-x-1/2 z-10 px-3.5 py-1.5 text-[11px] uppercase tracking-[0.18em] backdrop-blur-sm pointer-events-none reveal"
               style={{
-                bottom: stackNav ? "8.5rem" : "4.5rem",
+                bottom: stackNav ? "5.5rem" : "1.5rem",
                 color: lbFgMuted,
                 backgroundColor: isDarkBg
                   ? "rgba(255,255,255,0.08)"
