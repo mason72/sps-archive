@@ -6,7 +6,8 @@ import { FindMyPhotos } from "@/components/gallery/FindMyPhotos";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
-import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
+import { buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
+import { parseFilename } from "@/lib/upload/parse-filename";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { CoverSection } from "@/components/gallery/CoverSection";
 import { PasswordGate } from "@/components/gallery/PasswordGate";
@@ -1488,22 +1489,37 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               absolute caption landed on the top-left of every tall photo and
               read as broken (Mason, 2026-08-21). */}
           <div
-            className="flex h-14 shrink-0 items-center justify-between pl-5 pr-2"
+            className="flex h-12 shrink-0 items-center justify-between pl-5 pr-2"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="min-w-0">
-              <p className="text-[12px] tabular-nums" style={{ color: lbFgMuted, opacity: 0.7 }}>
+            {/* One line, no raw filename: a guest reads "40 / 60 · Alex
+                Williams · 050" — the person (same resolver as the stack
+                labels) and the frame number, which is what a client quotes
+                back when picking ("I like 050"). The filename itself is what
+                the download is named, and that is where it belongs. */}
+            <p
+              className="min-w-0 truncate text-[12px] tabular-nums"
+              style={{ color: lbFgMuted }}
+            >
+              <span style={{ opacity: 0.7 }}>
                 {selectedIndex + 1} / {navImages.length}
-                {stackNav && openStack && (
-                  <span className="ml-2 not-italic">· {openStack.personName}</span>
-                )}
-              </p>
-              {selectedImage.originalFilename && (
-                <p className="text-[13px] max-w-[60vw] truncate" style={{ color: lbFgMuted }}>
-                  {selectedImage.originalFilename}
-                </p>
-              )}
-            </div>
+              </span>
+              {(() => {
+                const person =
+                  (stackNav && openStack?.personName) || stackPersonName(selectedImage);
+                const seq = parseFilename(selectedImage.originalFilename).sequence;
+                return (
+                  <>
+                    {person && <span className="ml-2">· {person}</span>}
+                    {seq !== null && (
+                      <span className="ml-2" style={{ opacity: 0.7 }}>
+                        · {String(seq).padStart(3, "0")}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </p>
             <button
               aria-label="Close image viewer"
               className="p-3 transition-opacity hover:opacity-100"
@@ -1518,8 +1534,8 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               (and filmstrip, inside a stack) occupies, so nothing overlaps the
               photo. Keyed on the id: photo and caption change together. */}
           <div
-            className="flex min-h-0 flex-1 items-center justify-center px-16"
-            style={{ paddingBottom: stackNav ? "8.5rem" : "4.5rem" }}
+            className="flex min-h-0 flex-1 items-center justify-center px-14"
+            style={{ paddingBottom: stackNav ? "7.5rem" : "3.75rem" }}
           >
             <LightboxImage key={selectedImage.id} image={selectedImage} />
           </div>
