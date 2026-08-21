@@ -2227,3 +2227,72 @@ figure was 11.2 KB this morning.
    the dashboard it monitors.
 3. **Netted against the Pro plan's $10 compute credit**, which the overhead line
    already bills, so the first $10 is not counted twice.
+
+## Intel Notes & BTS — plan (2026-08-21, decisions with Mason in-session)
+
+**Decisions:** separate internal store (never `images`); each entry = optional
+text + optional photo (at least one), tagged *venue* and/or *client*, default
+both; entry points = event intel tab, venue/client panels in /intel, and a
+standalone bulk "Add BTS" screen with autocomplete + create-new for venues
+(Google Places) and clients; phone-friendly; client-side downscale to 2048px.
+
+### Data — migration 070_intel_notes.sql
+- [x] `intel_notes`: id, user_id, event_id? (set null), venue_id? (set null),
+      org_id? (set null), about_venue bool, about_client bool, body text?,
+      storage_key text? (2048 rendition), thumb_key text?, width/height?,
+      taken_at? (EXIF), pinned bool, created_at/updated_at.
+      CHECKs: `body is not null or storage_key is not null`;
+      `venue_id is not null or org_id is not null or event_id is not null`.
+      RLS pair per 056 convention. Indexes on (venue_id, created_at desc),
+      (org_id, created_at desc), (event_id), (user_id).
+- [x] venue_id/org_id are RESOLVED FROM THE EVENT at write time when an event is
+      given (one fact, copied once); the event-intel PATCH that re-links a venue
+      re-points that event's entries (one UPDATE) so the copy cannot drift.
+- [x] `venues`: unique partial index (user_id, place_id) — a Places pick can
+      never mint a second row for the same building.
+- [x] `venue_notes` (056, never wired, verify 0 rows) — drop in this migration.
+
+### Storage
+- [x] R2 prefix `intel-notes/{userId}/{uuid}.jpg` + `…/{uuid}.thumb.jpg`,
+      outside `events/…` so no gallery sweep can ever touch it (same reasoning
+      as `crew-faces/`). Client makes both renditions on a canvas (2048 + 480
+      long edge, JPEG q85); two presigned PUTs; the ROW is inserted only after
+      both PUTs return 2xx (bytes before rows).
+
+### API (all via `getIntelUser()` + `.eq("user_id")`)
+- [x] `POST /api/intel/notes/presign` → keys + PUT URLs (batch, cap 100)
+- [x] `GET /api/intel/notes?venueId|orgId|eventId` (pinned first, newest)
+- [x] `POST /api/intel/notes` (batch create, validates keys exist in R2)
+- [x] `PATCH /api/intel/notes/[id]` (body, about_*, pinned, event/venue/org)
+- [x] `DELETE /api/intel/notes/[id]` (row, then both objects best-effort +
+      reportSystemError on failure)
+- [x] `GET /api/places/autocomplete?q=` and `GET /api/places/details?id=` —
+      server-side proxy to Places API (New) with session tokens; key is
+      `GOOGLE_PLACES_KEY`, server-only, never shipped to the browser.
+- [x] `POST /api/venues` accepts place_id/address/city/region/country/lat/lng.
+
+### UI
+- [x] `NoteComposer` (one component, three hosts): dropzone + camera-roll
+      picker, venue/client pickers, optional gig picker (events at that venue,
+      newest first), per-photo caption + Venue/Client toggles with
+      "apply to all"; big tap targets; works at 375px.
+- [x] `/intel/notes/new` — the bulk screen; linked from /intel header + nav.
+- [x] `VenuePicker`: known venues first (typeahead over /api/venues), then a
+      "Search Google Maps" group; picking a Places result creates the venue
+      with place_id + geo. `ClientPicker`: known orgs + "Create <name>".
+- [x] `NotesLog` (one component): pinned strip, photo strip with lightbox,
+      dated log, inline edit/pin/delete. Mounted in EventIntelPanel (new
+      section before the footer), IntelBoard VenuePanel and OrgPanel.
+- [x] Render the existing `event_intel.notes` on the event panel (already
+      returned by the API, never displayed).
+
+### Delight (approved, built)
+- [x] EXIF GPS → auto-suggest the venue (nearest known venue ≤ 300 m, else
+      Places nearby); EXIF date → auto-suggest the gig. Drop 40 phone shots,
+      the screen fills in where and when.
+
+### Verify
+- [x] Migration on prod via scripts/db-sql.ts; db:gen-types; `next build`;
+      real upload from phone-width browser; venue + client pages show the
+      entry; guest gallery payload, search, ZIP, People index untouched
+      (grep: no reader of intel_notes outside /api/intel + /intel pages).

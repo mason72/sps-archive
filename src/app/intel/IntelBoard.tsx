@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { RosterManager } from "./RosterManager";
+import { NotesLog } from "@/components/intel/NotesLog";
 import type {
   IntelIndex,
   IntelPerson,
@@ -292,13 +293,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /* ── The board ────────────────────────────────────────────────────────────── */
 
 export function IntelBoard({ index }: { index: IntelIndex }) {
-  const [axis, setAxis] = useState<Axis>("people");
+  /**
+   * `?axis=venues&id=…` opens straight onto one panel — the receipt on the
+   * bulk BTS screen links here. Read once at mount; the board owns its state
+   * after that, so jumping around does not churn the URL.
+   */
+  const params = useSearchParams();
+  const startAxis = (AXES.some((a) => a.key === params.get("axis")) ? params.get("axis") : "people") as Axis;
+  const startId = params.get("id");
+  const [axis, setAxis] = useState<Axis>(startAxis);
   const [selected, setSelected] = useState<Record<Axis, string | null>>({
     people: null,
     venues: null,
     cities: null,
     clients: null,
     roster: null,
+    [startAxis]: startId,
   });
   const [query, setQuery] = useState("");
 
@@ -590,6 +600,12 @@ export function IntelBoard({ index }: { index: IntelIndex }) {
           })}
         </nav>
 
+        <Link
+          href="/intel/notes/new"
+          className="pb-2 text-[13px] text-stone-500 underline-offset-4 transition-colors hover:text-stone-900 hover:underline"
+        >
+          Add BTS photos &amp; notes →
+        </Link>
       </div>
 
       <div className="mt-px"><Rule /></div>
@@ -1577,6 +1593,16 @@ function VenuePanel({
         )}
       </Section>
 
+      {/* Dated, per-gig, with photos — the evidence behind the summary above. */}
+      <section className="mt-8">
+        <NotesLog
+          scope={{ venueId: v.id }}
+          venue={{ id: v.id, name: v.name }}
+          lockVenue
+          blank="No notes or photos for this room yet. Add the stairs not to use, the dock, the room from the door — anything the next crew should see before they arrive."
+        />
+      </section>
+
       <div className="grid gap-8 sm:grid-cols-2">
         <Section title="Crew who've worked it">
           {v.crewIds.length === 0 ? <Blank>None recorded.</Blank> : (
@@ -1785,6 +1811,15 @@ function OrgPanel({
           <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-stone-700">{o.notes}</p>
         </Section>
       )}
+
+      <section className="mt-8">
+        <NotesLog
+          scope={{ orgId: o.id }}
+          client={{ id: o.id, name: name }}
+          lockClient
+          blank="No notes or photos about this client yet. Who to ask for, what they care about, what went sideways last time."
+        />
+      </section>
     </div>
   );
 }

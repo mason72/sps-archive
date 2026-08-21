@@ -790,3 +790,42 @@ class of bug rather than a typo:
 **Still open:** alumni panels still offer the full working-crew controls
 (discipline, rehire) — flagged to Mason, undecided. And the two dormant
 columns await a migration if he wants them really gone.
+
+
+## Notes & behind-the-scenes photos (2026-08-21)
+
+Mason: "attach BTS shots of a gig as part of the staff/intel sheet … map back to
+the venue … notes/BTS should actually be for Client and/or Venue." Decisions
+taken in-session: separate internal store (never `images`); an entry is text
+and/or a photo, each tagged Venue / Client (default both); entry points are the
+event's Intel tab, the venue and client panels on `/intel`, and a bulk screen at
+`/intel/notes/new`; phone-friendly; client-side downscale to 2048px.
+
+- **Model:** `intel_notes` (migration 070). `event_id?`, `venue_id?`, `org_id?`,
+  `about_venue`, `about_client`, `body?`, `storage_key?`/`thumb_key?`,
+  `taken_at?` (EXIF), `pinned`. CHECKs enforce "text or photo" and "lands
+  somewhere". Venue/client are resolved FROM the event at write time when a gig
+  is given (`resolveNoteSubject`, payer org preferred); the event-intel PATCH
+  re-points entries when a venue changes.
+- **Store:** `src/lib/intel-notes/store.ts` — list (pinned first, newest, id
+  tiebreak), create (validates key ownership + R2 presence before insert),
+  patch, delete (row first, objects best-effort + `reportSystemError`).
+- **Routes:** `/api/intel/notes` GET/POST, `/api/intel/notes/[id]` PATCH/DELETE,
+  `/api/intel/notes/presign` POST, `/api/intel/gigs` GET (gigs at a venue / for a
+  client / within a day of a date), `/api/places/autocomplete` + `/details`
+  (server-side proxy, session tokens). All behind `getIntelUser()` + `user_id`.
+- **UI:** `NoteComposer` (one component, three hosts), `VenuePicker` (yours →
+  "Near this photo" → Google Maps → create by name), `ClientPicker`, `NotesLog`
+  (photo strip + lightbox + dated log, inline caption/tag/pin/delete),
+  `GigNotes` on the event panel (renders `event_intel.notes`, which the API had
+  saved for months and nothing drew). `/intel?axis=venues&id=…` deep-links now.
+- **EXIF → suggestions:** GPS offers a known venue within 300 m first and biases
+  the Maps search; the median EXIF date proposes the gig only when EXACTLY one
+  event sits within a day of it. Both are pre-filled pickers, never writes.
+- **Google Places:** Places API (New), key `GOOGLE_PLACES_KEY` — the key
+  tdp-website already used for venue autocomplete, verified server-side with a
+  200 before reuse. It is NOT referrer-restricted (it works from a server), so it
+  is worth restricting to the two callers some day. Autocomplete and Essentials
+  details sit in the free tier at this volume.
+- **Not built:** face-matching crew in BTS shots; a pre-gig crew brief email
+  with the venue's pinned notes and photos; bulk import of old BTS folders.

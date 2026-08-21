@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { cleanRehire } from "@/lib/event-intel/roles";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
+import { NotesLog } from "@/components/intel/NotesLog";
 
 /**
  * The rehire ladder's offer list — mirrors REHIRE_LADDER in roles.ts (the
@@ -359,6 +360,23 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
         </div>
       </section>
 
+      {/* ── Notes & BTS ───────────────────────────────────────────────────── */}
+      <section className="mt-9">
+        <GigNotes notes={data.notes} onSave={(notes) => save({ eventNotes: notes }, (d) => ({ ...d, notes }))} />
+        <div className="mt-6">
+          <NotesLog
+            scope={{ eventId }}
+            eventId={eventId}
+            venue={data.venue ? { id: data.venue.id, name: data.venue.name } : null}
+            client={(() => {
+              const payer = data.orgs.find((o) => o.role === "payer") ?? data.orgs[0];
+              return payer ? { id: payer.orgId, name: payer.name } : null;
+            })()}
+            blank="Nothing from this gig yet. Setup shots, the room, the thing you wish you’d known — each one lands on the venue and the client pages too."
+          />
+        </div>
+      </section>
+
       <div className="mt-10 flex items-center justify-between border-t border-stone-200 pt-4">
         <p className="text-[12px] text-stone-400">
           Roles you set are never overwritten by the calendar backfill.
@@ -367,6 +385,58 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
           All intel →
         </Link>
       </div>
+    </div>
+  );
+}
+
+/* ── Gig notes ───────────────────────────────────────────────────────────── */
+
+/**
+ * The event-level note — schedule, onsite contacts, what the calendar
+ * description carried. Saved through the same PATCH for months; this is the
+ * first time it is drawn.
+ */
+function GigNotes({ notes, onSave }: { notes: string | null; onSave: (n: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(notes ?? "");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (!editing) setV(notes ?? ""); }, [notes, editing]);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <span className={META}>Gig notes</span>
+        <button
+          onClick={() => setEditing((x) => !x)}
+          className="text-[12px] text-stone-500 underline underline-offset-4 hover:text-stone-800"
+        >
+          {editing ? "Cancel" : notes ? "Edit" : "Add"}
+        </button>
+      </div>
+      {editing ? (
+        <div className="mt-3">
+          <textarea
+            autoFocus
+            value={v}
+            onChange={(e) => setV(e.target.value)}
+            rows={4}
+            placeholder="Schedule, onsite contact, where to park…"
+            className="w-full rounded-md border border-stone-200 px-3 py-2 text-[13px] leading-relaxed text-stone-900 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+          />
+          <div className="mt-2 flex gap-3">
+            <button
+              onClick={async () => { setSaving(true); await onSave(v.trim()); setSaving(false); setEditing(false); }}
+              disabled={saving}
+              className="rounded-md border border-stone-800 bg-stone-900 px-3 py-1 text-[12px] text-white disabled:opacity-40"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : notes ? (
+        <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-stone-700">{notes}</p>
+      ) : (
+        <p className="mt-3 text-[13px] text-stone-400">Nothing written about this gig itself.</p>
+      )}
     </div>
   );
 }

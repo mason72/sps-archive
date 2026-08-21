@@ -230,6 +230,7 @@ export function AppNav({ isAdmin, hasIntel, current }: AppNavProps) {
         active={current === "account" || current === "intel"}
       >
         {showIntel && <Item href="/intel">Intel</Item>}
+        {showIntel && <Item href="/intel/notes/new">Add BTS photos</Item>}
         <Item href="/settings/connections">Connections</Item>
         <div className="my-1 h-px bg-stone-100" />
         <div className="px-3 py-1.5">

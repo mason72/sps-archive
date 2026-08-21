@@ -927,6 +927,85 @@ export type Database = {
           },
         ]
       }
+      intel_notes: {
+        Row: {
+          about_client: boolean
+          about_venue: boolean
+          body: string | null
+          created_at: string
+          event_id: string | null
+          height: number | null
+          id: string
+          org_id: string | null
+          pinned: boolean
+          storage_key: string | null
+          taken_at: string | null
+          thumb_key: string | null
+          updated_at: string
+          user_id: string
+          venue_id: string | null
+          width: number | null
+        }
+        Insert: {
+          about_client?: boolean
+          about_venue?: boolean
+          body?: string | null
+          created_at?: string
+          event_id?: string | null
+          height?: number | null
+          id?: string
+          org_id?: string | null
+          pinned?: boolean
+          storage_key?: string | null
+          taken_at?: string | null
+          thumb_key?: string | null
+          updated_at?: string
+          user_id: string
+          venue_id?: string | null
+          width?: number | null
+        }
+        Update: {
+          about_client?: boolean
+          about_venue?: boolean
+          body?: string | null
+          created_at?: string
+          event_id?: string | null
+          height?: number | null
+          id?: string
+          org_id?: string | null
+          pinned?: boolean
+          storage_key?: string | null
+          taken_at?: string | null
+          thumb_key?: string | null
+          updated_at?: string
+          user_id?: string
+          venue_id?: string | null
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intel_notes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intel_notes_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intel_notes_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ops_config: {
         Row: {
           key: string
@@ -1706,48 +1785,6 @@ export type Database = {
           website?: string | null
         }
         Relationships: []
-      }
-      venue_notes: {
-        Row: {
-          body: string
-          created_at: string
-          event_id: string | null
-          id: string
-          user_id: string
-          venue_id: string
-        }
-        Insert: {
-          body: string
-          created_at?: string
-          event_id?: string | null
-          id?: string
-          user_id: string
-          venue_id: string
-        }
-        Update: {
-          body?: string
-          created_at?: string
-          event_id?: string | null
-          id?: string
-          user_id?: string
-          venue_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "venue_notes_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "venue_notes_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       venues: {
         Row: {

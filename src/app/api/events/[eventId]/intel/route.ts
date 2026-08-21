@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { repointEventNotes } from "@/lib/intel-notes/store";
 
 /**
  * Event Intel for ONE event — the back-office view of who worked it and where.
@@ -284,7 +285,26 @@ export async function PATCH(
         { onConflict: "event_id" }
       );
       if (error) throw error;
+      // Entries that inherited this event's venue follow it (store.ts).
+      await repointEventNotes(supabase, user!.id, eventId, v.id);
       return NextResponse.json({ ok: true, venueId: v.id });
+    }
+
+    /** Attach an existing venue (or detach with null) — the picker's path. */
+    if (body.venueId !== undefined && !body.newVenue && !body.venuePatch) {
+      if (body.venueId) {
+        const { data: v, error: vErr } = await db
+          .from("venues").select("id").eq("id", body.venueId).eq("user_id", user!.id).maybeSingle();
+        if (vErr) throw vErr;
+        if (!v) return NextResponse.json({ error: "Venue not found" }, { status: 400 });
+      }
+      const { error } = await db.from("event_intel").upsert(
+        { event_id: eventId, user_id: user!.id, venue_id: body.venueId, updated_at: new Date().toISOString() },
+        { onConflict: "event_id" }
+      );
+      if (error) throw error;
+      await repointEventNotes(supabase, user!.id, eventId, body.venueId);
+      return NextResponse.json({ ok: true, venueId: body.venueId });
     }
 
     if (body.venuePatch) {

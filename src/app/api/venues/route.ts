@@ -25,7 +25,7 @@ export async function GET() {
 
     const { data, error } = await db
       .from("venues")
-      .select("id, name, address, city, region, notes")
+      .select("id, name, address, city, region, notes, lat, lng, place_id")
       .eq("user_id", user!.id)
       .order("name");
     if (error) throw error;
@@ -66,12 +66,32 @@ export async function POST(request: NextRequest) {
     const name = String(b.name ?? "").trim();
     if (!name) return NextResponse.json({ error: "A name is required" }, { status: 400 });
 
+    /**
+     * A Places pick carries its place id and coordinates. The unique index on
+     * (user_id, place_id) means the same building picked twice is ONE row —
+     * so on that collision, answer with the existing row rather than a 409:
+     * the caller wanted "this venue", and it exists.
+     */
+    const placeId = String(b.placeId ?? "").trim() || null;
+    const lat = Number(b.lat);
+    const lng = Number(b.lng);
+    if (placeId) {
+      const { data: existing, error: exErr } = await db
+        .from("venues").select("id, name").eq("user_id", user!.id).eq("place_id", placeId).maybeSingle();
+      if (exErr) throw exErr;
+      if (existing) return NextResponse.json({ ok: true, id: existing.id, existing: true, name: existing.name });
+    }
+
     const { data, error } = await db.from("venues").insert({
       user_id: user!.id,
       name,
       address: String(b.address ?? "").trim() || null,
       city: String(b.city ?? "").trim() || null,
       region: String(b.region ?? "").trim() || null,
+      country: String(b.country ?? "").trim() || null,
+      place_id: placeId,
+      lat: placeId && Number.isFinite(lat) ? lat : null,
+      lng: placeId && Number.isFinite(lng) ? lng : null,
       notes: String(b.notes ?? "").trim() || null,
     }).select("id").single();
     // The unique index is on (user_id, lower(name)) — say so in words.
