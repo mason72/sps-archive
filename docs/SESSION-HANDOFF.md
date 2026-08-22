@@ -140,15 +140,19 @@ Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
    measured, all same-event; `person_split_dismissals` (068) ready.
    **(b) cross-event tile fan-out** — zero real cases today; deferred.
 
-1. **Pixieset migration** — 1,371 collections, 8 ingested. The loop is proven
-   end to end and unblocked: staging is on the INTERNAL disk (deliberately —
-   `/Volumes/Archive` shares a spindle with Time Machine and ingest throughput
-   collapsed from 77 photos/min to 2 there; read `PIXIESET_STAGING` in
-   `.env.local`, never this sentence), High Resolution is
-   fixed on all 30 collections that needed it, PINs turned out not to gate the
-   KEEP set. Needs Mason's Chrome for the download driver (Cloudflare).
-   Two collections are quarantined as Web Size and need re-requesting once
-   Pixieset's cached archives age out (7 days).
+1. **Pixieset migration — READ THIS FIRST.** 27 of 1,371 ingested. It runs
+   as three launchd agents (watch / ingest / stallcheck) — see
+   `scripts/pixieset/launchd/README.md`. On 2026-08-21 the stall alert caught
+   a duplicate storm: an unpaged idempotency read capped at 1,000 rows
+   re-inserted every photo past the first thousand on each retry (lesson 101).
+   Fixed and pushed (`d2a839d`). Twitch Masquerade Ball deduped
+   (`px-dedupe-event.ts`); **15 other events still carry ~1,100 duplicate
+   rows and each needs its own diagnosis** — TDP Website's are deliberate
+   publication, do NOT dedupe it. The ingest agent is BOOTED OUT and must be
+   re-bootstrapped after the cleanup is verified. Downloads need Mason's
+   Chrome on Pixieset; 22 download-disabled collections have their settings
+   snapshotted in `~/pixieset-staging/pixieset-download-settings-backup.json`
+   awaiting flip-pull-restore.
 2. **Three client names** undecidable from the corpus — `episode1agency.com`,
    `typeaevents.com`, `wallandceiling.org`.
 3. **AI-index timeouts under bulk import** — 8,782 photos in 24h made the

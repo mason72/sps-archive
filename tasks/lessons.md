@@ -1450,3 +1450,46 @@ live index: "two people" found Tori's pair at 0.12; "several people posing
 together" topped at 0.16. **When two surfaces disagree, diff their INPUTS
 before their engine** — and when a search "misses", print the scores before
 touching the threshold; a vague noun is a query problem, not a model problem.
+
+## 101 — a rule already written in CLAUDE.md did not stop me breaking it, and the tell was a constant (2026-08-21)
+
+The Pixieset ingest's idempotency check — "what is already in this event" —
+was an unpaged `.select().eq()`. PostgREST caps that at 1,000 rows and says
+nothing. For any event past a thousand photos, every image after the first
+1,000 read as ABSENT, got re-uploaded, and was re-inserted on every retry
+pass. Twitch Masquerade Ball ran 42 such passes and reached **4,961 rows for
+1,174 real photos**, one frame stored 23 times, each duplicate its own paid R2
+object and a repeated tile in the gallery. A survey found 4,895 extra rows
+across 16 events, though not all are this bug.
+
+Three things about it are worth more than the fix:
+
+1. **The rule was already on the page.** CLAUDE.md line 87 says an unpaged
+   PostgREST select silently caps at 1,000 and a truncated read is
+   indistinguishable from a real absence. Lesson 88 says every `.range()`
+   needs `.order()`. The docstring one line above the bug promised "Idempotent
+   by (event, original_filename)". **A rule in the docs protects nothing by
+   itself; it protects the reads it is applied to.** The ingest was written
+   before the rule and never re-audited against it. When a rule lands, grep
+   the codebase for the pattern it forbids — here `.select(` without
+   `.range(` on a hot table — rather than trusting that future code will obey.
+
+2. **The tell was a CONSTANT where a growing number belongs.** `already in :
+   1,000` appeared on 42 consecutive passes. A healthy resume prints a number
+   that climbs toward the total. The same shape as the upload-count rule:
+   a value that cannot move is a value nothing is measuring. Any log line that
+   reports a count should be read for whether it *changes*.
+
+3. **The stall alert paid for itself on day one.** It fired STUCK because one
+   collection had been staged 5.3 hours with nothing completing, which is what
+   sent me to the log. Without it this would have run until the disk filled.
+   Then the repair exposed **49 keepers with no thumbnail** — TLS casualties on
+   the *oldest* copy, which the dedupe keeps by age on purpose — so a cleanup
+   is never the last step; the verify-and-repair pass after it is.
+
+The cleanup rule: **scope a delete by diagnosis, never by the SQL count.** TDP
+Website shows 88 "duplicates" that are the same photo PUBLISHED to several
+scenes; deleting one strips it off a live page. Four of the 16 events have
+fewer than 1,000 rows, so they cannot be this bug at all. `px-dedupe-event.ts`
+takes exactly one event id, checks every FK into `images` at run time, and
+refuses if a duplicate carries a reference a human made.

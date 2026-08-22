@@ -713,6 +713,38 @@ DerivedData + iOS DeviceSupport gave another 9.4 GB. **23 GB → 192 GB free.**
   resolution. **The width guard, not the driver's flag, is what answers this
   question** — which is exactly what the driver's own docstring says.
 
+## The stall alert fired on day one, and found the duplicate storm — 2026-08-21
+
+Four days after the pipeline ran dry (2026-08-17), the stall check went live
+and reported **STUCK** within hours: one collection staged 5.3h with nothing
+completing. The ingest was on pass 42 of Twitch Masquerade Ball, and the log
+read `already in : 1,000` on every pass — a constant where a climbing number
+belongs.
+
+**The idempotency read was an unpaged PostgREST select**, capped at 1,000 rows.
+Every photo past the first thousand read as absent and was re-inserted on each
+retry. 4,961 rows for 1,174 photos; one frame 23 times; each its own R2 object.
+Fixed in `pixieset-ingest.ts` (paged, ordered by id, reports duplicates it can
+see). Lesson 101. **The collection had been complete since pass 1** — every
+TLS "failure" being retried was a re-upload of a photo already there.
+
+Cleanup is `scripts/triage/px-dedupe-event.ts <eventId> [--apply]` — ONE event
+at a time by design, keeper = oldest row per filename, every FK into `images`
+re-counted at run time and the script refuses if a duplicate carries a face,
+favourite, activity, crew reference or the cover. Section links are repointed
+to the keeper (collisions dropped), then rows go, THEN objects via
+`deleteImageAssets` so a crash leaves an orphan object and never a broken tile.
+It is slow — ~135 link moves/min over PostgREST — so budget ~30 min per 4,000.
+
+**After a dedupe, run `repair-stranded-images.ts <eventId> --apply`.** Keeping
+by age, not health, left 49 keepers with no thumbnail on Twitch.
+
+A survey (`px-dupe-check.ts`, or the SQL in lesson 101) found **4,895 extra
+rows across 16 events**. Only Twitch (3,787) was cleaned. NOT all of the rest
+is this bug: TDP Website's 88 are publication to several scenes, and four
+events never reached 1,000 rows. Each needs its own diagnosis before
+`px-dedupe-event.ts` is pointed at it.
+
 ## The migration is a SERVICE now — 2026-08-16
 
 It runs as two launchd agents, `com.twodudes.pixieset.watch` and
