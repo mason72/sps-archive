@@ -67,6 +67,25 @@ work (catches SPS imports). Backfill/ops: `scripts/backfill-ai-index.ts`
   would have left every pre-existing event dark forever, since events store
   `{}` and the defaults live entirely at read time.
 
+### Names first, then the AI — on BOTH sides (2026-08-21)
+
+Every search surface that has filenames matches them first and only then
+asks the model. The guest search box always did (filename/parsed-name
+contains, AI fallback when that finds nothing); the Smart section modal was
+AI-only, so "group" returned 14 there and 36 for a guest, and Justin asked
+whether the two were the same engine. They are — `type=semantic` on
+`/api/search` — the inputs differed. The modal now unions `type=filename`
+(leading, tagged "name") with `type=semantic`, and the header counts each.
+
+Why the AI alone found 14 of 36: `filterSemanticMatches` keeps matches within
+60% of the TOP score (a fixed threshold was measured wrong both ways on
+2026-08-10). "group" is a weak query for SigLIP — top 0.115 vs 0.16 for
+"several people posing together" — and to the model "group" means a crowd:
+the 20-person frame leads, four-person rows sit mid-pack, two people together
+barely register, so the 60% cut at 0.069 dropped every two-person frame.
+Describe the scene ("people posing together"), not the category noun. The
+modal's example chips say so.
+
 ## Faces suite (src/lib/faces/)
 
 - `clustering-core.ts` (pure) + `cluster-event.ts` (DB): incremental,

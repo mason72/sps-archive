@@ -1434,3 +1434,19 @@ thumbnail with the fields right beside each image.
   treat it as a question card, not an implementation detail.
 - The per-row layout has a cost the grid hid: N pickers mount N times.
   Shared registry store, one fetch per list. Plan for that the first time.
+
+## 100 — "is it the same search?" — same engine, different inputs (2026-08-21)
+
+Justin: Smart section found 14 group shots for "group"; the client-side search
+found all 36. Same SigLIP index, same `/api/search` — but the guest box matches
+FILENAMES first and only falls back to the AI, while the modal asked only the
+AI. Every "Justin Group_…" filename matched; the AI never ran on the guest side.
+Fixed by giving the modal the same names-first union (name hits tagged).
+
+The AI's 14 was not a bug either: the relative cut keeps matches within 60% of
+the top score, and "group" scores weakly (top 0.115) because the model reads
+it as "crowd" — two-person frames fell under the 0.069 cut. Measured on the
+live index: "two people" found Tori's pair at 0.12; "several people posing
+together" topped at 0.16. **When two surfaces disagree, diff their INPUTS
+before their engine** — and when a search "misses", print the scores before
+touching the threshold; a vague noun is a query problem, not a model problem.

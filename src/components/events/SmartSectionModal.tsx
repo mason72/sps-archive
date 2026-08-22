@@ -21,7 +21,10 @@ interface Match {
   byName?: boolean;
 }
 
-const EXAMPLES = ["people wearing glasses", "candid laughing", "group photos", "on stage"];
+// Phrases, not nouns: the model scores "people posing together" far above the
+// bare word "group", whose best match on a headshot day was 0.115 (weak) and
+// whose relative cut dropped every two-person frame (2026-08-21).
+const EXAMPLES = ["people wearing glasses", "candid laughing", "people posing together", "on stage"];
 
 /**
  * SmartSectionModal — describe a section, get the photos.
