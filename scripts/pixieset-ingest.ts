@@ -378,16 +378,42 @@ async function main() {
   let eventId = linked?.id ?? null;
   if (eventId) console.log(`event : existing ${eventId} (resuming)`);
 
-  // What is already in that event — the idempotency check.
+  /**
+   * What is already in that event — THE idempotency check, and it must be
+   * complete or it is worse than useless.
+   *
+   * This was an unpaged `.select().eq()`. PostgREST caps such a read at 1,000
+   * rows and says nothing, so for any event past a thousand photos every image
+   * after the first 1,000 was invisible here — reported as absent, re-uploaded,
+   * and inserted AGAIN on every retry pass. Twitch Masquerade Ball reached
+   * **4,961 rows for 1,174 photos** that way, some frames stored 23 times, each
+   * one a paid R2 object and a repeated tile in the gallery. The log said
+   * `already in : 1,000` on 42 consecutive passes; that constant was the tell.
+   *
+   * Two rules, both already in CLAUDE.md and both broken by this one line:
+   * an unpaged PostgREST select silently truncates, and a truncated read is
+   * indistinguishable from a real absence; and every paged read carries an
+   * `.order()` on a UNIQUE column, because `range()` is OFFSET/LIMIT and
+   * Postgres guarantees no row order without one.
+   */
   let present = new Set<string>();
   if (eventId) {
-    const { data: rows, error: rowsErr } = await supabase
-      .from("images")
-      .select("original_filename")
-      .eq("event_id", eventId);
-    if (rowsErr) throw rowsErr;
-    present = new Set((rows ?? []).map((r) => r.original_filename));
-    console.log(`already in : ${n(present.size)} image(s)`);
+    const PAGE = 1000;
+    let seen = 0;
+    for (let from = 0; ; from += PAGE) {
+      const { data: rows, error: rowsErr } = await supabase
+        .from("images")
+        .select("id,original_filename")
+        .eq("event_id", eventId)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (rowsErr) throw rowsErr;
+      if (!rows?.length) break;
+      for (const r of rows) if (r.original_filename) present.add(r.original_filename);
+      seen += rows.length;
+      if (rows.length < PAGE) break;
+    }
+    console.log(`already in : ${n(present.size)} image(s)${seen !== present.size ? ` (${n(seen)} rows — ${n(seen - present.size)} DUPLICATE rows present)` : ""}`);
   }
 
   const todo = [...photos.entries()].filter(([base]) => !present.has(base));
