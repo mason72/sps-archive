@@ -19,6 +19,8 @@ interface Match {
   filename?: string;
   /** Matched by filename / parsed name, not by the AI description search. */
   byName?: boolean;
+  /** Matched by detected face count ("group" = 2+ faces), not by the AI. */
+  byFaces?: boolean;
 }
 
 // Phrases, not nouns: the model scores "people posing together" far above the
@@ -90,20 +92,31 @@ export function SmartSectionModal({
         // searches were even the same engine (they are; one had a filename
         // pass, the other did not; 2026-08-21). Union: name hits lead and are
         // marked, AI hits fill in the rest.
-        const call = async (type: "filename" | "semantic") => {
+        const call = async (type: "filename" | "faces" | "semantic") => {
           const params = new URLSearchParams({ q: trimmed, eventId, type, limit: "400" });
           const res = await fetch(`/api/search?${params}`);
           if (!res.ok) throw new Error();
           const data = (await res.json()) as { results?: Match[] };
           return data.results ?? [];
         };
-        const [byName, byAi] = await Promise.all([call("filename"), call("semantic")]);
+        // Names, then face counts ("group" = 2+ faces — structural, from the
+        // detector), then the AI. See face-count-query.ts for the vocabulary.
+        const [byName, byFaces, byAi] = await Promise.all([
+          call("filename"),
+          call("faces"),
+          call("semantic"),
+        ]);
         const seen = new Set<string>();
         const union: Match[] = [];
         for (const m of byName) {
           if (seen.has(m.id)) continue;
           seen.add(m.id);
           union.push({ ...m, byName: true });
+        }
+        for (const m of byFaces) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          union.push({ ...m, byFaces: true });
         }
         for (const m of byAi) {
           if (seen.has(m.id)) continue;
@@ -247,12 +260,14 @@ export function SmartSectionModal({
                       {kept.length} photo{kept.length === 1 ? "" : "s"}
                       {(() => {
                         const n = kept.filter((m) => m.byName).length;
-                        const a = kept.length - n;
-                        return n > 0 && a > 0
-                          ? ` · ${n} by name, ${a} by description`
-                          : n > 0
-                            ? " · matched by name"
-                            : "";
+                        const f = kept.filter((m) => m.byFaces).length;
+                        const a = kept.length - n - f;
+                        const parts = [
+                          n > 0 ? `${n} by name` : null,
+                          f > 0 ? `${f} by faces in frame` : null,
+                          a > 0 ? `${a} by description` : null,
+                        ].filter(Boolean);
+                        return parts.length > 1 ? ` · ${parts.join(", ")}` : n > 0 ? " · matched by name" : f > 0 ? " · matched by faces in frame" : "";
                       })()}
                       {" "}· click to remove any that don&apos;t belong
                     </p>
@@ -297,12 +312,12 @@ export function SmartSectionModal({
                                 className="h-full w-full object-cover object-top"
                               />
                             )}
-                            {m.byName && (
+                            {(m.byName || m.byFaces) && (
                               <span
                                 className="absolute left-1 top-1 bg-white/85 px-1 py-px text-[8px] font-medium uppercase tracking-wide text-stone-500 backdrop-blur-sm"
-                                title="Matched by filename"
+                                title={m.byName ? "Matched by filename" : "Matched by the number of faces in the frame"}
                               >
-                                name
+                                {m.byName ? "name" : "faces"}
                               </span>
                             )}
                           </button>

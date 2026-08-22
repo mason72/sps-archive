@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { embedTexts } from "@/lib/ai-index/embed-text";
 import { createServiceClient } from "@/lib/supabase/server";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
+import { applyFaceCountRule, faceCountRule } from "@/lib/ai-index/face-count-query";
 import { reportSystemError } from "@/lib/monitoring/report";
 import {
   filterSemanticMatches,
@@ -89,6 +90,22 @@ export async function GET(
       .sharing;
     if (sharing?.guestSearch === false) {
       return NextResponse.json({ error: "Search disabled" }, { status: 403 });
+    }
+
+    // Structural words ("group", "two people", "crowd") are answered from the
+    // detector's face counts — no embed call, no model guessing at a category
+    // noun. Same rule as the editor's Smart section (face-count-query.ts).
+    const rule = faceCountRule(query);
+    if (rule) {
+      const { data: counts, error: fcErr } = await supabase.rpc("count_faces_by_image", {
+        target_event_id: share.event_id,
+      });
+      if (fcErr) throw fcErr;
+      const allowed = shareScopeIdFilter(scope);
+      const results = applyFaceCountRule(counts ?? [], rule)
+        .filter((r) => !allowed || allowed.has(r.image_id))
+        .map((r) => ({ id: r.image_id, similarity: 1 }));
+      return NextResponse.json({ results, rule: rule.label });
     }
 
     // Guest search bills the event owner (see embed-text.ts).

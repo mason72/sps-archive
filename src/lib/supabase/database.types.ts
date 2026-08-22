@@ -1925,6 +1925,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      count_faces_by_image: {
+        Args: { target_event_id: string }
+        Returns: {
+          face_count: number
+          image_id: string
+        }[]
+      }
       create_section_at_top: {
         Args: { p_description?: string; p_event_id: string; p_name: string }
         Returns: {

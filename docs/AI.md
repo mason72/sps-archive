@@ -86,6 +86,20 @@ barely register, so the 60% cut at 0.069 dropped every two-person frame.
 Describe the scene ("people posing together"), not the category noun. The
 modal's example chips say so.
 
+### "Group" is a face count, not a concept (2026-08-21)
+
+Mason: "can we cheat the index and let it recognize a group as any image with
+2+ faces?" Yes — the detector already counted. `count_faces_by_image(event)`
+(migration 071) returns faces per frame; `src/lib/ai-index/face-count-query.ts`
+holds the vocabulary (`group`/`together`/`team` = 2+, `two people`/`pair`/
+`couple` = exactly 2, `crowd`/`everyone`/`whole team` = 5+). Both search routes
+apply it: the guest route answers structural words from counts and never
+embeds them; `/api/search?type=faces` serves the Smart section modal, which
+unions name → faces → AI and tags each. Measured on Appfolio: 2+ faces = 42
+frames = all 36 group files + 5 Kaitlin-with-dog (the detector's dog face) + 1.
+No quality floor on purpose: small faces in a 20-person frame score low too,
+and losing the crowd is worse than one dog the modal lets you click away.
+
 ## Faces suite (src/lib/faces/)
 
 - `clustering-core.ts` (pure) + `cluster-event.ts` (DB): incremental,

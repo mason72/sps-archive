@@ -7,11 +7,12 @@ import { embedTexts } from "@/lib/ai-index/embed-text";
 export const maxDuration = 60;
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { createServiceClient } from "@/lib/supabase/server";
+import { applyFaceCountRule, faceCountRule } from "@/lib/ai-index/face-count-query";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
 /**
- * GET /api/search?q=<query>&eventId=<optional>&type=<semantic|filename|person>
+ * GET /api/search?q=<query>&eventId=<optional>&type=<semantic|filename|faces|person>
  *
  * Unified search across the archive.
  *
@@ -66,6 +67,17 @@ export async function GET(request: NextRequest) {
     }
     if (scopeEventIds.length === 0) {
       return NextResponse.json({ type: searchType, results: [], count: 0 });
+    }
+
+    // Structural search: "group", "two people", "crowd" are face COUNTS the
+    // detector already knows, not visual concepts for the model to guess at
+    // (it found 14 of 36 group shots for "group"; see face-count-query.ts).
+    // Explicit type only — the Smart section modal unions it with the others.
+    if (searchType === "faces") {
+      const rule = faceCountRule(query);
+      if (!rule) return NextResponse.json({ type: "faces", results: [], count: 0 });
+      const results = await searchByFaceCount(supabase, rule, scopeEventIds, limit);
+      return NextResponse.json({ type: "faces", results, count: results.length, rule: rule.label });
     }
 
     if (searchType === "filename" || searchType === "auto") {
@@ -148,6 +160,59 @@ async function searchByFilename(
       const thumbKey = getThumbnailKey(r2Key);
       const [thumbnailUrl, originalUrl] = await Promise.all([
         getPresignedDownloadUrl(thumbKey, 14400),
+        getPresignedDownloadUrl(r2Key, 14400),
+      ]);
+      return {
+        id: img.id,
+        eventId: img.event_id,
+        filename: img.original_filename,
+        parsedName: img.parsed_name,
+        r2Key,
+        thumbnailUrl,
+        originalUrl,
+        score: 1.0,
+        stackId: img.stack_id,
+        stackRank: img.stack_rank,
+      };
+    })
+  );
+}
+
+/** Images whose detected-face count satisfies a structural rule. */
+async function searchByFaceCount(
+  supabase: SupabaseDB,
+  rule: ReturnType<typeof faceCountRule> & object,
+  scopeEventIds: string[],
+  limit: number
+) {
+  // One aggregate per event; a whole-archive "group" search over many events
+  // is rare and still bounded by `limit`.
+  const ids: string[] = [];
+  for (const eventId of scopeEventIds) {
+    const { data, error } = await supabase.rpc("count_faces_by_image", {
+      target_event_id: eventId,
+    });
+    if (error) throw error;
+    for (const row of applyFaceCountRule(data ?? [], rule)) ids.push(row.image_id);
+    if (ids.length >= limit) break;
+  }
+  if (ids.length === 0) return [];
+  // Page the id filter: PostgREST puts .in() values in the query string.
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < Math.min(ids.length, limit); i += 150) {
+    const { data, error } = await supabase
+      .from("images")
+      .select("id, event_id, original_filename, parsed_name, r2_key, stack_id, stack_rank")
+      .in("id", ids.slice(i, i + 150))
+      .order("original_filename");
+    if (error) throw error;
+    rows.push(...(data ?? []));
+  }
+  return Promise.all(
+    rows.map(async (img) => {
+      const r2Key = img.r2_key as string;
+      const [thumbnailUrl, originalUrl] = await Promise.all([
+        getPresignedDownloadUrl(getThumbnailKey(r2Key), 14400),
         getPresignedDownloadUrl(r2Key, 14400),
       ]);
       return {
