@@ -17,6 +17,8 @@ interface Match {
   id: string;
   thumbnailUrl?: string;
   filename?: string;
+  /** Matched by filename / parsed name, not by the AI description search. */
+  byName?: boolean;
 }
 
 const EXAMPLES = ["people wearing glasses", "candid laughing", "group photos", "on stage"];
@@ -78,18 +80,34 @@ export function SmartSectionModal({
       setSearching(true);
       setMatches(null);
       try {
-        const params = new URLSearchParams({
-          q: trimmed,
-          eventId,
-          type: "semantic",
-          limit: "200",
-        });
-        const res = await fetch(`/api/search?${params}`);
-        if (!res.ok) throw new Error();
-        const data = (await res.json()) as {
-          results: { id: string; filename?: string; thumbnailUrl?: string }[];
+        // NAME FIRST, then the AI — the same rule the guest gallery's search
+        // box follows. This modal used to be AI-only, so "group" found 14
+        // visually-grouped photos here and 36 on the client side, where every
+        // "Justin Group_…" filename matched — Justin asked whether the two
+        // searches were even the same engine (they are; one had a filename
+        // pass, the other did not; 2026-08-21). Union: name hits lead and are
+        // marked, AI hits fill in the rest.
+        const call = async (type: "filename" | "semantic") => {
+          const params = new URLSearchParams({ q: trimmed, eventId, type, limit: "400" });
+          const res = await fetch(`/api/search?${params}`);
+          if (!res.ok) throw new Error();
+          const data = (await res.json()) as { results?: Match[] };
+          return data.results ?? [];
         };
-        setMatches(data.results ?? []);
+        const [byName, byAi] = await Promise.all([call("filename"), call("semantic")]);
+        const seen = new Set<string>();
+        const union: Match[] = [];
+        for (const m of byName) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          union.push({ ...m, byName: true });
+        }
+        for (const m of byAi) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          union.push(m);
+        }
+        setMatches(union);
         setSearched(trimmed);
         setExcluded(new Set());
         if (!nameTouched) {
@@ -223,8 +241,17 @@ export function SmartSectionModal({
                 <>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-stone-400">
-                      {kept.length} photo{kept.length === 1 ? "" : "s"} · click to
-                      remove any that don&apos;t belong
+                      {kept.length} photo{kept.length === 1 ? "" : "s"}
+                      {(() => {
+                        const n = kept.filter((m) => m.byName).length;
+                        const a = kept.length - n;
+                        return n > 0 && a > 0
+                          ? ` · ${n} by name, ${a} by description`
+                          : n > 0
+                            ? " · matched by name"
+                            : "";
+                      })()}
+                      {" "}· click to remove any that don&apos;t belong
                     </p>
                     <button
                       onClick={() => setShowFilenames((v) => !v)}
@@ -266,6 +293,14 @@ export function SmartSectionModal({
                                 loading="lazy"
                                 className="h-full w-full object-cover object-top"
                               />
+                            )}
+                            {m.byName && (
+                              <span
+                                className="absolute left-1 top-1 bg-white/85 px-1 py-px text-[8px] font-medium uppercase tracking-wide text-stone-500 backdrop-blur-sm"
+                                title="Matched by filename"
+                              >
+                                name
+                              </span>
                             )}
                           </button>
                           {showFilenames && filename && (
