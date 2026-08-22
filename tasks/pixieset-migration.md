@@ -713,6 +713,47 @@ DerivedData + iOS DeviceSupport gave another 9.4 GB. **23 GB → 192 GB free.**
   resolution. **The width guard, not the driver's flag, is what answers this
   question** — which is exactly what the driver's own docstring says.
 
+## A FOURTH gate: the gallery password, which only bites logged out — 2026-08-21
+
+The admin session at `galleries.pixieset.com` expired (the tab was parked on
+`accounts.pixieset.com/login`). Restarting downloads against the client host,
+`hobartholidayparty2015` redirected to `/guestlogin/{slug}/?return=…`, a form
+with exactly one field: `CollectionGuestLoginForm[password]`. A real gallery
+password. Three other slugs probed the same minute loaded direct, 200, no
+redirect — **per-collection, not global.**
+
+The owner session had been hiding this. The flow doc says "NO password and NO
+PIN when viewing as owner", and every 2026-08-15 run was as owner, so the
+driver never met the gate. **Logged out, the email gate still passes** — the
+first job of the 2026-08-21 batch went `auth → sets → generate` with 1,465
+expected — **but a gallery password does not.** I will not type one; a gated
+slug waits for Mason to be signed in.
+
+Three consequences:
+
+- **The staging inventory cannot pre-classify.** Its copy is a slim 10-key
+  schema (`id, name, url_key, event_date, photo_count, high_res, web,
+  photo_download, collection_download, status`) — no `password`. A filter on
+  that field returns "0 with password" for all 1,316, which is an ABSENT
+  COLUMN reading as a fact (same trap as `images.filename`, lesson 87). The
+  live `dashboard_listings` endpoint carries `password`, but it is on the
+  admin host, which needs the login.
+- **The driver's error on a gated slug is misleading.** It follows the
+  redirect, finds no `/download/auth/` on the guest-login HTML, and reports
+  `no download-auth link (downloads disabled?)` — the downloads-disabled
+  message for a password problem. Not yet fixed: it should test the landed
+  path for `/guestlogin/` and report `password-gated` instead, so the queue
+  can hold those for a signed-in session rather than marking them failed.
+- **The gate classes are now four**: PIN (not in the KEEP set), downloads
+  switched off (22, settings snapshotted), Web Size fidelity (caught by the
+  width guard, 6 so far), and gallery password (count unknown until the
+  admin host can be read).
+
+Tooling gotcha that cost two probes: **an `async` IIFE as the JS tool's last
+expression comes back as `{}`** — the tool serialises the unresolved Promise.
+Write the result to `window.__x`, return a string immediately, and read
+`window.__x` in a second call. Synchronous DOM reads are fine inline.
+
 ## The stall alert fired on day one, and found the duplicate storm — 2026-08-21
 
 Four days after the pipeline ran dry (2026-08-17), the stall check went live

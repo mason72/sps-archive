@@ -143,10 +143,21 @@
       // 1 — the gallery page carries the download-auth link (with its dt token).
       const g = await GET(`${location.origin}/${job.slug}/`);
       if (g.status !== 200) { out.error = `gallery HTTP ${g.status}`; return out; }
+      // A gallery with its own password redirects to /guestlogin/{slug}/ when the
+      // session is not the owner. The owner session hid this until 2026-08-21, when
+      // it expired and hobartholidayparty2015 landed here. It is NOT "downloads
+      // disabled" — the inventory's collection_download flag is true for these —
+      // and it must not be reported as such, or the queue treats a login problem as
+      // a settings problem. Branch on the LANDED path, per the header.
+      if (pathOf(g.url).includes("/guestlogin/")) {
+        out.phase = "gate";
+        out.error = "password-gated (guest login) — needs a signed-in owner session";
+        return out;
+      }
       const m = g.html.match(/\/download\/auth\/[^"'\s\\]+/);
       if (!m) {
-        // Downloads disabled on the collection, or it is password-gated for this session.
-        out.error = "no download-auth link on gallery page (downloads disabled?)";
+        // No redirect and no auth link: downloads really are switched off here.
+        out.error = "no download-auth link on gallery page (downloads disabled)";
         return out;
       }
 
