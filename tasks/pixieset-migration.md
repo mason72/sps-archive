@@ -754,6 +754,31 @@ expression comes back as `{}`** — the tool serialises the unresolved Promise.
 Write the result to `window.__x`, return a string immediately, and read
 `window.__x` in a second call. Synchronous DOM reads are fine inline.
 
+### Cleanup outcome and a DELIBERATE stop (2026-08-23)
+
+Twitch Masquerade Ball is the only duplicate event cleaned: 3,787 rows + R2
+objects deleted, 49 keeper thumbnails repaired, verified per-file, archive
+released, queue reconciled to ingested. `px-dedupe-event.ts` did it safely
+because those duplicates carried **zero faces** — created and deleted before
+AI ran.
+
+**The two other >1000-row Pixieset events (Microsoft Surface Pro 3 = 184,
+Kia at Mom = 80) are LEFT ALONE ON PURPOSE.** Their duplicates carry ~700 AI
+face detections assigned to named persons (386/384 and 313/313). They are the
+same bug and would be safe *in principle* — the keeper of each photo carries
+equivalent faces with equivalent person links, being a byte-identical
+re-upload — but `px-dedupe-event.ts` correctly REFUSES any row bearing a face,
+and Mason chose (2026-08-23) not to loosen that for 264 cosmetic tiles. **Do
+not "finish the cleanup" by deleting these without a face-aware migration**
+that moves each duplicate's faces to the keeper; a naive delete can drop a
+person→photo link that feeds People search. The bug is already fixed, so the
+count cannot grow.
+
+The remaining ~756 duplicate rows across 12 events are **hand-upload dupes,
+not this bug** (Pixeltrunk has no ingest dedupe). Same filename there can be
+two different photos from two cameras, so they are NOT `px-dedupe-event.ts`
+candidates. TDP Website's 88 are publication to several scenes — never dedupe.
+
 ## The stall alert fired on day one, and found the duplicate storm — 2026-08-21
 
 Four days after the pipeline ran dry (2026-08-17), the stall check went live
