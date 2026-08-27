@@ -5,6 +5,7 @@ import { fetchGigsInWindow, hasCalendarCredential, windowFor } from "@/lib/event
 import { daysApart, rankGigs, type Gig } from "@/lib/event-intel/match-gig";
 import { parseGig, parseVenue } from "@/lib/event-intel/parse-calendar";
 import { payerDomains } from "@/lib/event-intel/apply-gig";
+import { orgDisplayName } from "@/lib/event-intel/org-name";
 import { hasIntelAccess } from "@/lib/event-intel/access";
 
 /**
@@ -270,7 +271,16 @@ export async function GET(request: NextRequest) {
         orgs: domains.map((d) => ({
           domain: d,
           orgId: orgByDomain.get(d)?.id ?? null,
-          name: orgByDomain.get(d)?.name ?? null,
+          /**
+           * A NEW org still gets a name — the best derivable one, from this
+           * gig's own titles — because the confirm card shows it in an
+           * editable field and what the card shows IS what the org will be
+           * called. A raw domain there ("sutterhealth.org") makes the human
+           * do the machine's whole job instead of just correcting it.
+           */
+          name:
+            orgByDomain.get(d)?.name ??
+            orgDisplayName(d, gig.events.map((e) => e.summary ?? "").filter(Boolean)),
         })),
         calendarEventIds: gig.events.map((e) => e.id).filter(Boolean) as string[],
         /** The gallery that already claims this gig, when there is one. */

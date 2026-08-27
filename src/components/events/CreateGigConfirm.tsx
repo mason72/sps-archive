@@ -71,6 +71,15 @@ export interface GigIntelPayload {
     note: string | null;
   }[];
   orgDomains: string[];
+  /**
+   * What to CALL each org that doesn't exist yet, keyed by domain — the name
+   * from the card's editable field, seeded with the server's best derivation
+   * and corrected by the human. Only NEW orgs appear here: an existing org's
+   * name is already curated, and renaming it belongs to /intel, not to a
+   * confirm card ("sutterhealth.org" arriving as "Sutterhealth" is the bug
+   * this field exists to let Mason fix in place, 2026-08-28).
+   */
+  orgNames?: Record<string, string>;
   calendarEventIds: string[];
 }
 
@@ -262,6 +271,13 @@ export function GigConfirmCard({
    */
   const [temps, setTemps] = useState<TempPerson[]>([]);
   const [addingTemp, setAddingTemp] = useState(false);
+  /**
+   * The names NEW orgs will be created under, editable on the card. Seeded
+   * from the server's derivation (never the raw domain) in the same effect
+   * that seeds crew picks, so re-picking the same gig keeps a correction and
+   * a different gig reseeds — the exact contract picks already hold.
+   */
+  const [orgNames, setOrgNames] = useState<Record<string, string>>({});
 
   /**
    * Faces beside the names — "is this the Nicole I think it is?", asked at the
@@ -329,6 +345,14 @@ export function GigConfirmCard({
       setTemps([]);
       setAddingTemp(false);
     }
+    setOrgNames((prev) => {
+      const seed: Record<string, string> = {};
+      for (const o of gig.orgs) {
+        if (o.orgId) continue; // existing orgs keep their curated name
+        seed[o.domain] = sameGig && prev[o.domain] !== undefined ? prev[o.domain] : (o.name ?? "");
+      }
+      return seed;
+    });
   }, [gig]);
 
   const payload = useMemo<GigIntelPayload>(() => {
@@ -365,13 +389,22 @@ export function GigConfirmCard({
       });
     }
 
+    // Only names someone could actually have typed — an emptied field means
+    // "no opinion", and the server falls back to its own derivation.
+    const namedOrgs = Object.fromEntries(
+      Object.entries(orgNames)
+        .map(([d, n]) => [d, n.trim()])
+        .filter(([, n]) => n)
+    );
+
     return {
       venue: gig.venue?.raw ?? null,
       crew,
       orgDomains: gig.orgs.map((o) => o.domain),
+      orgNames: namedOrgs,
       calendarEventIds: gig.calendarEventIds,
     };
-  }, [gig, picks, temps]);
+  }, [gig, picks, temps, orgNames]);
 
   useEffect(() => { onChange(payload); }, [payload, onChange]);
 
@@ -759,12 +792,39 @@ export function GigConfirmCard({
             {gig.orgs.length === 0 ? (
               <span className="text-stone-400">No onsite contact in the entry</span>
             ) : (
-              gig.orgs.map((o) => (
-                <span key={o.domain} className="mr-3 inline-block">
-                  {o.name ?? o.domain}
-                  {!o.orgId && <span className="ml-1.5 text-[11px] text-stone-400">new</span>}
-                </span>
-              ))
+              gig.orgs.map((o) =>
+                o.orgId ? (
+                  // An existing org's name is already curated — renaming it
+                  // belongs to /intel, not to a card confirming one gig.
+                  <span key={o.domain} className="mr-4 inline-block">
+                    {o.name ?? o.domain}
+                  </span>
+                ) : (
+                  /**
+                   * A NEW org's name is a machine guess about to become a row,
+                   * so it renders as the thing it is: a field to correct. The
+                   * name shown here IS the name the org gets — the domain
+                   * beside it stays the identity and is not editable.
+                   * ("sutterhealth.org" importing as "Sutterhealth" is what
+                   * this fixes, 2026-08-28.)
+                   */
+                  <span key={o.domain} className="mr-4 inline-flex items-baseline gap-2">
+                    <input
+                      value={orgNames[o.domain] ?? ""}
+                      onChange={(e) =>
+                        setOrgNames((n) => ({ ...n, [o.domain]: e.target.value }))
+                      }
+                      aria-label={`Client name for ${o.domain}`}
+                      placeholder={o.domain}
+                      size={Math.max((orgNames[o.domain] ?? "").length, 12)}
+                      className="border-b border-stone-200 bg-transparent py-0.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors"
+                    />
+                    <span className="whitespace-nowrap text-[11px] text-stone-400">
+                      {o.domain} · new
+                    </span>
+                  </span>
+                )
+              )
             )}
           </dd>
         </div>

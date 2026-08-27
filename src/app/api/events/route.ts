@@ -298,6 +298,7 @@ export async function POST(request: NextRequest) {
          */
         crew?: CrewAssignment[];
         orgDomains?: string[];
+        orgNames?: Record<string, string>;
         calendarEventIds?: string[];
       };
     };
@@ -377,6 +378,7 @@ export async function POST(request: NextRequest) {
           venue: intel.venue ?? null,
           crew: intel.crew ?? [],
           orgDomains: intel.orgDomains ?? [],
+          orgNames: intel.orgNames,
           calendarEventIds: intel.calendarEventIds ?? [],
           confirmed: true,
         });

@@ -625,6 +625,7 @@ const BRAND_CASE: Record<string, string> = {
   // the point of this is to reduce his editing, not to correct his house style.
   collegeboard: "College Board", purestorage: "Pure Storage",
   "pg&e": "PG&E", sonos: "Sonos", paypal: "PayPal",
+  sutterhealth: "Sutter Health",
 };
 
 /**

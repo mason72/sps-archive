@@ -82,6 +82,14 @@ export interface ApplyGigInput {
   crew?: CrewAssignment[];
   /** Contact-email domains that name the payer. */
   orgDomains?: string[];
+  /**
+   * What a human said to CALL a new org, keyed by domain. Comes from the
+   * confirm card's editable client field; wins over `domainToName`, which is
+   * a first guess ("sutterhealth.org" → "Sutterhealth") that a person should
+   * only ever have to correct once — at creation. Ignored for orgs that
+   * already exist: their names are curated and renames belong to /intel.
+   */
+  orgNames?: Record<string, string>;
   calendarEventIds?: string[];
   /**
    * Did a HUMAN say this gallery is this gig?
@@ -299,7 +307,11 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
     if (!orgId) {
       const { data: made, error: oErr } = await db
         .from("organizations")
-        .insert({ user_id: userId, name: domainToName(clean), domains: [clean] })
+        .insert({
+          user_id: userId,
+          name: input.orgNames?.[clean]?.trim() || domainToName(clean),
+          domains: [clean],
+        })
         .select("id")
         .single();
       if (oErr) {

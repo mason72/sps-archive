@@ -1,5 +1,49 @@
 # Pixeltrunk - Build Plan
 
+## Guest share links — planned 2026-08-28, client-requested
+
+A public gallery visitor shares one person's photos (or the whole gallery)
+without handing over the parent link. Recipient UX already exists: a
+`selection` share of one person's images renders the standalone named page
+(single-person view, GalleryExperience:358) — no "Back to gallery", curated
+scope suppresses face search, fresh nanoid slug means no route back to the
+parent. The build is one endpoint, one button, one column.
+
+Decisions (Mason, 2026-08-28, settled after walking the ladder):
+- **Guest-minted links ALWAYS inherit the parent's password + PIN.** Simplest
+  and safest: the derived link is an ordinary share row, so the existing
+  password/PIN write-through keeps it in lockstep with rotations — no
+  special-case revocation, no full-scope edge guard. Friction only exists on
+  galleries whose owner deliberately locked them (most have no password, so
+  the common person-link flow is frictionless anyway); the sharer passes the
+  password along, same as sharing the parent URL.
+- Derived shares still serve only while their parent share is active and
+  unexpired (read-time `parent_share_id` check) — killing the gallery link
+  kills every link guests spawned from it.
+- "Share entire gallery" mints nothing — it copies/native-shares the current
+  URL. Keep the button for the mobile share sheet; veto-able at build time.
+- **The guest share dialog NEVER prints a gate value** (Mason: the owner may
+  have shared the link while withholding the download PIN). It may say "this
+  link needs the gallery password" — the door, never the key. The owner's
+  email composer stays the only surface that prints passwords/PINs.
+
+- [ ] Migration: `shares.parent_share_id` (nullable FK) + partial index
+- [ ] `POST /api/gallery/[slug]/share` — public, share-scoped: validate ids ⊆
+      `resolveShareImageScope(parent)`, dedupe (same parent + same id set →
+      return existing link), rate-limit, mint `selection` share COPYING the
+      parent's password_hash + PIN columns + allow_download/expiry,
+      `parent_share_id` set (write-through then maintains the gates for free)
+- [ ] Gallery route: derived share 404s/410s when parent inactive or expired
+- [ ] `SharingSettings.allowGuestSharing` — absent = enabled (selfie-search
+      convention); endpoint fails closed when off
+- [ ] UI: Share button beside "Download all N" on StackModal + single-person
+      view → copy field + `navigator.share`; toast names the person and count.
+      Gallery-level share = copy current URL (no minting)
+- [ ] Owner share list labels guest-created rows ("created by a guest")
+- [ ] Verify: scope-escalation probe (ids outside parent scope rejected),
+      derived link dies with parent, password rotation kills it, OG card on
+      derived link shows the person's frame
+
 ## QUEUE as of 2026-08-15 (read `docs/SESSION-HANDOFF.md` first)
 
 1. **Pixieset migration** — 1,371 collections / ~1.58M photos, oldest first.
