@@ -513,7 +513,28 @@ async function main() {
   let exifSkipped = 0;
   const started = Date.now();
 
-  for (const [base, plan] of todo) {
+  /**
+   * CONCURRENCY, because this loop is ~100% network-bound.
+   *
+   * Measured 2026-08-28 on a 2.2 MB average frame: unzip 23ms, R2 upload 601ms,
+   * thumbnails 480ms, one Supabase round trip 170ms. The full body makes ~6
+   * sequential round trips, so a photo took ~3.3s and the CPU sat at 0% the
+   * whole time — which is also why a slow pass LOOKS like a hung one.
+   *
+   * Nothing here is algorithmically wrong; it simply waits, one photo at a
+   * time. Each photo is independent — its own UUID, its own R2 key, its own
+   * row — so a bounded pool is safe and turns waiting into throughput.
+   *
+   * `sort_order` was the one thing that could not be parallelised as written:
+   * it used the mutable `imported` counter, so concurrent photos would collide
+   * or leave gaps. It now comes from the photo's INDEX in `todo`, which is
+   * deterministic and identical to what the sequential loop produced.
+   *
+   * Bounded, not unbounded: each in-flight photo holds its source buffer plus
+   * sharp's decoded raster (a 5760x3840 frame is ~66 MB raw), so the ceiling is
+   * memory, not politeness. PIXIESET_CONCURRENCY tunes it.
+   */
+  const importOne = async (base: string, plan: (typeof todo)[number][1], index: number) => {
     try {
       const buffer = await readEntry(plan.zipPath, plan.entry);
       if (buffer.byteLength < 1024) throw new Error("entry too small to be a photograph");
@@ -555,7 +576,7 @@ async function main() {
       const links = plan.sets.map((set) => ({
         section_id: sectionIds.get(set)!,
         image_id: id,
-        sort_order: (sortBase.get(set) ?? 0) + imported,
+        sort_order: (sortBase.get(set) ?? 0) + index,
       }));
       const { error: linkErr } = await supabase.from("section_images").insert(links);
       if (linkErr) {
@@ -644,7 +665,23 @@ async function main() {
       failures.push({ filename: base, reason });
       console.error(`  ✗ ${base}: ${reason}`);
     }
-  }
+  };
+
+  // A shared cursor with N workers: simple, dependency-free, and it keeps the
+  // pool full instead of running in lockstep batches (one slow 40 MB frame
+  // would otherwise stall every other worker at the batch boundary).
+  const CONCURRENCY = Math.max(1, Number(process.env.PIXIESET_CONCURRENCY ?? 4));
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= todo.length) return;
+      const [base, plan] = todo[i];
+      await importOne(base, plan, i);
+    }
+  };
+  console.log(`  importing with ${CONCURRENCY} concurrent workers`);
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, todo.length) }, worker));
 
   const secs = (Date.now() - started) / 1000;
   console.log(
