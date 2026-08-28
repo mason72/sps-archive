@@ -8,3 +8,4 @@ package-lock.json
 # committable because someone moved the directory rule.
 data/gates.json
 **/gates.json
+profile-chrome/

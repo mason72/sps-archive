@@ -34,7 +34,7 @@
  * settles those, and it must be treated as mandatory for them.
  */
 (() => {
-  const VERSION = 3;
+  const VERSION = 4;   // 4: the email gate goes through the form, not the gallery link
   if (window.PX && window.PX.version === VERSION && window.PX.state === "running") {
     return `PX v${VERSION} already running`;
   }
@@ -122,6 +122,36 @@
   const pathOf = (u) => { try { return new URL(u).pathname; } catch { return String(u); } };
 
   /**
+   * Pass the email gate: GET the auth page, then POST ITS OWN form.
+   *
+   * The gallery page carries `/download/auth/{slug}/?dt={token}`. POSTing straight
+   * at that URL — which this driver did until 2026-08-28 — skips the exchange the
+   * GET performs, and the gate simply re-serves itself. The driver then reported
+   * `unexpected path /download/auth/…` and every collection failed at phase
+   * `auth`, which reads exactly like an expired login but is not one.
+   *
+   * Read the action and the submit button's value off the returned form rather
+   * than hard-coding them: Yii uses the button's value as its submit marker, and
+   * the action carries a fresh key that is not the `dt` token we arrived with.
+   * Any hidden fields the form ships with are preserved for the same reason the
+   * generate POST preserves them — an unguessable field added later would
+   * otherwise break this silently.
+   */
+  async function authenticate(url, email) {
+    const page = await GET(url);
+    const doc = parse(page.html);
+    const form = doc.querySelector('form[action*="/download/auth/"]') || doc.querySelector("form");
+    if (!form) return { r: page, usedForm: false };
+    const action = new URL(form.getAttribute("action") || url, page.url).href;
+    const body = new URLSearchParams();
+    for (const h of form.querySelectorAll("input[type=hidden]")) body.append(h.name, h.value);
+    body.set("DownloadLoginForm[email]", email);
+    const submit = form.querySelector("input[type=submit],button[type=submit]");
+    body.set("yt0", submit ? (submit.getAttribute("value") || "") : "");
+    return { r: await POST(action, body), usedForm: true };
+  }
+
+  /**
    * Drive one collection to a set of ZIP links.
    *
    * `preferExisting` should be true ONLY when our own queue says WE requested this
@@ -163,11 +193,10 @@
 
       // 2 — the email gate. Lands on the set picker OR the exist interstitial.
       out.phase = "auth";
-      let r = await POST(new URL(m[0], location.origin).href, new URLSearchParams({
-        "DownloadLoginForm[email]": opts.email, yt0: "",
-      }));
+      const gate = await authenticate(new URL(m[0], location.origin).href, opts.email);
+      let r = gate.r;
       let path = pathOf(r.url);
-      note(`auth → ${path}`);
+      note(`auth → ${path}${gate.usedForm ? "" : " (no form found — posted blind)"}`);
 
       // 3 — walk the branches to the file page. Bounded: these can bounce.
       let triedNew = false;
@@ -196,10 +225,8 @@
           note(`→ ${path}`);
           // Observed: NEW DOWNLOAD can bounce back to the auth gate. Re-POST it.
           if (path.includes("/download/auth/")) {
-            const m2 = r.html.match(/\/download\/auth\/[^"'\s\\]+/) || [r.url];
-            r = await POST(new URL(m2[0], location.origin).href, new URLSearchParams({
-              "DownloadLoginForm[email]": opts.email, yt0: "",
-            }));
+            // Same exchange as the first gate — go through the form, not the link.
+            r = (await authenticate(r.url, opts.email)).r;
             path = pathOf(r.url);
             note(`re-auth → ${path}`);
           }

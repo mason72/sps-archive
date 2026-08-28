@@ -1,4 +1,4 @@
-# The migration runs as two launchd agents
+# The migration runs as four launchd agents
 
 Set up 2026-08-16, after the pipeline stopped **three times in one day** and each
 time it was Mason who noticed, not the tooling:
@@ -12,6 +12,7 @@ A multi-week migration cannot depend on someone remembering to restart it.
 
 | Agent | What it does | Log |
 |---|---|---|
+| `com.twodudes.pixieset.download` | nightly 03:20 — requests the next batch of ZIPs | `~/pixieset-staging/logs/download.log` |
 | `com.twodudes.pixieset.watch` | proves downloaded ZIPs, stages them | `~/pixieset-staging/logs/watch.log` |
 | `com.twodudes.pixieset.ingest` | staged archive → Pixeltrunk event | `~/pixieset-staging/logs/ingest.log` |
 | `com.twodudes.pixieset.stallcheck` | hourly pulse check, emails when wrong | `~/pixieset-staging/logs/stall-check.log` |
@@ -36,10 +37,67 @@ Four verdicts, because they need different reactions:
 | `BROKEN` | a launchd agent is not running | restart it |
 | `SPINNING` | far more passes per hour than work allows | a guard has failed open |
 | `STUCK` | collections staged, oldest waiting > 4h, nothing completing | the ingest |
-| `STARVED` | nothing staged, work queued, nothing done in > 36h | **Mason** — run the downloader |
+| `STARVED` | nothing staged, work queued, nothing done in > 36h | the download agent — read `download.log` |
 
-`STARVED` is the four-day case, and it is deliberately not called an error: the
-download half needs Chrome pointed at Pixieset, which is a human job.
+`STARVED` was the four-day case, and it used to be Mason's job: the download half
+needs Chrome pointed at Pixieset, and until 2026-08-28 that meant a human doing
+it. `com.twodudes.pixieset.download` closes that gap. `STARVED` now means the
+download agent is not producing work, and `download.log` says why — the three
+causes it distinguishes are a Cloudflare challenge (exit 3), the staging disk
+floor (exit 4), and an empty or fully-gated queue (exit 0).
+
+## The download agent
+
+```bash
+node scripts/pixieset/download-pass.mjs [--limit N] [--budget GB] [--at-risk]
+node scripts/pixieset/download-pass.mjs --collection <id>   # one, for testing
+node scripts/pixieset/download-pass.mjs --dry               # plan only, no browser
+```
+
+It is the conveyor between two halves that already ran themselves: it asks
+`store.mjs` for the next batch, drives the existing `driver.js` state machine in
+a real browser, saves ZIPs where `watch.mjs` already looks, and hands the report
+to `apply.mjs`. No state, expiry or fidelity rule is re-implemented in it.
+
+**Headed, real Chrome — both are load-bearing.** Measured 2026-08-28 on
+`twodudesphoto.pixieset.com`, same machine, same Playwright, same Chrome binary,
+fresh profile, the ONLY difference being the flag:
+
+| | result |
+|---|---|
+| `headless: true` | HTTP 403, `cf-mitigated: challenge`, "Just a moment…" |
+| `headless: false` | HTTP 200, no mitigation, download-auth link present |
+
+This corrects a "settled" note in `tasks/pixieset-migration.md` that read
+"Playwright loops on Turnstile forever … `login.mjs`/`pilot.mjs` currently
+unusable". That was measured against the hardest surface (`accounts.pixieset.com`
+Turnstile login) using the BUNDLED Chromium, and the conclusion generalised one
+step too far. The axis is headed-vs-headless and real-Chrome-vs-bundled-Chromium,
+not Playwright vs a human. **The protection itself is still not to be defeated** —
+no UA spoofing, no stealth plugins, no solvers. If this path starts getting
+challenged, stop and tell Mason.
+
+**It is budgeted in BYTES, not collections.** The queued median is ~565 MB but
+p90 is ~4.7 GB and the largest is ~47 GB, so "10 collections" can mean 3 GB or
+60 GB — and a count-based guard is not a capacity guard. The pass fills against
+`--budget` GB *and* `--limit`, whichever binds first, and re-checks free space
+between collections because the ingest is draining concurrently. Anything larger
+than the whole budget gets a loud line every single pass, because nothing else
+would ever surface it.
+
+**It pre-skips collections whose bulk download is switched off.** 21 queued
+collections have `collection_download: false`, and **20 of them are among the 40
+oldest** — a two-day pet-portrait run from Jan 2015 that sits at the very front
+of oldest-first ordering. Left in, the first two nights would spend themselves
+marking failures and the migration would look broken when it is merely gated. The
+list comes from the inventory sweep already on disk
+(`~/pixieset-staging/pixieset-inventory.json`), never from a live probe.
+
+**Rate limiting is not optional.** Cloudflare challenged this host on 2026-08-28
+after roughly fifteen browser sessions in twenty minutes — all of it
+*investigation* traffic, not production. Investigation counts against the same
+budget as the pass itself. The pass paces at 30s between collections by default
+(`--gap-seconds`) and requests ~10 a night; do not tighten either to "catch up".
 
 **Every detector was negative-tested by making it fire** — thresholds forced to
 zero for `STUCK`/`SPINNING`, a temp queue with nothing staged for `STARVED`, and
@@ -62,7 +120,17 @@ cp scripts/pixieset/launchd/*.plist ~/Library/LaunchAgents/
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.twodudes.pixieset.watch.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.twodudes.pixieset.ingest.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.twodudes.pixieset.stallcheck.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.twodudes.pixieset.download.plist
 ```
+
+The download agent needs `npm install` in `scripts/pixieset/` plus
+`npx playwright install chromium` — the Playwright runtime was absent on this
+machine as of 2026-08-28, which is why `login.mjs` and `pilot.mjs` could not run
+at all. It also needs real Chrome at `/Applications/Google Chrome.app`.
+
+**All four are LaunchAgents and the download one must stay one.** It drives a
+headed window, so it needs a logged-in GUI session (`launchctl managername` →
+`Aqua`). A locked screen is fine; a logged-out mini is not.
 
 The stall check uses `StartInterval`, not `KeepAlive`: it is a periodic job that
 EXITS, and a `KeepAlive` job that exits gets relaunched instantly and spins —

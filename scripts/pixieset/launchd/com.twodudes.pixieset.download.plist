@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The download half of the migration, once a night.
+
+  StartCalendarInterval, NOT KeepAlive. This job EXITS when its bounded pass is
+  done, and a KeepAlive job that exits gets relaunched instantly and spins — the
+  trap that burned 34 hours of CPU on 2026-08-18 and the same reason the stall
+  check uses StartInterval.
+
+  03:20 local, deliberately off the hour: Time Machine runs hourly on the hour,
+  and a nightly pass that starts alongside a backup competes for the same disk
+  that staging lives on.
+
+  ⚠️ THIS IS A LaunchAgent AND MUST STAY ONE. The pass drives a HEADED Chrome
+  window, because Cloudflare challenges headless browsers on the gallery host
+  (measured 2026-08-28: headless → HTTP 403 `cf-mitigated: challenge`, headed →
+  HTTP 200). A LaunchDaemon has no GUI session and would be challenged on every
+  run. The mini must stay logged in; a locked screen is fine, a logged-out one is
+  not. If the session is gone the pass fails closed with a clear message rather
+  than quietly downloading nothing.
+
+  PATH is set explicitly because launchd's default has no Homebrew, so `node`
+  would not be found and every pass would fail silently — nothing reads an
+  agent's exit code.
+
+  Exit codes this job produces: 0 worked or correctly idle · 3 blocked, needs a
+  human · 4 disk floor reached, the ingest has to drain first.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.twodudes.pixieset.download</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>scripts/pixieset/download-pass.mjs</string>
+        <string>--limit</string>
+        <string>10</string>
+        <string>--budget</string>
+        <string>8</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>20</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/masonfoster/pixieset-staging/logs/download.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/masonfoster/pixieset-staging/logs/download.log</string>
+</dict>
+</plist>

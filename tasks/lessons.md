@@ -1550,3 +1550,39 @@ One home for the rule (`derivedSharePins()`), used by BOTH writers — the mint
 and the download-pin write-through, which would otherwise re-arm on the next
 PIN change what the mint had deliberately dropped. A policy applied at creation
 but not at every later write is a policy for one afternoon.
+
+## 104
+
+**Investigation traffic spends the same rate budget as the pipeline — and I
+blocked the thing I was building.** Automating the Pixieset download half
+(2026-08-28), I probed the gallery host to settle four honest questions: does
+Cloudflare challenge headed Chrome, are the download-disabled collections really
+un-drivable, are the "Web Size" galleries all-portrait, has the auth form
+changed. Each probe was individually justified. Together they were **~15 browser
+sessions in 20 minutes**, several scrolling six times to force lazy-loaded
+thumbnails — scraping-shaped by any measure. Cloudflare then challenged the host
+with `HTTP 403 cf-mitigated: challenge`, and the end-to-end test I had been
+building toward could not run. Still blocked 55 minutes later.
+
+- **Budget the probes before the first one, not after the fifth.** The repo's own
+  warning ("655,686 authenticated requests is scraping-shaped and would rightly
+  trip the protection") was about the *pipeline*. I read it, agreed with it, and
+  did not apply it to myself, because each probe felt like diagnosis rather than
+  traffic. The host cannot tell the difference and does not care.
+- **Cache the page, not the question.** Three of the four probes re-fetched the
+  same gallery pages. One fetch saved to disk, then queried offline, would have
+  answered all of them at a fraction of the cost.
+- **The cheapest probe is the file already on disk.** The download-disabled
+  answer was in `pixieset-inventory.json` the whole time — the repo even carries
+  a rule saying so ("before probing a live system for why a request failed, grep
+  the inventory already on disk"). I probed live first and read the inventory
+  after. Same rule, re-earned.
+- **Two failures is the stop condition, not a signal to tune.** After the block I
+  waited and retried once, then stopped. Retrying to see if it passes is the
+  documented wrong move, and a third attempt teaches the protection more about
+  the pattern than it teaches me about the bug.
+
+The guard behaved correctly throughout — failed closed, named the cause, exited
+non-zero, started no retry loop. That is the half worth keeping: **when the thing
+you built to fail safely is what catches you, the design was right and the
+operator was wrong.**
