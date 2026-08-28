@@ -1493,3 +1493,26 @@ scenes; deleting one strips it off a live page. Four of the 16 events have
 fewer than 1,000 rows, so they cannot be this bug at all. `px-dedupe-event.ts`
 takes exactly one event id, checks every FK into `images` at run time, and
 refuses if a duplicate carries a reference a human made.
+
+## 102 — test fixtures on a live event leak into the user's live flow (2026-08-28)
+
+Verifying the guest-share UI needed a real share slug, so I minted a test
+share (`tstgui001`) on the Sutter West Bay event — the freshest import, easy
+to reach. Minutes later Mason opened THAT event's share screen to send it to
+a real client: the event page had picked up my test share as the event's
+share, his composer URL carried `?slug=tstgui001`, and by then I had already
+deleted the row. His flow survived only because the composer mints its own
+share when it needs one.
+
+- **A row created for testing on a live tenant IS live data the moment it
+  exists** — every surface that lists or auto-picks (the event page's View
+  button, the composer, the Activities panel) will happily reach for it.
+  "I'll delete it in two minutes" is a race against the user.
+- **Rule: UI verification that must create rows uses an event the user is
+  not touching** — a retired import (Perkin Elmer), never the event of the
+  day. Better, the harness pattern from `verify-guest-share.ts`: distinctive
+  slug prefix (`tstg`), create → probe → delete inside one script, so the
+  window is seconds and nothing depends on my memory.
+- The tell that it went wrong was in HIS screenshot, not my checks — the URL
+  bar. Cleanup passing ("no test rows remain") says nothing about who saw
+  the rows while they existed.
