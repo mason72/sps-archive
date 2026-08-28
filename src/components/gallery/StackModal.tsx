@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { ArrowLeft, Download, Heart, Layers } from "lucide-react";
+import { ArrowLeft, Download, Heart, Layers, Share2 } from "lucide-react";
 import type { GalleryStack } from "@/lib/gallery/stacks";
 
 /**
@@ -20,6 +20,7 @@ export function StackModal({
   favoriteIds,
   onFavorite,
   onDownloadAll,
+  onShare,
   onImageClick,
   onClose,
   keyboardEnabled = true,
@@ -32,6 +33,9 @@ export function StackModal({
   onFavorite?: (imageId: string) => void;
   /** Renders the "Download all" button when provided (single-ZIP download). */
   onDownloadAll?: (stack: GalleryStack) => void;
+  /** Renders the Share button when provided — mints a link to just this
+   *  person's photos ("send Amanda her 12", 2026-08-28). */
+  onShare?: (stack: GalleryStack) => void;
   onImageClick: (imageId: string) => void;
   onClose: () => void;
   /** Disable Escape-to-close while the lightbox is stacked on top. */
@@ -99,19 +103,34 @@ export function StackModal({
           </p>
         </div>
 
-        {onDownloadAll ? (
-          <button
-            onClick={() => onDownloadAll(stack)}
-            className="flex shrink-0 items-center gap-2 px-4 py-2 text-[13px] transition-colors hover:bg-stone-50"
-            style={{ color: colors.primary, border: `1px solid ${colors.secondary}30` }}
-            title={`Download all ${count} photos as a single ZIP`}
-          >
-            <Download className="h-4 w-4" strokeWidth={1.5} />
-            <span className="hidden sm:inline">Download all {count}</span>
-            <span className="sm:hidden tabular-nums">{count}</span>
-          </button>
+        {onDownloadAll || onShare ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {onShare && (
+              <button
+                onClick={() => onShare(stack)}
+                className="flex items-center gap-2 px-4 py-2 text-[13px] transition-colors hover:bg-stone-50"
+                style={{ color: colors.primary, border: `1px solid ${colors.secondary}30` }}
+                title={`Get a link to just ${stack.personName}’s ${count} photos`}
+              >
+                <Share2 className="h-4 w-4" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+            )}
+            {onDownloadAll && (
+              <button
+                onClick={() => onDownloadAll(stack)}
+                className="flex items-center gap-2 px-4 py-2 text-[13px] transition-colors hover:bg-stone-50"
+                style={{ color: colors.primary, border: `1px solid ${colors.secondary}30` }}
+                title={`Download all ${count} photos as a single ZIP`}
+              >
+                <Download className="h-4 w-4" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Download all {count}</span>
+                <span className="sm:hidden tabular-nums">{count}</span>
+              </button>
+            )}
+          </div>
         ) : (
-          // Keep the title optically centered when there's no download action.
+          // Keep the title optically centered when there's no action.
           <div className="w-10 shrink-0" aria-hidden />
         )}
       </div>

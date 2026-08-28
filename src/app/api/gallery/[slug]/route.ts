@@ -9,6 +9,7 @@ import {
   DEFAULT_EVENT_SETTINGS,
   normalizeCoverSettings,
   selfieSearchEnabled,
+  guestSharingEnabled,
 } from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
@@ -375,6 +376,11 @@ export async function GET(
       showAllPhotos:
         ((eventSettings.sharing ?? {}) as { showAllPhotos?: boolean })
           .showAllPhotos === true,
+      // Same resolver the mint route uses, so the button a guest sees and the
+      // endpoint that answers it cannot disagree.
+      guestShare: guestSharingEnabled(
+        (eventSettings.sharing ?? {}) as { guestShare?: boolean }
+      ),
     };
 
     // Generate presigned URL for cover image if cover is enabled. The hero is

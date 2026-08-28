@@ -96,6 +96,8 @@ export interface GallerySettings {
   selfieSearch?: boolean;
   /** "All" tab across sections in the guest nav (opt-in, default false). */
   showAllPhotos?: boolean;
+  /** Guests may mint person-share links from this gallery (default true). */
+  guestShare?: boolean;
 }
 
 export interface GallerySection {

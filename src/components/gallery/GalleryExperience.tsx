@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search, ScanFace } from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, ChevronDown, X, Heart, Search, ScanFace, Share2 } from "lucide-react";
 import { FindMyPhotos } from "@/components/gallery/FindMyPhotos";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
+import { ShareLinkDialog } from "@/components/gallery/ShareLinkDialog";
 import { buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
 import { stripMediaExtension } from "@/lib/upload/media";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
@@ -267,6 +268,12 @@ function capabilitiesFor(source: GallerySource) {
     passwordGate: isShare,
     /** Downloads run on share-scoped tokens — see GalleryExperience notes. */
     downloads: isShare,
+    /**
+     * Guests can mint a link to one person's photos. Share-only like the
+     * other write-ish actions: the mint endpoint hangs off the share slug,
+     * which a preview doesn't have.
+     */
+    guestShare: isShare,
   };
 }
 
@@ -336,6 +343,19 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     | null
   >(null);
   const [downloadToken, setDownloadToken] = useState<string | null>(null);
+  // Guest share-link dialog (person subsets mint a link; the gallery itself
+  // just re-shares the current URL). Ref guards double-click double-mints.
+  const [shareDialog, setShareDialog] = useState<{
+    title: string;
+    subtitle: string | null;
+    url: string;
+    passwordProtected: boolean;
+  } | null>(null);
+  const mintingShareRef = useRef(false);
+  // Whether THIS visit passed a password gate — the only signal the client
+  // has that the gallery is locked (the full payload doesn't say), used to
+  // warn when re-sharing the gallery URL.
+  const wasGatedRef = useRef(false);
   // Active background-ZIP poller (job id) — prevents duplicate poll loops.
   const zipPollRef = useRef<string | null>(null);
 
@@ -488,6 +508,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       const data = await res.json();
 
       if (data.requiresAuth) {
+        wasGatedRef.current = true;
         setRequiresAuth(true);
         setAuthMeta({
           eventName: data.eventName,
@@ -829,6 +850,56 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   };
 
   /**
+   * Mint a link to one person's photos ("send Amanda just her 12"). The
+   * server validates the ids against this share's own scope, dedupes (the
+   * same set returns the same link) and copies every gate — so the dialog's
+   * only jobs are the URL and, on locked galleries, saying a password exists.
+   * It never shows the password or PIN themselves (the owner may be
+   * withholding them on purpose).
+   */
+  const handleShareStack = async (stack: GalleryStack) => {
+    if (mintingShareRef.current) return;
+    mintingShareRef.current = true;
+    try {
+      const res = await fetch(`${apiBase}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageIds: stack.images.map((img) => img.id) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.share?.url) {
+        toast.error(data?.error || "Couldn't create the link — please try again");
+        return;
+      }
+      const count = stack.images.length;
+      setShareDialog({
+        title: stack.personName ? `Share ${stack.personName}’s photos` : "Share these photos",
+        subtitle: `${count} ${count === 1 ? "photo" : "photos"} · just these, nothing else`,
+        url: data.share.url,
+        passwordProtected: !!data.share.passwordProtected,
+      });
+    } catch {
+      toast.error("Couldn't create the link — please try again");
+    } finally {
+      mintingShareRef.current = false;
+    }
+  };
+
+  /**
+   * Share the gallery itself — no mint, no new row: the link a guest holds is
+   * the link they pass on, gates and all. Exists because tapping Share beats
+   * excavating the address bar on a phone.
+   */
+  const handleShareGallery = () => {
+    setShareDialog({
+      title: `Share ${singlePerson ?? gallery?.eventName ?? "this gallery"}`,
+      subtitle: null,
+      url: window.location.href,
+      passwordProtected: wasGatedRef.current,
+    });
+  };
+
+  /**
    * Save one original to disk. When the share gates individual downloads
    * behind a PIN the payload carries no downloadUrl at all — the server mints
    * one only for a request bearing a verified token — so the URL is fetched
@@ -1030,6 +1101,10 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   // wired to an endpoint that has no guest to attribute it to.
   const allowFavorites = gallery.allowFavorites && can.favorites;
   const allowDownload = gallery.allowDownload && can.downloads;
+  // Same shape as the two above: the photographer's switch (default on — read
+  // the payload flag, which came through guestSharingEnabled) narrowed by the
+  // surface. Preview has no share slug to mint from, so no button there.
+  const allowGuestShare = s?.guestShare !== false && can.guestShare;
 
   // Resolve font classes
   const headingClass = HEADING_FONT_CLASS[s?.headingFont || "playfair"] || "font-editorial";
@@ -1241,7 +1316,20 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         )}
           </div>
 
-          {/* Download menu (top-right, across from the title): All / Favorites */}
+          {/* Share + Download (top-right, across from the title) */}
+          <div className="flex shrink-0 items-start gap-2">
+          {allowGuestShare && (
+            <button
+              onClick={handleShareGallery}
+              className="flex items-center gap-2 px-4 py-2 text-[13px] transition-colors hover:bg-stone-50"
+              style={{ color: colors.primary, border: `1px solid ${colors.secondary}30` }}
+              title="Share this gallery"
+            >
+              <Share2 className="h-4 w-4" strokeWidth={1.5} />
+              Share
+            </button>
+          )}
+          {/* Download menu: All / Favorites */}
           {allowDownload && (
             <div className="relative shrink-0">
               <button
@@ -1303,6 +1391,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               )}
             </div>
           )}
+          </div>
         </div>
       </header>
 
@@ -1536,9 +1625,23 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           favoriteIds={favoriteIds}
           onFavorite={allowFavorites ? handleFavorite : undefined}
           onDownloadAll={allowDownload ? handleStackDownload : undefined}
+          onShare={allowGuestShare ? handleShareStack : undefined}
           onImageClick={(id) => setSelectedImageId(id)}
           onClose={() => setOpenStack(null)}
           keyboardEnabled={!selectedImageId}
+        />
+      )}
+
+      {/* ─── Guest share-link dialog (z-50, above the stack view) ─── */}
+      {shareDialog && (
+        <ShareLinkDialog
+          title={shareDialog.title}
+          subtitle={shareDialog.subtitle}
+          url={shareDialog.url}
+          passwordProtected={shareDialog.passwordProtected}
+          colors={colors}
+          headingClass={headingClass}
+          onClose={() => setShareDialog(null)}
         />
       )}
 

@@ -36,6 +36,13 @@ export interface SharingSettings {
    */
   selfieSearch?: boolean;
   /**
+   * Guests can mint a share link to one person's photos from inside the
+   * gallery (built 2026-08-28 — a client asked to send someone "just their
+   * images"). Default ON; read through `guestSharingEnabled()`, never
+   * `=== true` — absent means on, only an explicit `false` opts out.
+   */
+  guestShare?: boolean;
+  /**
    * Guest gallery shows an "All" tab across sections. OPT-IN (default off,
    * Justin's feedback 2026-08-10 — usually redundant next to real sections).
    * The owner preview mirrors this exactly; the editor's own All Images view
@@ -283,6 +290,19 @@ export function selfieSearchEnabled(
   sharing: { selfieSearch?: boolean } | null | undefined
 ): boolean {
   return sharing?.selfieSearch !== false;
+}
+
+/**
+ * The ONE place that decides whether guests may mint person-share links.
+ * Same contract as `selfieSearchEnabled`: absent means enabled, and only an
+ * explicit `false` is an opt-out — every event predates the key. The gallery
+ * payload's capability flag and the mint route's own guard both ask here so
+ * the button a guest sees and the endpoint that answers it cannot disagree.
+ */
+export function guestSharingEnabled(
+  sharing: { guestShare?: boolean } | null | undefined
+): boolean {
+  return sharing?.guestShare !== false;
 }
 
 export const DEFAULT_IMAGE_COVER_SETTINGS = {

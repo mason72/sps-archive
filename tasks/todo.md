@@ -10,13 +10,17 @@ scope suppresses face search, fresh nanoid slug means no route back to the
 parent. The build is one endpoint, one button, one column.
 
 Decisions (Mason, 2026-08-28, settled after walking the ladder):
-- **Guest-minted links ALWAYS inherit the parent's password + PIN.** Simplest
-  and safest: the derived link is an ordinary share row, so the existing
-  password/PIN write-through keeps it in lockstep with rotations — no
-  special-case revocation, no full-scope edge guard. Friction only exists on
-  galleries whose owner deliberately locked them (most have no password, so
-  the common person-link flow is frictionless anyway); the sharer passes the
-  password along, same as sharing the parent URL.
+- **Guest-minted links ALWAYS inherit the parent's password + PIN (when
+  enabled)** — Mason's final wording, 2026-08-28. Simplest and safest: the
+  derived link is an ordinary share row, so the existing password/PIN
+  write-through keeps it in lockstep with rotations — no special-case
+  revocation, no full-scope edge guard. Friction only exists on galleries
+  whose owner deliberately locked them; the sharer passes the password along,
+  same as sharing the parent URL. NUANCE that makes this frictionless in the
+  common case: a bulk-only PIN never prompts on a person link, because
+  `authorizeShareDownload` already classes a curated subset as an INDIVIDUAL
+  download — the gate that stops "download everything" doesn't bite on
+  "download my 12". No new logic; that is lesson 95's rule paying rent.
 - Derived shares still serve only while their parent share is active and
   unexpired (read-time `parent_share_id` check) — killing the gallery link
   kills every link guests spawned from it.
@@ -27,22 +31,21 @@ Decisions (Mason, 2026-08-28, settled after walking the ladder):
   link needs the gallery password" — the door, never the key. The owner's
   email composer stays the only surface that prints passwords/PINs.
 
-- [ ] Migration: `shares.parent_share_id` (nullable FK) + partial index
-- [ ] `POST /api/gallery/[slug]/share` — public, share-scoped: validate ids ⊆
-      `resolveShareImageScope(parent)`, dedupe (same parent + same id set →
-      return existing link), rate-limit, mint `selection` share COPYING the
-      parent's password_hash + PIN columns + allow_download/expiry,
-      `parent_share_id` set (write-through then maintains the gates for free)
-- [ ] Gallery route: derived share 404s/410s when parent inactive or expired
-- [ ] `SharingSettings.allowGuestSharing` — absent = enabled (selfie-search
-      convention); endpoint fails closed when off
-- [ ] UI: Share button beside "Download all N" on StackModal + single-person
-      view → copy field + `navigator.share`; toast names the person and count.
-      Gallery-level share = copy current URL (no minting)
-- [ ] Owner share list labels guest-created rows ("created by a guest")
-- [ ] Verify: scope-escalation probe (ids outside parent scope rejected),
-      derived link dies with parent, password rotation kills it, OG card on
-      derived link shows the person's frame
+BUILT 2026-08-28 (all checks green — `scripts/verify-guest-share.ts`):
+- [x] Migration 072: `shares.parent_share_id` (FK, ON DELETE CASCADE) +
+      partial index + `shares_cascade_deactivate` TRIGGER (parent goes
+      inactive → children go inactive; a trigger so every writer gets it)
+- [x] `POST /api/gallery/[slug]/share` — validates ids ⊆ parent scope,
+      dedupes by id set against the ROOT parent (depth caps at 1), rate-limits
+      (`guest-share` scope, 30/15min/IP), 401s a cookieless mint on a locked
+      parent, copies password_hash + PIN cols + expiry + allow_download
+- [x] Owner PUT /api/shares/[id] cascades gate changes to children
+- [x] `sharing.guestShare` via `guestSharingEnabled()` (absent = on, 403 off)
+- [x] UI: Share beside "Download all N" in StackModal; gallery-level Share
+      re-shares the current URL; ShareLinkDialog (copy + native sheet, says a
+      password EXISTS but never what it is)
+- [x] Activities panel labels guest-minted rows "created by a guest"
+- [x] E2E: 10 probes incl. scope escalation, root collapse, trigger, opt-out
 
 ## QUEUE as of 2026-08-15 (read `docs/SESSION-HANDOFF.md` first)
 

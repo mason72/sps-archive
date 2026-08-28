@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -1365,6 +1365,7 @@ export type Database = {
           image_ids: string[] | null
           is_active: boolean
           last_viewed_at: string | null
+          parent_share_id: string | null
           password_hash: string | null
           person_id: string | null
           pin: string | null
@@ -1389,6 +1390,7 @@ export type Database = {
           image_ids?: string[] | null
           is_active?: boolean
           last_viewed_at?: string | null
+          parent_share_id?: string | null
           password_hash?: string | null
           person_id?: string | null
           pin?: string | null
@@ -1413,6 +1415,7 @@ export type Database = {
           image_ids?: string[] | null
           is_active?: boolean
           last_viewed_at?: string | null
+          parent_share_id?: string | null
           password_hash?: string | null
           person_id?: string | null
           pin?: string | null
@@ -1429,6 +1432,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shares_parent_share_id_fkey"
+            columns: ["parent_share_id"]
+            isOneToOne: false
+            referencedRelation: "shares"
             referencedColumns: ["id"]
           },
           {

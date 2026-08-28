@@ -30,7 +30,7 @@ export async function GET(
     const { data: rawShares, error } = await supabase
       .from("shares")
       .select(
-        "id, slug, share_type, view_count, last_viewed_at, created_at, allow_download, allow_favorites"
+        "id, slug, share_type, view_count, last_viewed_at, created_at, allow_download, allow_favorites, parent_share_id"
       )
       .eq("event_id", eventId)
       .order("created_at", { ascending: false });
@@ -46,6 +46,8 @@ export async function GET(
       createdAt: s.created_at,
       allowDownload: s.allow_download,
       allowFavorites: s.allow_favorites,
+      /** A guest minted this from another share — the panel labels it. */
+      guestCreated: s.parent_share_id != null,
     }));
 
     return NextResponse.json({ shares });

@@ -21,17 +21,31 @@ export const AUTH_ATTEMPT_WINDOW_SECONDS = 15 * 60;
 export const SEARCH_ATTEMPT_MAX = 120;
 export const SEARCH_ATTEMPT_WINDOW_SECONDS = 10 * 60;
 
+/**
+ * Guest share-link minting also counts every request. A coordinator sharing a
+ * headshot day person-by-person is the legitimate heavy user (dozens of
+ * mints); a spammer scripting rows is the wall's job. Dedupe upstream makes
+ * re-mints free, so this budget is about DISTINCT sets per IP.
+ */
+export const GUEST_SHARE_MAX = 30;
+export const GUEST_SHARE_WINDOW_SECONDS = 15 * 60;
+
 export async function checkAuthRateLimit(
   supabase: ReturnType<typeof createServiceClient>,
-  scope: "password" | "pin" | "search" | "forgot" | "waitlist" | "guest-list",
+  scope: "password" | "pin" | "search" | "forgot" | "waitlist" | "guest-list" | "guest-share",
   slug: string,
   ip: string
 ): Promise<boolean> {
   const isSearch = scope === "search";
+  const isGuestShare = scope === "guest-share";
   const { data, error } = await supabase.rpc("record_auth_attempt", {
     p_key: `${scope}:${slug}:${ip}`,
-    p_max: isSearch ? SEARCH_ATTEMPT_MAX : AUTH_ATTEMPT_MAX,
-    p_window_seconds: isSearch ? SEARCH_ATTEMPT_WINDOW_SECONDS : AUTH_ATTEMPT_WINDOW_SECONDS,
+    p_max: isSearch ? SEARCH_ATTEMPT_MAX : isGuestShare ? GUEST_SHARE_MAX : AUTH_ATTEMPT_MAX,
+    p_window_seconds: isSearch
+      ? SEARCH_ATTEMPT_WINDOW_SECONDS
+      : isGuestShare
+        ? GUEST_SHARE_WINDOW_SECONDS
+        : AUTH_ATTEMPT_WINDOW_SECONDS,
   });
   if (error) {
     console.error("Rate limit check failed (failing open):", error.message);

@@ -217,6 +217,8 @@ export async function GET(request: NextRequest) {
       createdAt: s.created_at,
       requirePinBulk: s.require_pin_bulk,
       requirePinIndividual: s.require_pin_individual,
+      /** Set when a GUEST minted this from another share — the list labels it. */
+      parentShareId: s.parent_share_id ?? null,
     }));
 
     return NextResponse.json({ shares });

@@ -62,6 +62,26 @@ export async function PUT(
 
     if (error) throw error;
 
+    // Guest-minted children inherit this share's gates (2026-08-28), so a
+    // gate change here writes through to them — otherwise "I locked the
+    // gallery" silently leaves guest links on the old posture. Deactivation
+    // cascades in the DB (migration 072 trigger); the mutable gates cascade
+    // here. Best-effort failures are REPORTED, never swallowed.
+    const gateUpdates: Record<string, unknown> = {};
+    for (const key of ["password_hash", "expires_at", "allow_download", "allow_favorites"]) {
+      if (key in updates) gateUpdates[key] = updates[key];
+    }
+    if (Object.keys(gateUpdates).length > 0) {
+      const { error: childErr } = await supabase
+        .from("shares")
+        .update(gateUpdates)
+        .eq("parent_share_id", shareId);
+      if (childErr) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("api.shares.PUT.cascade", childErr, { shareId });
+      }
+    }
+
     return NextResponse.json({
       share: {
         id: data.id,

@@ -31,6 +31,8 @@ interface ShareActivity {
   createdAt: string;
   allowDownload: boolean;
   allowFavorites: boolean;
+  /** A guest minted this link from one of yours (person-subset shares). */
+  guestCreated?: boolean;
 }
 
 interface FavoriteClient {
@@ -230,6 +232,11 @@ function SharesTab({
               <span className="text-[10px] uppercase tracking-widest text-stone-400">
                 {share.shareType}
               </span>
+              {share.guestCreated && (
+                <span className="text-[10px] uppercase tracking-widest text-stone-400">
+                  · created by a guest
+                </span>
+              )}
             </div>
             <a
               href={`/g/${share.slug}`}
