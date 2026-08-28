@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { createServiceClient } from "@/lib/supabase/server";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
-import { guestSharingEnabled } from "@/types/event-settings";
+import { guestSharingEnabled, derivedSharePins } from "@/types/event-settings";
 import type { SharingSettings } from "@/types/event-settings";
 import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import { logActivity } from "@/lib/analytics/log";
@@ -21,14 +21,16 @@ import { logActivity } from "@/lib/analytics/log";
  *  - THE PASSWORD GATE APPLIES. On a locked gallery the mint requires the
  *    same auth cookie the payload route requires: someone who never got past
  *    the gate cannot mint from behind it.
- *  - THE CHILD INHERITS EVERY GATE (password_hash, PIN columns, expiry,
- *    allow_download). Settled with Mason 2026-08-28: "always requires
- *    password/pin (if they are enabled)". A derived link is an ordinary share
- *    row, so the password/PIN write-through routes keep it in lockstep with
- *    rotations, and the DB trigger (migration 072) deactivates it with its
- *    parent. Note the bulk-only PIN still never prompts on a person link —
- *    `authorizeShareDownload` classes a curated subset as an INDIVIDUAL
- *    download, which is that gate working as designed (lesson 95).
+ *  - THE CHILD INHERITS THE PASSWORD (a viewing credential the sharer
+ *    already holds), plus expiry and allow_download. The PIN is different —
+ *    it is a shared SECRET, and copying it onto a subset link either sits
+ *    inert (bulk-only posture: curated subsets are INDIVIDUAL downloads,
+ *    lesson 95) or forces the sharer to circulate the gallery-wide download
+ *    key (Mason, 2026-08-28). `derivedSharePins` is the one home for that
+ *    rule: no PIN on subset links, EXCEPT under requirePinIndividual, where
+ *    dropping it would let a guest mint past the owner's strictest gate.
+ *    The download-pin write-through applies the same rule to children, and
+ *    the DB trigger (migration 072) deactivates them with their parent.
  *  - DEDUPE MAKES RE-MINTS FREE: the same id set against the same root
  *    returns the existing link instead of a new row.
  *  - RATE-LIMITED per IP, and children per root are hard-capped.
@@ -169,7 +171,15 @@ export async function POST(
       );
     }
 
-    // ── mint: an ordinary selection share that inherits every gate ──
+    // ── mint: an ordinary selection share. The PASSWORD inherits (a viewing
+    // credential the sharer already holds); the PIN follows derivedSharePins —
+    // a subset link must not carry the gallery-wide download secret unless
+    // the owner's posture gates every individual download anyway. ──
+    const childPins = derivedSharePins({
+      downloadPin: parent.download_pin ?? null,
+      requirePinBulk: parent.require_pin_bulk ?? false,
+      requirePinIndividual: parent.require_pin_individual ?? false,
+    });
     const { data: minted, error: mintErr } = await supabase
       .from("shares")
       .insert({
@@ -182,9 +192,9 @@ export async function POST(
         allow_download: parent.allow_download,
         allow_favorites: parent.allow_favorites,
         expires_at: parent.expires_at,
-        download_pin: parent.download_pin,
-        require_pin_bulk: parent.require_pin_bulk,
-        require_pin_individual: parent.require_pin_individual,
+        download_pin: childPins.downloadPin,
+        require_pin_bulk: childPins.requirePinBulk,
+        require_pin_individual: childPins.requirePinIndividual,
         // Deliberately NOT the parent's custom_message — that greeting was
         // written for the parent audience, not for a person's subset.
         custom_message: null,

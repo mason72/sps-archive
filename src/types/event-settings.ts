@@ -293,6 +293,42 @@ export function selfieSearchEnabled(
 }
 
 /**
+ * What PIN posture a GUEST-MINTED subset share carries — the one home for the
+ * rule, used by the mint route and by the download-pin write-through (which
+ * would otherwise silently re-arm PINs the mint deliberately dropped).
+ *
+ * The PIN is a shared secret: it only stays a download control while it does
+ * not circulate. Copying it onto a person-subset link either does nothing
+ * (bulk-only posture — curated subsets classify as INDIVIDUAL downloads, so
+ * the bulk gate never fires; the child just carries a live secret inertly) or
+ * forces the sharer to hand the recipient the gallery-wide PIN (Mason,
+ * 2026-08-28: "that would give the person the ability to then download the
+ * whole gallery"). So:
+ *
+ *   - bulk-only parent → the child carries NO PIN at all. A person's subset
+ *     is not "downloading everything", which is what that gate exists to stop.
+ *   - requirePinIndividual parent → the child KEEPS the full posture. The
+ *     owner demanded a PIN on every single download; dropping it here would
+ *     let a guest mint a link to themselves and bypass the strictest gate.
+ *     In that posture the secret circulating is inherent — anyone the owner
+ *     gave the PIN to already has gallery-wide download power.
+ */
+export function derivedSharePins(parent: {
+  downloadPin: string | null;
+  requirePinBulk: boolean;
+  requirePinIndividual: boolean;
+}): { downloadPin: string | null; requirePinBulk: boolean; requirePinIndividual: boolean } {
+  if (parent.requirePinIndividual && parent.downloadPin) {
+    return {
+      downloadPin: parent.downloadPin,
+      requirePinBulk: parent.requirePinBulk,
+      requirePinIndividual: true,
+    };
+  }
+  return { downloadPin: null, requirePinBulk: false, requirePinIndividual: false };
+}
+
+/**
  * The ONE place that decides whether guests may mint person-share links.
  * Same contract as `selfieSearchEnabled`: absent means enabled, and only an
  * explicit `false` is an opt-out — every event predates the key. The gallery

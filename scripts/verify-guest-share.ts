@@ -140,6 +140,54 @@ const check = (name: string, ok: boolean, detail?: string) => {
     const r5b = await mint(childSlug, [ids[0], foreignId]);
     check("child cannot reach past its own scope", r5b.status === 400, `status ${r5b.status}`);
 
+    // 5c. PIN posture — bulk-only parent: the child carries NO PIN at all
+    // (the subset is not "downloading everything"; the secret must not ride
+    // along inertly). Distinct id set each time so dedupe doesn't short-circuit.
+    await db
+      .from("shares")
+      .update({ download_pin: "1234", require_pin_bulk: true, require_pin_individual: false })
+      .eq("id", parentId);
+    const rPin1 = await mint(testSlug, [ids[1]]);
+    const jPin1 = await rPin1.json();
+    const pin1Slug: string = jPin1?.share?.url?.split("/gallery/")[1] ?? "";
+    const { data: pin1Row } = await db
+      .from("shares")
+      .select("download_pin, require_pin_bulk, require_pin_individual")
+      .eq("slug", pin1Slug)
+      .single();
+    check(
+      "bulk-only parent → child carries no PIN",
+      rPin1.ok &&
+        pin1Row?.download_pin === null &&
+        pin1Row?.require_pin_bulk === false &&
+        pin1Row?.require_pin_individual === false,
+      JSON.stringify(pin1Row)
+    );
+
+    // 5d. PIN posture — requirePinIndividual parent: the child KEEPS the gate,
+    // or a guest could mint themselves past the owner's strictest control.
+    await db
+      .from("shares")
+      .update({ require_pin_individual: true })
+      .eq("id", parentId);
+    const rPin2 = await mint(testSlug, [ids[2]]);
+    const jPin2 = await rPin2.json();
+    const pin2Slug: string = jPin2?.share?.url?.split("/gallery/")[1] ?? "";
+    const { data: pin2Row } = await db
+      .from("shares")
+      .select("download_pin, require_pin_bulk, require_pin_individual")
+      .eq("slug", pin2Slug)
+      .single();
+    check(
+      "per-download-PIN parent → child keeps the gate",
+      rPin2.ok && pin2Row?.download_pin === "1234" && pin2Row?.require_pin_individual === true,
+      JSON.stringify(pin2Row)
+    );
+    await db
+      .from("shares")
+      .update({ download_pin: null, require_pin_bulk: false, require_pin_individual: false })
+      .eq("id", parentId);
+
     // 6. password gate: minting from behind a lock needs the cookie
     await db.from("shares").update({ password_hash: "$test$not-a-real-hash" }).eq("id", parentId);
     const r6 = await mint(testSlug, ids);

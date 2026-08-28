@@ -10,8 +10,13 @@ scope suppresses face search, fresh nanoid slug means no route back to the
 parent. The build is one endpoint, one button, one column.
 
 Decisions (Mason, 2026-08-28, settled after walking the ladder):
-- **Guest-minted links ALWAYS inherit the parent's password + PIN (when
-  enabled)** — Mason's final wording, 2026-08-28. Simplest and safest: the
+- **Guest-minted links inherit the parent's PASSWORD; the PIN does NOT
+  inherit** (refined 2026-08-28 after Mason spotted the leak: the PIN is a
+  shared secret, and handing it to a subset recipient hands them the whole
+  gallery's ZIP). `derivedSharePins()` is the one home: no PIN on subset
+  links, except a `requirePinIndividual` parent's children keep the full
+  gate (or a guest mints past the owner's strictest control). "Share entire
+  gallery" is still the parent URL — full gates, structurally. Simplest and safest: the
   derived link is an ordinary share row, so the existing password/PIN
   write-through keeps it in lockstep with rotations — no special-case
   revocation, no full-scope edge guard. Friction only exists on galleries

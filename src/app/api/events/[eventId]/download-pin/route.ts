@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
-import { DEFAULT_SHARING_SETTINGS, normalizeDownloadPins } from "@/types/event-settings";
+import {
+  DEFAULT_SHARING_SETTINGS,
+  normalizeDownloadPins,
+  derivedSharePins,
+} from "@/types/event-settings";
 import type { SharingSettings } from "@/types/event-settings";
 
 /** Four digits, entered on a phone by a guest reading an email. */
@@ -122,6 +126,10 @@ export async function PUT(
     // Write through to live links. Store the PIN as NULL rather than "" when
     // there is none: `authorizeShareDownload` fails closed on a gate with no
     // secret behind it, and null is the shape every existing row already uses.
+    // OWNER-MINTED shares only here — guest-minted subset links follow
+    // `derivedSharePins` below, or this write-through would re-arm the PIN
+    // the mint deliberately dropped (the subset must not carry the
+    // gallery-wide download secret; Mason, 2026-08-28).
     const { data: updated, error: shareError } = await supabase
       .from("shares")
       .update({
@@ -131,15 +139,37 @@ export async function PUT(
       })
       .eq("event_id", eventId)
       .eq("is_active", true)
+      .is("parent_share_id", null)
       .select("id");
 
     if (shareError) throw shareError;
+
+    // Children get the derived posture: nothing under bulk-only, the full
+    // gate under requirePinIndividual — same one-home rule the mint applies.
+    const childPins = derivedSharePins({
+      downloadPin: resolved.downloadPin || null,
+      requirePinBulk: resolved.requirePinBulk,
+      requirePinIndividual: resolved.requirePinIndividual,
+    });
+    const { data: childUpdated, error: childError } = await supabase
+      .from("shares")
+      .update({
+        download_pin: childPins.downloadPin,
+        require_pin_bulk: childPins.requirePinBulk,
+        require_pin_individual: childPins.requirePinIndividual,
+      })
+      .eq("event_id", eventId)
+      .eq("is_active", true)
+      .not("parent_share_id", "is", null)
+      .select("id");
+
+    if (childError) throw childError;
 
     return NextResponse.json({
       downloadPin: resolved.downloadPin,
       requirePinBulk: resolved.requirePinBulk,
       requirePinIndividual: resolved.requirePinIndividual,
-      sharesUpdated: updated?.length ?? 0,
+      sharesUpdated: (updated?.length ?? 0) + (childUpdated?.length ?? 0),
     });
   } catch (error) {
     console.error("Download PIN error:", error);
