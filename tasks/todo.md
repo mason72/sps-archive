@@ -78,7 +78,9 @@ BUILT 2026-08-28 (all checks green — `scripts/verify-guest-share.ts`):
    exists (a strip under the photos + the Intel tab). Needs
    `GOOGLE_CALENDAR_KEY` in Vercel. See `tasks/event-intel.md` → "Not built".
 3. **Three client names** undecidable from the corpus: episode1agency.com,
-   typeaevents.com, wallandceiling.org. Needs Mason.
+   typeaevents.com, wallandceiling.org. Needs Mason — one /intel rename each.
+   (Future orgs no longer hit this: the confirm card's client name is editable
+   as of 2026-08-28, so the human names the org at creation.)
 4. **AI-index timeouts under bulk import** — 8,782 photos in 24h made the
    indexer time out partway (200 of 1,016) before retrying successfully. Self-
    healing today; will get louder as the Pixieset bulk scales.

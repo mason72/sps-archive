@@ -1516,3 +1516,37 @@ share when it needs one.
 - The tell that it went wrong was in HIS screenshot, not my checks — the URL
   bar. Cleanup passing ("no test rows remain") says nothing about who saw
   the rows while they existed.
+
+## 103 — a copied CREDENTIAL is not an inherited POLICY (2026-08-28)
+
+Designing guest-minted share links, we settled "the child inherits every gate"
+because it was the least code: derived shares are ordinary rows, the existing
+password/PIN write-throughs keep them in sync, done. Mason caught the flaw the
+next day: *"it doesn't make sense to use the same PIN to download a share link
+b/c that would give the person the ability to then download the whole
+gallery."*
+
+The password and the PIN look like the same kind of thing (columns on the same
+row, written by sibling routes) and are not:
+
+- The **password** is a POLICY the recipient must satisfy — inheriting it
+  keeps the owner's lock a lock, and the sharer passing it along changes
+  nothing about what it protects (viewing, which the sharer already had).
+- The **PIN** is a gallery-wide SECRET whose only power is bulk download.
+  Copying it onto a subset link either sits inert (bulk-only posture — curated
+  subsets classify as individual downloads, lesson 95) or forces the sharer to
+  CIRCULATE the gallery-wide key to unlock a 12-photo subset. Inheritance
+  turned a scoped grant into an unscoped one.
+
+The rule: **when a derived resource inherits protections, ask of each one "does
+the recipient need to HOLD a secret to pass it?" A gate the recipient satisfies
+in place inherits cleanly; a gate that makes a secret travel must be dropped,
+re-scoped, or re-issued — never copied.** And the exception proves the method:
+`requirePinIndividual` galleries keep the PIN on children, because dropping it
+would let a guest mint a link to themselves and bypass the owner's strictest
+gate — check the bypass direction before deleting any inherited control.
+
+One home for the rule (`derivedSharePins()`), used by BOTH writers — the mint
+and the download-pin write-through, which would otherwise re-arm on the next
+PIN change what the mint had deliberately dropped. A policy applied at creation
+but not at every later write is a policy for one afternoon.

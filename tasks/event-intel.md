@@ -437,6 +437,16 @@ gig titles, matched by concatenating 1–4 token windows from the title's first
 segment. Six renamed themselves off his titles. Marketing prefixes are stripped
 for the search only — getclario.ai is Clario.
 
+**A NEW client's name is editable at confirm time** (2026-08-28, after
+"sutterhealth.org" imported as "Sutterhealth"). suggest-gig now derives the best
+name it can for an org with no row yet (`orgDisplayName` over that gig's own
+titles) and the confirm card renders it as an editable field — what the card
+shows IS the name the org gets. The payload carries `orgNames` (domain → the
+human's wording) and `applyGigIntel` prefers it over `domainToName`. Existing
+orgs stay read-only on the card; renames belong to /intel. This retires the
+"undecidable name" class for every future import — the human is standing right
+there at the moment the org is born.
+
 **`/dev/*` was public in production.** `app.pixeltrunk.com/dev/buttons` answered
 200 to anyone, unconditionally allowlisted in middleware since before this
 feature. Now `NODE_ENV === "development"`, deliberately not `VERCEL_ENV !==
@@ -452,7 +462,9 @@ non-Vercel runtime satisfies it. Negative-tested against a real production build
   stylist / makeup artist / lead / assistant) exists only in conversation.
 - **Three org names undecidable from the corpus**: episode1agency.com,
   typeaevents.com, wallandceiling.org. No gig title names them, so guessing at a
-  client's name is exactly what `orgDisplayName` refuses to do.
+  client's name is exactly what `orgDisplayName` refuses to do. (Their EXISTING
+  rows still need Mason's wording — the 2026-08-28 editable field only covers
+  orgs created from now on. One /intel rename each.)
 - **Venue names are often street addresses** — correct behaviour (a leading house
   number means the calendar gave no venue name), but "2065 E Hamilton Ave" is a
   poor label for a room we have shot twice.
