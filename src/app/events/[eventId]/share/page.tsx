@@ -80,6 +80,41 @@ function ShareComposePage() {
   }, []);
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  /**
+   * Composed covers (mosaic/solid) exist in the email only once the raster
+   * job has rendered them. While it's pending the preview must SAY so, not
+   * silently show a fallback frame — so poll readiness until the raster
+   * lands, then cache-bust the hero <img> so the finished cover pops in.
+   */
+  const [coverComposing, setCoverComposing] = useState(false);
+  const [coverBust, setCoverBust] = useState(0);
+  const composingRef = useRef(false);
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/share-readiness`);
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as { coverComposing?: boolean };
+        if (cancelled) return;
+        const now = !!j.coverComposing;
+        if (composingRef.current && !now) setCoverBust((b) => b + 1);
+        composingRef.current = now;
+        setCoverComposing(now);
+        if (now) timer = setTimeout(check, 10_000);
+      } catch {
+        // Readiness is a convenience; the preview just keeps its last state.
+      }
+    };
+    check();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [eventId]);
   const editorRef = useRef<EmailEditorHandle | null>(null);
   const creatingShareRef = useRef(false);
 
@@ -612,8 +647,11 @@ function ShareComposePage() {
                           branding={branding}
                           businessName={businessName}
                           coverImageUrl={
-                            shareSlug ? `/api/gallery/${shareSlug}/cover` : undefined
+                            shareSlug
+                              ? `/api/gallery/${shareSlug}/cover${coverBust ? `?v=${coverBust}` : ""}`
+                              : undefined
                           }
+                          coverComposing={coverComposing}
                           password={includePassword ? galleryPassword : null}
                           downloadPin={includePin ? downloadPin : null}
                           guestList={

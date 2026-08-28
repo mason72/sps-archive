@@ -17,6 +17,8 @@ interface ChecklistItem {
 interface ReadinessData {
   imageCount: number;
   processingRemaining: number;
+  /** A mosaic/solid cover whose email raster hasn't been composed yet. */
+  coverComposing?: boolean;
   hasBranding: boolean;
   hasActiveShares: boolean;
   hasPassword: boolean;
@@ -49,6 +51,16 @@ function buildChecklist(data: ReadinessData, eventId: string): ChecklistItem[] {
         data.processingRemaining === 0
           ? "Processing complete"
           : `${data.processingRemaining} image${data.processingRemaining === 1 ? "" : "s"} still processing`,
+    });
+  }
+
+  // Cover raster still composing — the email hero self-heals (durable
+  // redirect), so this warns rather than blocks.
+  if (data.coverComposing) {
+    items.push({
+      label: "cover",
+      status: "warning",
+      detail: "Cover design is being composed — ready in about a minute",
     });
   }
 

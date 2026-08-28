@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
+import { coverRasterKey } from "@/lib/cover/pool";
+import { getObjectMetadata } from "@/lib/r2/client";
 
 /**
  * GET /api/events/[eventId]/share-readiness
@@ -20,7 +23,7 @@ export async function GET(
     // Verify event ownership
     const { data: event, error: eventError } = await supabase
       .from("events")
-      .select("id, user_id")
+      .select("id, user_id, settings")
       .eq("id", eventId)
       .single();
 
@@ -69,9 +72,25 @@ export async function GET(
           .eq("is_active", true),
       ]);
 
+    // A mosaic/solid cover only exists in the email once the Inngest job has
+    // COMPOSED it (pool.ts is the raster's one reader/enqueuer). Until then
+    // the hero route serves a fallback frame — which reads as "my cover is
+    // missing" in the composer preview (Mason hit exactly this on a fresh
+    // import, 2026-08-28). Report the window so the preview can say so
+    // honestly instead of silently substituting a different image.
+    const cover = normalizeCoverSettings(
+      ((event.settings ?? {}) as Record<string, unknown>).cover
+    );
+    let coverComposing = false;
+    if (cover.enabled && coverNeedsRaster(cover)) {
+      const meta = await getObjectMetadata(coverRasterKey(eventId)).catch(() => null);
+      coverComposing = meta === null;
+    }
+
     return NextResponse.json({
       imageCount: imagesResult.count ?? 0,
       processingRemaining: processingResult.count ?? 0,
+      coverComposing,
       hasBranding: !!(
         profileResult.data?.logo_url || profileResult.data?.business_name
       ),

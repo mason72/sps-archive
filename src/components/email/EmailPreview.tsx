@@ -14,6 +14,14 @@ interface EmailPreviewProps {
   /** Event cover hero (the /api/gallery/[slug]/cover URL). Hidden if it 404s. */
   coverImageUrl?: string;
   /**
+   * The cover is a composed design (mosaic/solid) whose raster hasn't been
+   * generated yet. While true the hero shows an honest "being composed" state
+   * instead of the route's fallback frame — a real photo that ISN'T the cover
+   * reads as "my cover is missing" (Mason, 2026-08-28). The sent email is
+   * safe either way: its hero is a durable redirect that self-heals.
+   */
+  coverComposing?: boolean;
+  /**
    * Gallery password, when the sender chose to include it. Mirrors the card
    * `renderEmailShell` emits — if this preview and that shell ever disagree,
    * the preview is lying about the email being sent.
@@ -45,6 +53,7 @@ export function EmailPreview({
   businessName,
   logoUrl,
   coverImageUrl,
+  coverComposing,
   password,
   downloadPin,
   guestList,
@@ -68,15 +77,31 @@ export function EmailPreview({
 
       {/* Branded email body */}
       <div style={{ backgroundColor: branding.backgroundColor }}>
-        {/* Cover hero — mirrors the real email's full-bleed cover image */}
-        {coverImageUrl && !coverFailed && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={coverImageUrl}
-            alt=""
-            className="block w-full h-auto"
-            onError={() => setCoverFailed(true)}
-          />
+        {/* Cover hero — mirrors the real email's full-bleed cover image.
+            While the composed cover (mosaic/solid) is still being rendered,
+            say so rather than showing the route's fallback frame — a photo
+            that isn't the cover reads as the cover being broken. */}
+        {coverImageUrl && coverComposing ? (
+          <div className="flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 bg-stone-100 px-6 text-center">
+            <span className="text-[12px] font-medium text-stone-500">
+              Your cover design is being composed
+            </span>
+            <span className="text-[11px] leading-relaxed text-stone-400">
+              It will appear here in about a minute — and the sent email always
+              shows the finished cover.
+            </span>
+          </div>
+        ) : (
+          coverImageUrl &&
+          !coverFailed && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={coverImageUrl}
+              alt=""
+              className="block w-full h-auto"
+              onError={() => setCoverFailed(true)}
+            />
+          )
         )}
 
         {/* Header bar */}
