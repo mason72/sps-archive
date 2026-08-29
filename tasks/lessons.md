@@ -1586,3 +1586,59 @@ The guard behaved correctly throughout — failed closed, named the cause, exite
 non-zero, started no retry loop. That is the half worth keeping: **when the thing
 you built to fail safely is what catches you, the design was right and the
 operator was wrong.**
+
+## 105 — a verdict that flips with SAMPLE SIZE is measuring sampling luck, and you cannot validate a filter on the things it PASSED (2026-08-29)
+
+Five collections sat quarantined as "Web Size renditions, re-request at High
+Resolution". The previous session proposed loosening the guard on the reasoning
+that all five were all-portrait galleries, whose uniform width is a geometric
+artifact rather than a renderer's cap. That reasoning was right; the proposed fix
+was wrong; and both halves are worth keeping.
+
+**The proof was in our own database, not the vendor's API.** The report said the
+definitive check needed the Pixieset owner session, which was dead — so the
+question sat blocked for a day. But Pixeltrunk stores `width`/`height` for every
+ingested image, so 60 already-accepted collections were a ground-truth control
+set on disk the whole time. `lafayetteartandwinefestivaldayone` is **ingested** at
+exactly the 2560×3840 geometry its twin `daytwo` was **quarantined** for — same
+two-day event, same body. Day one passed only because its 5-frame sample caught
+one of its 25 landscape frames out of 861. **Before declaring a question blocked
+on an external system, ask which local record already answers it** — same family
+as "name the durable record", but the failure mode here is inertia rather than a
+wrong reading.
+
+**The killer evidence was a non-monotonic verdict.** Simulating the shipped guard
+at several sample sizes, `NASA Photos @ IFAI` (18 photos, 6 landscape / 12
+portrait) is judged ORIGINAL at sample=5, RENDITION at sample=10, and ORIGINAL
+again at sample=20 — the same unchanged bytes, three different answers. At
+sample=10 the step collapses to 1 so the picks are the first ten entries, all
+portrait, all 1728px wide. **If a metric's verdict changes with how many samples
+you take and not in one direction, it is reporting where the picks landed, not
+the property you meant to measure.** That argument needs no control group and is
+the one to reach for first.
+
+**And the trap I nearly published:** I swept sample sizes against those 60
+accepted collections, got ~0 false positives at every size, and almost reported
+it as evidence the guard is fine at 5. It is nearly circular — those 60 are
+exactly the collections that PASSED the guard; the five that failed have no
+`images` rows to sweep. **A filter cannot be validated on its own survivors.**
+Any such measurement needs the rejected set too, and if the rejected artifacts
+have been deleted, the honest answer is "this cannot be settled from disk" —
+which is where it landed: the sizing question needs one of the five re-downloaded
+and measured at full population. `foothillsteamphotos` is 16 photos / 18.5 MB, so
+that costs about as much traffic as the plumbing test already planned.
+
+**Two dead ends recorded so nobody re-walks them.** (1) The long edge is not a
+discriminator — accepted originals here run as low as **1844** (`tenable80sparty`,
+ingested), overlapping web-size ranges; this was already documented and I
+re-derived it. (2) **EXIF capture dimensions are also dead**: on 21 frames pulled
+from 8 known-good collections, `ExifImageWidth` is ABSENT on 13 and, where
+present, exactly equals the file's actual pixels — these are Lightroom / Capture
+One / PortraitPro *exports*, so the export rewrote EXIF to the exported size. An
+original and a renderer's output would both agree, so there is no signal. Ten
+minutes to disqualify, versus shipping a guard built on plausibility.
+
+Sharpest single data point, found in frames that arrived AFTER the thesis was
+written: `ivanasbridalshower` ingested cleanly with portrait frames at **1824px
+wide** — under the 2560 threshold. It survived only because its sample happened to
+include landscape frames. The near-miss is the rule reproducing itself.
