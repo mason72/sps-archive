@@ -158,6 +158,52 @@ check needs the owner session, so it is on the list below.
 
 ---
 
+### 4b. SETTLED 2026-08-28 evening — and the proposed fix in §4 is WRONG. Do not apply it.
+
+§4 said the definitive check needed the owner session and one API call. It needed
+neither. **Pixeltrunk stores `width`/`height` for every ingested image**, so the full
+population of the 53 already-accepted collections is a ground-truth control set sitting
+in the database — a far stronger comparison than a 5-frame sample against the API, and
+it costs no Pixieset traffic at all.
+
+**The sibling proof.** `lafayetteartandwinefestivaldayone` — 861 photos, 836 portrait /
+25 landscape, modal 3840 long × 2560 wide — is **ingested**. Its twin
+`…daytwo` was quarantined for *"every sampled frame is 2560px wide (median long edge
+3840)"*. Same two-day event, same body, same geometry. At 836/861 portrait roughly 86%
+of 5-frame samples come out all-portrait, so day one passed only because its sample
+happened to include a landscape frame. The verdict is close to a coin flip.
+
+**The geometry is established archive material:**
+
+| quarantined | geometry | ingested collections at the SAME geometry |
+|---|---|---|
+| boxworks2014headshotsday3 | 1920×2880 | boxworks2014day1, boxworks2014headshots, rsac2015, kiamom — **5,469 photos** |
+| ffdc2015, lafayette…daytwo | 2560×3840 | lafayetteartandwinefestivaldayone, kiaclassicportraits |
+| foothillsteamphotos | 2432×3648 | redoak2016holidayparty |
+
+**The bug is the SAMPLE SIZE, not the predicate.** Across all 53 ingested collections,
+**no multi-photo collection has a uniform width over its full population** — the minimum
+is 2 distinct widths and the 98%-portrait ones still carry 4–7. Uniform width genuinely
+is a rendition tell; five frames is simply too few to measure it. Raising the sample is
+the better fix, and it can be regression-tested offline against the real width
+distributions now available in the DB.
+
+**Why the §4 fix must not ship.** `isRendition = uniform && uniform <= MAX &&
+(mixedOrientation || uniform === 2048)` carries a dead clause: not one of the five sits
+at 2048, so `mixedOrientation` does all the work. It is the inference the brief warned
+against, wearing a conjunction as a disguise.
+
+**`jonathanandcat` is UNDETERMINED by geometry** — uniform 1920 wide with a long edge
+also 1920, so landscape or square at 1920. It is tempting to call it the one real
+suspect; that is wrong. `tenable80sparty` was accepted and ingested with a modal long
+edge of **1844**, below 1920, and escaped the guard only because its crops vary (32
+distinct widths). Geometry cannot separate this one. EXIF capture-dimensions vs actual
+decoded pixels can, and that probe should be validated on a known-good ZIP before it is
+trusted — if EXIF is absent or disagrees on a real original, the idea is dead and we
+say so rather than shipping it.
+
+**Status: the guard is UNCHANGED and the five remain `failed`.** Nothing was loosened.
+
 ## 5. Throughput, and the thing that actually governs it
 
 **The staging disk is the governor, not the downloader.** Staging is on the internal
