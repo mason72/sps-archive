@@ -37,9 +37,9 @@
         <string>/opt/homebrew/bin/node</string>
         <string>scripts/pixieset/download-pass.mjs</string>
         <string>--limit</string>
-        <string>10</string>
+        <string>12</string>
         <string>--budget</string>
-        <string>8</string>
+        <string>15</string>
     </array>
 
     <key>WorkingDirectory</key>

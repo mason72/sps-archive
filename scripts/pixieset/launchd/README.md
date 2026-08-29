@@ -93,6 +93,31 @@ marking failures and the migration would look broken when it is merely gated. Th
 list comes from the inventory sweep already on disk
 (`~/pixieset-staging/pixieset-inventory.json`), never from a live probe.
 
+**Releasing an archive does NOT free the space — snapshots pin it for ~24h.** Six
+presence-verified ZIPs (9.1 GB) were deleted on 2026-08-28 and free space did not
+move by a single GB, because Time Machine's hourly APFS local snapshots still held
+the blocks. This matters more for a nightly job than it did for hand-runs: the
+space released tonight is not available tomorrow night, so the effective headroom
+is roughly one pass smaller than `df` suggests. That is why `--budget` is set well
+below actual headroom.
+
+The blocks drain on their own as snapshots age out (~24h), or immediately with:
+
+```bash
+tmutil thinlocalsnapshots / 21474836480 4
+```
+
+That deletes **local** snapshots only — the real restore points on the external
+Time Machine volume are untouched. Measured 2026-08-28: 8 local snapshots thinned,
+66 GB → 97 GB free. Worth running before raising `--budget`, and worth checking
+first when the pass exits 4 (disk floor) despite archives having been released.
+
+⚠️ **Never release a staged archive on a count check.** Use
+`npx tsx scripts/triage/px-filecheck.ts <eventId> <zip>...`, which compares ZIP
+entries against `images.original_filename` and exits non-zero on any miss.
+`verifyLanded()`'s `total >= expected` is satisfied trivially when an event holds
+images from more than one source — see lesson 87.
+
 **Rate limiting is not optional.** Cloudflare challenged this host on 2026-08-28
 after roughly fifteen browser sessions in twenty minutes — all of it
 *investigation* traffic, not production. Investigation counts against the same
