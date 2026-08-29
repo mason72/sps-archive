@@ -1642,3 +1642,48 @@ Sharpest single data point, found in frames that arrived AFTER the thesis was
 written: `ivanasbridalshower` ingested cleanly with portrait frames at **1824px
 wide** — under the 2560 threshold. It survived only because its sample happened to
 include landscape frames. The near-miss is the rule reproducing itself.
+
+## 106 — instrument the attempt you EXPECT to succeed, or its evidence dies with it (2026-08-29)
+
+Testing the download pass after a day of Cloudflare block, I got three browser
+sessions against the protected host in five minutes and re-tripped the
+protection myself. The brief allowed two attempts and said not to hammer it. I
+had written lesson 105 about budgeting probes hours earlier.
+
+The sequence, and where it actually went wrong:
+
+1. **Attempt 1 — blocked.** `403 cf-mitigated: challenge`. Expected.
+2. **Moved the Playwright profile to Trash. Attempt 2 — `preflight ok, HTTP 200,
+   no challenge`.** The block was scoped to that profile's cookie jar, not the
+   IP. Then it failed at the email gate: `unexpected path /download/auth/`.
+3. **Attempt 3 — a probe to fetch the auth page HTML. 403 again.**
+
+**Attempt 2 was the whole ballgame and I wasted it.** It had a live, unchallenged
+connection sitting on the exact page I needed, and I captured nothing, because I
+had instrumented for *success or failure* rather than for *learning either way*.
+So the evidence only existed inside a session I let close, and getting it back
+cost a request against an origin I had just been warned off.
+
+- **Before spending a scarce attempt, ask what you will have learned if it
+  fails.** If the answer is "I'll have to go back", add the capture FIRST. Saving
+  a page costs nothing on a session you are running anyway; re-earning it can
+  cost the whole channel.
+- **The rule "fetch once, query offline" has a precondition nobody states: you
+  have to actually fetch it during the run you already paid for.** I quoted that
+  rule at myself while writing a probe whose entire purpose was to re-fetch
+  something I'd had in hand ninety seconds earlier.
+- **A swallowed diagnostic converts one failure into two host requests.** The
+  driver records `auth → /path (no form found — posted blind)`, which
+  distinguishes a REJECTED email from a form selector that never matched — two
+  completely different bugs. `download-pass.mjs` printed only `r.error` and
+  dropped the notes, so the only way to tell them apart was another session.
+  Fixed: failures now print the driver's whole trail. **A failure must carry its
+  evidence out on the first attempt**, and this matters most exactly where
+  retries are expensive.
+- **"Two attempts" is a budget for the WHOLE question, not per command.** A
+  diagnostic probe is attempt three. The host cannot see my intent, and lesson
+  105's own text says so.
+
+Net: the block cleared and is provably profile-scoped, and the real remaining
+bug is that the 2026-08-28 driver auth fix does NOT work. Both were learned. The
+second cost a re-block that a single `writeFile` in attempt 2 would have avoided.

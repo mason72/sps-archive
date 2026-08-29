@@ -437,6 +437,16 @@ try {
           requested++;
         } else {
           log(`  ✗ ${c.slug} — ${r.error} (phase ${r.phase})`);
+          // Print the driver's own trail. It records which branch it took and
+          // whether the auth form was even found ("no form found — posted
+          // blind"), and that line is usually the whole diagnosis. Swallowing it
+          // cost a wasted run on 2026-08-29: the pass reported `unexpected path
+          // /download/auth/` with no way to tell a REJECTED email from a form
+          // the selector never matched, so the only way to learn which was to go
+          // back to the host — and every extra session against a Cloudflare-
+          // protected origin is the expensive kind of mistake. A failure must
+          // carry its evidence out on the FIRST attempt.
+          for (const n of r.notes || []) log(`      · ${n}`);
           failed++;
         }
         await applyResult(r);
