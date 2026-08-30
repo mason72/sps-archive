@@ -364,6 +364,41 @@ for Mason, not a code change.
 
 ---
 
+## 5b. THE END-TO-END TEST PASSED — 2026-08-29 18:56 PDT (§6 below is superseded in part)
+
+`purestoragebodgroupportrait` went the whole way:
+
+```
+request → generate (High Resolution) → download → stage → verify → ingest → publish → release
+3 imported · 0 failed · 2.7 MB in 7s · published /gallery/91VOu7uIGV · queue 18964981 → ingested
+```
+
+Verified in the database rather than from the log: 3 images, long edges **4918–5041px**,
+**3 distinct widths**, original filenames preserved. Real full-resolution originals.
+(Three real frames giving three different widths is also quiet corroboration of §4b —
+the quarantined five showed ONE uniform width across a five-frame sample.)
+
+**But read what was actually proven.** The download half was performed by Mason
+clicking the ready link in an ordinary Chrome window, because neither Playwright
+(challenged) nor the Chrome extension (cannot download, §3e) could retrieve the
+file. So what is proven is:
+
+- the whole flow up to and including **archive generation**, via real navigations in
+  a real browser — never challenged;
+- the entire **downstream pipeline** — watcher, fidelity check, ingest, publish,
+  release — end to end on a fresh collection.
+
+What is still **NOT** proven is unattended **retrieval**, which is precisely the job
+the nightly agent exists to do. **So the agent stays unarmed.** An untested restart
+policy is a belief, and the untested part here is the exact part that has failed
+every time.
+
+The open experiment is unchanged: `nav-probe.mjs` on a freshly rotated profile
+decides whether Playwright can drive the flow by navigation. If it can, the agent is
+viable as designed. If it cannot, the honest conclusion is that this origin will not
+be automated from a clean-room profile, and the migration should be built around the
+real browser instead — which works, and has moved 34 collections in a day.
+
 ## 6. The test did not pass, and why the agent is not armed
 
 Required: one collection end-to-end (request → ZIP lands → watcher stages → ingest
