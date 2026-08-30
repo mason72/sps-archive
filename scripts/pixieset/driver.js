@@ -57,9 +57,29 @@
   const text = (el) => (el && el.innerText ? el.innerText : "").replace(/\s+/g, " ").trim();
   const parse = (html) => new DOMParser().parseFromString(html, "text/html");
 
+  /**
+   * A challenge can arrive on ANY request, not just the first one.
+   *
+   * `download-pass.mjs` runs `preflight()` once and then makes a dozen more
+   * requests per collection. When one of those is challenged the HTML that comes
+   * back is Cloudflare's, not Pixieset's — so every downstream parse finds
+   * nothing and reports a PARSE failure. On 2026-08-29 that surfaced as
+   * `unexpected path /download/auth/`, which reads exactly like a rejected email
+   * gate, and cost two sessions chasing an auth bug that did not exist: the
+   * auth form handling was verified correct against the live form the same day.
+   *
+   * So the check belongs on the transport, where every request passes, rather
+   * than once at the start. A challenged response is a DIFFERENT KIND of failure
+   * from a page we could not parse, and the two must never be reported the same
+   * way — one means stop and back off, the other means fix the selector.
+   */
+  const looksChallenged = (status, html) =>
+    status === 403 || /just a moment|cf-mitigated|__cf_chl|challenge-platform/i.test(html || "");
+
   async function GET(url) {
     const r = await fetch(url, { credentials: "include" });
-    return { url: r.url, status: r.status, html: await r.text() };
+    const html = await r.text();
+    return { url: r.url, status: r.status, html, challenged: looksChallenged(r.status, html) };
   }
   async function POST(url, params) {
     const r = await fetch(url, {
@@ -68,7 +88,8 @@
       body: params.toString(),
       credentials: "include",
     });
-    return { url: r.url, status: r.status, html: await r.text() };
+    const html = await r.text();
+    return { url: r.url, status: r.status, html, challenged: looksChallenged(r.status, html) };
   }
 
   /**
@@ -139,6 +160,7 @@
    */
   async function authenticate(url, email) {
     const page = await GET(url);
+    if (page.challenged) return { r: page, usedForm: false, challenged: true };
     const doc = parse(page.html);
     const form = doc.querySelector('form[action*="/download/auth/"]') || doc.querySelector("form");
     if (!form) return { r: page, usedForm: false };
@@ -172,6 +194,10 @@
     try {
       // 1 — the gallery page carries the download-auth link (with its dt token).
       const g = await GET(`${location.origin}/${job.slug}/`);
+      if (g.challenged) {
+        out.error = "CHALLENGED at the gallery page — Cloudflare served a challenge. Stop; do not retry.";
+        return out;
+      }
       if (g.status !== 200) { out.error = `gallery HTTP ${g.status}`; return out; }
       // A gallery with its own password redirects to /guestlogin/{slug}/ when the
       // session is not the owner. The owner session hid this until 2026-08-21, when
@@ -194,6 +220,13 @@
       // 2 — the email gate. Lands on the set picker OR the exist interstitial.
       out.phase = "auth";
       const gate = await authenticate(new URL(m[0], location.origin).href, opts.email);
+      if (gate.challenged) {
+        // Not an auth problem. Say so in the words the operator needs to hear,
+        // because the remedy is the opposite of a code fix: stop, back off, and
+        // do not retry. See looksChallenged().
+        out.error = "CHALLENGED at the email gate — Cloudflare served a challenge, not the form. Stop; do not retry.";
+        return out;
+      }
       let r = gate.r;
       let path = pathOf(r.url);
       note(`auth → ${path}${gate.usedForm ? "" : " (no form found — posted blind)"}`);
