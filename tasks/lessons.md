@@ -1818,11 +1818,26 @@ climbs as the graph grows.** At 173,647 faces / 59 MB it started losing to the
   table simply got bigger. Any statement whose work scales with an index's size
   is on this clock: bulk inserts into vector/HNSW/GiST indexes, `DELETE … IN
   (…)` over hot tables, upserts with several indexes to maintain.
-- **The trigger was density, not volume.** Measured before choosing a fix: the
-  archive tops out at **9.7 faces per image** on group-shot galleries, and one
-  frame holds **129 faces**. So a 100-image batch is ~1,000 rows on exactly the
-  galleries Two Dudes shoots most. The average event (2.0 faces/image) never
-  came close, which is why it took months and four occurrences to surface.
+- **I got the mechanism wrong first, and the correction came from checking a
+  claim I had already written down three times.** My story was density: the
+  archive tops out at 9.7 faces per image, one frame holds 129, so a 100-image
+  batch is ~1,000 rows on a group-shot gallery. Tidy, measured, and *not what
+  failed*. Pulling the four failing events showed **1.0, 1.0, 2.0 and 3.2 faces
+  per image** — DAIS 26, Island HQ Headshot Day, Power Rangers, Ivana's Bridal
+  Shower. Headshot days. Their statements were ~100-320 rows, which warm costs
+  ~0.2-0.7s against an 8s ceiling, so **a >10x excursion did it, not the
+  volume.** I had also written "every one of the four hit the first batch of the
+  nightly sweep"; two of them fired at 02:30 and 04:10 UTC, evening PT upload
+  sessions, nowhere near the 09:43 cron. Both claims were extrapolated from the
+  two occurrences I happened to look at, and both were one query from being
+  checked. **Two data points that agree are not a pattern — they are two data
+  points, and the set was only four.**
+- **Chunking is still right, for a different reason than I first gave.** The
+  timeout is PER STATEMENT, so cutting work per statement by 2-6x is what moves
+  the same excursion from over the ceiling to under it. The fix survived the
+  correction; the explanation did not — and the explanation is what a future
+  session acts on. A comment saying "this fails on group-shot galleries" would
+  send the next person hunting the wrong thing entirely.
 - **The retry was the reason it stayed invisible, and the reason it was
   expensive.** `recordUsage` fires BEFORE the faces insert, so each timeout
   billed a Modal GPU pass and then threw it away — `ai_indexed_at` stays NULL, so
@@ -1838,10 +1853,9 @@ climbs as the graph grows.** At 173,647 faces / 59 MB it started losing to the
   inside the budget" and the job is done. But the very first measurement I took —
   the session's first write — was **8,606ms for 150 rows, a ~20x excursion**, and
   I nearly discarded it as a bad probe because the seven runs after it were all
-  ~360ms. It was the most important number I had: **every one of the four
-  production timeouts hit the first batch of the nightly sweep**, minutes after
-  the 09:43 reconciler cron, on an index nobody had written to for hours. The
-  outlier was not noise, it was the failure condition reproducing itself in front
+  ~360ms. It was the most important number I had —
+  the only direct evidence of the excursion that actually causes these timeouts.
+  The outlier was not noise, it was the failure condition reproducing itself in front
   of me. Under that same 20x, 150 rows lands at ~7.2s — it passes, and tells you
   nothing about the next one. 50 rows lands at ~2.1s. **A single observation
   cannot characterise a tail, which is the argument FOR headroom, not against
