@@ -1703,3 +1703,76 @@ NOTICED the failure, never necessarily the layer that caused it.** When a fix
 "doesn't work" on the first live run after an infrastructure problem, suspect the
 infrastructure again before rewriting the fix. Both of us reached for the code
 because the code was the thing we had just changed.
+
+## 107 — a column that holds a JUDGEMENT needs an author, or the question "who decided this?" has no answer (2026-08-29)
+
+Mason opened the roster and found **Joey Nagoshiner — a founder of the company,
+and the most-booked name in the archive at 13 linked gigs — sitting in
+Non-regulars, rated `last_resort`.** He asked the only question worth asking:
+who marked him last resort?
+
+The database could not say. `crew.rehire` is a bare column carrying the current
+verdict and nothing else: no previous value, no author, no history. All
+`updated_at` could offer was that the row changed at 13:07:22 PT on 2026-08-28.
+That the person had been *rated at all* had to be inferred from the column being
+non-null, and the author was unrecoverable outright. `activity_log` was no help
+— it records guest delivery evidence (`share_view`, `gallery_download`) and has
+never held anything internal.
+
+- **Judgement fields are not settings, and should not be stored like settings.**
+  `rehire` sinks a named human in every crew picker, prints on their card, and
+  `never` is a permanent hard no. The app already models this correctly one
+  layer over: `person_identity_suggestions` exists precisely so "AI suggests, a
+  human's word is durable" means something — and that phrase is empty unless you
+  can say *whose* word it was. The roster had the same need and none of the
+  machinery.
+- **The timestamps were still evidence, and reading them changed the diagnosis.**
+  The ratings formed a continuous sweep, 13:06 → 13:16, one every ~20 seconds,
+  running alphabetically down the Non-regulars band. Joey was not a drive-by
+  edit; he was **in the bench being rated, and he was only in that bench because
+  his `is_regular` star had never been set.** The missing star CAUSED the
+  rating. Where a durable record is absent, the surviving metadata is worth
+  mining before concluding — but it yields a plausible story, not a fact, and
+  the two must not be reported as the same thing.
+- **The fix is a TRIGGER, because three writers already existed** — `PATCH
+  /api/crew`, `PATCH /api/events/[id]/intel`, and `apply-gig.ts` upserting
+  `would_rebook`. There is no choke point, and instrumenting the routes covers
+  only the routes that exist today (the standing rule: write the invariant as a
+  check, not as a comment). Migration 073's trigger also covers `db-sql.ts`, a
+  dashboard edit, and the next route nobody has written.
+- **The actor has to ride IN the write.** Every Intel route holds the SERVICE
+  client, so `auth.uid()` is empty inside the trigger and PostgREST gives no
+  transaction in which to set a session variable. Hence `crew.last_actor_id` —
+  plumbing the app stamps, the trigger copies. **A write that omits it logs a
+  NULL actor rather than nothing at all**, so an out-of-band edit is a visible
+  gap instead of an invisible one.
+- **Record the REAL session, never the effective one.** All 87 crew rows belong
+  to info@ (the shared team login), so logging the effective user would answer
+  "who did this" with "the account that owns every row". Same reasoning as the
+  admin gates in `docs/OPS.md`.
+- **The honest limit, found by verifying rather than by reasoning:** the live
+  test recorded `info@twodudesphoto.com`, because that is the login actually in
+  use. **A shared account means the log can name an account and never a person.**
+  Individual logins are the only thing that changes that, and no amount of
+  schema fixes it.
+
+Two smaller traps, both caught by the acceptance test rather than by review:
+
+- **`now()` is the TRANSACTION timestamp, so rows written by one UPDATE tie
+  exactly and sort nondeterministically** — the first version returned its three
+  test rows scrambled. An append-only log needs a monotonic `seq`; `changed_at`
+  is for display. Same family as lesson #88 (unordered `.range()` paging).
+- **`[].every(…)` is `true`, so an assertion over an empty result passes on a
+  completely dead trigger.** Found by disabling the trigger and re-running the
+  harness — which is the only reason I know the other ten checks mean anything.
+  A guard you have never watched fail is a guard you do not have.
+
+Harness: `npx tsx scripts/verify-crew-audit.ts` (creates a throwaway person,
+exercises every path, deletes it, asserts the database is unchanged).
+
+Separately: **`db-sql.ts --file … --apply` recorded ANY file in the migration
+ledger**, so a scratch acceptance test run from the scratchpad landed in
+`supabase_migrations.schema_migrations` as a migration named "trigger-test". A
+fake ledger row is worse than a missing one — the ledger is what the next person
+reads to decide what has already been applied. Now gated on the path being under
+`supabase/migrations/`.

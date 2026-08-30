@@ -25,7 +25,7 @@ import type { CrewAssignment } from "@/lib/event-intel/apply-gig";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError, realUser } = await getAuthUser();
     if (authError) return authError;
 
     // Deliberately allowed under act-as (Mason, 2026-08-11: "it's bc I'm acting
@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
           orgNames: body.intel.orgNames,
           calendarEventIds: body.intel.calendarEventIds ?? [],
           confirmed: true,
+          // See the events route: the signer is the real session, because the
+          // effective user is the shared team login on every crew row.
+          actorId: realUser?.id ?? null,
         });
         if (intelResult.warnings.length) {
           await reportSystemError(

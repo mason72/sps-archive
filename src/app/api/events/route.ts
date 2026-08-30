@@ -270,7 +270,7 @@ export async function GET(request: NextRequest) {
 /** POST /api/events — Create a new event */
 export async function POST(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getAuthUser();
+    const { user, supabase, error: authError, realUser } = await getAuthUser();
     if (authError) return authError;
 
     const body = await request.json();
@@ -381,6 +381,10 @@ export async function POST(request: NextRequest) {
           orgNames: intel.orgNames,
           calendarEventIds: intel.calendarEventIds ?? [],
           confirmed: true,
+          // The human who created the event signs the crew ratings that came
+          // with it. `realUser`, not `user`: under act-as the effective id is
+          // the archive owner, which every crew row already carries.
+          actorId: realUser?.id ?? null,
         });
         intelWarnings = result.warnings;
         if (result.warnings.length) {

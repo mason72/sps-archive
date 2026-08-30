@@ -77,6 +77,16 @@ export interface CrewAssignment {
 export interface ApplyGigInput {
   userId: string;
   eventId: string;
+  /**
+   * The REAL signed-in human, for the crew judgement history (migration 073).
+   *
+   * Separate from `userId`, which is the archive OWNER — always info@ here, and
+   * therefore worthless as an author. Optional so the backfill and the repair
+   * scripts still run: an omitted actor logs the change as "unattributed",
+   * which is the truth about a script-driven write and is visibly different
+   * from a person's decision.
+   */
+  actorId?: string | null;
   /** The calendar's `location` string, unparsed — or an already-parsed venue. */
   venue?: string | ParsedVenue | null;
   crew?: CrewAssignment[];
@@ -264,6 +274,11 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
             confirmed_roles: cleanConfirmedRoles(person.confirmedRoles, roles),
             would_rebook: cleanRehire(person.rehire),
             note: person.note?.slice(0, 2000) || null,
+            // Signs the rating for crew_change_log. `apply-gig` is its own
+            // source because a rating that arrived with a gig is a different
+            // act from one typed on the event screen.
+            last_actor_id: input.actorId ?? null,
+            last_actor_source: "apply-gig",
             /**
              * Provenance follows the same answer as `confirmed_at`, and is
              * derived rather than hardcoded so the backfill can adopt this

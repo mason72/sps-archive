@@ -3,6 +3,7 @@ import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { cleanRehire } from "@/lib/event-intel/roles";
 import { effectiveLastHired, monthToDate } from "@/lib/event-intel/last-hired";
+import { actorStamp, touchesJudgement } from "@/lib/event-intel/audit";
 
 /**
  * The roster — add, edit, archive.
@@ -102,7 +103,8 @@ export async function GET(request: NextRequest) {
 /** Add someone. Only a name is required — the rest is fill-in-as-you-learn-it. */
 export async function POST(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getIntelUser();
+    const auth = await getIntelUser();
+    const { user, supabase, error: authError } = auth;
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -135,6 +137,10 @@ export async function POST(request: NextRequest) {
       is_regular: b.is_regular === true,
       city: String(b.city ?? "").trim() || null,
       notes: String(b.notes ?? "").trim() || null,
+      // Opens the person's history with a 'created' row (migration 073), so
+      // "born non-regular and never starred" reads as a state somebody left
+      // them in rather than as a gap in the record.
+      ...actorStamp(auth, "roster"),
     }).select("id").single();
     if (error) throw error;
 
@@ -148,7 +154,8 @@ export async function POST(request: NextRequest) {
 /** Edit, archive, or restore. */
 export async function PATCH(request: NextRequest) {
   try {
-    const { user, supabase, error: authError } = await getIntelUser();
+    const auth = await getIntelUser();
+    const { user, supabase, error: authError } = auth;
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -183,6 +190,16 @@ export async function PATCH(request: NextRequest) {
     if (b.last_hired_on !== undefined) {
       patch.last_hired_on = b.last_hired_on === null ? null : monthToDate(b.last_hired_on);
     }
+
+    /**
+     * Sign the judgement — but only when it IS one.
+     *
+     * A patch that renames someone or fixes a city changes no watched field,
+     * so the trigger writes nothing; stamping it anyway would leave
+     * `last_actor_id` pointing at whoever last corrected a typo, which
+     * misleads anyone reading that column rather than the log.
+     */
+    if (touchesJudgement(patch)) Object.assign(patch, actorStamp(auth, "roster"));
 
     const { error } = await db.from("crew").update(patch).eq("id", id).eq("user_id", user!.id);
     if (error) throw error;

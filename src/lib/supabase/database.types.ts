@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -123,6 +123,8 @@ export type Database = {
           id: string
           is_regular: boolean
           kind: string
+          last_actor_id: string | null
+          last_actor_source: string | null
           last_hired_on: string | null
           notes: string | null
           primary_email: string | null
@@ -143,6 +145,8 @@ export type Database = {
           id?: string
           is_regular?: boolean
           kind?: string
+          last_actor_id?: string | null
+          last_actor_source?: string | null
           last_hired_on?: string | null
           notes?: string | null
           primary_email?: string | null
@@ -163,6 +167,8 @@ export type Database = {
           id?: string
           is_regular?: boolean
           kind?: string
+          last_actor_id?: string | null
+          last_actor_source?: string | null
           last_hired_on?: string | null
           notes?: string | null
           primary_email?: string | null
@@ -173,6 +179,66 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      crew_change_log: {
+        Row: {
+          actor_id: string | null
+          actor_label: string | null
+          changed_at: string
+          crew_id: string
+          event_id: string | null
+          field: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+          seq: number
+          source: string | null
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_label?: string | null
+          changed_at?: string
+          crew_id: string
+          event_id?: string | null
+          field: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          seq?: number
+          source?: string | null
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          actor_label?: string | null
+          changed_at?: string
+          crew_id?: string
+          event_id?: string | null
+          field?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          seq?: number
+          source?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crew_change_log_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crew_change_log_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       crew_faces: {
         Row: {
@@ -391,6 +457,8 @@ export type Database = {
           created_at: string
           crew_id: string
           event_id: string
+          last_actor_id: string | null
+          last_actor_source: string | null
           note: string | null
           roles: string[]
           roles_source: string
@@ -402,6 +470,8 @@ export type Database = {
           created_at?: string
           crew_id: string
           event_id: string
+          last_actor_id?: string | null
+          last_actor_source?: string | null
           note?: string | null
           roles?: string[]
           roles_source?: string
@@ -413,6 +483,8 @@ export type Database = {
           created_at?: string
           crew_id?: string
           event_id?: string
+          last_actor_id?: string | null
+          last_actor_source?: string | null
           note?: string | null
           roles?: string[]
           roles_source?: string

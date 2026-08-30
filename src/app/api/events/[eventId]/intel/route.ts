@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntelUser } from "@/lib/event-intel/require-intel";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { repointEventNotes } from "@/lib/intel-notes/store";
+import { actorStamp, touchesJudgement } from "@/lib/event-intel/audit";
 
 /**
  * Event Intel for ONE event — the back-office view of who worked it and where.
@@ -231,7 +232,8 @@ export async function PATCH(
 ) {
   const { eventId } = await params;
   try {
-    const { user, supabase, error: authError } = await getIntelUser();
+    const auth = await getIntelUser();
+    const { user, supabase, error: authError } = auth;
     if (authError) return authError;
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const db = supabase as any;
@@ -387,6 +389,10 @@ export async function PATCH(
     // maps forward, so an old row keeps meaning something.
     if (body.wouldRebook !== undefined) patch.would_rebook = cleanRehire(body.wouldRebook);
     if (body.note !== undefined) patch.note = body.note?.slice(0, 2000) || null;
+
+    // The per-gig rating is the primary rehire judgement (`crew.rehire` is only
+    // the baseline it outranks), so it is the one that most needs an author.
+    if (touchesJudgement(patch)) Object.assign(patch, actorStamp(auth, "event"));
 
     const { error } = await db.from("event_crew").update(patch)
       .eq("event_id", eventId).eq("crew_id", body.crewId).eq("user_id", user!.id);

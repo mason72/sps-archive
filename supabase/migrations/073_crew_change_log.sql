@@ -1,0 +1,247 @@
+-- Who said that about this person, and when (2026-08-29).
+--
+-- ── The question this exists to answer ──
+--
+-- Joey Nagoshiner — a founder of the company, and the single most-booked name
+-- on the roster at 13 linked gigs — was sitting in the Non-regulars band rated
+-- `last_resort`. Mason asked the obvious question: who marked him last resort?
+--
+-- The database could not answer it. `crew.rehire` is a bare column: it carries
+-- the current verdict and nothing else. No previous value, no author, no
+-- history. All `updated_at` could say was that the row changed at 13:07:22 PT
+-- on 2026-08-28 — not what changed, and not who changed it. The verdict had to
+-- be inferred by hand from the fact that the column was non-null, and the
+-- author was unrecoverable outright.
+--
+-- That is a bad property for this column in particular. `rehire` is not a
+-- preference or a setting. It is a durable, consequential CLAIM ABOUT A NAMED
+-- PERSON — it sinks them in every crew picker (`compareCrewForPicker`), it
+-- prints on their card, and `never` is a permanent hard no. A claim like that
+-- should carry its author the way `person_identity_suggestions` does, and for
+-- exactly the same reason: the model there is "AI suggests, a human's word is
+-- durable", which only means something if you can tell whose word it was.
+--
+-- ── Why a TRIGGER and not logging in the route ──
+--
+-- Three separate places write a judgement today:
+--
+--   1. PATCH /api/crew                      → is_regular, rehire, archived, notes
+--   2. PATCH /api/events/[id]/intel         → would_rebook, note  (the per-gig rating)
+--   3. lib/event-intel/apply-gig.ts         → upserts would_rebook when a gig is applied
+--
+-- There is no choke point to instrument, and a fix in the writers only ever
+-- covers the writers that exist today (`~/.claude/rules/workflow.md`: fixing
+-- one instance of a failure mode does not retire the failure mode — write the
+-- invariant as a check, not as a comment). A trigger covers all three, plus the
+-- next route nobody has written, plus `scripts/db-sql.ts`, plus a hand edit in
+-- the Supabase dashboard. The record becomes a property of the TABLE rather
+-- than a habit of the callers.
+--
+-- ── How the actor gets in, given the app writes as the service role ──
+--
+-- The trigger cannot ask `auth.uid()`: every Intel route holds the SERVICE
+-- client (see `getAuthUser`), so there is no user JWT on the connection, and
+-- PostgREST gives no transaction in which to `set local` a session variable.
+--
+-- So the actor rides IN THE WRITE ITSELF. `crew.last_actor_id` and
+-- `event_crew.last_actor_id` are plumbing columns the app stamps on every
+-- judgement write (`actorStamp()` in lib/event-intel/audit.ts), and the trigger
+-- copies them onto the log row.
+--
+-- A write that does not stamp them logs `actor_id = null`, which the UI renders
+-- as "unattributed". That is deliberate and is the better failure: an
+-- out-of-band write — my own db-sql.ts UPDATE clearing Joey's rating being the
+-- first example — shows up as a VISIBLE gap in the record rather than as no
+-- record at all. Same instinct as `resolveShareImageScope` failing closed.
+--
+-- The actor stamped is the REAL session, never the act-as identity, matching
+-- the rule in docs/OPS.md that admin-gated questions ask `realUser`. Under
+-- act-as the effective user is info@ — which is the owner of all 87 crew rows
+-- and therefore says nothing — while the real session is the human who typed.
+-- That distinction is the entire point here: Two Dudes shares one login, so
+-- "which account" is a constant and "which person was signed in" is the only
+-- fact with information in it.
+--
+-- ── Not a general-purpose row log ──
+--
+-- Only JUDGEMENT fields are watched. A name spelling, a city, an email are
+-- corrections — logging them buries the four fields that make a claim about
+-- someone under twelve that do not. `activity_log` is likewise not the home:
+-- that table is guest delivery evidence (`share_view`, `gallery_download`) read
+-- by `lib/events/status.ts`, and mixing internal roster judgements into it
+-- would put staff opinions one query mistake away from a client-facing count.
+
+create table if not exists crew_change_log (
+  id          uuid primary key default gen_random_uuid(),
+
+  -- The total order, and the column every read sorts on.
+  --
+  -- `changed_at` cannot do that job alone: its default is `now()`, which in
+  -- Postgres is the TRANSACTION timestamp, so two fields changed by one UPDATE
+  -- (rating and note together, the common case from the event screen) carry
+  -- byte-identical times and sort nondeterministically against each other.
+  -- Caught by the trigger's own acceptance test, which returned three rows in
+  -- the wrong order. Same shape as the unordered `.range()` paging bug in
+  -- `tasks/lessons.md` #88 — a read whose sort key ties has no defined order.
+  seq         bigint generated by default as identity,
+
+  -- The archive owner, carried so this table scopes exactly like every other
+  -- Intel table (`getAuthUser` hands back the service client; RLS is bypassed
+  -- and the per-query ownership filter is what actually protects the data).
+  user_id     uuid not null references auth.users(id) on delete cascade,
+
+  -- Who the claim is ABOUT. Cascades: the only crew rows that can be deleted
+  -- are those with no event links at all, and a person who was never on a gig
+  -- has no history worth orphaning.
+  crew_id     uuid not null references crew(id) on delete cascade,
+
+  -- Which gig taught it, for per-gig ratings. Null for the person-level
+  -- baseline set from the roster.
+  event_id    uuid references events(id) on delete set null,
+
+  -- 'created' | 'is_regular' | 'rehire' | 'archived' | 'notes'
+  --           | 'would_rebook' | 'note'
+  field       text not null,
+  old_value   text,
+  new_value   text,
+
+  -- Null means the write did not stamp an actor — an out-of-app edit. Not an
+  -- error state; a visible one.
+  actor_id    uuid references auth.users(id) on delete set null,
+  -- Snapshotted at log time so history does not rewrite itself when an account
+  -- later changes its email or is removed.
+  actor_label text,
+  -- Which surface: 'roster' | 'event' | 'apply-gig' | 'script', or null.
+  source      text,
+
+  changed_at  timestamptz not null default now()
+);
+
+-- Re-runnable on a database that already has the table from the first apply.
+alter table crew_change_log
+  add column if not exists seq bigint generated by default as identity;
+
+-- The read is always "this person's timeline, newest first". Sorted by `seq`,
+-- not `changed_at`, for the tie reason above.
+create index if not exists crew_change_log_crew_idx
+  on crew_change_log (crew_id, seq desc);
+-- And "what happened across the roster on the afternoon of the 28th" — the
+-- query that would have answered Mason's question in one shot.
+create index if not exists crew_change_log_user_time_idx
+  on crew_change_log (user_id, seq desc);
+
+-- ── The plumbing columns the trigger reads ──
+alter table crew            add column if not exists last_actor_id     uuid references auth.users(id) on delete set null;
+alter table crew            add column if not exists last_actor_source text;
+alter table event_crew      add column if not exists last_actor_id     uuid references auth.users(id) on delete set null;
+alter table event_crew      add column if not exists last_actor_source text;
+
+comment on column crew.last_actor_id is
+  'Plumbing for the crew_change_log trigger: who made this write. Never read by the app — the durable record is crew_change_log.';
+comment on column event_crew.last_actor_id is
+  'Plumbing for the crew_change_log trigger: who made this write. Never read by the app — the durable record is crew_change_log.';
+
+-- ── The trigger ──
+--
+-- One function for both tables. Field values are pulled through `to_jsonb(NEW)`
+-- rather than named individually, so adding a watched field is one array entry
+-- and there is no per-column branch to get wrong.
+--
+-- SECURITY DEFINER because it reads `auth.users` for the actor's email, with a
+-- pinned search_path so the definer rights cannot be redirected.
+create or replace function log_crew_judgement()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  watched   text[];
+  v_crew_id uuid;
+  v_event   uuid;
+  old_j     jsonb;
+  new_j     jsonb;
+  f         text;
+  old_v     text;
+  new_v     text;
+  v_label   text;
+begin
+  if TG_TABLE_NAME = 'crew' then
+    watched   := array['is_regular', 'rehire', 'archived', 'notes'];
+    v_crew_id := NEW.id;
+    v_event   := null;
+  else
+    watched   := array['would_rebook', 'note'];
+    v_crew_id := NEW.crew_id;
+    v_event   := NEW.event_id;
+  end if;
+
+  select email into v_label from auth.users where id = NEW.last_actor_id;
+
+  new_j := to_jsonb(NEW);
+  old_j := case when TG_OP = 'UPDATE' then to_jsonb(OLD) else null end;
+
+  -- A person appearing on the roster is the beginning of their timeline. Worth
+  -- a row of its own: "born non-regular and nobody ever starred them" is
+  -- precisely the state that put a founder in the freelance bench, and without
+  -- a creation marker that reads as a gap rather than as a default.
+  if TG_OP = 'INSERT' and TG_TABLE_NAME = 'crew' then
+    insert into crew_change_log (user_id, crew_id, field, new_value, actor_id, actor_label, source)
+    values (NEW.user_id, v_crew_id, 'created', NEW.display_name,
+            NEW.last_actor_id, v_label, NEW.last_actor_source);
+  end if;
+
+  foreach f in array watched loop
+    new_v := new_j ->> f;
+    old_v := case when old_j is null then null else old_j ->> f end;
+
+    -- On INSERT, skip the defaults — a new row is `is_regular=false,
+    -- archived=false, rehire=null` by construction and logging that is noise.
+    -- A row created ALREADY starred or ALREADY rated is a real judgement and
+    -- is kept.
+    if TG_OP = 'INSERT' and (new_v is null or new_v = 'false') then
+      continue;
+    end if;
+
+    if old_v is distinct from new_v then
+      insert into crew_change_log
+        (user_id, crew_id, event_id, field, old_value, new_value, actor_id, actor_label, source)
+      values
+        (NEW.user_id, v_crew_id, v_event, f, old_v, new_v,
+         NEW.last_actor_id, v_label, NEW.last_actor_source);
+    end if;
+  end loop;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists crew_judgement_log on crew;
+create trigger crew_judgement_log
+  after insert or update on crew
+  for each row execute function log_crew_judgement();
+
+-- INSERT as well as UPDATE: `apply-gig.ts` UPSERTS the per-gig rating, so a
+-- rating's first appearance is frequently an insert, not an update.
+drop trigger if exists event_crew_judgement_log on event_crew;
+create trigger event_crew_judgement_log
+  after insert or update on event_crew
+  for each row execute function log_crew_judgement();
+
+-- ── RLS ──
+--
+-- Deliberately NOT the `for all` user policy the other Intel tables carry. An
+-- audit log that its subject can rewrite is not an audit log, so the owner gets
+-- SELECT and nothing else; only the service role writes, and only through the
+-- trigger. (Rows still disappear when their crew row is deleted — that is the
+-- FK cascade above, and it is the one intended erasure path.)
+alter table crew_change_log enable row level security;
+drop policy if exists "Service role manages crew_change_log" on crew_change_log;
+drop policy if exists "Users read own crew_change_log" on crew_change_log;
+create policy "Service role manages crew_change_log" on crew_change_log
+  for all using (auth.role() = 'service_role');
+create policy "Users read own crew_change_log" on crew_change_log
+  for select using (user_id = auth.uid());
+
+comment on table crew_change_log is
+  'Append-only history of judgement changes about crew (regular/rehire/archived/notes and per-gig would_rebook/note). Written by trigger, never by a route, so it covers every writer including scripts.';

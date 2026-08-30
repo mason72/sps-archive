@@ -5,6 +5,7 @@ import { formatLastHired } from "@/lib/event-intel/last-hired";
 import { MonthPicker } from "@/components/ui/date-picker";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 import { Segmented } from "@/components/ui/segmented";
+import { CrewHistory } from "@/components/crew/CrewHistory";
 
 /**
  * The roster, editable.
@@ -56,6 +57,9 @@ export function RosterManager() {
   const [band, setBand] = useState<"all" | "regular" | "other" | "archived">("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
+  /** Which person's judgement history is open. Independent of `editing`: you
+   *  read the record to decide, then edit — they are not the same gesture. */
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -393,6 +397,15 @@ export function RosterManager() {
                 {editing !== p.id && (
                   <div className="flex shrink-0 items-center gap-3">
                     <button
+                      onClick={() => setHistoryFor(historyFor === p.id ? null : p.id)}
+                      title="Who changed what about this person, and when"
+                      className={`text-[12px] ${
+                        historyFor === p.id ? "text-stone-800" : "text-stone-400 hover:text-stone-800"
+                      }`}
+                    >
+                      History
+                    </button>
+                    <button
                       onClick={() => setEditing(p.id)}
                       className="text-[12px] text-stone-400 hover:text-stone-800"
                     >
@@ -412,6 +425,13 @@ export function RosterManager() {
                   </div>
                 )}
               </div>
+              {/* Indented to the name, not the checkbox, so the record reads as
+                  belonging to this person rather than to the list. */}
+              {historyFor === p.id && (
+                <div className="ml-9 pb-1">
+                  <CrewHistory crewId={p.id} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

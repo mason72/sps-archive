@@ -78,7 +78,15 @@ async function run(sql: string, token: string): Promise<unknown> {
   }
 }
 
-/** Rough statement split for the plan printout. Comments and $$ bodies stay put. */
+/**
+ * Rough statement split, for the PLAN PRINTOUT ONLY.
+ *
+ * It splits on every `;`, so a `$$ … $$` function body is displayed as several
+ * numbered "statements". That is cosmetic and slightly alarming the first time
+ * you apply a migration containing a trigger function — the apply path below
+ * sends the file as ONE string and never uses this, so the body stays intact.
+ * (Said "comments and $$ bodies stay put" until 2026-08-29; they do not.)
+ */
 function summarize(sql: string): string[] {
   return sql
     .replace(/--[^\n]*/g, "")
@@ -126,6 +134,27 @@ async function main() {
 
   const out = await run(`${DDL_PREAMBLE}\n${sql}`, token);
   console.log("\nApplied.", JSON.stringify(out));
+
+  /**
+   * Only a real migration gets a ledger row.
+   *
+   * This used to record ANY `--file … --apply`, which meant a throwaway
+   * acceptance test run from the scratchpad landed in
+   * `supabase_migrations.schema_migrations` as a migration named
+   * "trigger-test" (2026-08-29, while building 073). A fake row there is worse
+   * than a missing one: the ledger is what the next person reads to decide
+   * what has already been applied, and an entry naming a file that does not
+   * exist in `supabase/migrations/` cannot be checked against anything.
+   *
+   * The path, not the content, is the test — a migration is a file that lives
+   * in the migrations directory.
+   */
+  if (!/(^|\/)supabase\/migrations\//.test(path)) {
+    console.log(
+      "Not under supabase/migrations/ — applied, but NOT recorded in the migration ledger."
+    );
+    return;
+  }
 
   // Keep the migration ledger honest — a file applied but unrecorded is a file
   // the next person applies again. The ledger versions are UTC timestamps, NOT
