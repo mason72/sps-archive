@@ -54,9 +54,23 @@ Built 2026-08-10. Everything here shipped verified; history in `tasks/todo.md`
 ## Automation (src/lib/inngest/ops-functions.ts)
 
 - `usage-anomaly-daily` (8:07am PT + `ops/anomaly.run`): flags yesterday >
-  multiplier × max(user 7-day avg, baseline). Knobs in `ops_config` key
-  "anomaly" (042); baseline seeded $1/day — recalibrate from measured TDP
-  usage after ~a week. All flags in ONE reportSystemError.
+  multiplier × max(user 7-day avg, baseline). All flags in ONE
+  reportSystemError.
+  **The knobs live in the `ops_config` row keyed "anomaly" (042), and that row
+  OVERRIDES `DEFAULTS` in `anomaly.ts` — changing the constant alone ships a
+  commit that changes nothing.** Change both and read the row back.
+  Recalibrated 2026-08-30: baseline $1 → **$5** (threshold floor $10). The $1
+  seed was below normal operating cost, so every real shoot day paged — a $2.34
+  day flagged for being 9x a $0.26 average when it was 18,736 photos honestly
+  indexed. Measured from the whole ledger, the busiest days ever are $2.34,
+  $2.19, $1.74, $1.62, $1.42; $10/day is ~80,000 photos, reachable by a runaway
+  loop and not by shooting. Once a trailing average passes $5 the floor stops
+  binding and the threshold tracks the average, so this needs no further upkeep
+  as volume grows.
+- Checking a threshold change: `npx tsx scripts/triage/anomaly-dry-run.ts` runs
+  the real function against production and prints what it would flag.
+  `scripts/verify-ops-crons.ts` also works but SENDS the weekly pricing email as
+  its proof, so it is the wrong tool for a threshold tweak.
 - `pricing-summary-weekly` (Mon 8:11am PT + `ops/pricing-summary.run`):
   shadow invoice to ADMIN_ALERT_EMAIL; tier fit + margin from
   `PLANS.monthlyPriceUsd` (stripe/config.ts — must match m/pricing page).
