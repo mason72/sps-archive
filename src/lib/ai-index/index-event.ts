@@ -39,10 +39,26 @@ export const AI_INDEX_BATCH = 100;
  * 2026-08-12 (x2), 08-29 and 08-30, each one throwing away a Modal pass that had
  * already been metered.
  *
- * 150 keeps every statement an order of magnitude inside the budget and, unlike
- * a smaller AI_INDEX_BATCH, costs no extra GPU round-trips.
+ * Sized against a MEASURED excursion, not against the warm case. Timed on the
+ * live index (rolled-back transactions), the warm cost is flatly linear at
+ * ~2.1ms/row — 50 rows 107ms, 75 rows 151ms, 100 rows 223ms, 150 rows 360ms.
+ * But the session's FIRST write ran 8,606ms for 150 rows, a ~20x excursion, and
+ * that is the condition production actually fails in: every one of the four
+ * timeouts hit the first batch of the nightly sweep, minutes after the 09:43
+ * reconciler cron, on an index nobody had written to for hours.
+ *
+ * So the warm number is the wrong thing to size on. At 50 rows the same 20x
+ * excursion lands at ~2.1s against the 8s ceiling; at 150 it lands at ~7.2s,
+ * which passes and tells you nothing about the next one. The excursion factor
+ * comes from a single observation and cannot be characterised from that, which
+ * is the argument FOR headroom rather than against it.
+ *
+ * Cost of the smaller chunk is ~20 statements instead of 7 on a 1,000-row batch,
+ * about 2s of extra round-trips inside a job that runs for minutes. Note this is
+ * cheaper than shrinking AI_INDEX_BATCH, which would buy the same safety by
+ * paying Modal for more GPU round-trips.
  */
-const FACE_INSERT_CHUNK = 150;
+const FACE_INSERT_CHUNK = 50;
 
 interface IndexedFace {
   bbox: { x: number; y: number; w: number; h: number };

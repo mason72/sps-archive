@@ -1798,3 +1798,94 @@ ledger**, so a scratch acceptance test run from the scratchpad landed in
 fake ledger row is worse than a missing one — the ledger is what the next person
 reads to decide what has already been applied. Now gated on the path being under
 `supabase/migrations/`.
+
+## 108 — a write whose cost GROWS WITH THE TABLE will eventually miss a fixed deadline, and the retry hides it until it doesn't (2026-08-30)
+
+An overnight alert: `ai-index faces insert: canceling statement due to statement
+timeout (code 57014)`. Reads like data loss. Was not — the event finished
+347/347 with 706 faces, because Inngest's `retries: 2` won.
+
+`indexEventBatch` wrote a whole 100-image batch's faces in one INSERT. That was
+correct when it was written. `faces` carries an HNSW index on the
+binary-quantized embedding (the graph that makes nearest-neighbour search fast),
+so every inserted row has to be woven into that graph — **a per-row cost that
+climbs as the graph grows.** At 173,647 faces / 59 MB it started losing to the
+8s `statement_timeout` PostgREST inherits from `authenticator`.
+
+- **The batch size was fixed; the deadline was fixed; only the cost per row
+  moved.** Nothing in the code changed between working and not working. There is
+  no test that fails, no review that catches it, and no commit to blame — the
+  table simply got bigger. Any statement whose work scales with an index's size
+  is on this clock: bulk inserts into vector/HNSW/GiST indexes, `DELETE … IN
+  (…)` over hot tables, upserts with several indexes to maintain.
+- **The trigger was density, not volume.** Measured before choosing a fix: the
+  archive tops out at **9.7 faces per image** on group-shot galleries, and one
+  frame holds **129 faces**. So a 100-image batch is ~1,000 rows on exactly the
+  galleries Two Dudes shoots most. The average event (2.0 faces/image) never
+  came close, which is why it took months and four occurrences to surface.
+- **The retry was the reason it stayed invisible, and the reason it was
+  expensive.** `recordUsage` fires BEFORE the faces insert, so each timeout
+  billed a Modal GPU pass and then threw it away — `ai_indexed_at` stays NULL, so
+  the whole batch is re-indexed from scratch. Cheap here (~2¢ each). But a batch
+  that reliably lost the race would exhaust `retries: 2`, stay unindexed, and be
+  picked up again by the next nightly sweep — **the same GPU spend every night,
+  forever, behind a self-healing façade.** Same family as the fail-open ingest
+  loop in `workflow.md`: the runaway is one notch past the symptom you can see.
+- **Size the chunk against the EXCURSION, not the warm case — and I nearly
+  shipped 150 because I sized it against the warm case.** Timed on the live index
+  in rolled-back transactions, the warm cost is flatly linear at ~2.1ms/row: 50
+  rows 107ms, 150 rows 360ms. On that evidence 150 is "an order of magnitude
+  inside the budget" and the job is done. But the very first measurement I took —
+  the session's first write — was **8,606ms for 150 rows, a ~20x excursion**, and
+  I nearly discarded it as a bad probe because the seven runs after it were all
+  ~360ms. It was the most important number I had: **every one of the four
+  production timeouts hit the first batch of the nightly sweep**, minutes after
+  the 09:43 reconciler cron, on an index nobody had written to for hours. The
+  outlier was not noise, it was the failure condition reproducing itself in front
+  of me. Under that same 20x, 150 rows lands at ~7.2s — it passes, and tells you
+  nothing about the next one. 50 rows lands at ~2.1s. **A single observation
+  cannot characterise a tail, which is the argument FOR headroom, not against
+  it.**
+- **Fix the statement, not the batch.** Chunking costs ~20 statements instead of
+  7 on a 1,000-row batch — about 2s of extra round-trips in a job that runs for
+  minutes. Shrinking `AI_INDEX_BATCH` would have bought the same safety by paying
+  Modal for more GPU round-trips instead.
+- **Prove a chunk loop covers exactly once.** The real risk of introducing
+  slicing is a dropped or duplicated row, not a slow one. Tested at 0 / 1 /
+  CHUNK-1 / CHUNK / CHUNK+1 / 970 / 3000: every row exactly once, no gaps. Note
+  the loop also replaces an `if (rows.length)` guard for free — at n=0 it runs
+  zero statements.
+- Partial failure stays safe only because of an ordering that was already there:
+  `ai_indexed_at` is written LAST, so a throw mid-chunk leaves the batch
+  unindexed and the retry's `faces delete` wipes whatever landed. Chunking a
+  write that is *not* ordered that way turns one atomic statement into a partial
+  commit.
+
+## 109 — an alarm whose floor sits BELOW normal operating cost is a scheduled false alarm (2026-08-30)
+
+The same morning: `usage.anomaly — 1 account exceeded the daily cost threshold`,
+$2.34 against a $0.26 seven-day average. Nine times baseline reads like a
+runaway. It was 18,736 photos uploaded and indexed across two days, every one of
+them new — checked by joining the indexed rows back to their upload date, so
+"is this re-work?" got an answer instead of a shrug.
+
+- **The threshold floor was $1/day against an archive whose real working days
+  cost $1–2.50.** `multiplier x max(avg, baseline)` with baseline $1 means the
+  alert can fire at $2 — so *every genuine shoot day* pages. The archive idles
+  most days, which drags the trailing average to $0.26 and makes any actual work
+  look anomalous. An alarm calibrated on the quiet days fires on the busy ones.
+- **Set the floor from the measured distribution, not from a round number.** The
+  ledger's busiest days ever: $2.34, $2.19, $1.74, $1.62, $1.42. Baseline $5
+  puts the floor at $10 — about 4x anything that has ever happened, and ~80,000
+  photos in a day, which a runaway loop can reach and shooting cannot. Verified
+  by replaying every day in `usage_events` against the new threshold: all quiet.
+- **The code default was not the live value.** `DEFAULTS` in `anomaly.ts` is
+  overridden by the `ops_config` row keyed `anomaly`, which held
+  `baselineDailyCost: 1`. Editing the constant alone would have shipped a commit,
+  passed review, and changed nothing — the alert would have fired again the next
+  busy day and looked like the fix had failed. **When a config has a DB override,
+  the DB row is the durable record; the constant is the fallback.** Change both,
+  and read the row back.
+- This is `ship-discipline.md`'s "a guard that cries wolf is worse than no guard"
+  in its cheapest form: nothing was broken, no code was wrong, and the only cost
+  of leaving it was that the next real alert would arrive already discounted.
