@@ -44,6 +44,26 @@ pipeline's fatal sin).
 work (catches SPS imports). Backfill/ops: `scripts/backfill-ai-index.ts`
 (~1 img/s, T4 ≈ $0.60/hr; the 19.6k archive cost ~$5).
 
+**Face rows insert 50 at a time (`FACE_INSERT_CHUNK`), and the number is
+measured, not chosen.** `faces` carries an HNSW index on the binary-quantized
+embedding, so every inserted row is woven into that graph at a per-row cost
+that climbs as the graph grows — which means a fixed batch size is on a clock
+even though no code changes. Writing a whole 100-image batch in one statement
+was ~1,000 rows on a group-shot gallery (the archive tops out at 9.7 faces per
+image; one frame holds 129) and PostgREST's 8s `statement_timeout` cancelled it
+four times (57014: 2026-08-12 x2, 08-29, 08-30). Warm cost is linear at
+~2.1ms/row, but the failure condition is COLD — all four hit the first batch of
+the nightly sweep, and one measured cold write ran 20x slow. 50 rows survives
+that excursion with room; 150 only just. Ordering makes a mid-chunk failure
+safe: `ai_indexed_at` is written LAST, so a throw leaves the batch unindexed and
+the retry's `faces delete` wipes what landed. **Never chunk a write here that is
+not ordered that way** — it turns one atomic statement into a partial commit.
+
+`recordUsage` fires BEFORE the faces write, so a failure anywhere after Modal
+bills a GPU pass that is then thrown away and redone. That is correct (the GPU
+time was genuinely spent) but it means a write that reliably fails costs real
+money on every retry and every nightly sweep, not just once.
+
 ## Search
 
 - RPCs (`search_images_by_embedding`, `search_faces_by_embedding`,
