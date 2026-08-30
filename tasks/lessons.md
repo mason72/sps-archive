@@ -1750,11 +1750,15 @@ never held anything internal.
   to info@ (the shared team login), so logging the effective user would answer
   "who did this" with "the account that owns every row". Same reasoning as the
   admin gates in `docs/OPS.md`.
-- **The honest limit, found by verifying rather than by reasoning:** the live
-  test recorded `info@twodudesphoto.com`, because that is the login actually in
-  use. **A shared account means the log can name an account and never a person.**
-  Individual logins are the only thing that changes that, and no amount of
-  schema fixes it.
+- **Verify the same claim in the environment that matters — the local answer was
+  the pessimistic one and it was wrong.** The local session was signed straight
+  into the shared info@ login, so the log recorded `info@` and I told Mason the
+  feature "names an account, never a person". Production is a mason@ session
+  ACTING AS info@, and there the same code records **mason@** — because the stamp
+  is `realUser`. Attribution is as good as the login you are on. One production
+  check separated "this can't name people" from "this names people whenever you
+  are on your own login", which are completely different features. **A limit
+  discovered in dev is a claim about dev until you check prod.**
 
 Two smaller traps, both caught by the acceptance test rather than by review:
 
