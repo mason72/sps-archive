@@ -107,6 +107,45 @@ function Select({
   );
 }
 
+/**
+ * The archive measure, and the card grid — one home each, used by the skeleton,
+ * the pinned row and the main list, which must never disagree about width.
+ *
+ * ── Why 1800 and not 1024 ──
+ *
+ * It was `max-w-5xl` (1024px) while the nav, the greeting and the stats row all
+ * ran to the window edge. On a wide display that read as a broken layout rather
+ * than as a deliberate column — Mason, looking at a 2000px window: "when I
+ * expand the window should we include more columns?" He was right. This is the
+ * one screen that is nothing but photographs, and it was the most constrained
+ * one in the app (/intel already used 1400px, /search 896 — three answers to
+ * one question).
+ *
+ * Left-aligned deliberately: NO `mx-auto`, so the grid keeps the same left edge
+ * as the greeting above it. Centring it would break that line.
+ *
+ * ── Why auto-fill and not a breakpoint list ──
+ *
+ * `sm:grid-cols-2 lg:grid-cols-3` hard-codes an answer that is wrong on the
+ * next monitor and needs a new breakpoint every time one appears. `auto-fill`
+ * with a 300px floor DERIVES the column count from the space available: 1 on a
+ * phone, 3 on a laptop, 5–6 on a wide display, and correct on hardware nobody
+ * has tested it against. The cards stay 300–360px at every size — the point is
+ * more covers on screen, not bigger ones.
+ *
+ * The 1800px ceiling is what stops a 4K display from turning 5 columns into
+ * 900px cards. Raise it and the grid keeps adding columns rather than inflating.
+ */
+const MEASURE = "max-w-[1800px]";
+/**
+ * `min(300px,100%)` and not a bare `300px`: a bare minimum is a HARD floor, so
+ * on a viewport narrower than the floor plus padding the track stays 300px and
+ * the page scrolls sideways — the one thing the layout rules say must never
+ * happen. `min()` lets the single column shrink with the screen instead.
+ */
+const CARD_GRID =
+  "grid gap-6 grid-cols-[repeat(auto-fill,minmax(min(300px,100%),1fr))]";
+
 export function EventList() {
   const [events, setEvents] = useState<Event[]>(lastEvents ?? []);
   const [isLoaded, setIsLoaded] = useState(lastEvents !== null);
@@ -221,7 +260,7 @@ export function EventList() {
   if (!isLoaded) {
     return (
       <div className="px-8 md:px-16 pb-20">
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-5xl">
+        <div className={`${CARD_GRID} ${MEASURE}`}>
           {Array.from({ length: 6 }).map((_, i) => (
             <EventCardSkeleton key={i} />
           ))}
@@ -269,9 +308,9 @@ export function EventList() {
   return (
     <div className="px-8 md:px-16 pb-20">
       {/* ─── Search + filters ─── */}
-      <div className="mb-8 max-w-5xl reveal" style={{ animationDelay: "0.05s" }}>
+      <div className={`mb-8 ${MEASURE} reveal`} style={{ animationDelay: "0.05s" }}>
         {/* Search bar */}
-        <div className="relative mb-4">
+        <div className="relative mb-4 max-w-xl">
           <Search className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-300" />
           <input
             type="text"
@@ -345,7 +384,7 @@ export function EventList() {
 
       {/* ─── Event grid ─── */}
       {filteredEvents.length === 0 && hasFilters ? (
-        <div className="py-16 text-center max-w-5xl">
+        <div className={`py-16 text-center ${MEASURE}`}>
           <p className="font-editorial text-xl text-stone-300 italic mb-2">
             No matching events
           </p>
@@ -373,12 +412,12 @@ export function EventList() {
       ) : (
         <>
           {pinnedEvents.length > 0 && (
-            <div className="mb-10 max-w-5xl">
+            <div className={`mb-10 ${MEASURE}`}>
               <p className="label-caps text-[10px] text-stone-400 mb-4 flex items-center gap-1.5">
                 <Pin className="h-3 w-3" />
                 Pinned
               </p>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className={CARD_GRID}>
                 {pinnedEvents.map((event, i) => (
                   <EventCard
                     key={event.id}
@@ -391,7 +430,7 @@ export function EventList() {
               <div className="h-px bg-stone-100 mt-10" />
             </div>
           )}
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-5xl">
+          <div className={`${CARD_GRID} ${MEASURE}`}>
             {unpinnedEvents.map((event, i) => (
               <EventCard
                 key={event.id}
@@ -406,7 +445,7 @@ export function EventList() {
               archive behind it, "showing 60" with no total reads as "that is
               all there is". */}
           {total !== null && events.length < total && (
-            <div className="max-w-5xl mt-10 flex flex-col items-center gap-3">
+            <div className={`${MEASURE} mt-10 flex flex-col items-center gap-3`}>
               <div className="h-px w-full bg-stone-100" />
               <button
                 onClick={loadMore}
