@@ -4,6 +4,7 @@ import { reportSystemError } from "@/lib/monitoring/report";
 import { cleanRehire } from "@/lib/event-intel/roles";
 import { effectiveLastHired, monthToDate } from "@/lib/event-intel/last-hired";
 import { actorStamp, touchesJudgement } from "@/lib/event-intel/audit";
+import { findRosterContradictions } from "@/lib/event-intel/roster-contradictions";
 
 /**
  * The roster — add, edit, archive.
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     let q = db
       .from("crew")
-      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, archived, notes, is_regular, last_hired_on")
+      .select("id, display_name, full_name, primary_email, aliases, kind, city, region, archived, notes, is_regular, rehire, last_hired_on")
       .eq("user_id", user!.id)
       // Regulars first, then alphabetical. The people Mason works with most
       // should never be scrolled past to reach — and this is the ONE place the
@@ -78,8 +79,7 @@ export async function GET(request: NextRequest) {
       datesByCrew.set(l.crew_id, list);
     }
 
-    return NextResponse.json({
-      crew: (data ?? []).map((c: Record<string, unknown>) => ({
+    const crew = (data ?? []).map((c: Record<string, unknown>) => ({
         ...c,
         eventCount: counts.get(c.id as string) ?? 0,
         /**
@@ -91,9 +91,35 @@ export async function GET(request: NextRequest) {
           c.last_hired_on as string | null,
           datesByCrew.get(c.id as string) ?? []
         ),
-      })),
-      kinds: KINDS,
-    });
+      }));
+
+    /**
+     * Where the roster contradicts its own linked data — a non-regular busier
+     * than every regular, a dormant rating on a regular, an alumnus who is
+     * still working.
+     *
+     * Costs NO extra query: `crew` and `datesByCrew` above are the same two
+     * reads the event counts already needed. Computed here rather than in the
+     * client so the rule has one home and the browser is not handed `rehire`
+     * for 87 people to do arithmetic on.
+     */
+    const contradictions = findRosterContradictions(
+      crew.map((c: Record<string, unknown>) => ({
+        id: c.id as string,
+        display_name: c.display_name as string,
+        is_regular: !!c.is_regular,
+        archived: !!c.archived,
+        rehire: (c.rehire as string | null) ?? null,
+        eventCount: c.eventCount as number,
+        latestEvent:
+          (datesByCrew.get(c.id as string) ?? [])
+            .filter(Boolean)
+            .sort()
+            .pop() ?? null,
+      }))
+    );
+
+    return NextResponse.json({ crew, contradictions, kinds: KINDS });
   } catch (err) {
     await reportSystemError("api.crew.GET", err);
     return NextResponse.json({ error: "Could not load the roster" }, { status: 500 });

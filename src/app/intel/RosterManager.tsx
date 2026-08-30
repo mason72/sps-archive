@@ -41,6 +41,12 @@ interface Person {
   lastHired: string | null;
 }
 
+interface Contradiction {
+  crewId: string;
+  name: string;
+  message: string;
+}
+
 const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
 const FIELD =
   "w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 placeholder:text-stone-300 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/25";
@@ -60,6 +66,12 @@ export function RosterManager() {
   /** Which person's judgement history is open. Independent of `editing`: you
    *  read the record to decide, then edit — they are not the same gesture. */
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  /**
+   * Where the roster contradicts its own linked data. Server-computed (the
+   * crew GET already holds both reads), so this component never decides what
+   * counts as a contradiction — it only renders the sentence.
+   */
+  const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +91,7 @@ export function RosterManager() {
       if (!res.ok) throw new Error((await res.json()).error ?? "Could not load");
       const j = await res.json();
       setPeople(j.crew);
+      setContradictions(j.contradictions ?? []);
       setKinds(j.kinds);
       setError(null);
     } catch (e) {
@@ -87,6 +100,32 @@ export function RosterManager() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  /**
+   * Re-ask the SERVER which rows contradict themselves, after any write.
+   *
+   * The rest of this component is optimistic, and the contradiction lines
+   * deliberately are not. They are derived from the whole roster at once — a
+   * non-regular is only "busier than every regular" relative to everyone else —
+   * so a local guess would need the rule reimplemented here, and then the
+   * banner and the server could disagree about what is wrong.
+   *
+   * Found by QA rather than by design: deleting the person a line named left
+   * the line on screen, still demanding a fix that had already happened. A
+   * stale guard is worse than no guard — it is what teaches you to ignore the
+   * one that is right.
+   */
+  const refreshContradictions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/crew?archived=1`);
+      if (!res.ok) return;
+      setContradictions((await res.json()).contradictions ?? []);
+    } catch {
+      // Silent on purpose: the roster itself already saved. A failed refresh
+      // means a possibly-stale line, not a failed edit, and reporting it as an
+      // error would be a lie about what just happened.
+    }
+  }, []);
 
   /** A face beside every name here too — one batched call for the roster. */
   const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
@@ -142,6 +181,7 @@ export function RosterManager() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+      void refreshContradictions();
     } catch (e) {
       setPeople(before);
       setError(e instanceof Error ? e.message : "Save failed");
@@ -166,6 +206,7 @@ export function RosterManager() {
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
       }
+      void refreshContradictions();
     } catch (e) {
       setPeople(before);
       setError(e instanceof Error ? e.message : "Some rows did not save");
@@ -179,6 +220,7 @@ export function RosterManager() {
     try {
       const res = await fetch(`/api/crew?id=${p.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Could not delete");
+      void refreshContradictions();
     } catch (e) {
       setPeople(before);
       setError(e instanceof Error ? e.message : "Could not delete");
@@ -240,6 +282,34 @@ export function RosterManager() {
           />
         </div>
       </div>
+
+      {/**
+        * Not a dismissible banner. There is nothing to acknowledge — the line
+        * exists because a row disagrees with its own data, and it disappears
+        * the moment that stops being true. A dismiss button would let the one
+        * state worth seeing be hidden permanently by a stray click.
+        *
+        * Amber, not emerald: in this system the accent means STATE (the active
+        * band, the selection rail), and this is a severity notice. Not red
+        * either — nothing is broken, something is mis-filed.
+        */}
+      {contradictions.length > 0 && (
+        <ul className="mt-4 space-y-1.5 border-l-2 border-amber-600/40 pl-3">
+          {contradictions.map((c) => (
+            <li key={`${c.crewId}-${c.message}`} className="text-[13px] leading-snug text-stone-600">
+              {/* One click puts them on screen — finding a name among 87 by
+                  scrolling is how a notice gets ignored. */}
+              <button
+                onClick={() => { setQ(c.name); setBand("all"); }}
+                className="font-medium text-amber-700 underline decoration-amber-700/30 underline-offset-2 hover:decoration-amber-700"
+              >
+                {c.name}
+              </button>{" "}
+              {c.message}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {error && <p className="mt-3 text-[13px] text-red-700">{error}</p>}
 

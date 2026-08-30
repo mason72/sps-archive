@@ -1774,6 +1774,24 @@ Two smaller traps, both caught by the acceptance test rather than by review:
 Harness: `npx tsx scripts/verify-crew-audit.ts` (creates a throwaway person,
 exercises every path, deletes it, asserts the database is unchanged).
 
+**The guard built the same day, and two things it taught:**
+
+- **A derived warning must refresh on every write that could RESOLVE it.** The
+  first version computed contradictions server-side and stored them in client
+  state that only `load()` ever set — so deleting the flagged person left the
+  line on screen, still demanding a fix that had already happened. A stale guard
+  is worse than no guard: it is exactly what teaches you to ignore the one that
+  is right. Every mutation now re-asks the server. The alternative — recomputing
+  in the client — would have put the rule in two places, and "busier than every
+  regular" is relative to the whole roster, so the two copies would drift.
+- **Read the DOM before declaring a UI bug from a screenshot.** Twice I called a
+  regression from a browser screenshot that turned out to lag the rendered DOM by
+  a beat; `document.body.innerText.includes(…)` disagreed both times. The FIRST
+  report was real (there was genuinely no refresh yet) and the next two were my
+  own stale frames, which is the worse failure — it nearly sent me rewriting a
+  fix that already worked. Screenshots are for showing a human; assertions go
+  against the DOM.
+
 Separately: **`db-sql.ts --file … --apply` recorded ANY file in the migration
 ledger**, so a scratch acceptance test run from the scratchpad landed in
 `supabase_migrations.schema_migrations` as a migration named "trigger-test". A
