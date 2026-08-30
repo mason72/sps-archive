@@ -27,6 +27,23 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
 /** Modal endpoint caps at 100 images per call. */
 export const AI_INDEX_BATCH = 100;
 
+/**
+ * Rows per `faces` INSERT statement.
+ *
+ * `faces` carries an HNSW index on the binary-quantized embedding, so every
+ * inserted row has to be woven into that graph — a cost per row that climbs as
+ * the graph grows (173,647 faces / 59 MB at the time of writing). A whole batch
+ * in one statement is ~1,000 rows on a group-shot gallery (measured: 9.7 faces
+ * per image at the top of the archive, 129 faces on a single frame), and
+ * PostgREST's 8s statement_timeout cancelled exactly that four times — 57014 on
+ * 2026-08-12 (x2), 08-29 and 08-30, each one throwing away a Modal pass that had
+ * already been metered.
+ *
+ * 150 keeps every statement an order of magnitude inside the budget and, unlike
+ * a smaller AI_INDEX_BATCH, costs no extra GPU round-trips.
+ */
+const FACE_INSERT_CHUNK = 150;
+
 interface IndexedFace {
   bbox: { x: number; y: number; w: number; h: number };
   embedding: number[] | null;
@@ -203,8 +220,13 @@ export async function indexEventBatch(
       }))
     );
     faceCount = faceRows.length;
-    if (faceRows.length) {
-      const { error: insErr } = await supabase.from("faces").insert(faceRows);
+    // Chunked per FACE_INSERT_CHUNK. Partial failure stays safe: ai_indexed_at
+    // is written last, so a throw part-way leaves the batch unindexed and the
+    // retry's `faces delete` above wipes whatever did land.
+    for (let i = 0; i < faceRows.length; i += FACE_INSERT_CHUNK) {
+      const { error: insErr } = await supabase
+        .from("faces")
+        .insert(faceRows.slice(i, i + FACE_INSERT_CHUNK));
       if (insErr) throw dbFail("faces insert", insErr);
     }
   }

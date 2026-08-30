@@ -22,7 +22,23 @@ interface AnomalyConfig {
   multiplier: number;
 }
 
-const DEFAULTS: AnomalyConfig = { baselineDailyCost: 1.0, multiplier: 2 };
+/**
+ * baselineDailyCost is a FLOOR on the threshold, so the alert can never fire
+ * below multiplier x baseline — $10/day here.
+ *
+ * Raised from $1 to $5 on 2026-08-30, after a $2.34 day paged for being 9x a
+ * $0.26 trailing average. It was honest work: 18,736 photos uploaded and
+ * indexed, no re-indexing. The archive idles most days, so a $1 floor made
+ * every real shoot day a page, and an alert that fires on a busy Tuesday is one
+ * you learn to ignore before the day it is right.
+ *
+ * Measured against the whole ledger: the busiest days on record are $2.34,
+ * $2.19, $1.74, $1.62, $1.42. Nothing has ever reached $5, and $10 is ~80,000
+ * photos in a day — reachable by a runaway loop, not by shooting. Once the
+ * trailing average passes $5 the floor stops binding and the threshold tracks
+ * the average again, so this needs no upkeep as volume grows.
+ */
+const DEFAULTS: AnomalyConfig = { baselineDailyCost: 5.0, multiplier: 2 };
 
 export interface AnomalyFlag {
   userId: string;
