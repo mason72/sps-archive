@@ -811,6 +811,47 @@ is this bug: TDP Website's 88 are publication to several scenes, and four
 events never reached 1,000 rows. Each needs its own diagnosis before
 `px-dedupe-event.ts` is pointed at it.
 
+## Gated collections need their PASSWORD, not Mason's session — 2026-08-29
+
+Mason: *"Can't you look up the event passwords — isn't that what you need?"*
+Yes. `dashboard_listings` returns `password` as PLAINTEXT; 282 across 1,762
+collections. The gallery host reads that API cross-origin with credentials, so
+the in-page driver arms itself and the values never touch disk or a transcript.
+Full detail in memory `pixieset-gallery-passwords`.
+
+Driver v7 unlocks instead of skipping. The gate form is PARSED from the response
+rather than hard-coded, because `/guestlogin/` redirects straight through while
+the owner session is alive and cannot be inspected up front. **Untested as of
+2026-08-29** for that same reason; it fails safe.
+
+### What the day actually measured, including a fix that did nothing
+
+* **The concurrency change delivered NOTHING.** Every completed pass, before and
+  after, sits at 0.37–0.64 photos/s. In isolation 4 concurrent 2 MB uploads do
+  run 2.00x faster, so parallelism works at the R2 layer — but the real ingest
+  did not move, and effective throughput is 2.5 MB/s on a 238 Mbps link. The
+  serialising factor is still unidentified. The commit message says "expected
+  3-4x"; that expectation was WRONG and is corrected here.
+* **`unzip -p` is not O(n^2).** Flat 9–20ms at 1%, 25%, 50%, 75%, 99% through a
+  1,174-entry archive. That was the first hypothesis and it was cheap to kill.
+* **Per-photo cost is network, not CPU:** upload 601ms (47%), thumbnails 480ms
+  (38%), one Supabase round trip 170ms (13%), unzip 23ms (2%). ~6 sequential
+  round trips per photo. **This is why a slow pass looks identical to a hung one
+  — the CPU reads 0% either way**, and it is why a healthy import got killed
+  earlier that day.
+
+### The autopilot is blocked by Cloudflare, and must not be worked around
+
+`download-pass.mjs` preflight PASSES (front door HTTP 200, no challenge) but the
+**collection page challenges the Playwright browser**, with a fresh profile, on
+the same machine where Mason's own Chrome gets a clean 200 at the same moment.
+Two attempts, then stopped — per the script's own instruction and the standing
+rule. No UA spoofing, no stealth plugins, no solvers.
+
+Likely contributor: two full 74-page admin sweeps plus dozens of collection
+probes in one session, which is exactly the shape lesson 104 warns about. Retry
+ONCE after a quiet period before concluding the approach is dead.
+
 ## The migration is a SERVICE now — 2026-08-16
 
 It runs as two launchd agents, `com.twodudes.pixieset.watch` and
