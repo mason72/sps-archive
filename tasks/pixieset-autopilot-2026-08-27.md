@@ -180,6 +180,53 @@ into the Playwright profile. It would probably work and it is the wrong shape �
 borrowed credential that expires silently and turns a clear failure into a mysterious
 one (repo lesson 103: a copied credential is not an inherited policy).
 
+### 3e. What the real browser proved, 2026-08-29 evening
+
+Driven through Mason's own Chrome via the extension, using real navigations and a
+real form submission, the ENTIRE flow works and was **never challenged once**:
+
+```
+gallery → auth gate (fill email, click Next) → /download/sets/
+  → tick "All photos" (3) · size = High Resolution · Save to My Device
+  → START DOWNLOAD → "WE ARE PREPARING YOUR PHOTOS"
+  → "YOUR PHOTOS ARE READY TO DOWNLOAD" → purestoragebodgroupportrait-…-1of1.zip (2.7 MB)
+```
+
+Three things worth keeping.
+
+**1. GENERATION and RETRIEVAL are separable, and generation is the expensive half.**
+Getting through Cloudflare, the email gate and archive generation is what is hard;
+the ZIP link then lives for 7 days. So a failed retrieval loses nothing — the
+driver's `preferExisting` branch exists precisely to collect it later. Anything
+that can generate is worth running even if it cannot download.
+
+**2. The Chrome extension's tab group CANNOT download files.** Three methods —
+`a.click()` from injected script, `location.assign(href)`, and a real extension
+click at coordinates — all produced **zero** rows in Chrome's `downloads` table.
+The page was healthy throughout (link present, no dialog, no error). So the
+extension path can drive everything up to "ready" and then stops. Do not read a
+missing file as a Pixieset failure; check `History.downloads` before diagnosing.
+
+**3. Playwright profile taint is PROGRESSIVE, and a tainted profile gives
+misleading readings.** Measured the same evening:
+
+| profile | navigation | in-page fetch |
+|---|---|---|
+| fresh | **200, no challenge** | challenged |
+| tainted (one prior challenged run) | **403 challenged** | — |
+
+So a run on a tainted profile reports `CHALLENGED-ON-NAVIGATION` and would wrongly
+retire the navigation hypothesis. **Rotate `profile-chrome` before any diagnostic
+run**; it is gitignored and disposable, and stale taint is now a known source of
+false conclusions. `nav-probe.mjs` remains untested on a clean profile — that is
+still the open experiment.
+
+**Also confirmed: neither download-size radio is pre-selected** on the set picker.
+`Download[download_size]` is `1` = High Resolution, `2` = Web Size, and a
+submission that does not set it explicitly takes whatever the server defaults to.
+That is a live fidelity hazard sitting in the form, and it is a plausible origin
+for genuinely web-size archives in the pre-2024 set.
+
 ## 4. The 5 "Web Size" failures — it is neither of the two options in the brief
 
 The brief asked whether the fix is a per-collection or a plan-level Pixieset setting.
