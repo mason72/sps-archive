@@ -105,6 +105,41 @@ remaining source of failure and should be treated as unproven.
 
 ---
 
+### 3c. CORRECTION 2026-08-29 — the §3b fix is CORRECT. The failure was Cloudflare.
+
+§3b closed by calling the auth fix "written but never completed a run … the most
+likely remaining source of failure, treat as unproven." It has now completed a
+run, and it works. Replayed verbatim against the live form from a browser the
+host trusts, `authenticate()` returns:
+
+```
+postStatus 200 · redirected · → /download/sets/{slug}/?filekey=…
+"Choose Photos … All photos … 3 photos"
+```
+
+The live form is `DownloadLoginForm[email]` + submit `yt0` = "Next", **no hidden
+fields**, action identical to the page URL — exactly what the fix builds.
+
+**The real bug was that a challenge could arrive on any request and be reported
+as a parse failure.** `preflight()` checks once; a run then makes a dozen more
+requests per collection. A challenged fetch returns Cloudflare's HTML, so
+`authenticate()` finds no form, returns the un-POSTed page — whose path is
+`/download/auth/` — and the caller reports `unexpected path /download/auth/`,
+which reads precisely like a rejected email gate. Two sessions chased an auth bug
+that never existed.
+
+Fixed in `driver.js`: `GET`/`POST` now flag a challenged response, and the gallery
+and auth steps stop with a message naming the real remedy — stop and back off, do
+not retry — because that is the opposite of what a code-level error invites you to
+do. Detector validated on 7 synthetic cases plus all three real live pages, so it
+cannot false-positive and halt a healthy run.
+
+**Also settled: the Cloudflare block is scoped to the Playwright PROFILE, not the
+IP.** Moving `profile-chrome` aside turned a hard 403 into `preflight ok — HTTP
+200, no challenge` on the same machine, minutes apart. The profile is gitignored
+and disposable; treat a persistent block there as a reason to rotate it, not as
+evidence the host has blacklisted the machine.
+
 ## 4. The 5 "Web Size" failures — it is neither of the two options in the brief
 
 The brief asked whether the fix is a per-collection or a plan-level Pixieset setting.

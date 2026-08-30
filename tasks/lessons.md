@@ -1684,6 +1684,22 @@ cost a request against an origin I had just been warned off.
   diagnostic probe is attempt three. The host cannot see my intent, and lesson
   105's own text says so.
 
-Net: the block cleared and is provably profile-scoped, and the real remaining
-bug is that the 2026-08-28 driver auth fix does NOT work. Both were learned. The
-second cost a re-block that a single `writeFile` in attempt 2 would have avoided.
+Net: the block cleared and is provably profile-scoped. **CORRECTION, same day:
+the second conclusion — "the 2026-08-28 driver auth fix does NOT work" — was
+WRONG**, and wrong in a way this lesson predicts. Replaying `authenticate()`
+verbatim against the live form in a trusted browser POSTs the gate and lands on
+`/download/sets/` with the set picker. The code was always right.
+
+What I had actually seen was a Cloudflare challenge wearing an auth error's
+clothes: a challenged fetch returns Cloudflare's HTML, `authenticate()` finds no
+form, returns the un-POSTed page whose path is `/download/auth/`, and the caller
+reports `unexpected path /download/auth/`. **Two sessions and two separate
+engineers' diagnoses went into an auth bug that did not exist**, because the
+transport had no notion of being challenged mid-run — `preflight()` checks once
+and then a dozen unguarded requests follow.
+
+That is the sharper form of this lesson: **an error message names the layer that
+NOTICED the failure, never necessarily the layer that caused it.** When a fix
+"doesn't work" on the first live run after an infrastructure problem, suspect the
+infrastructure again before rewriting the fix. Both of us reached for the code
+because the code was the thing we had just changed.
