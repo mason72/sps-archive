@@ -140,6 +140,46 @@ IP.** Moving `profile-chrome` aside turned a hard 403 into `preflight ok — HTT
 and disposable; treat a persistent block there as a reason to rotate it, not as
 evidence the host has blacklisted the machine.
 
+### 3d. THE ROOT CAUSE, measured 2026-08-29: navigations pass, in-page fetches are challenged
+
+With a fresh profile, a 7-hour cool-off, and the new transport-level detector, one
+run produced the decisive pair of lines **five seconds apart, same browser, same
+profile, same origin**:
+
+```
+preflight ok — twodudesphoto.pixieset.com reachable (HTTP 200, no challenge)   ← page.goto()
+✗ CHALLENGED at the gallery page — Cloudflare served a challenge (phase gallery) ← in-page fetch()
+```
+
+**Cloudflare passes the top-level navigation and challenges the XHR.** That single
+fact explains every confusing observation in this file:
+
+- `preflight()` always looks healthy — it is a navigation, the one request shape
+  that is never challenged. It has been reporting on a channel the run does not use.
+- The driver dies immediately afterwards, because `driveOne()` does *everything*
+  through `fetch()` from inside the page.
+- It looked like an auth bug for two sessions (see §3c).
+- Mason's own Chrome sails through: that profile has earned a clearance cookie
+  through ordinary browsing, so its XHRs inherit it. The in-tab driver downloaded
+  30+ collections on 2026-08-28/29 without one challenge.
+
+**The fix is architectural, and it is the opposite of evasion.** The driver takes a
+scripted XHR shortcut through a flow that is designed to be clicked. Driving it with
+real navigations and real form submission — `page.goto()`, fill the email field,
+`page.click()` the submit button, follow the resulting pages — is *more* faithful to
+the sanctioned flow, not less. No UA spoofing, no stealth plugin, no TLS mimicry, no
+solver: the same rule in the header still stands. We simply stop asking the origin to
+treat a scripted `fetch` as a browsing session, because it reasonably will not.
+
+Cost: `driver.js` becomes Playwright-driven rather than page-injected, so it can no
+longer be pasted into a console tab. That is worth weighing — the console-paste form
+is exactly what has been doing the real work all week.
+
+**Not attempted, deliberately:** copying the clearance cookie out of Mason's Chrome
+into the Playwright profile. It would probably work and it is the wrong shape — a
+borrowed credential that expires silently and turns a clear failure into a mysterious
+one (repo lesson 103: a copied credential is not an inherited policy).
+
 ## 4. The 5 "Web Size" failures — it is neither of the two options in the brief
 
 The brief asked whether the fix is a per-collection or a plan-level Pixieset setting.
