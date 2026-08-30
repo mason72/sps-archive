@@ -37,6 +37,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 - **Palette:** Tailwind stone (stone-900 primary, white surfaces, emerald accent)
 - **Components:** Button variants (primary, secondary, ghost, danger), BrandButton (animated), lucide-react icons
 - **Layout:** CSS columns masonry, `cn()` utility (clsx + tailwind-merge)
+- **Card grids AUTO-FILL, they do not list breakpoints** (`CARD_GRID` in `EventList.tsx`): `repeat(auto-fill,minmax(min(300px,100%),1fr))`, so the column count is derived from the space available — 1 on a phone, 3 on a laptop, 5 at 2298px — and is right on hardware nobody has tested. Two traps, both measured rather than reasoned: **`auto-fit` is wrong here** because it collapses empty tracks, which stretches a 3-card pinned row to ~600px cards and breaks its alignment with the grid below; and **a bare `minmax(300px,…)` is a HARD floor** that lays out a 300px card inside a 256px container (escapes by 44px, scrolls the page sideways) — `min(300px,100%)` is what lets the last column shrink. The archive measure is `MEASURE` = 1800px, left-aligned with NO `mx-auto` so the grid shares the greeting's left edge. Width is for more cards, not bigger ones — the search **input** stays `max-w-xl` because it is the one control that gets worse with width. (`/intel` is 1400px and `/search` 896px; there is no app-wide measure, so match the page's content, not a global number.)
 
 ## Development
 
