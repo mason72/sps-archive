@@ -811,6 +811,49 @@ is this bug: TDP Website's 88 are publication to several scenes, and four
 events never reached 1,000 rows. Each needs its own diagnosis before
 `px-dedupe-event.ts` is pointed at it.
 
+## Dropbox is NOT a complete backup, and the order is now newest-first — 2026-08-30
+
+**The plan's "2024+ is Dropbox-backed, therefore safe" premise is false for a
+third of them.** `scripts/triage/dropbox-coverage.ts` matched all 513 queued
+2024+ collections against the real `_ARCHIVE` folders: **341 covered, 172 with
+NO Dropbox folder — 140,329 photos.** Mason, same day, gave both causes: *"I've
+been trying to cut down my Dropbox files so I may have deleted some"* and *"some
+of the event photos were never archived on Dropbox."*
+
+So **the at-risk set is not just the 857 pre-2024 collections** — it is those
+plus ~172 from 2024+. Never deprioritise by year; check coverage. Full detail in
+memory `dropbox-not-a-complete-backup`.
+
+### Order is NEWEST FIRST now (Mason, 2026-08-30)
+
+*"Just work your way back chronologically. The more recent projects are the
+things more likely to have clients asking after."* Business value, not archival
+risk: a 2026 client asking for their gallery is a live problem; a 2014 one is
+not. This REPLACES the oldest-first rule everywhere in this doc.
+
+### The local Dropbox path is dead — measured
+
+Materialising files through the macOS file provider: **one 7.9 MB file took 56s
+cold; five files / 37 MB took 1,406s warm — 0.21 Mbps, slower warm than cold.**
+At that rate 926,429 photos is decades. Do not retry this path. The Dropbox
+*website* (their CDN, server-side folder zip) is a different mechanism and is
+untested — the mini's Chrome was not signed in.
+
+### Releasing an archive now actually frees space
+
+Time Machine's hourly local APFS snapshots pinned deleted blocks, so releasing a
+9 GB archive moved `df` by zero. `ingest-loop.sh` now thins local snapshots when
+free space is within 40 GB of the floor. Measured: 86 GB → 103 GB, 24 snapshots
+cleared. External TM backups untouched — they remain the safety net for
+`.env.local`, keychain and staging.
+
+### Still blocked, still not to be worked around
+
+The autopilot was retried after **19 hours of zero activity**: preflight passes,
+the collection page still challenges the Playwright browser. **Not rate-based** —
+that theory is now disproven. Mason's own Chrome gets a clean 200 in the same
+minute.
+
 ## Gated collections need their PASSWORD, not Mason's session — 2026-08-29
 
 Mason: *"Can't you look up the event passwords — isn't that what you need?"*

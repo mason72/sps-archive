@@ -4,7 +4,15 @@
 now. Read `CLAUDE.md` first for the invariants; this is the orientation: what
 Pixeltrunk is, what is in flight, and what the next session should pick up.
 
-Last substantive update: **2026-08-15**.
+Last substantive update: **2026-08-30**.
+
+> **Pixieset migration, current truth (2026-08-30).** 79 of 1,371 ingested.
+> Downloads run as in-page JS in Mason's real Chrome — the nightly autopilot is
+> written but **Cloudflare-blocked at the collection page** and must not be
+> worked around. Order is **NEWEST FIRST** (recent clients ask for galleries).
+> **Do not assume 2024+ is safe because Dropbox has it** — 172 of 513 have no
+> Dropbox folder. The local Dropbox file provider is dead (0.21 Mbps, measured).
+> Ingest/watcher/stall-check run as launchd agents and are healthy.
 
 ---
 

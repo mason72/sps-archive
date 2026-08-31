@@ -1903,3 +1903,48 @@ them new — checked by joining the indexed rows back to their upload date, so
 - This is `ship-discipline.md`'s "a guard that cries wolf is worse than no guard"
   in its cheapest form: nothing was broken, no code was wrong, and the only cost
   of leaving it was that the next real alert would arrive already discounted.
+
+## 105 — "It's backed up elsewhere" is a CLAIM about a record that changes (2026-08-30)
+
+The migration plan classified 514 collections as safe because they were 2024+ and
+therefore in Dropbox `_ARCHIVE`. That classification was made 2026-08-11 from one
+directory listing and never rechecked. On 2026-08-30 I was one message away from
+recommending Mason deprioritise all of them — and he said, unprompted, *"I've
+been trying to cut down my Dropbox files so I may have deleted some of the events
+on here"*, then *"some of the event photos were never archived on Dropbox."*
+
+Measured immediately after: **172 of 513 have no Dropbox folder at all —
+140,329 photos**, including 2,627- and 4,129-photo corporate jobs. A third of the
+"safe" set was not safe, from two different causes: deletion *and* never having
+been archived.
+
+- **A backup is a claim about a durable record, and durable records change.** The
+  earlier check was correct when it ran; treating it as permanent is the error.
+  Same family as "a doc is a claim ABOUT the config, never the config" (lesson 87)
+  — this is that rule applied to someone else's storage instead of a file on disk.
+- **Re-verify a safety claim before ACTING on it, especially to do less work.**
+  The direction matters: this claim was about to justify *not* rescuing 926,429
+  photos. A claim that licenses inaction deserves more scrutiny than one that
+  licenses effort, because nothing downstream will ever catch it.
+- **The owner volunteered the disconfirming fact.** He knew he had been deleting;
+  the plan did not. When a classification depends on human behaviour outside the
+  system, ask the human rather than re-reading the filesystem.
+- **Make the checker conservative on purpose.** `dropbox-coverage.ts` matches by
+  date ±1 day then name prefix, and reports anything uncertain as UNCOVERED. The
+  asymmetry is deliberate: a false "at risk" costs one extra download, a false
+  "safe" costs the photographs.
+
+## 106 — Never edit a shell script while it is running (2026-08-30)
+
+I started `repo-sweep.sh`, then patched it with a Python rewrite while it was
+still executing. It died with `syntax error near unexpected token '}'` at line 55.
+Nothing was wrong with the file — `bash -n` passed on it immediately afterwards.
+
+**Bash reads a script incrementally from a file offset as it executes.** Rewriting
+the file underneath a running instance leaves that offset pointing into the middle
+of different text, so it resumes mid-token. The error names a line that was never
+wrong, which is what makes it confusing.
+
+Write to a temp file and move it into place, or wait for the run to finish. And
+when a script that just passed `bash -n` reports a syntax error at runtime, check
+whether anything rewrote it mid-run before believing the error.
