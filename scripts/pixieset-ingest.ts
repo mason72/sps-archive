@@ -146,9 +146,27 @@ async function listEntries(zipPath: string): Promise<string[]> {
   return stdout.split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !l.endsWith("/"));
 }
 
+/**
+ * `unzip` reads its file arguments as GLOB PATTERNS, not literal names.
+ *
+ * A photograph called `..._163[R].jpg` — Two Dudes' suffix for a retouched
+ * frame — is therefore read as a character class matching `..._163R.jpg`, which
+ * does not exist, and unzip answers `caution: filename not matched` for a file
+ * that is plainly inside the archive. On 2026-08-31 that failed every frame of
+ * `costargroupjuliaandtom`, tripped the loop's 3-strikes guard, and left the
+ * whole ingest stuck for 17 hours on one collection.
+ *
+ * Escaping the metacharacters is the fix: `[`, `]`, `*`, `?` and `\` all have
+ * meaning to unzip's matcher and none to a filename. Same family as the
+ * standing rule that a filename is DATA, never a word list or a pattern.
+ */
+function escapeZipGlob(entry: string): string {
+  return entry.replace(/([\\[\]*?])/g, "\\$1");
+}
+
 /** One entry's bytes, straight out of the archive — never extracted to disk. */
 async function readEntry(zipPath: string, entry: string): Promise<Buffer> {
-  const { stdout } = await run("unzip", ["-p", zipPath, entry], {
+  const { stdout } = await run("unzip", ["-p", zipPath, escapeZipGlob(entry)], {
     maxBuffer: 512 * 1024 * 1024,
     encoding: "buffer",
   } as never);
