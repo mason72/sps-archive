@@ -81,6 +81,31 @@ while :; do
     echo "--- after thinning: $(df -g / | awk 'NR==2{print $4}')GB free ---"
   fi
 
+  # A `verified` collection whose ZIPs are not staged yet is a REAL, nameable
+  # state — not wording drift — and it has one cause: the watcher records the
+  # state and moves the bytes as separate steps, so a sweep running alongside
+  # this loop can have marked a collection `verified` while its archive is
+  # still in ~/Downloads awaiting CRC. (The mini's own cross-volume EXDEV bug
+  # produced the same shape.) The ingest prints "no staged ZIPs for <slug>" and
+  # exits without ingesting anything.
+  #
+  # Left unnamed on 2026-08-31 this fell into the UNRECOGNIZED branch below and
+  # span 77 passes in 45 seconds. It gets its own guard so the operator is told
+  # WHICH collection is stalled and why, rather than reading a generic warning.
+  # The ingest always takes the OLDEST verified collection, so it cannot skip
+  # past this one — idling and retrying is the only correct move.
+  if echo "$out" | grep -qiE "no staged ZIPs"; then
+    consecutive=0
+    if [ "$FOREVER" -eq 1 ]; then
+      echo "--- oldest verified collection has no staged archive yet; idling ${IDLE_SLEEP}s ---"
+      sleep "$IDLE_SLEEP"
+      continue
+    fi
+    echo "=== stopping: oldest verified collection has no staged archive."
+    echo "===   Is a watcher sweep still running? Let it finish, then re-run. ==="
+    break
+  fi
+
   # A partial ingest is NORMAL, not fatal. R2 uploads fail transiently (TLS
   # "bad record mac" ran at ~3% on 2026-08-16 and cleared entirely on retry).
   # The ingest already does the safe thing — keeps the archive, leaves the
@@ -114,12 +139,24 @@ while :; do
     # so loudly, so the next drift costs 5 minutes of latency and not 34 hours
     # of pinned CPU. A real ingest always prints "archive KEPT"/"N failed", so
     # this branch cannot slow a draining queue.
+    #
+    # ⚠️ PLAIN MODE MUST STOP HERE — it must not fall through to `done`.
+    # Until 2026-08-31 the fail-closed idle below lived ONLY under `--forever`,
+    # so a plain run that hit unrecognized output dropped out of this `if` with
+    # no sleep and no break and respawned `npx tsx` as fast as it could exit:
+    # 77 passes in 45 seconds. That is the 2026-08-18 busy loop returning
+    # through a different door, which is the whole lesson — fixing one instance
+    # of a failure mode does not retire the failure mode. The invariant, written
+    # as code rather than as a comment: EVERY branch of this loop either sleeps
+    # or breaks. There is no path that reaches `done` immediately.
     consecutive=0
     if [ "$FOREVER" -eq 1 ]; then
       echo "--- UNRECOGNIZED ingest output; idling ${IDLE_SLEEP}s (output above) ---"
       sleep "$IDLE_SLEEP"
       continue
     fi
+    echo "=== stopping: UNRECOGNIZED ingest output (above) · $(date '+%H:%M:%S') ==="
+    break
   fi
 done
 
