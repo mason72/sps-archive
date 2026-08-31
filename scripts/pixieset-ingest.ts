@@ -156,17 +156,56 @@ async function listEntries(zipPath: string): Promise<string[]> {
  * `costargroupjuliaandtom`, tripped the loop's 3-strikes guard, and left the
  * whole ingest stuck for 17 hours on one collection.
  *
- * Escaping the metacharacters is the fix: `[`, `]`, `*`, `?` and `\` all have
+ * Escaping the metacharacters is the fix: `[`, `]`, `*` and `\` all have
  * meaning to unzip's matcher and none to a filename. Same family as the
  * standing rule that a filename is DATA, never a word list or a pattern.
+ *
+ * ⚠️ `?` is DELIBERATELY NOT ESCAPED, and that asymmetry is load-bearing.
+ * `unzip -Z1` renders bytes it cannot decode as a literal `?`, so a name holding
+ * any non-ASCII character comes back with `?` STANDING IN for those bytes —
+ * `ArmandoNájera` lists as `ArmandoNa??jera`, `JamesO’Dwyer` as `JamesO???Dwyer`
+ * (2 bytes for á, 3 for the curly apostrophe). Escaping those into literal `?`
+ * matches nothing, because no entry contains a real question mark. Left as a
+ * wildcard, `?` matches the actual byte and the read succeeds.
+ *
+ * Found 2026-08-31: 32 frames of `kinexionslasvegas` failed every pass this way.
+ * Because the failure is DETERMINISTIC, the loop's 3-strikes guard would have
+ * halted the queue on it — the same shape as the `[R]` bug above, one escape
+ * character later. The cost of leaving `?` open is ambiguity, so `readEntry`
+ * proves the pattern resolves to exactly one entry before reading it.
  */
 function escapeZipGlob(entry: string): string {
-  return entry.replace(/([\\[\]*?])/g, "\\$1");
+  return entry.replace(/([\\[\]*])/g, "\\$1");
 }
 
 /** One entry's bytes, straight out of the archive — never extracted to disk. */
 async function readEntry(zipPath: string, entry: string): Promise<Buffer> {
-  const { stdout } = await run("unzip", ["-p", zipPath, escapeZipGlob(entry)], {
+  const pattern = escapeZipGlob(entry);
+
+  /**
+   * A `?` left open (see escapeZipGlob) is a WILDCARD, so it can match more than
+   * one entry — and `unzip -p` streams every match back to back with nothing to
+   * separate them. That would hand a silently CONCATENATED buffer to the importer,
+   * which is far worse than the failure it replaces: the row would be created, the
+   * upload would succeed, and one photograph would be quietly wrong forever.
+   *
+   * So prove uniqueness before reading. Only names carrying `?` pay for the extra
+   * listing (32 of 3,275 frames in the collection that surfaced this).
+   */
+  if (pattern.includes("?")) {
+    const { stdout: listed } = await run("unzip", ["-Z1", zipPath, pattern], {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const hits = listed.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (hits.length !== 1) {
+      throw new Error(
+        `"${entry}" matches ${hits.length} entries in ${path.basename(zipPath)} — ` +
+          `refusing an ambiguous read rather than concatenating them`,
+      );
+    }
+  }
+
+  const { stdout } = await run("unzip", ["-p", zipPath, pattern], {
     maxBuffer: 512 * 1024 * 1024,
     encoding: "buffer",
   } as never);
