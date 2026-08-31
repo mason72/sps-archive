@@ -1948,3 +1948,130 @@ wrong, which is what makes it confusing.
 Write to a temp file and move it into place, or wait for the run to finish. And
 when a script that just passed `bash -n` reports a syntax error at runtime, check
 whether anything rewrote it mid-run before believing the error.
+
+## 110 — A fail-closed guard that covers ONE mode is still fail-open (2026-08-31)
+
+`ingest-loop.sh` respawned `npx tsx` **77 times in 45 seconds** on the work laptop.
+This is lesson-shaped déjà vu: the 2026-08-18 incident was the same busy loop, and
+the fix that incident produced is sitting in this very function, correct, with an
+excellent comment — covering only `--forever`.
+
+```
+    consecutive=0
+    if [ "$FOREVER" -eq 1 ]; then
+      echo "--- UNRECOGNIZED ingest output; idling ..."
+      sleep "$IDLE_SLEEP"; continue
+    fi
+  fi            # <-- plain mode falls through to `done`: no sleep, no break
+```
+
+The comment above it says *"Fail CLOSED instead: idle, and say so loudly."* The code
+does that in one of two modes. **Fixing one instance of a failure mode does not
+retire the failure mode** — and the second instance arrives through whichever door
+the first fix did not cover.
+
+- **The invariant must be code, not prose.** "Every branch either sleeps or breaks"
+  is checkable; a paragraph explaining why is not. There is now an explicit `break`
+  on the plain-mode path, so no branch reaches `done` immediately.
+- **The trigger was a REAL, nameable state that no guard named.** The ingest printed
+  `no staged ZIPs for <slug> in <staging>`, which matched neither the "nothing
+  staged" guard nor the "archive KEPT/N failed" guard. It now has its own branch that
+  says WHICH collection stalled and why. A condition you can name should never be
+  left to the wording-drift catch-all.
+- **Negative-test the fix against the pre-fix build, and assert on a COUNT.** My first
+  attempt asserted on a `killed.flag` written by a watchdog subshell, and lost a race
+  with my own cleanup — it printed "did NOT spin" next to *378 passes*. The honest
+  assertion was the pass count all along: pre-fix **289 passes** vs post-fix **1**, same
+  input, same watchdog. A test whose verdict disagrees with its own evidence is a
+  broken test, not a passing one.
+
+**And the operator error that triggered it:** I started the ingest loop alongside the
+watcher sweep, reasoning they were built to coexist. The queue lock genuinely is built
+for that. But `watch.mjs` says outright that *"a collection can be `verified` or
+`ingested` while its ZIPs are still in ~/Downloads"* — the watcher records state and
+moves bytes as separate steps. A collection already `verified` from the other machine
+was selected as oldest-verified while its archive was still being CRC'd. **Two
+components being safe to run concurrently at the LOCK level says nothing about their
+DATA preconditions.** Let the sweep finish, then ingest.
+
+## 111 — Idempotency BY NAME makes a half-written row permanent (2026-08-31)
+
+`ingest-loop.sh` says the ingest is "safe to kill and restart at any moment: the
+ingest is idempotent by (event, original_filename)". That is true of the ARCHIVE
+and false of the ROW, and the gap is what stalls the queue.
+
+I killed the loop mid-pass to investigate something else. Two photographs of
+`fmglobal-june-headshots` were left with their **bytes uploaded to R2** (HEAD
+confirms both, sizes matching `file_size` exactly) and a row inserted, but
+`width`, `height` and `thumb_bytes` still NULL and `processing_status` still
+`pending`. No error was recorded anywhere, because nothing failed — the process
+simply stopped between the two writes.
+
+**Then idempotency guaranteed they could never heal.** The next pass computes its
+`todo` as "filenames not already present for this event", sees both names present,
+and imports 0. `verifyLanded` still counts 453 thumbnails against 455 images, so
+it correctly refuses to release the archive — and the loop books a partial. That
+repeats identically forever: 3 consecutive partials and the whole queue halts on
+one collection, with 18 others staged behind it.
+
+- **A resumability claim must name WHICH artifact it protects.** "Idempotent by
+  name" protects against duplicate photos. It actively works against repairing a
+  partially written one, because presence — not completeness — is the key.
+- **The healthy shape is idempotency by COMPLETENESS**: treat a row that is
+  present but unfinished (`thumb_bytes IS NULL`, `width IS NULL`,
+  `processing_status = 'pending'` past its grace window) as absent, and re-import
+  it. That is exactly what `countPendingUploads()` already does for the upload
+  path with `PENDING_UPLOAD_STALE_MINUTES`; the Pixieset ingest has no equivalent.
+- **The fix that unblocked it** was to delete the two ghost rows and let the
+  idempotent path re-create them — safe because the archive is KEPT on a partial,
+  so the source bytes still existed. Verify R2 presence and re-read the exact
+  target set immediately before deleting, and refuse the delete if the set is not
+  the expected ghost shape (`width IS NULL AND thumb_bytes IS NULL`, small count).
+- **Related, and the reason this was found at all:** `verifyLanded` gating the
+  archive release on thumbnails is a genuinely good guard. It turned silent
+  corruption into a loud, blocking partial. The bug was never the guard.
+
+## 112 — The ingest can hang forever AFTER a successful upload (2026-08-31)
+
+Twice in one batch (`googleclouddais2026`, `ebayheadshots-3`) the ingest stopped
+dead mid-collection and stayed that way. Signature, identical both times:
+
+* the process alive at **0.0% CPU**, 35 minutes and 14 minutes elapsed;
+* the DB row count **completely flat** — zero new rows;
+* a handful of rows (2, then 5) **half-written**: inserted, `file_size` set,
+  `width`/`height`/`thumb_bytes` still NULL;
+* every one of those photos' bytes **already in R2, at exactly the right size**;
+* in the second case all 5 stuck rows were created **in the same second**, so the
+  whole worker pool blocked together rather than one bad photo blocking one worker.
+
+So the main `PutObject` succeeded and the hang is downstream of it — sharp's
+decode or the thumbnail upload. **Nothing on that path has a timeout**, so a
+stalled socket or a wedged decode parks a worker permanently, and once every
+worker is parked the collection never finishes and never errors.
+
+- **It is indistinguishable from "slow" by watching the process.** The ingest's
+  own comment says a pass "took ~3.3s per photo and the CPU sat at 0% the whole
+  time — which is also why a slow pass LOOKS like a hung one." That is true, and
+  it means CPU and elapsed time are both useless as the signal. **The only honest
+  probe is whether the DURABLE RECORD is still moving**: query the row count
+  twice, a few seconds apart.
+- **Distinguish in-flight from stuck by IDENTITY, not by count.** A healthy import
+  always shows some half-written rows — that is the window between the insert and
+  the metadata update. Counting them tells you nothing. Snapshot the row IDs twice:
+  if the same IDs persist with none completing and none starting, it is stuck; if
+  they churn, it is working. Getting this wrong deletes live rows out from under a
+  running import.
+- **Recovery is the lesson-111 procedure**: kill, delete the half-written rows
+  (guarded on the ghost shape), restart. Idempotency then re-imports exactly the
+  missing photos — AP-style collections resumed and completed on the next pass
+  every time. The orphaned R2 objects from the abandoned attempt are a small leak,
+  not a correctness problem.
+- **What would actually fix it:** a timeout on the thumbnail generation and its
+  upload, so a wedged worker fails its photo loudly instead of parking forever.
+  A failed photo is already handled well — the archive is KEPT and the next pass
+  fills the gap. The bug is that this failure mode never reaches that machinery.
+- **Frequency, measured, not guessed:** 2 hangs across 19 collections at
+  `PIXIESET_CONCURRENCY=8`. Whether the default of 4 avoids it is UNTESTED — there
+  is no hang at 4 to compare against, only the absence of prior reports, and
+  `ebayheadshots-3` (1,991 photos) hung while much larger collections did not, so
+  size is not the driver either.
