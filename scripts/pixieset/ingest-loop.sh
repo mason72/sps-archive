@@ -62,6 +62,25 @@ while :; do
     break
   fi
 
+  # RELEASING AN ARCHIVE DOES NOT FREE THE SPACE. Time Machine's hourly local
+  # APFS snapshots pin the deleted blocks, so `df` does not move and the pipeline
+  # creeps toward its 60 GB floor while appearing to clean up after itself.
+  # Measured 2026-08-30: thinning took 86 GB -> 103 GB with 24 snapshots cleared.
+  #
+  # This thins LOCAL snapshots only. The external Time Machine backups are
+  # untouched — those are the real safety net for the things not in GitHub or R2
+  # (.env.local, keychain, staging mid-migration), and they stay.
+  #
+  # Only runs when headroom is actually tight, so a healthy disk is left alone
+  # and Mason keeps his recent local restore points.
+  free_gb=$(df -g / | awk 'NR==2{print $4}')
+  floor=${PIXIESET_MIN_FREE_GB:-60}
+  if [ "${free_gb:-999}" -lt $((floor + 40)) ]; then
+    echo "--- ${free_gb}GB free (floor ${floor}) — thinning local TM snapshots ---"
+    tmutil thinlocalsnapshots / 53687091200 4 >/dev/null 2>&1
+    echo "--- after thinning: $(df -g / | awk 'NR==2{print $4}')GB free ---"
+  fi
+
   # A partial ingest is NORMAL, not fatal. R2 uploads fail transiently (TLS
   # "bad record mac" ran at ~3% on 2026-08-16 and cleared entirely on retry).
   # The ingest already does the safe thing — keeps the archive, leaves the
