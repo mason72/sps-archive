@@ -17,6 +17,7 @@ async function refresh() {
   $("done").textContent = `${s.done} / ${s.total}`;
   $("remaining").textContent = s.remaining;
   $("gated").textContent = s.gated;
+  $("gone").textContent = s.gone ?? 0;
   $("pw").textContent = s.passwords || "none";
   $("last").textContent = ago(s.lastTickAt);
   $("fill").style.width = s.total ? `${(100 * s.done) / s.total}%` : "0";

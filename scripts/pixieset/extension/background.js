@@ -32,6 +32,8 @@ const DEFAULTS = {
   results: [],         // last 40, for the popup
   log: [],             // last 60 scrubbed lines
   cursor: 0,
+  attempts: {},        // slug -> consecutive failures, so a bad one cannot livelock
+  gone: [],            // 404/410 — deleted on Pixieset since the inventory sweep
   challenges: 0,
   gapMinutes: 20,
   email: "mason72@gmail.com",
@@ -146,14 +148,39 @@ async function tick() {
 
   if (r.ok && r.zips?.length) {
     await downloadAll(r.zips);
+    if (s2.attempts) delete s2.attempts[slug];   // a win resets the count
     s2.done.push(slug);
     s2.results.push({ slug, expect: r.expect, sizes: r.zips.map((z) => z.size).join("+"), unlocked: r.unlocked, at: new Date().toISOString() });
     if (s2.results.length > 40) s2.results.shift();
     note(s2, `${slug}: requested ${r.zips.length} zip(s) · ${r.zips.map((z) => z.size).join("+")}${r.unlocked ? " (unlocked)" : ""}`);
   } else {
-    // A failure leaves it QUEUED, not done: transient errors deserve a retry,
-    // and the collection stays at the head so it cannot be silently skipped.
-    note(s2, `${slug}: ${r.error ?? "failed"}`);
+    /**
+     * A failure leaves the collection QUEUED so a transient R2 or network error
+     * gets retried rather than silently skipped — but "retry at the head of the
+     * queue" livelocks on a PERMANENT failure. apannualconferenceblue answers
+     * HTTP 404 (deleted on Pixieset since the 2026-08-14 inventory sweep) and
+     * the first build retried it every 20 minutes forever, never reaching #3.
+     *
+     * So: 404/410 is gone, full stop — retiring it immediately. Anything else
+     * gets three attempts, because that is enough for a blip and few enough to
+     * keep the queue moving. Every giving-up path RECORDS why; a collection must
+     * never leave the queue silently.
+     */
+    s2.attempts = s2.attempts || {};
+    const n = (s2.attempts[slug] || 0) + 1;
+    s2.attempts[slug] = n;
+
+    const permanent = r.httpStatus === 404 || r.httpStatus === 410;
+    if (permanent) {
+      if (!s2.gone.includes(slug)) s2.gone.push(slug);
+      s2.done.push(slug);
+      note(s2, `${slug}: HTTP ${r.httpStatus} — gone from Pixieset, retired`);
+    } else if (n >= 3) {
+      s2.done.push(slug);
+      note(s2, `${slug}: failed ${n}x (${r.error ?? "unknown"}) — giving up, moving on`);
+    } else {
+      note(s2, `${slug}: ${r.error ?? "failed"} (attempt ${n}/3, will retry)`);
+    }
   }
   await save(s2);
 }
@@ -169,7 +196,7 @@ chrome.runtime.onMessage.addListener((msg, _s, respond) => {
         respond({
           running: s.running, total: s.jobs.length, done: s.done.length,
           remaining: s.jobs.filter((j) => !s.done.includes(j)).length,
-          gated: s.gated.length, noDownload: s.noDownload.length,
+          gated: s.gated.length, noDownload: s.noDownload.length, gone: (s.gone || []).length,
           passwords: Object.keys(s.passwords).length,
           gapMinutes: s.gapMinutes, lastTickAt: s.lastTickAt,
           stoppedReason: s.stoppedReason, results: s.results.slice(-5), log: s.log.slice(-12),

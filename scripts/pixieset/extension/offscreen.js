@@ -140,6 +140,8 @@ async function driveOne(slug, password, opts) {
       }
     }
 
+    // Carry the status out so the scheduler can tell "gone" from "hiccup".
+    out.httpStatus = g.status;
     if (g.status !== 200) { out.error = `HTTP ${g.status}`; return out; }
 
     // A challenge must STOP the run, never be worked around.
