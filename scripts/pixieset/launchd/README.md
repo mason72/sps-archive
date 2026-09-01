@@ -1,4 +1,24 @@
-# The migration runs as four launchd agents
+# The migration runs as launchd agents — but NOT the download one, on the mini
+
+> ⚠️ **Status on `Masons-Mac-mini`, verified 2026-09-01: only THREE agents are
+> installed — watch, ingest, stallcheck.** `com.twodudes.pixieset.download` has
+> never been bootstrapped here and `~/pixieset-staging/logs/download.log` has
+> never been written. The plist below is ready to install; it is not running.
+>
+> **Why it is not armed here: Cloudflare challenges it on this machine.** Three
+> attempts (2026-08-30 01:00, 2026-08-30 20:24, 2026-09-01 03:14), fresh profile,
+> `headless: false`, `channel: "chrome"`, and 19 hours of total quiet between the
+> second and third. The first two were challenged at the COLLECTION page after a
+> clean preflight; the third was challenged at the front door. Mason's own Chrome
+> gets HTTP 200 on the same URL in the same minute. So the axis is not only
+> headed-vs-headless — something distinguishes the Playwright browser here, and
+> **the answer is never to defeat it.**
+>
+> Downloads on the mini therefore run as in-page JS in Mason's real Chrome (the
+> `PX` driver, `driver.js`), which is a TAB, not a service — it has died five
+> times and must be restarted by hand. That fragility is the open problem; a
+> Chrome extension is the untried candidate fix.
+
 
 Set up 2026-08-16, after the pipeline stopped **three times in one day** and each
 time it was Mason who noticed, not the tooling:
