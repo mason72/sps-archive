@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pixieset Migration</title>
+<style>
+  :root { --stone-900:#1C1917; --stone-700:#44403C; --stone-500:#78716C; --stone-200:#E7E5E4; --stone-50:#FAFAF9; --emerald:#10B981; }
+  * { box-sizing: border-box; }
+  body { width: 340px; margin: 0; padding: 14px 16px 16px;
+         font: 13px/1.45 Inter, "SF Pro Text", ui-sans-serif, system-ui, sans-serif;
+         color: var(--stone-900); background: #fff; }
+  h1 { font: 600 15px/1.2 "Playfair Display", Didot, Georgia, serif; margin: 0 0 2px; letter-spacing: .1px; }
+  .sub { color: var(--stone-500); font-size: 11px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--stone-200); }
+  .row:last-of-type { border-bottom: 0; }
+  .k { color: var(--stone-500); }
+  .v { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .bar { height: 4px; background: var(--stone-200); border-radius: 2px; margin: 10px 0 12px; overflow: hidden; }
+  .fill { height: 100%; background: var(--emerald); width: 0; transition: width .3s; }
+  .state { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500;
+           background: var(--stone-200); color: var(--stone-700); }
+  .state.on { background: var(--emerald); color: #fff; }
+  button { font: inherit; padding: 6px 11px; border-radius: 6px; border: 1px solid var(--stone-200);
+           background: var(--stone-50); color: var(--stone-900); cursor: pointer; }
+  button:hover { border-color: var(--stone-500); }
+  button.primary { background: var(--stone-900); color: #fff; border-color: var(--stone-900); }
+  .actions { display: flex; gap: 6px; margin: 12px 0 10px; }
+  pre { background: var(--stone-50); border: 1px solid var(--stone-200); border-radius: 6px;
+        padding: 7px 8px; margin: 0; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--stone-700); max-height: 132px; overflow: auto; white-space: pre-wrap; }
+  .why { color: var(--stone-500); font-size: 11px; margin-top: 9px; }
+</style>
+<h1>Pixieset Migration</h1>
+<div class="sub">Requests one collection at a time. Survives a closed tab.</div>
+
+<div class="row"><span class="k">Status</span><span class="v"><span id="state" class="state">—</span></span></div>
+<div class="bar"><div id="fill" class="fill"></div></div>
+<div class="row"><span class="k">Done</span><span class="v" id="done">—</span></div>
+<div class="row"><span class="k">Remaining</span><span class="v" id="remaining">—</span></div>
+<div class="row"><span class="k">Gated (deferred)</span><span class="v" id="gated">—</span></div>
+<div class="row"><span class="k">Passwords armed</span><span class="v" id="pw">—</span></div>
+<div class="row"><span class="k">Last activity</span><span class="v" id="last">—</span></div>
+
+<div class="actions">
+  <button id="start" class="primary">Start</button>
+  <button id="stop">Stop</button>
+  <button id="arm">Arm passwords</button>
+</div>
+
+<pre id="log">loading…</pre>
+<div class="why" id="why"></div>
+<script src="popup.js"></script>
