@@ -2075,3 +2075,78 @@ worker is parked the collection never finishes and never errors.
   is no hang at 4 to compare against, only the absence of prior reports, and
   `ebayheadshots-3` (1,991 photos) hung while much larger collections did not, so
   size is not the driver either.
+
+## 113 — Five confident diagnoses died against measurement; the durable record killed all of them (2026-09-01)
+
+Mason forwarded two `face-cluster … statement timeout (57014)` alerts and asked
+"this expected?" One failing event had 2,410 images, the other **38**. A 38-image
+event cannot time out on its own size, so the cost had to scale with something
+else. Finding out which took five hypotheses, and **every single one was wrong**:
+
+1. *"The faces load joins through `images`, so it scans archive-wide."*
+   `EXPLAIN ANALYZE`: **0.653 ms**, index scan on `idx_images_event_id`, nested
+   loop into `idx_faces_image_id`. A textbook plan.
+2. *"`ORDER BY id LIMIT 1000` with a selective filter makes the planner walk the
+   whole PK"* — the classic trap, and it would have been WORSE for small events,
+   fitting the evidence perfectly. It wasn't happening.
+3. *"An unindexed FK forces a full scan per person delete."* The FK was real and
+   genuinely unindexed (`person_identity_suggestions.matched_person_id`, the only
+   one of 7 without an index) — but that table is **396 rows / 376 kB**, and
+   there were **zero** memberless persons to prune. A true finding that explained
+   nothing.
+4. *"Clustering re-writes faces that already have the right person."* No:
+   `candidates = faces.filter(f => !f.personId)`. Already incremental.
+5. *"HNSW makes the write path expensive."* True, and I measured it — 61.9 ms to
+   rewrite 38 faces vs 0.66 ms to read them, ~94x. But 62 ms of work is not an
+   8-second timeout, so it still did not explain the failure.
+
+**`pg_stat_statements` answered in one query what five hypotheses could not:**
+
+    INSERT INTO faces (…embedding…)   mean 490ms   max 8,574ms   1,955 calls
+    SELECT faces for one event        mean 838ms   max 7,633ms     498 calls
+    UPDATE faces.person_id            mean  15ms   max 2,157ms  20,025 calls
+
+The read I had benchmarked at **0.66 ms** averages **838 ms in production** —
+I was optimistic by ~1000x. The bulk migration inserts faces continuously into a
+72 MB HNSW index, so *every* statement touching `faces` is slow. Clustering was
+the victim, not the cause.
+
+- **A local benchmark measures an idle database, which is the one state that
+  never matters.** `EXPLAIN ANALYZE` at a quiet moment is a lower bound, not a
+  prediction. When a thing fails intermittently under load, the question is not
+  "how fast is this query" but "how fast was it *when it failed*" — and
+  `pg_stat_statements` records exactly that. **Reach for it FIRST**, before
+  reading code, before EXPLAIN. It cost one query and would have skipped all five
+  dead ends.
+- **An alert names the victim, not the cause.** Face clustering did nothing
+  wrong; it was the statement unlucky enough to be running when the table was
+  saturated. Before fixing the thing that is failing, check whether it is merely
+  the smallest thing sharing a resource with the real load.
+- **A true finding that explains nothing is still a distraction.** The missing FK
+  index (#3) was a genuine defect and I nearly stopped there, because "found a
+  missing index" *feels* like a diagnosis. Confirm the finding accounts for the
+  MAGNITUDE observed — 396 rows cannot produce 8 seconds — before believing it.
+  Fixed it anyway as migration 075, and said plainly it was not the cause.
+- **A web timeout applied to batch work manufactures false failures.** PostgREST
+  switches roles per request but `service_role` had NO rolconfig, so background
+  Inngest jobs silently inherited `authenticator`'s 8s — a budget sized for a
+  page load. Migration 074 gives it 15s; `anon` (3s) and `authenticated` (8s) are
+  untouched, so guests keep the tighter cap.
+- **`ALTER ROLE … SET` binds at LOGIN, and PostgREST logs in as `authenticator`
+  then switches role — so the setting is not self-evidently in force.** Reading
+  `pg_db_role_setting` only proves the row exists. Verified through the real
+  client instead (`scripts/triage/timeout-probe.ts`): service_role 15s, anon 3s.
+  PostgREST does apply them; that was a fact to establish, not assume.
+- **Two probes lied in the same session, both by returning a clean-looking
+  answer.** `activity_log` has no search/selfie action at all, so
+  `action ilike '%selfie%'` returned **0** — which reads exactly like "nobody uses
+  selfie search" and nearly justified dropping the HNSW index on live galleries.
+  Enumerating the real `action` values took one query. Then a hand-rolled JSON
+  parser printed "**0 FKs, 0 unindexed**" for a query that returns 7 rows. Same
+  rule twice: **a zero from a filter you guessed at is a broken probe until the
+  vocabulary is confirmed.**
+- **What was NOT done, and why:** dropping the HNSW index during bulk load is the
+  real speed lever (it rebuilds in ~21s) but degrades guest selfie search on live
+  galleries, and search is not instrumented, so the blast radius is unmeasurable.
+  Offered as an option, not taken. **If these alerts return at 15s, the answer is
+  not another raise** — it is the HNSW write cost itself.

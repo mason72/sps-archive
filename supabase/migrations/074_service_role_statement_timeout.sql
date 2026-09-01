@@ -1,0 +1,39 @@
+-- 074 — give service_role its own statement budget (15s, up from the inherited 8s).
+--
+-- WHY. PostgREST connects as `authenticator` and switches role per request.
+-- `service_role` carried NO rolconfig of its own, so it inherited
+-- authenticator's `statement_timeout=8s` — a budget sized for a web request,
+-- applied to background Inngest work that is nothing of the sort.
+--
+-- The face-clustering lane started tripping it during the Pixieset migration
+-- (3 failures in 36h on 2026-08-31/09-01, one of them on a 38-image event).
+-- Measured cause, from pg_stat_statements rather than a local benchmark:
+--
+--     INSERT INTO faces (…embedding…)   mean 490ms   max 8,574ms   1,955 calls
+--     SELECT faces for one event        mean 838ms   max 7,633ms     498 calls
+--     UPDATE faces.person_id            mean  15ms   max 2,157ms  20,025 calls
+--
+-- `faces` carries a 72 MB HNSW index over binary_quantize(embedding). Every
+-- insert is woven into that graph, so a bulk migration makes EVERY statement
+-- touching the table slow. Clustering is the victim, not the cause — it is
+-- already incremental (it writes only faces with no person_id) and had no
+-- redundant work to remove. Nothing was lost: the nightly sweep re-clusters
+-- whatever failed. The cost was alert noise, which is how a real failure gets
+-- ignored.
+--
+-- 15s is ~2x the worst statement observed above. Deliberately NOT higher: the
+-- API routes hold the service client too (getAuthUser returns it), so this
+-- ceiling applies to some request paths, not only to jobs.
+--
+-- NOT TOUCHED, on purpose — guests keep the tighter budget:
+--     anon           3s
+--     authenticated  8s
+--     authenticator  8s statement, 8s lock
+--
+-- This does not make anything faster. It stops normal slowness being reported
+-- as failure. If these alerts return at 15s, the answer is not another raise —
+-- it is the HNSW write cost itself (drop-and-rebuild during bulk load, or
+-- pausing face indexing). Revisit `pg_stat_statements` before changing this.
+--
+-- Reverse with:  ALTER ROLE service_role RESET statement_timeout;
+ALTER ROLE service_role SET statement_timeout = '15s';
