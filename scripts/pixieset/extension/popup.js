@@ -21,7 +21,13 @@ async function refresh() {
   $("pw").textContent = s.passwords || "none";
   $("last").textContent = ago(s.lastTickAt);
   $("fill").style.width = s.total ? `${(100 * s.done) / s.total}%` : "0";
-  $("log").textContent = (s.log || []).join("\n") || "no activity yet";
+  // Newest last, and pinned to the bottom. A status panel that shows you the
+  // OLDEST lines makes you scroll to find out what is happening now, which is
+  // the one question it exists to answer.
+  const box = $("log");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = (s.log || []).join("\n") || "no activity yet";
+  if (atBottom) box.scrollTop = box.scrollHeight;   // don't yank it if you scrolled up
   // Say WHY it stopped — a silent stop is the failure this whole thing exists to fix.
   $("why").textContent = !s.running && s.stoppedReason ? `Stopped: ${s.stoppedReason}` :
     s.running ? `One collection every ${s.gapMinutes} min.` : "";
