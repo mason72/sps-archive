@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.twodudes.pixieset.diskguard</string>
+  <!-- Deliberately a SEPARATE agent from stallcheck. stallcheck runs `npx tsx`,
+       which needs to write to ~/.npm/_cacache — so on 2026-09-02 it died with
+       ENOSPC every hour and never reported the full disk that was killing it.
+       A monitor must not share fate with what it monitors. This one is /bin/bash
+       plus df, awk and curl: nothing that needs free disk to run. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>scripts/pixieset/disk-guard.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/masonfoster/pixieset-staging/logs/disk-guard.log</string>
+  <key>StandardErrorPath</key><string>/Users/masonfoster/pixieset-staging/logs/disk-guard.log</string>
+</dict>
+</plist>
