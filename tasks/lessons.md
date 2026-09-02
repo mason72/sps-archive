@@ -2284,3 +2284,25 @@ duplicate would have carried none of his history, ratings or face.
 - **One roster copy per page.** The face tag on the import grid kept its own
   module cache of `/api/crew`; it now reads the shared registry. Two caches
   of one list is how a person added in one control is missing from the next.
+
+## 117 — A dedupe that never asks "is there anything to dedupe?" collapses to one (2026-09-02)
+
+Mason chose Mosaic on Core SJC and got a single photo beside the logo. Rows,
+source, logo — nothing on the panel moved it. `dedupeStackLeads` grouped by
+person stack unconditionally, and `buildStacks` groups by whatever a filename
+parses to: every file of the booth export parses to "Google Booth", so 287
+photos were one group and the mosaic drew one lead. Camera-named events
+("IMG_…" all key to "img") and the dozens of archive events sitting at 80%+
+under one bogus label ("2Dudes WF", "MBA", "Bay, Alarm") had been collapsing
+the same way, unnoticed.
+- **A grouping step needs the same gate as the feature that shows groups.**
+  The grids asked `detectStackable` before stacking; the cover, the crossfade
+  and the gallery's single-person title did not. Three surfaces reading one
+  grouping function with only one of them gated is how the same bug ships
+  three times.
+- **A "single stack covering everything" is two different facts**: one
+  person's sitting, or a set with no people in its names at all. Only the
+  stackability verdict tells them apart; the group count never can.
+- **The tell was on the panel**: a control that changes nothing (rows, source)
+  means the input to the layout is degenerate, not the layout. Check the pool
+  size before the geometry.
