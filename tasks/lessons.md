@@ -2306,3 +2306,24 @@ the same way, unnoticed.
 - **The tell was on the panel**: a control that changes nothing (rows, source)
   means the input to the layout is degenerate, not the layout. Check the pool
   size before the geometry.
+
+## 118 — The obvious discriminator was wrong, and only the measurement said so (2026-09-02)
+
+"Don't let 'Google Booth' be a person." The rule that fixes it is a per-event
+share test: a name covering ≥50% of an event with ≥100 photos labels the
+event. Measured before choosing, every one of the 56 archive pairs it catches
+is a label — but two of them, "Haley Neil" and "Mason, Tang", READ like
+people, and my first instinct was to rescue them with faces: a real sitting
+is one face, a booth is hundreds. The face data killed that in one query:
+their events hold 271 and 39 clusters (couples' and party names), and on
+genuine label events a photographer or host makes the top cluster large
+anyway ("2Dudes LIB": one cluster with 78% of the labelled frames).
+- **Measure the discriminator against the real candidates before building
+  on it.** A signal that is right in the abstract can be wrong on this data
+  in both directions; one SQL join settled it for the cost of a minute.
+- **A name that reads like a person is not evidence of a person.** The
+  two "people" the share rule would have dropped were labels too.
+- **Per event, not global.** "Grace" labels a school day and is a real Grace
+  elsewhere; a dominant name loses only the event it dominates.
+- Pre-existing and left alone: single-word people ("Nachi", 48 frames) have
+  never been on /people — the two-word rule, not this change.

@@ -14,6 +14,7 @@
  */
 
 import type { createServiceClient } from "@/lib/supabase/server";
+import { eventLabelKeys } from "./event-labels";
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
@@ -472,8 +473,9 @@ export async function buildPeopleIndex(
   // threshold, and a venue can't sneak in unless it also appears as a
   // plausible human name elsewhere.
   const parsedByRow = new Map<string, { name: string; key: string }>();
-  const vouched = new Set<string>();
+  const totalByEvent = new Map<string, number>();
   for (const row of rows) {
+    totalByEvent.set(row.event_id, (totalByEvent.get(row.event_id) ?? 0) + 1);
     const name = personNameFromParts(row.parsed_name, row.original_filename)?.trim();
     if (!name) continue;
     // Fold aliases HERE, where the key is minted — everything downstream
@@ -481,6 +483,31 @@ export async function buildPeopleIndex(
     const key = aliases.resolve(normalizeNameKey(name));
     if (!key) continue;
     parsedByRow.set(row.id, { name, key });
+  }
+
+  // A name that labels an EVENT is not a person in that event, however
+  // person-shaped it reads. "Google Booth" was 287 of 287 on Core SJC and
+  // passed `looksLikePersonName` (2026-09-02: Mason — "don't let 'Google
+  // Booth' be a person"); 56 such (event, name) pairs across the archive,
+  // every one a label. Judged per event, and removed HERE, before vouching,
+  // so a label row can neither mint an identity nor count toward one, nor
+  // reach face membership. See event-labels.ts for the measurement.
+  const labelsByEvent = eventLabelKeys(
+    rows.flatMap((row) => {
+      const p = parsedByRow.get(row.id);
+      return p ? [{ eventId: row.event_id, key: p.key }] : [];
+    }),
+    totalByEvent
+  );
+  if (labelsByEvent.size > 0) {
+    for (const row of rows) {
+      const p = parsedByRow.get(row.id);
+      if (p && labelsByEvent.get(row.event_id)?.has(p.key)) parsedByRow.delete(row.id);
+    }
+  }
+
+  const vouched = new Set<string>();
+  for (const { name, key } of parsedByRow.values()) {
     // An excluded key never gets vouched, so it cannot become an identity —
     // cheaper and more total than filtering the finished list, and it keeps the
     // exclusion out of every downstream count as well as the display.
