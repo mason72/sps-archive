@@ -14,6 +14,7 @@
  * twice. `userId` is not optional and is never taken from the request body.
  */
 import { parseVenue, venueKey, type ParsedVenue } from "./parse-calendar";
+import { crewNameKey } from "./crew-name-key";
 import { cleanConfirmedRoles, cleanRehire, cleanRoles } from "./roles";
 
 /** The service client, which has no useful public type here. */
@@ -219,8 +220,32 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
       else allowed = new Set((mine ?? []).map((c: { id: string }) => c.id));
     }
 
+    /**
+     * A typed name that already belongs to someone on the roster IS that
+     * person, not a second row. The confirm card offers the match before
+     * anything is typed to completion; this is the backstop for any caller
+     * that sends a bare name anyway (found 2026-09-02: "michael" typed on the
+     * Core SJC import would have minted a duplicate with none of his history).
+     */
+    let rosterByName: { id: string; display_name: string }[] = [];
+    if (asked.some((c) => !c.crewId && c.newPerson?.name?.trim())) {
+      const { data: rows, error: rnErr } = await db
+        .from("crew").select("id, display_name").eq("user_id", userId);
+      if (rnErr) warnings.push(`roster names: ${rnErr.message}`);
+      else rosterByName = (rows ?? []) as { id: string; display_name: string }[];
+    }
+
     for (const person of asked) {
       let crewId = person.crewId ?? null;
+
+      if (!crewId && person.newPerson?.name?.trim()) {
+        const wanted = crewNameKey(person.newPerson.name);
+        const hit = rosterByName.find((r) => crewNameKey(r.display_name) === wanted);
+        if (hit) {
+          crewId = hit.id;
+          allowed.add(crewId);
+        }
+      }
 
       /**
        * A temp gets created here, at the moment the event is.

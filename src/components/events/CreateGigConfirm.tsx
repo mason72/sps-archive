@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
+import { crew as crewRegistry, useRegistry, type KnownCrew } from "@/components/intel/registry-cache";
 
 /**
  * Looking a gig up while you name the event — and confirming it before the
@@ -107,6 +108,19 @@ interface TempPerson {
   /** Local only — a temp has no server id until the event is created. */
   localId: string;
   name: string;
+}
+
+/**
+ * A roster member the calendar never invited, added by hand. Unlike a temp
+ * they already have an id and a history, so they ride the payload as an
+ * existing crew link — never as a `newPerson`.
+ */
+interface ExtraPerson {
+  crewId: string;
+  name: string;
+  isRegular: boolean;
+  kind: string | null;
+  lastHired: string | null;
 }
 
 /** Per-person state on the card. `discipline` may be a guess; `lead` never is. */
@@ -270,7 +284,11 @@ export function GigConfirmCard({
    * not leave a person behind on the roster.
    */
   const [temps, setTemps] = useState<TempPerson[]>([]);
+  /** Roster members added by hand — see ExtraPerson. */
+  const [extras, setExtras] = useState<ExtraPerson[]>([]);
   const [addingTemp, setAddingTemp] = useState(false);
+  /** The roster, for the adder's suggestions. Shared with every picker on the page. */
+  const roster = useRegistry(crewRegistry);
   /**
    * The names NEW orgs will be created under, editable on the card. Seeded
    * from the server's derivation (never the raw domain) in the same effect
@@ -286,7 +304,7 @@ export function GigConfirmCard({
    */
   const [avatars, setAvatars] = useState<Record<string, CrewAvatarFace | null>>({});
   useEffect(() => {
-    const ids = gig.crew.map((c) => c.crewId);
+    const ids = [...gig.crew.map((c) => c.crewId), ...extras.map((e) => e.crewId)];
     if (!ids.length) return;
     let live = true;
     fetch(`/api/crew/avatars?ids=${ids.join(",")}`)
@@ -294,7 +312,7 @@ export function GigConfirmCard({
       .then((j) => { if (live) setAvatars(j.avatars ?? {}); })
       .catch(() => {});
     return () => { live = false; };
-  }, [gig]);
+  }, [gig, extras]);
 
   /**
    * Seed once per gig — everyone on, discipline read from what they DO.
@@ -335,14 +353,17 @@ export function GigConfirmCard({
         };
       }
       if (sameGig) {
+        // Anyone added by hand — a temp or a roster member the calendar never
+        // invited — keeps their clicks too.
         for (const [k, v] of Object.entries(prev)) {
-          if (k.startsWith("temp:")) seed[k] = v;
+          if (!(k in seed)) seed[k] = v;
         }
       }
       return seed;
     });
     if (!sameGig) {
       setTemps([]);
+      setExtras([]);
       setAddingTemp(false);
     }
     setOrgNames((prev) => {
@@ -376,6 +397,18 @@ export function GigConfirmCard({
         };
       });
 
+    // A roster member added by hand is an ordinary existing link.
+    for (const e of extras) {
+      const p = picks[e.crewId];
+      if (!p?.on) continue;
+      crew.push({
+        crewId: e.crewId,
+        ...rolesFor(p),
+        rehire: p.rehire,
+        note: p.note.trim() || null,
+      });
+    }
+
     // Temps ride the SAME list — the server resolves "create then link" so no
     // caller has to match up a parallel array of new people to their roles.
     for (const t of temps) {
@@ -404,7 +437,7 @@ export function GigConfirmCard({
       orgNames: namedOrgs,
       calendarEventIds: gig.calendarEventIds,
     };
-  }, [gig, picks, temps, orgNames]);
+  }, [gig, picks, extras, temps, orgNames]);
 
   useEffect(() => { onChange(payload); }, [payload, onChange]);
 
@@ -422,11 +455,15 @@ export function GigConfirmCard({
         id: c.crewId, name: c.name, isRegular: c.isRegular, isTemp: false,
         lastHired: c.lastHired ?? null,
       })),
+      ...extras.map((e) => ({
+        id: e.crewId, name: e.name, isRegular: e.isRegular, isTemp: false,
+        lastHired: e.lastHired,
+      })),
       ...temps.map((t) => ({
         id: t.localId, name: t.name, isRegular: false, isTemp: true, lastHired: null,
       })),
     ],
-    [gig.crew, temps]
+    [gig.crew, extras, temps]
   );
 
   const toggleOn = (id: string) =>
@@ -445,6 +482,29 @@ export function GigConfirmCard({
 
   const setNote = (id: string, note: string) =>
     setPicks((p) => ({ ...p, [id]: { ...p[id], note } }));
+
+  /**
+   * Add someone who IS on the roster but was not on the calendar entry. Seeded
+   * exactly like calendar crew: a regular's discipline is fact, anyone else's
+   * is a guess to confirm.
+   */
+  const addExtra = (c: KnownCrew) => {
+    setAddingTemp(false);
+    if (gig.crew.some((g) => g.crewId === c.id) || extras.some((e) => e.crewId === c.id)) return;
+    setExtras((x) => [
+      ...x,
+      { crewId: c.id, name: c.display_name, isRegular: c.is_regular, kind: c.kind, lastHired: c.lastHired ?? null },
+    ]);
+    const guess = c.kind && DISCIPLINES.includes(c.kind) ? c.kind : null;
+    setPicks((p) => ({
+      ...p,
+      [c.id]: {
+        on: true, lead: false, discipline: guess,
+        disciplineIsGuess: !!guess && !c.is_regular,
+        rehire: null, note: "",
+      },
+    }));
+  };
 
   /** Add a local hire, unsaved until the event is created. */
   const addTemp = (name: string) => {
@@ -774,7 +834,13 @@ export function GigConfirmCard({
            * person worth rating was the one you had to go looking for.
            */}
           {addingTemp ? (
-            <TempAdder onAdd={addTemp} onCancel={() => setAddingTemp(false)} />
+            <RosterAdder
+              roster={roster}
+              exclude={new Set([...gig.crew.map((c) => c.crewId), ...extras.map((e) => e.crewId)])}
+              onPick={addExtra}
+              onAdd={addTemp}
+              onCancel={() => setAddingTemp(false)}
+            />
           ) : (
             <button
               type="button"
@@ -1003,51 +1069,139 @@ export function GigIntelStep({
 
 
 /**
- * Type a name to add someone the calendar never knew about.
+ * Type a name: the roster answers first, and only a name nobody on it has
+ * becomes a new person.
  *
- * Name only. The discipline and the rating are set on the row like everyone
- * else's, so there is one place to learn the controls — and asking for an email
- * and a city here would turn "someone else worked this" into a form, which is
- * the thing that does not get filled in at the end of a long day. The roster
- * entry can be completed later on /intel.
+ * This was a bare field — name only, by design: asking for an email and a
+ * city here turns "someone else worked this" into a form, which is the thing
+ * that does not get filled in at the end of a long day. That part holds. But
+ * a bare field also meant a roster member the calendar never invited got typed
+ * in fresh, and apply-gig CREATED them again: a duplicate row with none of
+ * their history. Mason, typing "michael" on the Core SJC import (2026-09-02):
+ * "No autocomplete on Crew?!?"
+ *
+ * Regulars sort first; alumni are offered and labelled, because an alumnus
+ * working again is exactly the fact the roster wants to know. The server
+ * matches a typed name against the roster as the backstop (`crewNameKey`).
  */
-function TempAdder({
+function RosterAdder({
+  roster,
+  exclude,
+  onPick,
   onAdd,
   onCancel,
 }: {
+  roster: KnownCrew[] | null;
+  /** Already on the card — offering them again would be a second row. */
+  exclude: Set<string>;
+  onPick: (c: KnownCrew) => void;
   onAdd: (name: string) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const q = name.trim().toLowerCase();
+
+  const matches = useMemo(() => {
+    if (!q || !roster) return [];
+    return roster
+      .filter((c) => !exclude.has(c.id) && c.display_name.toLowerCase().includes(q))
+      .sort(
+        (a, b) =>
+          Number(b.is_regular) - Number(a.is_regular) ||
+          Number(a.archived) - Number(b.archived) ||
+          a.display_name.localeCompare(b.display_name)
+      )
+      .slice(0, 6);
+  }, [q, roster, exclude]);
+
+  // "Add as new" is offered unless the typed name IS someone on the list —
+  // then the only honest option is that person.
+  const exact = matches.some((c) => c.display_name.trim().toLowerCase() === q);
+  const optionCount = matches.length + (q && !exact ? 1 : 0);
+  const choose = (i: number) => {
+    if (i < matches.length) onPick(matches[i]);
+    else if (q) onAdd(name);
+  };
+
+  const hint = (c: KnownCrew) => {
+    if (c.archived) return "alumni";
+    if (c.is_regular) return "regular";
+    const last = formatLastHired(c.lastHired, new Date());
+    return last ? `last hired ${last}` : c.kind ?? "";
+  };
+
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter must not submit the surrounding create-event form.
-          if (e.key === "Enter") { e.preventDefault(); onAdd(name); }
-          if (e.key === "Escape") onCancel();
-        }}
-        placeholder="Their name"
-        className="min-w-0 flex-1 border-b border-stone-200 bg-transparent py-1 text-[13px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
-      />
-      <button
-        type="button"
-        onClick={() => onAdd(name)}
-        disabled={!name.trim()}
-        className="rounded-[3px] border border-accent bg-accent px-2.5 py-1 text-[12px] text-white transition-opacity disabled:opacity-40"
-      >
-        Add
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="text-[12px] text-stone-400 transition-colors hover:text-stone-700"
-      >
-        Cancel
-      </button>
+    <div className="relative mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => { setName(e.target.value); setCursor(0); }}
+          onKeyDown={(e) => {
+            // Enter must not submit the surrounding create-event form.
+            if (e.key === "Enter") { e.preventDefault(); choose(cursor); }
+            if (e.key === "Escape") onCancel();
+            if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => Math.min(c + 1, optionCount - 1)); }
+            if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
+          }}
+          placeholder="Their name"
+          className="min-w-0 flex-1 border-b border-stone-200 bg-transparent py-1 text-[13px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => choose(cursor)}
+          disabled={!q}
+          className="rounded-[3px] border border-accent bg-accent px-2.5 py-1 text-[12px] text-white transition-opacity disabled:opacity-40"
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[12px] text-stone-400 transition-colors hover:text-stone-700"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {q && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto border border-stone-200 bg-white shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]">
+          {roster === null ? (
+            <p className="px-3 py-2 text-[12px] text-stone-400">Loading the roster…</p>
+          ) : (
+            <>
+              {matches.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseEnter={() => setCursor(i)}
+                  onClick={() => choose(i)}
+                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-[13px] transition-colors ${
+                    cursor === i ? "bg-stone-50 text-stone-900" : "text-stone-700"
+                  }`}
+                >
+                  {c.is_regular && <span className="text-accent">★</span>}
+                  <span className={c.archived ? "text-stone-400" : ""}>{c.display_name}</span>
+                  <span className="ml-auto shrink-0 text-[11px] text-stone-400">{hint(c)}</span>
+                </button>
+              ))}
+              {!exact && (
+                <button
+                  type="button"
+                  onMouseEnter={() => setCursor(matches.length)}
+                  onClick={() => choose(matches.length)}
+                  className={`block w-full border-t border-stone-100 px-3 py-1.5 text-left text-[13px] transition-colors ${
+                    cursor === matches.length ? "bg-stone-50 text-stone-900" : "text-stone-500"
+                  }`}
+                >
+                  Add &ldquo;{name.trim()}&rdquo; as someone new
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

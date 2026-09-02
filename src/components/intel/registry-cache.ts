@@ -62,8 +62,26 @@ class Registry<T extends { id: string }> {
   private emit() { for (const fn of this.subs) fn(this.data ?? []); }
 }
 
+/**
+ * One roster row as `GET /api/crew` returns it (snake_case columns plus the
+ * derived `lastHired`). Shared by every crew picker on a page: the confirm
+ * card's "someone else worked this" field and the import grid's face tag,
+ * which used to keep its own copy of exactly this cache.
+ */
+export interface KnownCrew {
+  id: string;
+  display_name: string;
+  is_regular: boolean;
+  kind: string | null;
+  city: string | null;
+  archived: boolean;
+  lastHired: string | null;
+}
+
 export const venues = new Registry<KnownVenue>("/api/venues", (j) => ((j as { venues?: KnownVenue[] }).venues ?? []));
 export const orgs = new Registry<KnownOrg>("/api/organizations", (j) => ((j as { orgs?: KnownOrg[] }).orgs ?? []));
+/** Intel-gated upstream: a 403 answers with no `crew` key and reads as an empty roster. */
+export const crew = new Registry<KnownCrew>("/api/crew", (j) => ((j as { crew?: KnownCrew[] }).crew ?? []));
 
 /** `null` until the first load resolves — callers render "Loading…" rather than an empty list. */
 export function useRegistry<T extends { id: string }>(reg: Registry<T>): T[] | null {

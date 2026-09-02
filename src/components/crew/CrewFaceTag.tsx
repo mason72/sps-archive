@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Loader2, RotateCcw, Users } from "lucide-react";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
+import { crew as crewRegistry, type KnownCrew } from "@/components/intel/registry-cache";
 
 /**
  * "That's crew" on an import-review tile — keep the face, still skip the frame.
@@ -27,36 +28,13 @@ import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
  * Renders nothing without Event Intel — the roster is crew data, and the
  * import screen itself is open to every account.
  *
- * The roster is fetched ONCE per page at module level: a 6,000-frame review
- * grid must not make 6,000 roster requests because each tile carries this
- * button.
+ * The roster comes from the page-wide registry (`registry-cache.ts`), loaded
+ * on the first open rather than on mount: a 6,000-frame review grid must not
+ * make 6,000 roster requests because each tile carries this button, and an
+ * account without Intel must not make one at all.
  */
 
-interface RosterRow {
-  id: string;
-  display_name: string;
-  is_regular: boolean;
-}
-
-let rosterCache: RosterRow[] | null = null;
-let rosterInFlight: Promise<RosterRow[]> | null = null;
-
-function fetchRoster(): Promise<RosterRow[]> {
-  if (rosterCache) return Promise.resolve(rosterCache);
-  if (!rosterInFlight) {
-    rosterInFlight = fetch("/api/crew")
-      .then((r) => (r.ok ? r.json() : { crew: [] }))
-      .then((j) => {
-        rosterCache = j.crew ?? [];
-        return rosterCache!;
-      })
-      .catch(() => {
-        rosterInFlight = null;
-        return [];
-      });
-  }
-  return rosterInFlight;
-}
+type RosterRow = KnownCrew;
 
 type Phase =
   | { kind: "idle" }
@@ -86,7 +64,7 @@ export function CrewFaceTag({
 }) {
   const hasIntel = useIntelAccess();
   const [open, setOpen] = useState(false);
-  const [roster, setRoster] = useState<RosterRow[] | null>(rosterCache);
+  const [roster, setRoster] = useState<RosterRow[] | null>(crewRegistry.get());
   const [q, setQ] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +96,7 @@ export function CrewFaceTag({
 
   useEffect(() => {
     if (!open) return;
-    if (roster === null) fetchRoster().then(setRoster);
+    if (roster === null) void crewRegistry.load().then(setRoster);
     // Focus after the portal paints.
     const t = setTimeout(() => inputRef.current?.focus(), 0);
     // A fixed panel does not travel with the page — close rather than drift.
