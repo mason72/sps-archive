@@ -2327,3 +2327,7 @@ anyway ("2Dudes LIB": one cluster with 78% of the labelled frames).
   elsewhere; a dominant name loses only the event it dominates.
 - Pre-existing and left alone: single-word people ("Nachi", 48 frames) have
   never been on /people — the two-word rule, not this change.
+- Addendum, same day: Mason chose to admit single-word people with guardrails
+  (letters, ≥3, not shouted, not a gallery word, ≤60 frames per event) over
+  keeping the two-word rule, on the reasoning that a wrong card is visible and
+  one click to fix, while a missing person is invisible. 3,298 → 3,743 people.

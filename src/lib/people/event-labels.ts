@@ -41,12 +41,7 @@ export function eventLabelKeys(
   keyByRow: Iterable<{ eventId: string; key: string }>,
   totalByEvent: ReadonlyMap<string, number>
 ): Map<string, Set<string>> {
-  const counts = new Map<string, Map<string, number>>();
-  for (const { eventId, key } of keyByRow) {
-    const perEvent = counts.get(eventId) ?? new Map<string, number>();
-    perEvent.set(key, (perEvent.get(key) ?? 0) + 1);
-    counts.set(eventId, perEvent);
-  }
+  const counts = countByEventKey(keyByRow);
   const labels = new Map<string, Set<string>>();
   for (const [eventId, perEvent] of counts) {
     const total = totalByEvent.get(eventId) ?? 0;
@@ -60,4 +55,56 @@ export function eventLabelKeys(
     }
   }
   return labels;
+}
+
+/** eventId → identity key → how many of that event's photos carry it. */
+export function countByEventKey(
+  keyByRow: Iterable<{ eventId: string; key: string }>
+): Map<string, Map<string, number>> {
+  const counts = new Map<string, Map<string, number>>();
+  for (const { eventId, key } of keyByRow) {
+    const perEvent = counts.get(eventId) ?? new Map<string, number>();
+    perEvent.set(key, (perEvent.get(key) ?? 0) + 1);
+    counts.set(eventId, perEvent);
+  }
+  return counts;
+}
+
+/**
+ * A single-word name may be a person — "Nachi", "Sunita", "Leo" are real
+ * sittings — but the same shape is also every tag a photographer types:
+ * "untitled", "highlights", "MS", "twodudesphoto". Mason's call (2026-09-02):
+ * admit them, with guardrails, and let the one-click "Not a person" exclusion
+ * catch the brand or venue word that slips through. The guardrails are the
+ * shapes tags take and people's names do not: digits, shouting, gallery
+ * vocabulary, and volume — a person's sitting is tens of frames, and a
+ * single word carrying more than that in one event is a label the share
+ * rule was too small to catch.
+ */
+export const SINGLE_NAME_MAX_FRAMES_PER_EVENT = 60;
+
+/** Section/gallery words that arrive as filenames and are nobody. */
+const SINGLE_NAME_STOP = new Set([
+  "untitled", "highlights", "highlight", "misc", "group", "groups", "family",
+  "kids", "booth", "staff", "team", "event", "photo", "photos", "headshot",
+  "headshots", "portrait", "portraits", "final", "finals", "edit", "edits",
+  "raw", "web", "print", "prints", "test", "sample", "samples", "copy",
+  "image", "images", "img", "dsc", "thumb", "cover", "logo", "bts", "crew",
+  "wedding", "party", "dinner", "lunch", "ceremony", "reception", "guests",
+  "guest", "candids", "candid", "detail", "details", "setup", "selects",
+  "favorites", "favourites", "extra", "extras", "new", "old", "untagged",
+]);
+
+/**
+ * Shape check only — the per-event frame cap is applied by the caller, which
+ * holds the counts. Letters (with an apostrophe or hyphen inside), three or
+ * more, not all-caps ("MS", "KARN" are codes; a shouted real name is the
+ * price), not a gallery word.
+ */
+export function looksLikeSingleName(name: string): boolean {
+  const w = name.trim();
+  if (w.length < 3 || /\s/.test(w)) return false;
+  if (!/^[A-Za-z][A-Za-z'’-]*[A-Za-z]$/.test(w)) return false;
+  if (w === w.toUpperCase()) return false;
+  return !SINGLE_NAME_STOP.has(w.toLowerCase());
 }

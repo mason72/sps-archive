@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   eventLabelKeys,
+  looksLikeSingleName,
   EVENT_LABEL_MIN_COUNT,
   EVENT_LABEL_MIN_SHARE,
 } from "./event-labels";
@@ -73,5 +74,24 @@ describe("eventLabelKeys", () => {
       new Map([["e", EVENT_LABEL_MIN_COUNT - 1]])
     );
     expect(under.size).toBe(0);
+  });
+});
+
+describe("looksLikeSingleName", () => {
+  it("admits the single-name sittings the two-word rule kept off /people", () => {
+    for (const n of ["Nachi", "Sunita", "Leo", "josh", "Dimitry", "O'Neil", "Anne-Marie"]) {
+      expect(looksLikeSingleName(n), n).toBe(true);
+    }
+  });
+
+  it("rejects the tag shapes measured beside them", () => {
+    // Shouting, digits, too short, gallery words, studio tags with digits.
+    for (const n of ["MS", "KARN", "2D", "2DudesWF", "untitled", "Highlights", "STAFF", "Lo", "", "RangersLaserTag2"]) {
+      expect(looksLikeSingleName(n), n).toBe(false);
+    }
+  });
+
+  it("is a single word only — two-word names have their own rule", () => {
+    expect(looksLikeSingleName("Brittany Reed")).toBe(false);
   });
 });

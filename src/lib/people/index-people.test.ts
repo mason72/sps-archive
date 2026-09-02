@@ -103,6 +103,11 @@ describe("preferredSpelling", () => {
     expect(preferredSpelling("Anne Brown", "Anne Elise Brown")).toBe("Anne Elise Brown");
   });
 
+  it("prefers a clean single name over its digit-suffixed spelling", () => {
+    expect(preferredSpelling("Twitch3", "Twitch")).toBe("Twitch");
+    expect(preferredSpelling("Nachi", "Nachi2")).toBe("Nachi");
+  });
+
   it("is order-independent", () => {
     expect(preferredSpelling("aaroncote", "Aaron Cote")).toBe(
       preferredSpelling("Aaron Cote", "aaroncote")

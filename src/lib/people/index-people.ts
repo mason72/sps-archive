@@ -14,7 +14,12 @@
  */
 
 import type { createServiceClient } from "@/lib/supabase/server";
-import { eventLabelKeys } from "./event-labels";
+import {
+  countByEventKey,
+  eventLabelKeys,
+  looksLikeSingleName,
+  SINGLE_NAME_MAX_FRAMES_PER_EVENT,
+} from "./event-labels";
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
@@ -85,8 +90,10 @@ export function normalizeNameKey(name: string): string {
  * the scan reached first.
  */
 export function preferredSpelling(a: string, b: string): string {
-  const aPerson = looksLikePersonName(a);
-  const bPerson = looksLikePersonName(b);
+  // A single clean name counts as person-shaped too, or "Twitch3" (the
+  // longer spelling) would front a key that "Twitch" vouched for.
+  const aPerson = looksLikePersonName(a) || looksLikeSingleName(a);
+  const bPerson = looksLikePersonName(b) || looksLikeSingleName(b);
   if (aPerson !== bPerson) return aPerson ? a : b;
   return b.length > a.length ? b : a;
 }
@@ -492,17 +499,24 @@ export async function buildPeopleIndex(
   // every one a label. Judged per event, and removed HERE, before vouching,
   // so a label row can neither mint an identity nor count toward one, nor
   // reach face membership. See event-labels.ts for the measurement.
-  const labelsByEvent = eventLabelKeys(
-    rows.flatMap((row) => {
-      const p = parsedByRow.get(row.id);
-      return p ? [{ eventId: row.event_id, key: p.key }] : [];
-    }),
-    totalByEvent
-  );
+  const keyByRow = rows.flatMap((row) => {
+    const p = parsedByRow.get(row.id);
+    return p ? [{ eventId: row.event_id, key: p.key }] : [];
+  });
+  const labelsByEvent = eventLabelKeys(keyByRow, totalByEvent);
   if (labelsByEvent.size > 0) {
     for (const row of rows) {
       const p = parsedByRow.get(row.id);
       if (p && labelsByEvent.get(row.event_id)?.has(p.key)) parsedByRow.delete(row.id);
+    }
+  }
+
+  // The most frames any single event attributes to a key — the volume
+  // guardrail for single-word names (see event-labels.ts).
+  const maxFramesByKey = new Map<string, number>();
+  for (const perEvent of countByEventKey(keyByRow).values()) {
+    for (const [key, n] of perEvent) {
+      if (n > (maxFramesByKey.get(key) ?? 0)) maxFramesByKey.set(key, n);
     }
   }
 
@@ -511,7 +525,17 @@ export async function buildPeopleIndex(
     // An excluded key never gets vouched, so it cannot become an identity —
     // cheaper and more total than filtering the finished list, and it keeps the
     // exclusion out of every downstream count as well as the display.
-    if (!excluded.has(key) && looksLikePersonName(name)) vouched.add(key);
+    if (excluded.has(key)) continue;
+    if (looksLikePersonName(name)) {
+      vouched.add(key);
+    } else if (
+      // Single-word people — "Nachi", "Sunita" — admitted with guardrails
+      // (Mason, 2026-09-02). Shape from event-labels.ts; volume here.
+      looksLikeSingleName(name) &&
+      (maxFramesByKey.get(key) ?? 0) <= SINGLE_NAME_MAX_FRAMES_PER_EVENT
+    ) {
+      vouched.add(key);
+    }
   }
 
   for (const row of rows) {
