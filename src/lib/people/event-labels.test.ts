@@ -22,13 +22,26 @@ describe("eventLabelKeys", () => {
   });
 
   it("judges share against the WHOLE event, unnamed frames included", () => {
-    // 120 labelled + 200 camera-named: 37% — not dominant.
-    const labels = eventLabelKeys(rows("e", "acme", 120), new Map([["e", 320]]));
+    // 120 labelled + 1,500 camera-named: 7% — a busy guest, not the label.
+    const labels = eventLabelKeys(rows("e", "acme", 120), new Map([["e", 1620]]));
     expect(labels.size).toBe(0);
-    // Same 120 in a 200-photo event: 60% — the label.
-    expect(eventLabelKeys(rows("e", "acme", 120), new Map([["e", 200]])).get("e")).toEqual(
+    // Same 120 in a 600-photo event: 20% — the label.
+    expect(eventLabelKeys(rows("e", "acme", 120), new Map([["e", 600]])).get("e")).toEqual(
       new Set(["acme"])
     );
+  });
+
+  it("catches a booth's colour labels beside its main one — eBayHR", () => {
+    // 348 "eBayHR" + 4 × 317 colour variants across an 1,842-photo day.
+    const labels = eventLabelKeys(
+      [
+        ...rows("ebay", "ebayhr", 348),
+        ...rows("ebay", "ebayhrred", 317),
+        ...rows("ebay", "ebayhrblue", 317),
+      ],
+      new Map([["ebay", 1842]])
+    );
+    expect(labels.get("ebay")).toEqual(new Set(["ebayhr", "ebayhrred", "ebayhrblue"]));
   });
 
   it("is per event: a name can label one event and be a person in another", () => {

@@ -3,8 +3,8 @@
  *
  * Every file of a booth export parses to the job's name — "Google Booth",
  * 287 of 287 on Core SJC — and `looksLikePersonName` waves two capitalised
- * words through. Measured across the archive on 2026-09-02: 56 (event, name)
- * pairs where one name covers at least half of an event with 100+ photos,
+ * words through. Measured across the archive on 2026-09-02: 79 (event, name)
+ * pairs where one name covers at least a tenth of an event with 100+ photos,
  * and every one is a label — studio watermark tags ("2Dudes WF"), clients
  * ("Bay, Alarm", "IAEE", "Kinder"), venues ("Dolores", "Marathon"), and the
  * two that looked like people ("Haley Neil", "Mason, Tang") turned out to be
@@ -19,8 +19,17 @@
 
 /** A name covering fewer photos than this is never a label, whatever its share. */
 export const EVENT_LABEL_MIN_COUNT = 100;
-/** …and it must carry at least this share of the event's photos. */
-export const EVENT_LABEL_MIN_SHARE = 0.5;
+/**
+ * …and it must carry at least this share of the event's photos.
+ *
+ * Started at 0.5; lowered to 0.1 the same day for "eBayHR" — 348 of an
+ * 1,842-photo day (19%), beside "ebayhr red/blue/yellow/green" at 317 each.
+ * Re-measured at 0.1: the 23 pairs it adds are all labels (booth colours,
+ * "STAFF", "SCHOOLF", "Marriot2", "awardsdinner"). The people it must keep
+ * sit far below it — Steven Hughes is 184 of DAIS 26's 9,092 (2%), and no
+ * real person reaches 100 frames AND a tenth of an event.
+ */
+export const EVENT_LABEL_MIN_SHARE = 0.1;
 
 /**
  * `keyByRow`: each photo's (event, identity key). `totalByEvent`: how many

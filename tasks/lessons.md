@@ -2310,9 +2310,9 @@ the same way, unnoticed.
 ## 118 — The obvious discriminator was wrong, and only the measurement said so (2026-09-02)
 
 "Don't let 'Google Booth' be a person." The rule that fixes it is a per-event
-share test: a name covering ≥50% of an event with ≥100 photos labels the
-event. Measured before choosing, every one of the 56 archive pairs it catches
-is a label — but two of them, "Haley Neil" and "Mason, Tang", READ like
+share test: a name covering ≥10% of an event with ≥100 photos labels the
+event (0.5 at first; "eBayHR" at 19% moved it). Measured before choosing,
+every one of the 79 archive pairs it catches is a label — but two of them, "Haley Neil" and "Mason, Tang", READ like
 people, and my first instinct was to rescue them with faces: a real sitting
 is one face, a booth is hundreds. The face data killed that in one query:
 their events hold 271 and 39 clusters (couples' and party names), and on
