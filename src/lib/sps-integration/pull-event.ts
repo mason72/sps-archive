@@ -35,6 +35,7 @@ import { parseFilename, extractExif } from "@/lib/upload/parse-filename";
 import {
   IMAGE_MAX_BYTES,
   VIDEO_MAX_BYTES,
+  extensionForMime,
   mediaTypeForMime,
 } from "@/lib/upload/media";
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
@@ -668,7 +669,20 @@ async function importOneImage(
   // ── 2. Bytes first ──
   const id = randomUUID();
   const parsed = parseFilename(image.originalFilename);
-  const filename = `${id}.${parsed.extension}`;
+  /**
+   * The stored extension follows the BYTES, not the name. SPS names an AI
+   * render "(AI) Justin.jpg" and persists it as WebP (mime image/webp), so the
+   * name's extension is wrong the moment it leaves SPS — a `.jpg` holding WebP
+   * bytes would ship in every ZIP under a name nothing opens. Renamed on the
+   * way in, `original_filename` included, because that is the name the ZIP
+   * writes. A name whose extension already fits its mime is left alone.
+   */
+  const extension = extensionForMime(mimeType, parsed.extension);
+  const originalFilename =
+    extension === parsed.extension
+      ? image.originalFilename
+      : `${image.originalFilename.replace(/\.[^.]*$/, "")}.${extension}`;
+  const filename = `${id}.${extension}`;
   const r2Key = buildImageKey(job.event_id, filename);
   await uploadToR2(r2Key, buffer, mimeType);
 
@@ -686,7 +700,7 @@ async function importOneImage(
     id,
     event_id: job.event_id,
     filename,
-    original_filename: image.originalFilename,
+    original_filename: originalFilename,
     r2_key: r2Key,
     // OUR byte count. SPS deliberately reports no size — its images.file_size
     // sums six variants and is ~3x the object behind this URL.
@@ -698,6 +712,10 @@ async function importOneImage(
     sps_image_id: image.id,
     // Reported by SPS, never inferred. See pull-client.ts.
     sps_quality: image.quality,
+    // Non-null = an AI render, pointing at the capture it was made from.
+    // Provenance only (migration 076): display and indexing treat a render
+    // like any photo, by Mason's call on 2026-09-02.
+    sps_source_image_id: image.sourceImageId ?? null,
   });
 
   if (insertErr) {

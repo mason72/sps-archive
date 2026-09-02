@@ -298,6 +298,53 @@ export async function addTaggedFace(
 const MAX_UPLOAD_B64 = 8 * 1024 * 1024;
 
 /**
+ * Wake the detector before anyone needs it.
+ *
+ * The selfie endpoint runs on the container that also indexes events, and a
+ * cold container loads three models first: a crew-face tag measured 23–44s
+ * cold against 0.6–1.4s warm. The import review calls this once when it
+ * opens (via /api/crew/faces/warm), so the load overlaps the scrolling
+ * instead of the first pick. A flat grey frame is enough — the models load
+ * in `@modal.enter`, before the request body is even looked at — and it is
+ * generated here rather than kept as a base64 constant nobody can eyeball.
+ *
+ * Metered as `ai_embed_selfie`, because that is what it costs: real GPU
+ * seconds on that endpoint. Two-thirds of a cent for a cold start.
+ */
+export async function warmFaceDetector(
+  userId: string
+): Promise<{ ok: boolean; seconds: number }> {
+  const sharp = (await import("sharp")).default;
+  const frame = await sharp({
+    create: { width: 64, height: 64, channels: 3, background: "#7f7f7f" },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const started = Date.now();
+  const res = await fetch(process.env.MODAL_AI_SELFIE_URL!, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pipeline_key: process.env.VIDEO_PIPELINE_KEY,
+      image_b64: frame.toString("base64"),
+    }),
+    // Under the route's 60s ceiling, with room to answer. A cold start that
+    // runs past this still completes on Modal's side — the container is warm
+    // for the tag that follows either way.
+    signal: AbortSignal.timeout(55_000),
+  }).catch(() => null);
+  const seconds = secondsSince(started);
+  await recordUsage({
+    userId,
+    kind: "ai_embed_selfie",
+    quantity: seconds,
+    unit: "seconds",
+  });
+  return { ok: Boolean(res?.ok), seconds };
+}
+
+/**
  * Add a reference from an UPLOADED photo — the seed path for the 49 crew with
  * no events, and Mason's ask: "we should be able to add crew images manually
  * from the Intel > crew > details pane."

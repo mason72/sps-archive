@@ -15,6 +15,7 @@ import {
   type GigIntelPayload,
 } from "@/components/events/CreateGigConfirm";
 import { CrewFaceTag } from "@/components/crew/CrewFaceTag";
+import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -74,6 +75,8 @@ interface ManifestImage {
   previewIsFullSize: boolean;
   /** Camera-size source, for tag-at-import — a thumb makes a bad reference. */
   fullUrl: string;
+  /** Non-null on an AI render: the SPS capture it was generated from. */
+  sourceImageId: string | null;
 }
 
 interface PullJob {
@@ -143,8 +146,25 @@ export default function ImportFromSpsPage() {
    * working with them."
    */
   const [gigIntel, setGigIntel] = useState<GigIntelPayload | null>(null);
-  /** The last "saved a crew face" confirmation — shown by the import button. */
-  const [tagNote, setTagNote] = useState<string | null>(null);
+  /**
+   * Frames whose face went to a crew member's reference set. Each tile carries
+   * its own receipt ("Moved to crew photos · Joey"); this is the tally beside
+   * the count that the tags moved, so the decrement is explained where it
+   * shows. Counted, not the last name — three tags are three, not "Sergio".
+   */
+  const [crewTagged, setCrewTagged] = useState(0);
+
+  /**
+   * Wake the face detector the moment a review opens, for accounts that can
+   * tag. A cold Modal container answers a tag in 23–44 seconds and a warm one
+   * in under two; this overlaps the model load with the scrolling instead of
+   * with the first pick. Fire-and-forget on the client — the ROUTE awaits it.
+   */
+  const hasIntel = useIntelAccess();
+  useEffect(() => {
+    if (stage !== "review" || hasIntel !== true) return;
+    fetch("/api/crew/faces/warm", { method: "POST" }).catch(() => {});
+  }, [stage, hasIntel]);
   /**
    * The SHOOT day, taken from the manifest's event record.
    *
@@ -313,7 +333,8 @@ export default function ImportFromSpsPage() {
     setManifestTotal(null);
     setCountPending(true);
     setGigIntel(null);
-    setTagNote(null);
+    setCrewTagged(0);
+    setManifestAi(0);
     setSpsShootDate(ev.completedAt ? ev.completedAt.slice(0, 10) : null);
     loadPage(ev.id, 0);
 
@@ -323,8 +344,11 @@ export default function ImportFromSpsPage() {
       try {
         const res = await fetch(`/api/sps/pull/events/${ev.id}/count`);
         if (res.ok) {
-          const { total, complete } = await res.json();
-          if (complete) setManifestTotal(total);
+          const { total, ai, complete } = await res.json();
+          if (complete) {
+            setManifestTotal(total);
+            setManifestAi(typeof ai === "number" ? ai : 0);
+          }
         }
       } catch {
         /* Non-fatal: the screen falls back to "everything", and the job counts
@@ -405,6 +429,9 @@ export default function ImportFromSpsPage() {
    */
   const [manifestTotal, setManifestTotal] = useState<number | null>(null);
   const [countPending, setCountPending] = useState(false);
+  /** AI renders in the counted manifest — named in the header, because they
+   *  were silently absent from every import before 2026-09-02. */
+  const [manifestAi, setManifestAi] = useState(0);
 
   /** Manifest pages are still arriving, so no count on screen can be the total. */
   const stillLoading = nextOffset !== null;
@@ -417,8 +444,10 @@ export default function ImportFromSpsPage() {
   const importCount =
     manifestTotal !== null ? manifestTotal - deselected.size : null;
 
+  // "Unverified" is about camera provenance; an AI render has none to be unsure
+  // about, so it is badged AI and never counted here.
   const lossyCount = images.filter(
-    (i) => i.quality === "lossy" && !deselected.has(i.id)
+    (i) => i.quality === "lossy" && !i.sourceImageId && !deselected.has(i.id)
   ).length;
 
   const startImport = async () => {
@@ -843,15 +872,26 @@ export default function ImportFromSpsPage() {
                     · {deselected.size.toLocaleString()} unchecked
                   </span>
                 )}
+                {/* Named because they were silently absent from every import
+                    before 2026-09-02 — "none of the AI images imported either". */}
+                {manifestAi > 0 && (
+                  <span className="text-stone-400">
+                    {" "}
+                    · includes {manifestAi.toLocaleString()} AI{" "}
+                    {manifestAi === 1 ? "render" : "renders"}
+                  </span>
+                )}
                 {manifestTotal === null && countPending && (
                   <span className="text-stone-400"> · counting…</span>
                 )}
                 {/* A face save changes the SELECTION (the tile unchecks), so
-                    its confirmation lives beside the count that just moved —
-                    an unexplained decrement here is exactly the class of lie
-                    the denominator rules exist to prevent. */}
-                {tagNote && (
-                  <span className="block text-[12px] text-accent-hover">{tagNote}</span>
+                    its tally lives beside the count that just moved — an
+                    unexplained decrement here is exactly the class of lie the
+                    denominator rules exist to prevent. */}
+                {crewTagged > 0 && (
+                  <span className="block text-[12px] text-accent-hover">
+                    {crewTagged.toLocaleString()} moved to crew photos
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -960,15 +1000,18 @@ export default function ImportFromSpsPage() {
                    */
                   <div
                     key={img.id}
-                    className={cn(
-                      "relative aspect-square overflow-hidden bg-stone-100 group transition-all duration-200",
-                      off ? "opacity-30" : "opacity-100"
-                    )}
+                    className="relative aspect-square overflow-hidden bg-stone-100 group"
                   >
+                    {/* The dim lives on the toggle, not the wrapper: a tagged
+                        tile is unchecked AND carries its own receipt, and a
+                        receipt at 30% opacity is not a receipt. */}
                     <button
                       onClick={() => toggle(img.id)}
                       title={img.originalFilename}
-                      className="absolute inset-0 h-full w-full cursor-pointer"
+                      className={cn(
+                        "absolute inset-0 h-full w-full cursor-pointer transition-opacity duration-200",
+                        off ? "opacity-30" : "opacity-100"
+                      )}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -995,10 +1038,16 @@ export default function ImportFromSpsPage() {
                       {/* "unverified", not "re-encoded" — see the note above the
                           banner. The badge must not claim the file is degraded
                           when the bytes have been shown to be identical. */}
-                      {img.quality === "lossy" && (
+                      {img.sourceImageId ? (
                         <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-stone-900/70 text-white px-1.5 py-0.5">
-                          unverified
+                          AI
                         </span>
+                      ) : (
+                        img.quality === "lossy" && (
+                          <span className="absolute bottom-2 left-2 label-caps text-[9px] bg-stone-900/70 text-white px-1.5 py-0.5">
+                            unverified
+                          </span>
+                        )
                       )}
                     </button>
 
@@ -1012,9 +1061,21 @@ export default function ImportFromSpsPage() {
                      */}
                     <CrewFaceTag
                       imageUrl={img.fullUrl}
-                      onTagged={(name) => {
+                      onTagStart={() => {
+                        // Unchecked the moment a name is picked — skipping the
+                        // frame is the intent either way, and the save can take
+                        // 40s cold. Nothing waits on the detector.
                         setDeselected((prev) => new Set(prev).add(img.id));
-                        setTagNote(`Saved ${name}'s face — the frame stays out of the import.`);
+                      }}
+                      onTagged={() => setCrewTagged((n) => n + 1)}
+                      onTagFailed={() => {
+                        // No face saved means the reason for dropping the
+                        // frame is gone; back into the import it goes.
+                        setDeselected((prev) => {
+                          const next = new Set(prev);
+                          next.delete(img.id);
+                          return next;
+                        });
                       }}
                     />
                   </div>

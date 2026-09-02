@@ -119,8 +119,10 @@ describe("error classification", () => {
 
 describe("walkManifest", () => {
   it("pages until nextOffset is absent, not until imageCount is reached", async () => {
-    // event.imageCount says 9999 — it counts AI copies the manifest excludes.
-    // Trusting it would page forever; trusting a full page would stop early.
+    // event.imageCount says 9999 — SPS's own counter, which has never matched
+    // the manifest (pending rows; and until 2026-09-02, AI renders the manifest
+    // left out). Trusting it would page forever; trusting a full page would
+    // stop early.
     fetchMock
       .mockResolvedValueOnce(jsonResponse(page(MANIFEST_PAGE_SIZE, 500)))
       .mockResolvedValueOnce(jsonResponse(page(MANIFEST_PAGE_SIZE, 1000)))

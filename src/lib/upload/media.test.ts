@@ -8,6 +8,7 @@ import {
   stripMediaExtension,
   IMAGE_MAX_BYTES,
   VIDEO_MAX_BYTES,
+  extensionForMime,
 } from "./media";
 
 /**
@@ -220,5 +221,32 @@ describe("mediaExtension / stripMediaExtension", () => {
     const ext = mediaExtension("uuid.jpg"); // "jpg"
     const typed = "01.jpg"; // user included it anyway
     expect(`${stripMediaExtension(typed)}.${ext}`).toBe("01.jpg");
+  });
+});
+
+describe("extensionForMime", () => {
+  // SPS names an AI render after its source JPEG and stores it as WebP. The
+  // archive stores the extension the BYTES deserve; a `.jpg` full of WebP
+  // opens nowhere, and the ZIP writes original_filename verbatim.
+  it("corrects a name whose extension contradicts the mime", () => {
+    expect(extensionForMime("image/webp", "jpg")).toBe("webp");
+    expect(extensionForMime("image/jpeg", "webp")).toBe("jpg");
+  });
+
+  it("leaves a fitting extension alone, including the long form", () => {
+    expect(extensionForMime("image/jpeg", "jpg")).toBe("jpg");
+    expect(extensionForMime("image/jpeg", "jpeg")).toBe("jpeg");
+    expect(extensionForMime("image/jpeg", "JPG")).toBe("JPG");
+  });
+
+  it("keeps the name's extension when the mime is unknown or missing", () => {
+    // A guess is worse than the name — the name at least came from a human.
+    expect(extensionForMime("application/octet-stream", "jpg")).toBe("jpg");
+    expect(extensionForMime(null, "png")).toBe("png");
+    expect(extensionForMime("", "dng")).toBe("dng");
+  });
+
+  it("ignores mime parameters", () => {
+    expect(extensionForMime("image/webp; charset=binary", "jpg")).toBe("webp");
   });
 });

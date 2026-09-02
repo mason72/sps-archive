@@ -29,9 +29,20 @@ import { collapseRepeatedWords } from "@/lib/gallery/stacks";
 
 const SEPARATORS = /[_\- ]+/;
 
+/**
+ * SPS names an AI-styled render "(AI) <original filename>". The prefix is
+ * provenance, not part of anyone's name: left in, People and stacks would key
+ * "(AI) Justin Smith" as a second person standing beside Justin Smith. Stripped
+ * HERE, in the one place filenames are parsed, so an SPS pull and a hand upload
+ * of the same export agree. The row keeps the prefix in `original_filename`;
+ * only the derived name loses it. Provenance proper is `sps_source_image_id`.
+ */
+const AI_RENDER_PREFIX = /^\(AI\)\s*/i;
+
 export function parseFilename(filename: string): ParsedFilename {
   const lastDot = filename.lastIndexOf(".");
-  const stem = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+  const rawStem = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+  const stem = rawStem.replace(AI_RENDER_PREFIX, "");
   const extension = lastDot > 0 ? filename.slice(lastDot + 1).toLowerCase() : "";
 
   // Camera-generated filenames — no name, just extract sequence

@@ -86,6 +86,16 @@ export interface SpsManifestImage {
    * through Vercel just to draw thumbnails.
    */
   thumbUrl?: string | null;
+  /**
+   * Set on an AI-styled render: the SPS id of the capture it was generated
+   * from. Null or absent on a real capture. Renders were filtered OUT of the
+   * manifest until 2026-09-02 ("generated novelty renders with no camera file
+   * behind them"); Mason reversed that from the review screen of a booth
+   * event, where the renders are the most-shared images. Kept on the row as
+   * `images.sps_source_image_id` — the one filter if renders ever need to be
+   * excluded from anything.
+   */
+  sourceImageId?: string | null;
 }
 
 export interface SpsManifestPage {

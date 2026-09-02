@@ -105,7 +105,12 @@ def _check_key(payload: dict):
     image=gpu_image,
     gpu="T4",
     timeout=600,
-    scaledown_window=120,
+    # 10 minutes idle before the container is reclaimed (was 120s). Loading the
+    # three models is the whole latency of a cold call — measured 23–44s for a
+    # single crew-face tag against 0.6–1.4s warm — and a person tagging faces
+    # on an import review pauses for longer than two minutes between picks.
+    # Cost is idle T4 time: at most ~8 extra minutes per burst, about 8 cents.
+    scaledown_window=600,
     secrets=[modal.Secret.from_name("video-pipeline")],
 )
 @modal.concurrent(max_inputs=1)  # one batch per container; scale by containers

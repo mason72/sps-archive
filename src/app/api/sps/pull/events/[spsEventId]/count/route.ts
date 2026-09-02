@@ -50,20 +50,26 @@ export async function GET(
 
     let total = 0;
     let lossy = 0;
+    let ai = 0;
     let offset = 0;
 
     for (let page = 0; page < PAGE_CAP; page++) {
       const p = await fetchManifestPage(token, spsEventId, offset);
       total += p.images.length;
-      lossy += p.images.filter((i) => i.quality === "lossy").length;
+      ai += p.images.filter((i) => i.sourceImageId).length;
+      // "unverified" is a statement about camera provenance. A render has
+      // none, so it is counted as AI and never as unverified.
+      lossy += p.images.filter(
+        (i) => i.quality === "lossy" && !i.sourceImageId
+      ).length;
       if (p.nextOffset === undefined) {
-        return NextResponse.json({ total, lossy, complete: true });
+        return NextResponse.json({ total, lossy, ai, complete: true });
       }
       offset = p.nextOffset;
     }
 
     // Honest partial rather than a floor pretending to be a total.
-    return NextResponse.json({ total, lossy, complete: false });
+    return NextResponse.json({ total, lossy, ai, complete: false });
   } catch (error) {
     if (error instanceof SpsPullError) {
       return NextResponse.json(

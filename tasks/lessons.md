@@ -2218,3 +2218,46 @@ Also learned, in the cleanup:
 - **`tmutil thinlocalsnapshots` printed "Thinned local snapshots:" with an empty
   list** — it thinned nothing, and reads as success at a glance. Diagnosis-wise
   that was the useful negative: it proved the space was real files.
+
+## 115 — A popover that waits on a GPU cold start, and an exclusion nobody could see (2026-09-02)
+
+Mason tagged three crew faces on an SPS import review and watched three
+panels sit on "Finding the face…" — 12s, 17s, 24s. The same morning: "None
+of the AI images imported either — this is a problem."
+
+**The delay was never the search.** The usage ledger had the answer in one
+query: warm tags 0.6–1.4s, cold tags 23–44s. The face save runs on the Modal
+container that also indexes events, which loads three models on start and
+was reclaimed after **120 seconds** idle — so any tag after a pause between
+picks paid the full load, and three picks in a row paid it three times over.
+- **Measure the ledger before redesigning the UI.** `usage_events` already
+  timed every call. The bimodal distribution IS the diagnosis; no code read
+  needed to know it was a cold start.
+- **Never make a popover wait on a request that can take 40 seconds.** The
+  pick is the intent; close on the pick, uncheck the tile at once, and put the
+  receipt ON THE TILE ("Moved to crew photos · Joey") where it survives
+  scrolling. Failure re-checks the tile and offers Retry — no face saved means
+  the frame has no reason to go.
+- **Warm the thing while the person is doing something else.** The review
+  fires `/api/crew/faces/warm` on open, and the idle window is now 600s. Idle
+  T4 time is cents; a person waiting is not.
+- **A receipt at 30% opacity is not a receipt.** The dim moved from the tile
+  wrapper onto the toggle so the chip stays legible on an unchecked tile.
+
+**The AI exclusion was working exactly as specified**, and that was the
+problem: the 2026-08-11 spec dropped renders as "generated renders with no
+camera file behind them", the review grid showed the 147 captures, and
+nothing on screen said what was missing. A booth event is precisely where
+the renders are the shared images.
+- **A deliberate exclusion must be VISIBLE at the point of use**, or it reads
+  as a bug the day someone wants the excluded thing. The header now says
+  "· includes N AI renders"; the tiles are badged AI.
+- **Keep provenance as data when reversing an exclusion.** Mason chose to
+  index renders like any photo, with the synthetic-face risk on the table.
+  `images.sps_source_image_id` is the one filter if that changes — never the
+  "(AI) " filename prefix, which is a naming convention (and which
+  `parseFilename` now strips, or People mints "(AI) Justin Smith" as a
+  second person).
+- **The extension follows the bytes.** SPS names renders `(AI) X.jpg` and
+  stores WebP. Stored as `.jpg` they would ship in every ZIP under a name
+  nothing opens; `extensionForMime` renames on the way in.

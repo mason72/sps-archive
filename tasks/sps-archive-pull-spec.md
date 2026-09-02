@@ -167,11 +167,18 @@ Notes that will bite if ignored:
   of all six variants, roughly 3× the object behind `url` — reporting it would
   hand you an authoritative-looking wrong number. Take the length from your own
   response.
-- **AI copies are excluded** (rows with `source_image_id`). They are generated
-  renders with no camera file behind them.
+- **AI renders are INCLUDED since 2026-09-02**, each with `sourceImageId` (the
+  capture it was generated from). Until then they were excluded as "generated
+  renders with no camera file behind them"; Mason reversed that from the review
+  of a booth event, where the renders are the images guests actually shared.
+  A render's `url` is SPS's `large_url` (its biggest file — WebP, no original
+  variant exists), `quality` is reported as `lossy`, and the archive badges it
+  AI off `sourceImageId`. Pixeltrunk keeps it as `images.sps_source_image_id`.
 - Only `processing_status = 'ready'` images appear.
-- `imageCount` on the event includes the excluded AI copies, so **never use it
-  to decide whether the import is complete.** Page until `nextOffset` is absent.
+- `imageCount` on the event is SPS's own counter and has never matched the
+  manifest (pending rows; and before 2026-09-02, the excluded renders), so
+  **never use it to decide whether the import is complete.** Page until
+  `nextOffset` is absent.
 
 ### Scope: going forward only (decided by Mason, 2026-08-11)
 

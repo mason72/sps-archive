@@ -1,5 +1,69 @@
 # Pixeltrunk - Build Plan
 
+## Import review: tag-at-import UX + AI renders (2026-09-02)
+
+Mason's report: crew tags on the SPS import review sat on "Finding the face…"
+for a long time (three tags this morning: 12s, 17s, 24s — Modal cold start,
+the container scales to zero after 120s idle; warm tags measure 0.6–1.4s).
+And "none of the AI images imported either" — deliberate exclusion in the SPS
+manifest (`.is('source_image_id', null)`) from the 2026-08-11 spec. Mason chose:
+**import them, index them like any photo.**
+
+### A. Tag-at-import UX (Pixeltrunk)
+- [x] `CrewFaceTag.tsx`: pick closes the popover at once; tile chip carries
+      saving → "Moved to crew photos · Name" → failed + Retry. Callbacks:
+      onTagStart (uncheck) / onTagged / onTagFailed (re-check).
+- [x] `page.tsx`: wire the three callbacks; replace `tagNote` with a tagged
+      count beside "unchecked"; move the dim (opacity-30) onto the toggle
+      button so the chip stays legible on an unchecked tile.
+- [x] `POST /api/crew/faces/warm` — intel-gated ping that wakes the Modal
+      container; fired once when the review opens (only with Intel access).
+- [x] `modal/ai_pipeline.py`: AIIndexer `scaledown_window` 120 → 600. Deploy.
+      Cost: idle T4 ≈ $0.10 per 10 min at most, per review session.
+
+### B. AI renders come across (SPS + Pixeltrunk)
+- [x] SPS manifest (`apps/admin …/archive/events/[eventId]/manifest/route.ts`):
+      drop the `source_image_id IS NULL` filter; AI rows carry
+      `sourceImageId`, `url = large_url` (their biggest file; original_url is
+      NULL by design), mime `image/webp`. Rows with no large_url are skipped.
+- [x] Pixeltrunk migration 076: `images.sps_source_image_id uuid` + partial
+      index. Non-null = AI render; the ONE filter for excluding renders from
+      clustering later if that decision changes.
+- [x] `pull-client.ts` type, `pull-event.ts` insert + extension fix
+      (`(AI) X.jpg` arrives as webp → stored/named `.webp`),
+      `parse-filename.ts` strips the `(AI) ` prefix so people/stacks key on
+      the person, not on "(AI) Justin".
+- [x] Review UI: `AI` badge on tiles (wins over "unverified"), unverified
+      count excludes renders, count route reports `ai`.
+- [x] `npm run db:gen-types`, tests (parse-filename, pull-client comment).
+- [x] Docs: CLAUDE.md SPS bullet, `tasks/sps-archive-pull-spec.md`,
+      `tasks/lessons.md`, memory `sps-pull-import.md`, `docs/AI.md` caveat.
+
+### Verification
+- [x] `npm test`, `next build` (worktree if a dev server is up).
+- [x] Modal deploy + one warm ping measured.
+- [x] SPS: typecheck, commit. **Push NOT done** — Core SJC is live on SPS;
+      waiting on Mason's go-ahead.
+- [x] Pixeltrunk: commit. **Push NOT done** — an upload is running (49ers);
+      waiting on Mason's go-ahead. Then: watch deploy, reopen the review in
+      his Chrome, tag a face, confirm the tile receipt.
+
+### Review
+- Tests 617/617, `tsc --noEmit` clean in both repos, eslint clean, `next build`
+  green. Migration 076 applied to production and types regenerated. Modal
+  redeployed (idle window 600s) with nothing indexing.
+- Warm ping proven against the live endpoint with the exact payload the route
+  sends (see the session's final message for the measured cold/warm seconds).
+- Pixeltrunk commit local; SPS commit local. **Neither pushed**: an upload is
+  running on Pixeltrunk (49ers, 462 frames in the last hour) and Core SJC is
+  live on SPS. Pushes wait for Mason's go-ahead per ship-discipline.
+- Not verified in the browser yet: the review UI is behind Mason's session and
+  the change is not deployed. First look happens in his Chrome after the
+  deploy: tag a face, watch the tile chip, confirm "includes N AI renders"
+  once SPS is out too.
+- Left alone on purpose: `scripts/pixieset/release-sweep.ts` (another
+  session's edit) and the untracked triage scripts.
+
 ## Guest share links — planned 2026-08-28, client-requested
 
 A public gallery visitor shares one person's photos (or the whole gallery)

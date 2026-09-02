@@ -66,6 +66,12 @@ export async function GET(
          * review step gets abandoned.
          */
         previewIsFullSize: !img.thumbUrl,
+        /**
+         * Non-null on an AI render (the capture it was made from). The grid
+         * badges these "AI" instead of "unverified" — a render has no camera
+         * provenance to be unsure about.
+         */
+        sourceImageId: img.sourceImageId ?? null,
       })),
       nextOffset: page.nextOffset ?? null,
     });

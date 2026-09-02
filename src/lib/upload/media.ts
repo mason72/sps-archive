@@ -50,6 +50,25 @@ export function mediaTypeForMime(mime: string): "image" | "video" {
 }
 
 /**
+ * The extension a file SHOULD carry, given the bytes' mime and the extension
+ * its name already has. Returns the name's extension when it fits the mime
+ * (`.jpeg` stays `.jpeg`), the mime's canonical one when it does not
+ * (`(AI) Justin.jpg` served as image/webp → `webp`), and the name's own
+ * when the mime is unknown — a guess would be worse than the name.
+ *
+ * Exists because SPS names AI renders after their source JPEG and stores
+ * them as WebP; a `.jpg` full of WebP bytes opens nowhere.
+ */
+export function extensionForMime(mime: string | null | undefined, ext: string): string {
+  const key = (mime ?? "").toLowerCase().split(";")[0].trim();
+  const accepted = UPLOAD_ACCEPT[key];
+  if (!accepted) return ext;
+  const dotted = `.${ext.toLowerCase()}`;
+  if (accepted.includes(dotted)) return ext;
+  return accepted[0].slice(1);
+}
+
+/**
  * Camera raw, by extension. Browsers report no MIME for most of these, so the
  * generic branch would call a .CR3 "unsupported format" — technically true and
  * useless to a photographer, who wants to know it is the RAW that is the

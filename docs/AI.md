@@ -28,7 +28,12 @@ pipeline's fatal sin).
 - `embed_text` (CPU, 6GB — Gemma vocab is 1.2GB): search/scene queries never
   wait on a GPU. ~1s warm, ~15-20s cold (UI shows a "warming up" hint).
 - `embed_selfie` (GPU class method): guest selfie → embedding IN MEMORY, never
-  stored anywhere.
+  stored anywhere. Also the crew-face tag path. **Cold start is the whole
+  latency**: measured 23–44s cold vs 0.6–1.4s warm (`usage_events`, kind
+  `ai_embed_selfie`). The class now idles **600s** before reclaim (was 120s;
+  ~8¢ of idle T4 per burst at most), and `POST /api/crew/faces/warm` wakes it —
+  the import review fires that on open so the load overlaps the scrolling.
+  A ~30s `ai_embed_selfie` row with no faces is the warm ping, not a slow tag.
 - Deploy: `~/.venvs/modal-cli/bin/modal deploy modal/ai_pipeline.py`.
 - Gotcha: fixed-res SigLIP-2 checkpoints are `model_type: siglip` — use
   `AutoImageProcessor`/`AutoTokenizer`/`SiglipTextModel`, never `AutoProcessor`
