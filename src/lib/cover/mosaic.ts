@@ -1,4 +1,5 @@
 import { buildStacks } from "@/lib/gallery/stacks";
+import { detectStackable } from "@/lib/gallery/stackable";
 
 /**
  * Mosaic cover engine — pure math, no DOM, no network.
@@ -40,8 +41,8 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
 /**
  * Pick mosaic tile images from a section's images (in section order).
  *
- * Dedupes by person stack first — photo-booth sections are runs of
- * near-identical shots, and a wall of repeated faces reads as a bug. Each
+ * Dedupes by person stack first WHEN THE SET STACKS — a headshot day is runs
+ * of near-identical shots, and a wall of repeated faces reads as a bug. Each
  * stack contributes its lead image only; the seeded shuffle then fixes the
  * arrangement until the photographer hits Shuffle.
  */
@@ -51,10 +52,25 @@ export function selectMosaicTiles<
   return orderTiles(dedupeStackLeads(images), seed).slice(0, count);
 }
 
-/** One lead image per person stack — the mosaic's candidate pool. */
+/**
+ * The mosaic's candidate pool: one lead image per person stack when the set
+ * is stackable, every image otherwise.
+ *
+ * It used to dedupe unconditionally, and buildStacks groups by whatever the
+ * filename parses to — so any set whose files share one label collapsed to
+ * ONE tile: every camera-named event ("IMG_0001" … all key to "img"), and
+ * every export named after the job (Core SJC's 287 files all parse to
+ * "Google Booth"; across the archive, dozens of events sit at 80%+ under one
+ * bogus name — "2Dudes WF", "MBA", "Bay, Alarm"). Mason chose Mosaic, got a
+ * single photo beside the logo, and no control on the panel could change
+ * it (2026-09-02). The grids already ask `detectStackable` before they
+ * stack; the cover now asks the same question, so the two can never disagree
+ * about whether a set has people in it.
+ */
 export function dedupeStackLeads<
   T extends { parsedName: string | null; originalFilename: string }
 >(images: T[]): T[] {
+  if (!detectStackable(images).stackable) return images;
   return buildStacks(images).map((s) => s.images[0]);
 }
 
@@ -64,15 +80,13 @@ export function orderTiles<T>(leads: T[], seed: number): T[] {
 }
 
 /**
- * Crossfade hero images: stack-deduped, in section order (no shuffle — the
- * section's order is the photographer's curation).
+ * Crossfade hero images: stack-deduped when the set stacks, in section order
+ * (no shuffle — the section's order is the photographer's curation).
  */
 export function selectCrossfadeImages<
   T extends { parsedName: string | null; originalFilename: string }
 >(images: T[], count: number): T[] {
-  return buildStacks(images)
-    .map((s) => s.images[0])
-    .slice(0, count);
+  return dedupeStackLeads(images).slice(0, count);
 }
 
 /**

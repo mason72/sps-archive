@@ -383,6 +383,12 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   const singlePerson = useMemo(() => {
     const imgs = gallery?.images ?? [];
     if (imgs.length < 2) return null;
+    // Only a set that STACKS can be one person. Without this gate a booth
+    // export whose every file parses to the job's name ("Google Booth", 287
+    // times) titled the public gallery after a person who does not exist —
+    // the same collapse the mosaic cover had (2026-09-02). `smartStacks` is
+    // the server's detectStackable verdict, so grid, cover and title agree.
+    if (!gallery?.settings?.smartStacks) return null;
     const groups = buildStacks(imgs);
     if (groups.length !== 1) return null;
     const only = groups[0];

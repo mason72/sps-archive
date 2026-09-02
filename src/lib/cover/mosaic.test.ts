@@ -15,11 +15,23 @@ function img(name: string, n: number) {
   };
 }
 
-/** A booth-style pool: `people` distinct people × `shots` near-dupes each. */
+/**
+ * Digit-free, person-shaped, distinct names. The dedupe now only runs on a
+ * set `detectStackable` accepts, and that (correctly) rejects "Person0" —
+ * digits are camera codes, not people.
+ */
+function personName(i: number) {
+  const L = "abcdefghijklmnopqrstuvwxyz";
+  const a = L[Math.floor(i / 26) % 26];
+  const b = L[i % 26];
+  return `${a.toUpperCase()}${b}ra ${b.toUpperCase()}${a}son`;
+}
+
+/** A headshot-day pool: `people` distinct people × `shots` near-dupes each. */
 function pool(people: number, shots = 3) {
   const out: ReturnType<typeof img>[] = [];
   for (let p = 0; p < people; p++) {
-    for (let s = 0; s < shots; s++) out.push(img(`Person${p}`, s));
+    for (let s = 0; s < shots; s++) out.push(img(personName(p), s));
   }
   return out;
 }
@@ -52,18 +64,38 @@ describe("selectMosaicTiles", () => {
   it("caps at count", () => {
     expect(selectMosaicTiles(pool(40, 1), 1, 12)).toHaveLength(12);
   });
+
+  /**
+   * The 2026-09-02 collapse: every file of a booth export parses to the job's
+   * name, so stacking put all 287 photos in one group and the mosaic drew one
+   * tile. A set that does not stack must offer every photo.
+   */
+  it("does not dedupe a set that is not stackable — one label across every file", () => {
+    const booth = Array.from({ length: 120 }, (_, i) => ({
+      id: `b-${i}`,
+      parsedName: "Google Booth",
+      originalFilename: `260901_Google_Photo_Booth_${String(i).padStart(4, "0")}.jpg`,
+    }));
+    expect(selectMosaicTiles(booth, 1, 30)).toHaveLength(30);
+  });
+
+  it("does not dedupe camera-named files — they all key to the same prefix", () => {
+    const cam = Array.from({ length: 50 }, (_, i) => ({
+      id: `c-${i}`,
+      parsedName: null,
+      originalFilename: `IMG_${1000 + i}.jpg`,
+    }));
+    expect(selectMosaicTiles(cam, 1, 20)).toHaveLength(20);
+    expect(selectCrossfadeImages(cam, 8)).toHaveLength(8);
+  });
 });
 
 describe("selectCrossfadeImages", () => {
   it("keeps section order and dedupes people", () => {
     const picks = selectCrossfadeImages(pool(8, 3), 5);
-    expect(picks.map((p) => p.parsedName)).toEqual([
-      "Person0",
-      "Person1",
-      "Person2",
-      "Person3",
-      "Person4",
-    ]);
+    expect(picks.map((p) => p.parsedName)).toEqual(
+      [0, 1, 2, 3, 4].map(personName)
+    );
   });
 });
 
