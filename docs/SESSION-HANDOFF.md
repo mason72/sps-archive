@@ -4,7 +4,7 @@
 now. Read `CLAUDE.md` first for the invariants; this is the orientation: what
 Pixeltrunk is, what is in flight, and what the next session should pick up.
 
-Last substantive update: **2026-08-30**.
+Last substantive update: **2026-09-02**.
 
 > **Pixieset migration, current truth (2026-08-30).** 79 of 1,371 ingested.
 > Downloads run as in-page JS in Mason's real Chrome — the nightly autopilot is
@@ -50,6 +50,20 @@ not derivable from the code — business context, past incidents, Mason's
 conventions. It is the other entry point.
 
 ## What is live and stable
+
+- **2026-09-02, one day, all verified live in Mason's Chrome:** (1) crew-face
+  tagging on the import review no longer blocks on a Modal cold start — pick
+  closes the popover, the tile carries the receipt, the review pre-warms the
+  detector, idle window 600s (measured 32s cold / 0.4s warm); (2) **AI renders
+  come across from SPS** (`sourceImageId` → `images.sps_source_image_id`,
+  migration 076; the row says WebP, the bytes are JPEG, the importer sniffs);
+  Core SJC imported 287 incl. 143 renders; (3) the confirm card's crew field
+  reads the roster and `apply-gig` matches a typed name before inserting;
+  (4) the mosaic/crossfade cover and the gallery's single-person title only
+  stack a set `detectStackable` accepts — every one-label or camera-named
+  event had collapsed to ONE tile; (5) /people drops event labels
+  (`eventLabelKeys`, ≥10% of ≥100) and admits single-word people with
+  guardrails. Lessons 115–118.
 
 - Upload → R2 + Supabase, presign-ahead, reconciler, section-scoped dedupe
 - Guest galleries, shares, passwords, download PINs, email composer
@@ -125,7 +139,8 @@ conventions. It is the other entry point.
 
 ## In flight — pick these up
 
-Full detail in `tasks/todo.md`. Priority as of **2026-08-16**:
+Full detail in `tasks/todo.md`. Priority as of **2026-09-02** (item 0 and 1
+unchanged since 08-16/08-30; the SJC-day items above are done):
 
 0. **The /people identity engine is LIVE end to end** (2026-08-16, full doc
    `tasks/people-group-shots.md`, invariants in CLAUDE.md): group-shot

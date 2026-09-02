@@ -115,7 +115,20 @@ archive is only part-migrated).
   E2E: `npx tsx scripts/verify-person-spotlight.ts` asserts all three agree.
 - INTERNAL ONLY. It aggregates named faces across clients, which reveals
   employment across companies — never expose publicly or client-facing.
-- Next chapter (not built): cross-event FACE matching for the unnamed events
+- **A name that labels an EVENT is not a person there** (2026-09-02,
+  `src/lib/people/event-labels.ts`): a name on ≥10% of an event with ≥100
+  photos is dropped for that event before vouching. "Google Booth" was 287 of
+  287 on a booth export and passed `looksLikePersonName`; measured, 79 such
+  (event, name) pairs archive-wide, every one a label — including the two that
+  read like people ("Haley Neil", "Mason, Tang": couples'/party names over
+  hundreds of face clusters). Faces were tried and rejected as the test.
+- **Single-word people are admitted with guardrails** (Mason, 2026-09-02):
+  `looksLikeSingleName` — letters, ≥3, not all-caps, not a gallery word — plus
+  ≤60 frames in any one event. 3,298 → 3,743 people; a brand word that slips
+  through ("Twitch") is one "Not a person" click. Probe:
+  `scripts/triage/people-labels-probe.ts`.
+- Cross-event FACE matching is built (2026-08-16) — see
+  `tasks/people-group-shots.md` and the identity-engine bullet in CLAUDE.md.
   (booths/festivals/weddings). 32k+ embedded faces exist. Must suggest, not
   merge — same rule as the rest of the AI suite.
 

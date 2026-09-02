@@ -69,6 +69,23 @@ manifest (`.is('source_image_id', null)`) from the 2026-08-11 spec. Mason chose:
 - Left alone on purpose: `scripts/pixieset/release-sweep.ts` (another
   session's edit) and the untracked triage scripts.
 
+### Follow-ons the same afternoon (all live, all verified in Mason's Chrome)
+- [x] Crew field on the confirm card reads the roster; `apply-gig` matches a
+      typed name by `crewNameKey` before inserting (Mason: "No autocomplete
+      on Crew?!?"). Verified: "mic" → Michael (Mike) Walker, Liarra Michelle.
+- [x] Mosaic/crossfade dedupe and the gallery single-person title gated on
+      `detectStackable` — Core SJC's cover was one tile beside the logo;
+      every camera-named or one-label event collapsed the same way.
+- [x] /people: event labels dropped (`eventLabelKeys`, ≥10% of ≥100 photos,
+      79 real pairs measured) and single-word people admitted with guardrails
+      (Mason's call). 3,302 → 3,298 → 3,743 people; Nachi has a card.
+- [x] Core SJC imported: 287 photos incl. 143 renders, all JPEG, all
+      confirmed to SPS; shared as `1d4Y05UMLw`; raster recomposed.
+- Open, deliberately not done: labels under 10% of an event ("Caroline
+  Sanchez MCAPS Booth1" at 8%) still show on /people; single-word brand
+  words ("Twitch") show until excluded by hand; "Justin GoogleOverhead"-style
+  fused filenames are a separate parser quirk.
+
 ## Guest share links — planned 2026-08-28, client-requested
 
 A public gallery visitor shares one person's photos (or the whole gallery)
