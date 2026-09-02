@@ -2150,3 +2150,71 @@ the victim, not the cause.
   galleries, and search is not instrumented, so the blast radius is unmeasurable.
   Offered as an option, not taken. **If these alerts return at 15s, the answer is
   not another raise** — it is the HNSW write cost itself.
+
+## 114 — The disk hit 0 bytes, and every safeguard failed in the same direction (2026-09-02)
+
+The mini reached **0 bytes free**. Not "low" — zero. The Bash tool could not
+create its own output file, so I had no shell at all; screen control was denied;
+the two other Claude sessions on the box were dead the same way. The machine was
+reachable only by `ssh` over Tailscale, and Mason was out of town. 106 GB of
+Pixieset archives for 19 collections sat in `verified/` while the queue called
+every one of them `ingested`.
+
+Four independent mechanisms had to fail together, and **every one failed toward
+silence**:
+
+1. **An irreversible commit ran before the check that justified it.**
+   `markIngested()` (which makes `--next` skip a collection forever) ran BEFORE
+   `verifyLanded()` (a network call, against the same database that was timing
+   out under HNSW write load — lesson 113, same week, same root). Every throw in
+   that window stranded one archive with nothing left that would revisit it.
+   **Order the irreversible step LAST.** Verify → mark → release. A crash then
+   costs one wasted pass instead of one permanently leaked archive, and costs
+   nothing extra because the ingest is idempotent by (event, original_filename).
+2. **The cleanup lived on the path that requires work to be possible.** The
+   disk check and snapshot thinning ran only AFTER a successful ingest. With the
+   disk full nothing could ingest, so the loop took the "nothing staged" branch
+   and `continue`d — skipping the only code that frees space. **Low disk disabled
+   the fix for low disk.** This is the 2026-08-18 busy-loop lesson wearing new
+   clothes: *every branch must sleep or break* became *every branch must also
+   reclaim*. **Anything that recovers from a bad state must run on the pass that
+   does no work, or it cannot recover from the state where no work is possible.**
+3. **The floor guarded the wrong resource.** `PIXIESET_MIN_FREE_GB=60` fired
+   correctly and stopped DOWNLOADS at 45 GB. Downloads were not what was still
+   consuming the volume — already-ingested archives and hourly APFS snapshots
+   were. **A limit that governs one consumer reads as protection against all of
+   them.** Name what a threshold actually gates.
+4. **The watchdog shared fate with what it watched.** `stall-check.ts` exists to
+   email when the migration loses its pulse. It launches as `npx tsx`, npm writes
+   to `~/.npm/_cacache`, so it died with `ENOSPC` every hour and sent nothing.
+   **A check for condition X must not depend on X being false.** Its replacement
+   (`disk-guard.sh`) is df + awk + curl, on its OWN launchd agent, and its
+   throttle fails OPEN. **A silent watchdog is indistinguishable from a healthy
+   system** — which is why Mason found this by noticing his machine was broken.
+
+Also learned, in the cleanup:
+
+- **`unzip -Z1` renders any unprintable byte as `?`.** `NaniNa'ope_….jpg` came
+  back as `NaniNa???ope_….jpg` and could never match the UTF-8 name in the
+  database: **31 false "missing files" on one collection, 0 after switching to a
+  listing that decodes per the ZIP spec** (Python's `zipfile`; `bsdtar` merely
+  octal-escapes the same bytes). Third instance of this exact family after the
+  `[R]` glob bug — **a `?` in a zip listing stands in for bytes, not a
+  character.** It was gating a DELETE.
+- **The same delete-gating check paged without `ORDER BY`** — lesson 88, in the
+  one place where a skipped row reads as a missing photo.
+- **Both of those failed CLOSED, which is why this was 39 GB stranded and not
+  data loss.** Build the asymmetry deliberately: a false alarm costs one
+  redundant copy, a false all-clear costs the originals. The sweep still keeps
+  `kinexionslasvegas` today — 8 files genuinely absent from the event — and that
+  is the guard working, not a bug.
+- **I generated three broken probes in an hour and caught each only by checking
+  the vocabulary:** `action ilike '%selfie%'` returned 0 because `activity_log`
+  has no search action at all (this nearly justified dropping a live index); a
+  queue lookup keyed by slug returned "NOT IN QUEUE" for all 19 because the file
+  is keyed by numeric id; and `tail -1` on pretty-printed JSON silently sliced
+  every row off, printing 19 confident zeros. **A uniform result across every
+  row is the signature of a broken probe, not a finding.**
+- **`tmutil thinlocalsnapshots` printed "Thinned local snapshots:" with an empty
+  list** — it thinned nothing, and reads as success at a glance. Diagnosis-wise
+  that was the useful negative: it proved the space was real files.
