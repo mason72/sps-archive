@@ -57,10 +57,15 @@ manifest (`.is('source_image_id', null)`) from the 2026-08-11 spec. Mason chose:
 - Pixeltrunk commit local; SPS commit local. **Neither pushed**: an upload is
   running on Pixeltrunk (49ers, 462 frames in the last hour) and Core SJC is
   live on SPS. Pushes wait for Mason's go-ahead per ship-discipline.
-- Not verified in the browser yet: the review UI is behind Mason's session and
-  the change is not deployed. First look happens in his Chrome after the
-  deploy: tag a face, watch the tile chip, confirm "includes N AI renders"
-  once SPS is out too.
+- Verified LIVE in Mason's Chrome after both deploys (2026-09-02 ~11:35 PT):
+  Core SJC review reads "293 of 293 photos · includes 146 AI renders", the
+  render tiles badge AI, and a Joey tag closed on Enter, unchecked the tile
+  with "Saving Joey's face…" at once and read "Moved to crew photos · Joey
+  Nagoshiner" ~4s later, with "1 moved to crew photos" beside the count.
+- Found live, fixed in the follow-up commit: SPS's render row says WebP and
+  names the file .jpg while the object is a JPEG — the importer now sniffs
+  the magic number (`sniffImageMime`) so neither label decides; and the
+  receipt chip truncated the name on a 200px tile — it wraps now.
 - Left alone on purpose: `scripts/pixieset/release-sweep.ts` (another
   session's edit) and the untracked triage scripts.
 
