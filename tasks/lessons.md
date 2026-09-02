@@ -2258,6 +2258,10 @@ the renders are the shared images.
   "(AI) " filename prefix, which is a naming convention (and which
   `parseFilename` now strips, or People mints "(AI) Justin Smith" as a
   second person).
-- **The extension follows the bytes.** SPS names renders `(AI) X.jpg` and
-  stores WebP. Stored as `.jpg` they would ship in every ZIP under a name
-  nothing opens; `extensionForMime` renames on the way in.
+- **The extension follows the BYTES, and both labels were wrong.** SPS's
+  render row says `image/webp` and names the file `.jpg`; I built a rename
+  off the row (`.jpg` → `.webp`) and only the pre-push probe of the actual
+  object (`ff d8 ff`, a JPEG) showed the rename would have mislabelled a
+  correct file. `sniffImageMime` now reads the magic number and outranks
+  both the row and the name; `extensionForMime` follows it. When two labels
+  disagree, fetch twelve bytes before believing either.

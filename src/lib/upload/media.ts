@@ -59,6 +59,36 @@ export function mediaTypeForMime(mime: string): "image" | "video" {
  * Exists because SPS names AI renders after their source JPEG and stores
  * them as WebP; a `.jpg` full of WebP bytes opens nowhere.
  */
+/**
+ * The image format the BYTES say they are, from the file's magic number, or
+ * null when the buffer is not a still image this pipeline knows (video, raw,
+ * an error page). Only the container is identified — nothing is decoded.
+ *
+ * Exists because both labels a source can hand us have now been wrong: SPS's
+ * row for an AI render says `image/webp` and names it `.jpg`, and the bytes
+ * behind it are a JPEG (`ff d8 ff`). Trusting the row would have stored a
+ * correct JPEG as `.webp`; trusting the name would be right today and wrong
+ * the day SPS really does switch to WebP. The bytes are the durable record.
+ */
+export function sniffImageMime(buf: Uint8Array): string | null {
+  if (buf.length < 12) return null;
+  const b = (i: number) => buf[i];
+  if (b(0) === 0xff && b(1) === 0xd8 && b(2) === 0xff) return "image/jpeg";
+  if (b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) return "image/png";
+  if (b(0) === 0x47 && b(1) === 0x49 && b(2) === 0x46 && b(3) === 0x38) return "image/gif";
+  // RIFF....WEBP
+  if (
+    b(0) === 0x52 && b(1) === 0x49 && b(2) === 0x46 && b(3) === 0x46 &&
+    b(8) === 0x57 && b(9) === 0x45 && b(10) === 0x42 && b(11) === 0x50
+  ) return "image/webp";
+  // II*\0 (little-endian) or MM\0* (big-endian)
+  if (
+    (b(0) === 0x49 && b(1) === 0x49 && b(2) === 0x2a && b(3) === 0x00) ||
+    (b(0) === 0x4d && b(1) === 0x4d && b(2) === 0x00 && b(3) === 0x2a)
+  ) return "image/tiff";
+  return null;
+}
+
 export function extensionForMime(mime: string | null | undefined, ext: string): string {
   const key = (mime ?? "").toLowerCase().split(";")[0].trim();
   const accepted = UPLOAD_ACCEPT[key];

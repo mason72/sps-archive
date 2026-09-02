@@ -171,8 +171,9 @@ Notes that will bite if ignored:
   capture it was generated from). Until then they were excluded as "generated
   renders with no camera file behind them"; Mason reversed that from the review
   of a booth event, where the renders are the images guests actually shared.
-  A render's `url` is SPS's `large_url` (its biggest file — WebP, no original
-  variant exists), `quality` is reported as `lossy`, and the archive badges it
+  A render's `url` is SPS's `large_url` (its biggest file; no original variant
+  exists — and its row's `mime_type` says WebP while the object is a JPEG, so
+  Pixeltrunk sniffs the bytes), `quality` is reported as `lossy`, and the archive badges it
   AI off `sourceImageId`. Pixeltrunk keeps it as `images.sps_source_image_id`.
 - Only `processing_status = 'ready'` images appear.
 - `imageCount` on the event is SPS's own counter and has never matched the

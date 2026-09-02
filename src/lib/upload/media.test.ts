@@ -9,6 +9,7 @@ import {
   IMAGE_MAX_BYTES,
   VIDEO_MAX_BYTES,
   extensionForMime,
+  sniffImageMime,
 } from "./media";
 
 /**
@@ -248,5 +249,31 @@ describe("extensionForMime", () => {
 
   it("ignores mime parameters", () => {
     expect(extensionForMime("image/webp; charset=binary", "jpg")).toBe("webp");
+  });
+});
+
+describe("sniffImageMime", () => {
+  const bytes = (...head: number[]) => new Uint8Array([...head, ...new Array(16).fill(0)]);
+  // SPS's row for an AI render says image/webp, names it .jpg, and the object
+  // is a JPEG. The bytes settle it.
+  it("identifies JPEG regardless of the JFIF/DQT marker that follows", () => {
+    expect(sniffImageMime(bytes(0xff, 0xd8, 0xff, 0xdb))).toBe("image/jpeg");
+    expect(sniffImageMime(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe("image/jpeg");
+  });
+  it("identifies PNG, GIF, TIFF and WebP", () => {
+    expect(sniffImageMime(bytes(0x89, 0x50, 0x4e, 0x47))).toBe("image/png");
+    expect(sniffImageMime(bytes(0x47, 0x49, 0x46, 0x38))).toBe("image/gif");
+    expect(sniffImageMime(bytes(0x49, 0x49, 0x2a, 0x00))).toBe("image/tiff");
+    const webp = new Uint8Array(20);
+    webp.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+    expect(sniffImageMime(webp)).toBe("image/webp");
+  });
+  it("returns null for anything else, so the declared mime still decides", () => {
+    // RIFF without WEBP is a WAV/AVI, not an image.
+    const riff = new Uint8Array(20);
+    riff.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]);
+    expect(sniffImageMime(riff)).toBeNull();
+    expect(sniffImageMime(new TextEncoder().encode("<html>not an image</html>"))).toBeNull();
+    expect(sniffImageMime(new Uint8Array(3))).toBeNull();
   });
 });

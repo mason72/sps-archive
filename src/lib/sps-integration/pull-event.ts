@@ -37,6 +37,7 @@ import {
   VIDEO_MAX_BYTES,
   extensionForMime,
   mediaTypeForMime,
+  sniffImageMime,
 } from "@/lib/upload/media";
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
@@ -657,7 +658,14 @@ async function importOneImage(
   const buffer = Buffer.from(arrayBuffer);
   if (buffer.byteLength < 1024) throw new Error("source too small");
 
-  const mimeType = image.mimeType || contentType;
+  /**
+   * The bytes outrank both labels. SPS's row for an AI render declares
+   * `image/webp` and names the file `.jpg`; the object behind it is a JPEG
+   * (probed 2026-09-02: `ff d8 ff`, served as image/jpeg). Declared mime
+   * remains the answer for anything the sniffer does not recognise — video,
+   * mainly — with the response's content-type as the last resort.
+   */
+  const mimeType = sniffImageMime(buffer) ?? image.mimeType ?? contentType;
   const mediaType = mediaTypeForMime(mimeType);
   const cap = mediaType === "video" ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES;
   if (buffer.byteLength > cap) {
@@ -670,12 +678,12 @@ async function importOneImage(
   const id = randomUUID();
   const parsed = parseFilename(image.originalFilename);
   /**
-   * The stored extension follows the BYTES, not the name. SPS names an AI
-   * render "(AI) Justin.jpg" and persists it as WebP (mime image/webp), so the
-   * name's extension is wrong the moment it leaves SPS — a `.jpg` holding WebP
-   * bytes would ship in every ZIP under a name nothing opens. Renamed on the
-   * way in, `original_filename` included, because that is the name the ZIP
-   * writes. A name whose extension already fits its mime is left alone.
+   * The stored extension follows the BYTES (via the sniffed mime above), not
+   * the name. A file whose name disagrees with its contents would ship in
+   * every ZIP under a name nothing opens, so it is renamed on the way in,
+   * `original_filename` included, because that is the name the ZIP writes.
+   * A name whose extension already fits is left alone — which today is every
+   * SPS row, renders included; the guard is for the day one does not.
    */
   const extension = extensionForMime(mimeType, parsed.extension);
   const originalFilename =

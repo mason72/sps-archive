@@ -200,7 +200,7 @@ export function CrewFaceTag({
                 ? `${phase.crew.display_name}: face saved to their crew references. The frame stays out of the import.`
                 : `${phase.crew.display_name}: saving their face…`
           }
-          className={`absolute inset-x-1.5 bottom-1.5 z-10 flex items-center gap-1.5 px-2 py-1.5 text-[11px] leading-none shadow-sm ${
+          className={`absolute inset-x-1.5 bottom-1.5 z-10 flex items-start gap-1.5 px-2 py-1.5 text-[11px] leading-[1.25] shadow-sm ${
             phase.kind === "failed"
               ? "border border-amber-200 bg-amber-50 text-amber-800"
               : "bg-white/92 text-stone-800 backdrop-blur-sm"
@@ -214,8 +214,11 @@ export function CrewFaceTag({
           )}
           {phase.kind === "saved" && (
             <>
-              <Check size={11} className="shrink-0 text-accent" />
-              <span className="truncate">Moved to crew photos · {phase.crew.display_name}</span>
+              <Check size={11} className="mt-px shrink-0 text-accent" />
+              {/* Wraps rather than truncates: on a 200px tile "Moved to crew
+                  photos · Joey Nagoshiner" lost the name, which is the part
+                  that tells three tags apart (seen live, 2026-09-02). */}
+              <span>Moved to crew photos · {phase.crew.display_name}</span>
             </>
           )}
           {phase.kind === "failed" && (
