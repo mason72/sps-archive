@@ -31,6 +31,7 @@
  * apart from "something needs a human".
  */
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -42,7 +43,60 @@ const QUEUE = path.join("scripts", "pixieset", "data", "queue.json");
 
 interface Col { id: string; slug: string; state: string; eventId?: string | null }
 
+/**
+ * Reclaim Chrome's duplicate downloads.
+ *
+ * When a download lands on a name that already exists, Chrome writes
+ * `NAME (1).zip` instead of overwriting. The watcher requires the exact shape
+ * `{slug}-photo-download-NofM.zip`, so a ` (1)` copy can NEVER be swept into the
+ * pipeline — it is dead weight that accumulates silently and forever. On
+ * 2026-09-02, six of them for one collection held **19.9 GB**, all byte-identical
+ * to originals sitting beside them, while the disk was at zero.
+ *
+ * Deletes only when the original exists AND the sizes match AND the content
+ * matches (full hash under 400 MB, size + first 64 MB above it — these are
+ * multi-GB parts and a full read of each would cost more than it saves). Sizes
+ * alone would be a count-based guard, and a count-based guard is not a presence
+ * guard.
+ */
+function reclaimDuplicateDownloads(apply: boolean): number {
+  const dl = path.join(os.homedir(), "Downloads");
+  if (!fs.existsSync(dl)) return 0;
+  let freed = 0;
+  for (const f of fs.readdirSync(dl).sort()) {
+    const m = f.match(/^(.*) \(\d+\)(\.[A-Za-z0-9]+)$/);
+    if (!m) continue;
+    const orig = path.join(dl, m[1] + m[2]);
+    const dup = path.join(dl, f);
+    if (!fs.existsSync(orig)) continue;
+    const a = fs.statSync(dup).size, b = fs.statSync(orig).size;
+    if (a !== b) { console.log(`  skip     ${f} — same name, DIFFERENT size; not a duplicate`); continue; }
+    const limit = a < 400_000_000 ? Infinity : (1 << 26);
+    if (sha(dup, limit) !== sha(orig, limit)) { console.log(`  skip     ${f} — same size, different content`); continue; }
+    if (apply) fs.unlinkSync(dup);
+    console.log(`  ${apply ? "reclaimed" : "would reclaim"} ${f} (${(a / 1073741824).toFixed(1)} GB duplicate)`);
+    freed += a;
+  }
+  return freed;
+}
+
+function sha(p: string, limit: number): string {
+  const h = crypto.createHash("sha256");
+  const fd = fs.openSync(p, "r");
+  try {
+    const buf = Buffer.alloc(1 << 20);
+    let read = 0, n = 0;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
+      h.update(buf.subarray(0, n));
+      read += n;
+      if (read >= limit) break;
+    }
+  } finally { fs.closeSync(fd); }
+  return h.digest("hex");
+}
+
 function main() {
+  const dupFreed = reclaimDuplicateDownloads(APPLY);
   if (!fs.existsSync(VERIFIED)) { console.log("no verified/ directory — nothing staged."); return; }
   const queue = JSON.parse(fs.readFileSync(QUEUE, "utf8")) as { collections: Record<string, Col> };
   const bySlug = new Map<string, Col>();
@@ -83,7 +137,8 @@ function main() {
     freed += bytes;
   }
   console.log(
-    `\n${APPLY ? "released" : "releasable"}: ${(freed / 1073741824).toFixed(1)} GB` +
+    `\n${APPLY ? "released" : "releasable"}: ${((freed + dupFreed) / 1073741824).toFixed(1)} GB` +
+    (dupFreed ? ` (incl. ${(dupFreed / 1073741824).toFixed(1)} GB duplicate downloads)` : "") +
     `  |  kept for review: ${kept} collection(s), ${(kb / 1073741824).toFixed(1)} GB`
   );
   if (kept) {
