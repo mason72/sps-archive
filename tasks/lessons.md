@@ -2265,3 +2265,22 @@ the renders are the shared images.
   correct file. `sniffImageMime` now reads the magic number and outranks
   both the row and the name; `extensionForMime` follows it. When two labels
   disagree, fetch twelve bytes before believing either.
+
+## 116 — A bare text field beside a registry is a duplicate-row factory (2026-09-02)
+
+The gig confirm card's "someone else worked this" field was name-only by
+design (an email and a city there turn a one-line addition into a form), and
+apply-gig created a crew row for whatever was typed. Mason typed "michael"
+for someone already on the roster: *"No autocomplete on Crew?!?"* The
+duplicate would have carried none of his history, ratings or face.
+- **If a field's value can name something that already exists, it reads that
+  registry first.** Suggestions from the roster, regulars first, alumni
+  labelled, people already on the card excluded, and "Add … as someone new"
+  only when the name is nobody's. Same shape as the venue and client pickers,
+  which already did this — the crew field was the odd one out.
+- **The server matches too.** `crewNameKey` (case, spacing, punctuation and
+  accents folded) links a bare typed name to the roster row it belongs to
+  before any insert. A picker is a courtesy; the backstop is the invariant.
+- **One roster copy per page.** The face tag on the import grid kept its own
+  module cache of `/api/crew`; it now reads the shared registry. Two caches
+  of one list is how a person added in one control is missing from the next.
