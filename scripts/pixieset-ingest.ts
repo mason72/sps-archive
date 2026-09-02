@@ -789,6 +789,27 @@ async function main() {
   // Only a clean run reclaims the disk. A partial ingest keeps its archive so the
   // rerun has something to read.
   if (!failed) {
+    /**
+     * ORDER MATTERS, and getting it wrong cost the whole machine on 2026-09-02.
+     *
+     * This used to call markIngested() FIRST and verifyLanded() second. The mark
+     * is irreversible (it is what makes `--next` skip this collection forever);
+     * the verify is a network call that can throw — and it queries the same
+     * database that times out under HNSW write load during a bulk migration.
+     * Every throw in that window stranded one collection's archive on the
+     * staging volume with nothing left that would ever revisit it. 19 of them
+     * accumulated, 106 GB, and the disk reached 0 bytes free: no shell, no
+     * tooling, the machine only reachable over ssh.
+     *
+     * Verify BEFORE marking. If verifyLanded throws now, the collection is still
+     * `verified`, so the next pass simply retries it — the ingest is idempotent
+     * by (event, original_filename), which is exactly what makes a retry free.
+     * A crash costs one wasted pass instead of one permanently leaked archive.
+     *
+     * Backstop for anything that slips through anyway:
+     * scripts/pixieset/release-sweep.ts, run every pass by ingest-loop.sh.
+     */
+    const release = await verifyLanded(supabase, eventId, todo.length);
     await markIngested(queue, collection, eventId);
 
     /**
@@ -812,7 +833,6 @@ async function main() {
      * (an unpublished gallery is one the client cannot open). Anything short of
      * that keeps the bytes.
      */
-    const release = await verifyLanded(supabase, eventId, todo.length);
     if (KEEP_ZIP) {
       console.log("archive kept (--keep-zip)");
     } else if (release.ok) {

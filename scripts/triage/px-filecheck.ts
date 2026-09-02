@@ -30,7 +30,20 @@ async function main() {
 
   const inZip = new Set<string>();
   for (const z of zips) {
-    const out = execFileSync("unzip", ["-Z1", z], { encoding: "utf8", maxBuffer: 1 << 28 });
+    // NEVER `unzip -Z1` here. Info-ZIP renders any byte it cannot print as `?`,
+    // so `NaniNa\u2019ope_….jpg` comes back as `NaniNa???ope_….jpg` and can never match
+    // the real UTF-8 name in the database. That is not a missing photo, it is a
+    // mangled listing — and because this check gates a DELETE, it failed closed
+    // and stranded 39 GB across 4 collections (2026-09-02). `bsdtar -tf` is no
+    // better: it octal-escapes the same bytes. Python's zipfile decodes filenames
+    // per the ZIP spec (honouring the UTF-8 flag), which is the only listing that
+    // round-trips. Same family as the `[R]` glob bug: a `?` in a zip listing
+    // stands in for bytes, it is not a character.
+    const out = execFileSync(
+      "python3",
+      ["-c", "import sys,zipfile\nfor n in zipfile.ZipFile(sys.argv[1]).namelist(): sys.stdout.write(n+chr(10))", z],
+      { encoding: "utf8", maxBuffer: 1 << 28 }
+    );
     for (const l of out.split("\n")) {
       const name = (l.trim().split("/").pop() || "").trim();
       if (/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) inZip.add(name.toLowerCase());
@@ -43,8 +56,13 @@ async function main() {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("images")
-      .select("original_filename")
+      .select("id, original_filename")
       .eq("event_id", eventId)
+      // ORDER BY on a unique column is mandatory for any paged read (lesson 88):
+      // .range() is OFFSET/LIMIT and Postgres defines no row order without it, so
+      // concurrent scans can skip rows. A skipped row here reads as a MISSING
+      // photo — in the one check that gates deleting the only other copy.
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) throw error;
     if (!data?.length) break;

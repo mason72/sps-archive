@@ -42,6 +42,46 @@ pass=0
 while :; do
   pass=$((pass + 1))
   echo "=== pass $pass · $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+  # ---- HOUSEKEEPING — runs EVERY pass, before any branch can `continue` ----
+  #
+  # This block used to live AFTER a successful ingest. That is what killed the
+  # machine on 2026-09-02: the disk hit 0 bytes, so nothing could ingest, so the
+  # loop took the "nothing staged" branch and `continue`d — skipping the only
+  # code that frees space. Low disk stopped the one thing that fixes low disk.
+  # The 60 GB floor did fire; it just governs DOWNLOADS, and downloads were not
+  # what was still consuming the volume.
+  #
+  # INVARIANT: anything that reclaims space must run on a pass that does no
+  # work, or it cannot recover from the state where no work is possible.
+  free_gb=$(df -g / | awk 'NR==2{print $4}')
+  floor=${PIXIESET_MIN_FREE_GB:-60}
+  if [ "${free_gb:-999}" -lt $((floor + 40)) ]; then
+    echo "--- ${free_gb}GB free (floor ${floor}) — housekeeping ---"
+
+    # (a) Release archives whose photos are provably in Pixeltrunk. An ingest
+    #     that crashes between markIngested() and the unlink strands its bytes
+    #     forever, because `--next` then skips that collection. 19 collections /
+    #     106 GB had accumulated this way. The sweep verifies per FILE against
+    #     the database and never deletes anything it cannot prove landed.
+    npx tsx scripts/pixieset/release-sweep.ts --apply 2>&1 | sed 's/^/    /'
+
+    # (b) Then thin local APFS snapshots. Order matters: a snapshot pins blocks
+    #     for ~24h, so deleting files first and thinning second is what actually
+    #     returns them. External Time Machine backups are untouched.
+    tmutil thinlocalsnapshots / 53687091200 4 2>&1 | sed 's/^/    /'
+
+    after=$(df -g / | awk 'NR==2{print $4}')
+    echo "--- after housekeeping: ${after}GB free ---"
+    # Fail LOUD. A cleanup step whose failure is invisible is how a disk fills up
+    # while the script reports it is managing space.
+    if [ "${after:-0}" -lt "$floor" ]; then
+      echo "!!! STILL BELOW THE ${floor}GB FLOOR after housekeeping (${after}GB)."
+      echo "!!! Nothing automatic can fix this — a human must look. Largest staged:"
+      du -sh "$HOME/pixieset-staging/verified" 2>/dev/null | sed 's/^/    /'
+    fi
+  fi
+
   out=$(npx tsx scripts/pixieset-ingest.ts --next --apply 2>&1)
   # Inngest settlement cannot fire from this machine (no event key); production's
   # nightly ai-index sweep picks these events up. Not worth a stack trace a pass.
@@ -60,25 +100,6 @@ while :; do
     fi
     echo "=== drained: no verified collections left · $(date '+%H:%M:%S') ==="
     break
-  fi
-
-  # RELEASING AN ARCHIVE DOES NOT FREE THE SPACE. Time Machine's hourly local
-  # APFS snapshots pin the deleted blocks, so `df` does not move and the pipeline
-  # creeps toward its 60 GB floor while appearing to clean up after itself.
-  # Measured 2026-08-30: thinning took 86 GB -> 103 GB with 24 snapshots cleared.
-  #
-  # This thins LOCAL snapshots only. The external Time Machine backups are
-  # untouched — those are the real safety net for the things not in GitHub or R2
-  # (.env.local, keychain, staging mid-migration), and they stay.
-  #
-  # Only runs when headroom is actually tight, so a healthy disk is left alone
-  # and Mason keeps his recent local restore points.
-  free_gb=$(df -g / | awk 'NR==2{print $4}')
-  floor=${PIXIESET_MIN_FREE_GB:-60}
-  if [ "${free_gb:-999}" -lt $((floor + 40)) ]; then
-    echo "--- ${free_gb}GB free (floor ${floor}) — thinning local TM snapshots ---"
-    tmutil thinlocalsnapshots / 53687091200 4 >/dev/null 2>&1
-    echo "--- after thinning: $(df -g / | awk 'NR==2{print $4}')GB free ---"
   fi
 
   # A `verified` collection whose ZIPs are not staged yet is a REAL, nameable
