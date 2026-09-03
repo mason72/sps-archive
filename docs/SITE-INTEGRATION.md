@@ -80,6 +80,7 @@ event.
 | `slot/slice-1` … `slot/slice-6` | slot | the slice's service |
 | `slot/hero/{service-slug}` (all 8 services) | slot | that service |
 | `benefits/{service-slug}` (7 services, no environmental-portraits) | ordered ×6 | that service |
+| `how-it-works` | ordered ×3 | `headshot-booth` |
 | `story` | ordered ×3 | — |
 | `about-values` | ordered ×4 | — |
 | `quote` | ordered ×2 | — |
