@@ -35,23 +35,31 @@ interface SuggestionCard {
   referenceFace: FaceCropGeometry | null;
 }
 
+/** Mirrors SURE_CONFIDENCE in the API route. Measured: true-match median
+ *  0.886, impostor max 0.363. */
+const SURE = 0.9;
+
 export function IdentitySuggestions() {
   const router = useRouter();
   const [cards, setCards] = useState<SuggestionCard[] | null>(null);
   const [pendingTotal, setPendingTotal] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmedAny, setConfirmedAny] = useState(false);
+  const [sureCount, setSureCount] = useState(0);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = async () => {
     try {
       const res = await fetch("/api/people/identity-suggestions?limit=8");
       if (!res.ok) return;
       const body = (await res.json()) as {
+        sureTotal?: number;
         suggestions: SuggestionCard[];
         pendingTotal: number;
       };
       setCards(body.suggestions);
       setPendingTotal(body.pendingTotal);
+      setSureCount(body.sureTotal ?? 0);
     } catch {
       // The wall works fine without the tray.
     }
@@ -92,6 +100,25 @@ export function IdentitySuggestions() {
     return null;
   }
 
+  const confirmSure = async () => {
+    if (!confirm(`Confirm ${sureCount} matches the archive is at least ${Math.round(SURE * 100)}% sure about?`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/people/identity-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm", minConfidence: SURE }),
+      });
+      if (res.ok) {
+        setConfirmedAny(true);
+        await load();
+        router.refresh();
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <section className="mb-14">
       <div className="mb-5 flex items-baseline justify-between">
@@ -101,17 +128,33 @@ export function IdentitySuggestions() {
             the archive thinks it knows · {pendingTotal.toLocaleString()} waiting
           </span>
         </p>
-        {confirmedAny && (
-          <button
-            onClick={() => {
-              setConfirmedAny(false);
-              router.refresh();
-            }}
-            className="text-[12px] text-stone-400 underline transition-colors hover:text-stone-600"
-          >
-            Refresh the wall
-          </button>
-        )}
+        <div className="flex items-baseline gap-4">
+          {/* The wall is sorted LEAST confident first, so the cards on screen are
+              the ones that need a person. This clears the near-certain tail in
+              one deliberate act rather than 192 reflexive clicks — a human still
+              applies it, which is the invariant that matters. */}
+          {sureCount > 1 && (
+            <button
+              onClick={confirmSure}
+              disabled={bulkBusy}
+              title={`Confirms every pending match at ${Math.round(SURE * 100)}% confidence or higher. Measured floor for a true match is 0.55; impostors topped out at 0.363.`}
+              className="text-[12px] text-emerald-700 underline underline-offset-2 transition-colors hover:text-emerald-800 disabled:text-stone-300 disabled:no-underline"
+            >
+              {bulkBusy ? "Confirming…" : `Confirm the ${sureCount.toLocaleString()} above ${Math.round(SURE * 100)}%`}
+            </button>
+          )}
+          {confirmedAny && (
+            <button
+              onClick={() => {
+                setConfirmedAny(false);
+                router.refresh();
+              }}
+              className="text-[12px] text-stone-400 underline transition-colors hover:text-stone-600"
+            >
+              Refresh the wall
+            </button>
+          )}
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
