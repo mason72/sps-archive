@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
+import { IdentifyPersonPicker, type IdentifyTarget } from "@/components/events/IdentifyPersonPicker";
 import { EventIntelPanel } from "@/components/events/EventIntelPanel";
 import { EventCrewConfirm } from "@/components/events/EventCrewConfirm";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
@@ -217,6 +218,9 @@ export default function EventPage({
    * opening nothing). Read once and stripped, same discipline as `?person=`.
    */
   const [openFacePersonId, setOpenFacePersonId] = useState<string | null>(null);
+  /** "Who is this?" on a selected frame — resolves to a cluster, then hands off
+   *  to the same person panel the `?face=` deep link opens. */
+  const [identifyTarget, setIdentifyTarget] = useState<IdentifyTarget | null>(null);
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("face");
     if (!raw) return;
@@ -2685,6 +2689,22 @@ export default function EventPage({
           }
           onCopyToGallery={() => setTransferMode("copy")}
           onMoveToGallery={() => setTransferMode("move")}
+          onIdentifyPerson={
+            // One frame at a time: "who is this" has no meaning across a
+            // selection, and the answer is a face in a specific photo.
+            selection.count === 1
+              ? () => {
+                  const id = selectedArray[0];
+                  const thumb = imageThumbById.get(id);
+                  if (!thumb) return;
+                  setIdentifyTarget({
+                    imageId: id,
+                    thumbnailUrl: thumb.thumbnailUrl,
+                    filename: thumb.filename || undefined,
+                  });
+                }
+              : undefined
+          }
           onSetFocalPoint={
             // Anywhere in the website gallery (sections AND All Images): the
             // site crops focal-aware everywhere, so the tool follows the
@@ -2746,6 +2766,21 @@ export default function EventPage({
                 selectedArray.length === 1 ? "image" : "images"
               } to ${galleryName} › ${sectionName}`
             );
+          }}
+        />
+      )}
+
+      {/* ─── Who is this? — frame → cluster, then the person panel ─── */}
+      {identifyTarget && (
+        <IdentifyPersonPicker
+          target={identifyTarget}
+          onClose={() => setIdentifyTarget(null)}
+          onPick={(personId) => {
+            // Exactly what the ?face= deep link does — one destination for
+            // "show me this person", so the two can never diverge.
+            setIdentifyTarget(null);
+            setOpenFacePersonId(personId);
+            setViewMode("people");
           }}
         />
       )}

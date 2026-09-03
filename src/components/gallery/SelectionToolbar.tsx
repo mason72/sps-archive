@@ -18,6 +18,7 @@ import {
   Check,
   Image as ImageIcon,
   Crosshair,
+  ScanFace,
   Captions,
   Search,
 } from "lucide-react";
@@ -63,6 +64,8 @@ interface SelectionToolbarProps {
   deleteHint?: string;
   /** Pick the focal point of the single selected slot-section image. */
   onSetFocalPoint?: () => void;
+  /** "Who is this?" — resolve this frame to its face clusters. Single selection only. */
+  onIdentifyPerson?: () => void;
   /** Edit website curation details (event, city, service, featured). */
   onEditWebsiteDetails?: () => void;
   sections?: SectionOption[];
@@ -93,6 +96,7 @@ export function SelectionToolbar({
   onSetCover,
   deleteHint,
   onSetFocalPoint,
+  onIdentifyPerson,
   onEditWebsiteDetails,
   sections = [],
   activeSection,
@@ -390,6 +394,17 @@ export function SelectionToolbar({
                 />
               )}
             </div>
+          )}
+
+          {/* Who is this? — the bridge from a frame to the person panel where
+              naming, crew-linking and splitting already live. Everything it
+              leads to existed; nothing on the grid pointed at it. */}
+          {onIdentifyPerson && (
+            <ToolbarButton
+              icon={<ScanFace className="h-4 w-4" />}
+              label="Who is this?"
+              onClick={onIdentifyPerson}
+            />
           )}
 
           {/* Focal point (single slot-section image) */}
