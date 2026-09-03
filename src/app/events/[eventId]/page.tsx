@@ -49,6 +49,7 @@ import { EventIntelPanel } from "@/components/events/EventIntelPanel";
 import { EventCrewConfirm } from "@/components/events/EventCrewConfirm";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import type { ImageData, StackData } from "@/types/image";
+import { PREVIEW_SETTINGS_MESSAGE, previewNeedsReload } from "@/lib/cover/gallery-fields";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildStacks } from "@/lib/gallery/stacks";
 import {
@@ -493,23 +494,40 @@ export default function EventPage({
     return () => document.removeEventListener("mousedown", handle);
   }, [sortOpen]);
 
-  // Refresh preview iframe when design settings change
+  // Live preview follows design settings.
+  //
+  // Every change used to reload the iframe — 600ms save debounce, 1.2s
+  // more, then a full preview page: event, profile, every image row with
+  // three signed URLs, every section link, full grid render — before the
+  // mosaic redrew. Mason, on the logo-spacing slider: "it takes seconds to
+  // reload after every tiny adjustment". Now the settings are POSTED into
+  // the loaded preview at once and it re-renders from the payload it holds.
+  // A reload remains only for what the preview cannot mint itself: a new
+  // cover photo or logo file needs a signed URL from the server, so that
+  // change still waits for the save and reloads.
   const settingsKeyRef = useRef(JSON.stringify(eventSettings));
+  const previewSettingsRef = useRef(eventSettings);
   useEffect(() => {
     const key = JSON.stringify(eventSettings);
     if (key === settingsKeyRef.current) return;
     settingsKeyRef.current = key;
+    const prev = previewSettingsRef.current;
+    previewSettingsRef.current = eventSettings;
     if (sidebarPanel !== "design") return;
-    // Wait for the debounced save to complete before refreshing
-    clearTimeout(previewRefreshTimer.current);
-    previewRefreshTimer.current = setTimeout(() => {
-      if (previewIframeRef.current) {
-        // Use cache-busting query parameter for reliable reload
-        const base = `/gallery/preview/${eventId}`;
-        previewIframeRef.current.src = `${base}?t=${Date.now()}`;
-      }
-    }, 1200);
-    return () => clearTimeout(previewRefreshTimer.current);
+    const frame = previewIframeRef.current;
+    if (previewNeedsReload(prev, eventSettings)) {
+      clearTimeout(previewRefreshTimer.current);
+      previewRefreshTimer.current = setTimeout(() => {
+        if (previewIframeRef.current) {
+          previewIframeRef.current.src = `/gallery/preview/${eventId}?t=${Date.now()}`;
+        }
+      }, 1200);
+      return () => clearTimeout(previewRefreshTimer.current);
+    }
+    frame?.contentWindow?.postMessage(
+      { type: PREVIEW_SETTINGS_MESSAGE, settings: eventSettings },
+      window.location.origin
+    );
   }, [eventId, eventSettings, sidebarPanel]);
 
   // Live upload-session state: suppresses the empty state mid-upload, feeds
@@ -2001,7 +2019,7 @@ export default function EventPage({
                     Live Preview
                   </span>
                   <span className="text-[11px] text-stone-300">
-                    — changes appear after saving
+                    — follows your changes as you make them
                   </span>
                 </div>
                 <div className="flex-1 border border-stone-200 bg-stone-50 overflow-hidden" style={{ minHeight: "60vh" }}>

@@ -17,6 +17,8 @@ import { PassingPhotos } from "@/components/brand/passing-photos";
 import { toast } from "sonner";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
+import { applyPreviewSettings, PREVIEW_SETTINGS_MESSAGE } from "@/lib/cover/gallery-fields";
+import type { EventSettings } from "@/types/event-settings";
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -301,6 +303,27 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   // only ever rendered when `can.passwordGate`.
   const slug = source.kind === "share" ? source.slug : source.eventId;
   const [gallery, setGallery] = useState<GalleryData | null>(null);
+
+  /**
+   * The editor posts settings into the preview as they change, and the
+   * cover/fonts/colours/grid re-render from the payload already loaded —
+   * no round trip, no reload. Preview only, same origin only; a share page
+   * never listens. See gallery-fields.ts for why.
+   */
+  useEffect(() => {
+    if (source.kind !== "preview") return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as { type?: string; settings?: EventSettings } | null;
+      if (!data || data.type !== PREVIEW_SETTINGS_MESSAGE || !data.settings) return;
+      const next = data.settings;
+      setGallery((g) =>
+        g ? { ...g, settings: applyPreviewSettings(g.settings ?? {}, next) } : g
+      );
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [source.kind]);
   const [requiresAuth, setRequiresAuth] = useState(false);
   const [authMeta, setAuthMeta] = useState<{
     eventName: string;
