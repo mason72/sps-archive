@@ -81,6 +81,16 @@ manifest (`.is('source_image_id', null)`) from the 2026-08-11 spec. Mason chose:
       (Mason's call). 3,302 → 3,298 → 3,743 people; Nachi has a card.
 - [x] Core SJC imported: 287 photos incl. 143 renders, all JPEG, all
       confirmed to SPS; shared as `1d4Y05UMLw`; raster recomposed.
+- [x] DAIS consolidated onto the SPS copy (9,488 frames, 15 sections, share
+      `etwNOrGT86` repointed). **OPEN: delete the superseded Pixieset copy
+      (event `26ca7bed…`, renamed "superseded") after 2026-09-09**, after
+      confirming the share still points at `f2fe3441…`.
+- [x] Cover: logo size slider (`mosaic.logoScale`), Mosaic default, and the
+      "Use cover" flip fixed (page refetch clobbered debounced settings).
+- [x] Francisca Dedei Afutu (HR Florida): 18 day-two frames filed as "Morgan
+      Joseph" relabeled onto her name and moved to E–K (face 0.74–0.84, no
+      real Morgan Joseph in the event). Person filter now spans sections;
+      modal tiles open the lightbox.
 - Open, deliberately not done: labels under 10% of an event ("Caroline
   Sanchez MCAPS Booth1" at 8%) still show on /people; single-word brand
   words ("Twitch") show until excluded by hand; "Justin GoogleOverhead"-style
