@@ -2356,3 +2356,23 @@ of 5,005 faces had no embedding. `ORDER BY sim DESC NULLS LAST` found her
 day-two frames at 0.74–0.84 under another name. A probe whose empty result is
 plausible is the "empty poll is a broken probe" rule again: filter or order
 the nulls out before believing the top of a ranking.
+
+## 121 — A preview that refetches the world on every tweak (2026-09-02)
+
+The Design panel's live preview reloaded its iframe after every setting
+change: 600ms save debounce, 1.2s more, then a full preview page — event,
+profile, 4,478 image rows with three signed URLs each, every section link,
+a complete grid render — before the mosaic laid out again, and the route was
+`no-store`. Mason, moving one slider: "it takes seconds to reload after
+every tiny adjustment… is it re-pulling images every time?"
+- **Push state into a loaded surface; refetch only what only the server can
+  mint.** The settings→gallery mapping was pure apart from two signed URLs.
+  Split the pure part out (`gallery-fields.ts`), post settings into the
+  iframe, and let it re-render from the payload it holds. Reload only for a
+  new photo or logo file, which needs a signed URL.
+- **"Changes appear after saving" is a design smell, not a caption.** A
+  preview that lags its controls by seconds trains the user to stop
+  adjusting. If the label has to explain the delay, remove the delay.
+- The same shape lived in lesson 119 (a refetch clobbering local state);
+  both come from treating the server as the only source once a human is
+  editing on the client.
