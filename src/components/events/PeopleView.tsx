@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CrewLinkAction } from "@/components/crew/CrewLinkAction";
 import { FaceCircleCrop } from "@/components/faces/FaceCircleCrop";
 import { FaceRings, usePersonFaces } from "./FaceOutline";
 import { ArrowRight, Users, X } from "lucide-react";
+import { Lightbox } from "@/components/lightbox/Lightbox";
+import type { ImageData } from "@/types/image";
 
 /** Fixed-overlay modals must not let the page scroll behind them. */
 function useBodyScrollLock() {
@@ -75,6 +77,7 @@ export function PeopleView({
   activePersonId,
   onSelectPerson,
   imageById,
+  images,
   onSuggestionsCount,
   searchQuery,
   matchingImageIds,
@@ -86,6 +89,14 @@ export function PeopleView({
   onSelectPerson: (person: Person | null) => void;
   /** imageId → thumb + filename, from the editor's already-loaded images. */
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  /**
+   * The editor's full image records, so a tile in the review and compare
+   * modals can open the lightbox. Mason, telling two women apart by a name
+   * card too small to read at thumbnail size (2026-09-02): "it would have
+   * been easier if I could click on the tiles". Optional — a caller without
+   * the records gets plain tiles.
+   */
+  images?: ImageData[];
   /** Reports the live suggestion count (drives the People-button badge). */
   onSuggestionsCount?: (count: number) => void;
   /**
@@ -658,6 +669,7 @@ export function PeopleView({
           personName={reviewing.name}
           imageIds={reviewing.imageIds}
           imageById={imageById}
+          images={images}
           nameSuggestions={[
             ...new Set([
               ...rosterNames,
@@ -687,6 +699,7 @@ export function PeopleView({
           card={compare}
           person={personOf(compare.personId) ?? null}
           imageById={imageById}
+          images={images}
           onFix={() =>
             resolve(
               {
@@ -707,10 +720,38 @@ export function PeopleView({
   );
 }
 
+/**
+ * Click a modal tile → the editor's Lightbox over that person's photos.
+ * Portals to <body>, so it paints above the modal; its Escape listener is on
+ * the document while the modals' are on their inputs, so one key closes one
+ * layer. Tiles whose full record the caller did not supply stay inert.
+ */
+function useTileLightbox(images: ImageData[] | undefined, ids: string[]) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const idsKey = ids.join(",");
+  const list = useMemo(() => {
+    const byId = new Map((images ?? []).map((img) => [img.id, img]));
+    return idsKey
+      .split(",")
+      .map((id) => byId.get(id))
+      .filter((img): img is ImageData => !!img);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [images, idsKey]);
+  const open = (id: string) => {
+    if (list.some((img) => img.id === id)) setOpenId(id);
+  };
+  const node =
+    openId && list.some((img) => img.id === openId) ? (
+      <Lightbox images={list} initialImageId={openId} onClose={() => setOpenId(null)} />
+    ) : null;
+  return { open, node };
+}
+
 function CompareModal({
   card,
   person,
   imageById,
+  images,
   onFix,
   onDismiss,
   onRenamed,
@@ -719,6 +760,7 @@ function CompareModal({
   card: MislabelCard;
   person: Person | null;
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  images?: ImageData[];
   onFix: () => void;
   onDismiss: () => void;
   onRenamed: () => void;
@@ -726,6 +768,7 @@ function CompareModal({
 }) {
   const questionIds = new Set(card.imageIds);
   const otherIds = (person?.imageIds ?? []).filter((id) => !questionIds.has(id));
+  const lightbox = useTileLightbox(images, [...card.imageIds, ...otherIds]);
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
   // Ring the claimed face on group shots — "Is this X?" over a six-person
@@ -830,16 +873,22 @@ function CompareModal({
             {/* Full frames, not crops — context matters for the call. Scrolls
                 on its own when the group is large. */}
             <div className="min-h-0 overflow-y-auto pr-1 space-y-3">
+              {lightbox.node}
               {card.imageIds.map((id) => {
                 const entry = imageById?.get(id);
                 return (
                   <figure key={id}>
                     {entry ? (
-                      <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => lightbox.open(id)}
+                        title="Open larger"
+                        className="relative block w-full cursor-zoom-in"
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={entry.thumbnailUrl} alt="" className="w-full bg-stone-100" />
                         <FaceRings faces={ringsFor(id)} fit="natural" />
-                      </div>
+                      </button>
                     ) : card.face && id === card.imageIds[0] ? (
                       <div className="relative">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -880,7 +929,12 @@ function CompareModal({
                   return (
                     <figure key={id}>
                       {entry ? (
-                        <div className="relative aspect-square overflow-hidden bg-stone-100">
+                        <button
+                          type="button"
+                          onClick={() => lightbox.open(id)}
+                          title="Open larger"
+                          className="relative block aspect-square w-full cursor-zoom-in overflow-hidden bg-stone-100"
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={entry.thumbnailUrl}
@@ -889,7 +943,7 @@ function CompareModal({
                             className="h-full w-full object-cover object-top"
                           />
                           <FaceRings faces={ringsFor(id)} fit="cover-top" />
-                        </div>
+                        </button>
                       ) : (
                         <div className="aspect-square bg-stone-100" />
                       )}
@@ -986,6 +1040,7 @@ export function PersonModal({
   personName,
   imageIds,
   imageById,
+  images,
   startEditing,
   nameSuggestions,
   onSaved,
@@ -996,6 +1051,7 @@ export function PersonModal({
   personName: string | null;
   imageIds: string[];
   imageById?: Map<string, { thumbnailUrl: string; filename: string }>;
+  images?: ImageData[];
   startEditing?: boolean;
   /** Known identities to autocomplete — typing a fresh spelling of someone
    *  who already exists is how duplicate people get minted. */
@@ -1007,6 +1063,7 @@ export function PersonModal({
 }) {
   useBodyScrollLock();
   const [showFilenames, setShowFilenames] = useState(true);
+  const lightbox = useTileLightbox(images, imageIds);
   // "Who is this?" needs to know which face on the group shots is theirs.
   const personFaces = usePersonFaces(personId);
   const [editing, setEditing] = useState(startEditing ?? !personName);
@@ -1140,12 +1197,18 @@ export function PersonModal({
 
         <div className="min-h-0 overflow-y-auto pr-1">
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-1.5 gap-y-2">
+            {lightbox.node}
             {imageIds.map((id) => {
               const entry = imageById?.get(id);
               return (
                 <figure key={id}>
                   {entry ? (
-                    <div className="relative aspect-square overflow-hidden bg-stone-100">
+                    <button
+                      type="button"
+                      onClick={() => lightbox.open(id)}
+                      title="Open larger"
+                      className="relative block aspect-square w-full cursor-zoom-in overflow-hidden bg-stone-100"
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={entry.thumbnailUrl}
@@ -1161,7 +1224,7 @@ export function PersonModal({
                         }
                         fit="cover-top"
                       />
-                    </div>
+                    </button>
                   ) : (
                     <div className="aspect-square bg-stone-100" />
                   )}

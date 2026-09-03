@@ -2391,6 +2391,7 @@ export default function EventPage({
                 personName={personFilter.name}
                 imageIds={personFilter.imageIds}
                 imageById={imageThumbById}
+                images={allImages}
                 onSaved={(name) => {
                   setPersonFilter((prev) => (prev ? { ...prev, name } : prev));
                   setRenamingPerson(false);
@@ -2522,6 +2523,7 @@ export default function EventPage({
                   openPersonId={openFacePersonId}
                   onOpenedPerson={() => setOpenFacePersonId(null)}
                   imageById={imageThumbById}
+                  images={allImages}
                   onSuggestionsCount={setSuggestionCount}
                   searchQuery={searchQuery}
                   matchingImageIds={
