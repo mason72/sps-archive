@@ -309,3 +309,30 @@ describe("focalCropWindow", () => {
     }
   });
 });
+
+describe("layoutMosaic — logo size", () => {
+  // A ~5:1 wordmark (Sidecar Health, 2026-09-02) at full size took most of
+  // the band; the slider scales the logo's height and the hole's width follows.
+  const holeFor = (logoScale?: number) =>
+    layoutMosaic({
+      containerW: W,
+      bandH: H,
+      rows: 3,
+      aspects: aspects(80),
+      gap: GAP,
+      hole: { logoAspect: 5, paddingPct: 15, logoScale },
+    }).hole!;
+
+  it("halving the logo halves its height and narrows the hole", () => {
+    const full = holeFor(1);
+    const half = holeFor(0.5);
+    expect(half.logoH).toBeCloseTo(full.logoH / 2, 5);
+    expect(half.w).toBeLessThan(full.w);
+  });
+
+  it("defaults to full size and clamps out-of-range values", () => {
+    expect(holeFor(undefined).logoH).toBeCloseTo(holeFor(1).logoH, 5);
+    expect(holeFor(3).logoH).toBeCloseTo(holeFor(1).logoH, 5);
+    expect(holeFor(0).logoH).toBeCloseTo(holeFor(0.25).logoH, 5);
+  });
+});

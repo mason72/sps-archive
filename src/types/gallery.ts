@@ -61,6 +61,8 @@ export interface GallerySettings {
      *  shape is how the gallery payload silently drifts from the editor. */
     overlay: MosaicCoverSettings["overlay"];
     insert: { padding: number; fill: string };
+    /** 0.25–1 — see MosaicCoverSettings.logoScale. */
+    logoScale: number;
   };
   coverSolid?: {
     logoUrl?: string;

@@ -182,6 +182,14 @@ export interface MosaicCoverSettings {
   };
   /** Insert mode: empty box in the mosaic's center holding the logo. */
   insert: { padding: number; fill: string };
+  /**
+   * Logo size, 0.25–1, as a fraction of the mode's natural size (insert: 60%
+   * of the hole's height; overlay: 38% of the band). Added 2026-09-02 after a
+   * wide wordmark (Sidecar Health, ~5:1) swallowed the band: the hole's WIDTH
+   * follows the logo's height × aspect, so the only way to make a wide logo
+   * smaller is to make it shorter. Applies to both logo modes.
+   */
+  logoScale: number;
 }
 
 export interface SolidCoverSettings {
@@ -358,6 +366,7 @@ export const DEFAULT_MOSAIC_SETTINGS: MosaicCoverSettings = {
     blurAmount: 8,
   },
   insert: { padding: 15, fill: "#FFFFFF" },
+  logoScale: 1,
 };
 
 export const DEFAULT_SOLID_SETTINGS: SolidCoverSettings = {
@@ -391,11 +400,15 @@ const hexOr = (v: unknown, fallback: string): string =>
  */
 export function normalizeCoverSettings(raw: unknown): CoverSettings {
   const c = (raw ?? {}) as Record<string, unknown>;
+  // Mosaic is the default style (Mason, 2026-09-02). Legacy rows that chose
+  // a photo before `type` existed carry only `imageId`; those stay "image".
   const type: CoverType = ["image", "mosaic", "solid", "crossfade"].includes(
     c.type as string
   )
     ? (c.type as CoverType)
-    : "image";
+    : typeof c.imageId === "string"
+      ? "image"
+      : "mosaic";
 
   const rawMosaic = (c.mosaic ?? {}) as Record<string, unknown>;
   const rawOverlay = (rawMosaic.overlay ?? {}) as Record<string, unknown>;
@@ -469,6 +482,10 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
             : DEFAULT_MOSAIC_SETTINGS.insert.padding,
         fill: hexOr(rawInsert.fill, DEFAULT_MOSAIC_SETTINGS.insert.fill),
       },
+      logoScale:
+        typeof rawMosaic.logoScale === "number" && Number.isFinite(rawMosaic.logoScale)
+          ? Math.min(1, Math.max(0.25, rawMosaic.logoScale))
+          : DEFAULT_MOSAIC_SETTINGS.logoScale,
     },
     solid: {
       logoKey: typeof rawSolid.logoKey === "string" ? rawSolid.logoKey : undefined,

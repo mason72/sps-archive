@@ -294,6 +294,8 @@ export default function EventPage({
   const didInitSectionRef = useRef(false);
   /** True once any event payload has rendered — gates the fatal error screen. */
   const hasLoadedRef = useRef(false);
+  /** Settings are seeded from the server ONCE — see fetchEvent. */
+  const settingsSeededRef = useRef(false);
 
   // Favorites filter (client/team favorites from the event's active share).
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -697,8 +699,19 @@ export default function EventPage({
         setActiveSection(findIntakeSectionId(data.sections));
         didInitSectionRef.current = true;
       }
-      // Load event settings
-      if (data.event.settings && Object.keys(data.event.settings).length > 0) {
+      // Load event settings — on the FIRST load only. Every later refetch
+      // (live upload events, section changes) used to overwrite local state
+      // with the server's copy, and the Design panel saves on a 600ms
+      // debounce: toggle "Use cover", pick Mosaic, and a refresh landing in
+      // that window put the toggle back to off before the save went out.
+      // Mason hit it repeatedly (2026-09-02). After first load the page's
+      // own state is the source of truth; every editor writes through it.
+      if (
+        !settingsSeededRef.current &&
+        data.event.settings &&
+        Object.keys(data.event.settings).length > 0
+      ) {
+        settingsSeededRef.current = true;
         const loaded = { ...DEFAULT_EVENT_SETTINGS, ...data.event.settings };
         setEventSettings(loaded);
         // Restore persisted sort preference

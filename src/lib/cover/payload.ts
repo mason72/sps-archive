@@ -40,6 +40,7 @@ export async function coverGalleryFields(
             logoUrl,
             overlay: cover.mosaic.overlay,
             insert: cover.mosaic.insert,
+            logoScale: cover.mosaic.logoScale,
           }
         : undefined,
     coverSolid:

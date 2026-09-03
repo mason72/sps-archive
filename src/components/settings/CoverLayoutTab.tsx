@@ -283,11 +283,25 @@ export function CoverLayoutTab({
               />
 
               {mosaic.logoMode !== "none" && (
-                <LogoUploader
-                  eventId={eventId}
-                  logoKey={mosaic.logoKey}
-                  onUploaded={(logoKey) => onChange({ mosaic: { ...mosaic, logoKey } })}
-                />
+                <>
+                  <LogoUploader
+                    eventId={eventId}
+                    logoKey={mosaic.logoKey}
+                    onUploaded={(logoKey) => onChange({ mosaic: { ...mosaic, logoKey } })}
+                  />
+                  {/* A wide wordmark at full size swallows the band (Sidecar
+                      Health, 2026-09-02). Height is the lever: the insert
+                      hole's width follows it. */}
+                  <SliderRow
+                    label="Logo size"
+                    valueLabel={`${Math.round(mosaic.logoScale * 100)}%`}
+                    min={25}
+                    max={100}
+                    step={5}
+                    value={Math.round(mosaic.logoScale * 100)}
+                    onChange={(pct) => onChange({ mosaic: { ...mosaic, logoScale: pct / 100 } })}
+                  />
+                </>
               )}
 
               {mosaic.logoMode === "overlay" && (

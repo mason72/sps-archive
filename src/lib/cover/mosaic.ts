@@ -142,8 +142,8 @@ export function layoutMosaic(opts: {
   /** Pool aspect ratios (w/h) in arrangement order; invalid → 3:4. */
   aspects: number[];
   gap?: number;
-  /** Insert mode: logo aspect + "space around logo" (% of logo height). */
-  hole?: { logoAspect?: number; paddingPct: number } | null;
+  /** Insert mode: logo aspect + "space around logo" (% of logo height) + size (0.25–1). */
+  hole?: { logoAspect?: number; paddingPct: number; logoScale?: number } | null;
 }): MosaicLayout {
   const { containerW, bandH } = opts;
   const gap = opts.gap ?? 4;
@@ -169,7 +169,7 @@ function tryLayout(
   rows: number,
   aspects: number[],
   gap: number,
-  holeOpts: { logoAspect?: number; paddingPct: number } | null
+  holeOpts: { logoAspect?: number; paddingPct: number; logoScale?: number } | null
 ): { result: MosaicLayout; maxStretch: number; rowsFilled: number } {
   const rowH = (bandH - gap * (rows - 1)) / rows;
 
@@ -183,7 +183,10 @@ function tryLayout(
     const holeH = rowSpan * rowH + (rowSpan - 1) * gap;
     // Full-height holes drop the logo fraction — 60% of the whole band ×
     // a wide logo would swallow the wall.
-    const logoH = holeH * (rowSpan === rows ? 0.35 : MOSAIC_INSERT_LOGO_H);
+    // The user's size slider scales the logo's HEIGHT; the hole's width
+    // follows (logoH × aspect), which is what shrinks a wide wordmark.
+    const scale = Math.min(1, Math.max(0.25, holeOpts.logoScale ?? 1));
+    const logoH = holeH * (rowSpan === rows ? 0.35 : MOSAIC_INSERT_LOGO_H) * scale;
     const pad = Math.min(45, Math.max(0, holeOpts.paddingPct)) / 100;
     // Padding is relative to the logo's AVERAGE dimension, continuous in px —
     // the slider must visibly move the edge (the old column-snapped hole ate

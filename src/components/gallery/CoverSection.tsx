@@ -208,10 +208,10 @@ function MosaicLayer({
       gap: MOSAIC_GAP,
       hole:
         mosaic.logoMode === "insert" && mosaic.logoUrl
-          ? { logoAspect, paddingPct: mosaic.insert.padding }
+          ? { logoAspect, paddingPct: mosaic.insert.padding, logoScale: mosaic.logoScale }
           : null,
     });
-  }, [box, mosaic.rows, mosaic.logoMode, mosaic.logoUrl, mosaic.insert.padding, arranged, logoAspect]);
+  }, [box, mosaic.rows, mosaic.logoMode, mosaic.logoUrl, mosaic.insert.padding, mosaic.logoScale, arranged, logoAspect]);
 
   /**
    * The fill paints the GAPS, and nothing else.
@@ -325,7 +325,7 @@ function MosaicLayer({
               src={mosaic.logoUrl}
               alt=""
               className="object-contain"
-              style={{ height: "38%", maxWidth: "70%" }}
+              style={{ height: `${38 * mosaic.logoScale}%`, maxWidth: "70%" }}
             />
           )}
         </div>

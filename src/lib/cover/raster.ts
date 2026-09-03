@@ -207,7 +207,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
       gap: RASTER_GAP,
       hole:
         m.logoMode === "insert" && logoProbe
-          ? { logoAspect: logoProbe.aspect, paddingPct: m.insert.padding }
+          ? { logoAspect: logoProbe.aspect, paddingPct: m.insert.padding, logoScale: m.logoScale }
           : null,
     });
 
@@ -296,7 +296,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
           ),
         },
       ];
-      const logo = await prepareLogo(m.logoKey, RASTER_H * 0.38, RASTER_W * 0.7);
+      const logo = await prepareLogo(m.logoKey, RASTER_H * 0.38 * m.logoScale, RASTER_W * 0.7);
       if (logo) {
         wash.push({
           input: logo.buf,

@@ -328,3 +328,21 @@ describe("resolveSharePins", () => {
     expect(r.requirePinIndividual).toBe(true);
   });
 });
+
+describe("normalizeCoverSettings — defaults chosen 2026-09-02", () => {
+  it("defaults a typeless cover with no photo to mosaic", () => {
+    // Mason: "can we make Mosaic the default cover style?" A legacy row that
+    // picked a photo before `type` existed is the one exception (tested above).
+    expect(normalizeCoverSettings({}).type).toBe("mosaic");
+    expect(normalizeCoverSettings({ enabled: true }).type).toBe("mosaic");
+    expect(normalizeCoverSettings({ imageId: "abc" }).type).toBe("image");
+  });
+
+  it("clamps the logo size into 0.25–1 and defaults it to full size", () => {
+    expect(normalizeCoverSettings({}).mosaic!.logoScale).toBe(1);
+    expect(normalizeCoverSettings({ mosaic: { logoScale: 0.5 } }).mosaic!.logoScale).toBe(0.5);
+    expect(normalizeCoverSettings({ mosaic: { logoScale: 0 } }).mosaic!.logoScale).toBe(0.25);
+    expect(normalizeCoverSettings({ mosaic: { logoScale: 7 } }).mosaic!.logoScale).toBe(1);
+    expect(normalizeCoverSettings({ mosaic: { logoScale: "big" } }).mosaic!.logoScale).toBe(1);
+  });
+});
