@@ -386,7 +386,12 @@ export default function EventPage({
     const base = deriveDisplayImages({
       isSearching,
       searchResults,
-      activeSection,
+      // A person spans sections. Mason searched Francisca, clicked her face
+      // with "A–D" selected, and got "No images in this section" — her 14
+      // were all in E–K (2026-09-02). Someone's photos are the question;
+      // the section is not the answer. Clearing the chip returns to the
+      // section that was open.
+      activeSection: personFilter ? null : activeSection,
       allImages,
       allStacks,
       favoritesOnly,
@@ -2363,6 +2368,9 @@ export default function EventPage({
                       {personFilter.imageIds.length}
                     </span>
                   </button>
+                )}
+                {activeSection && (
+                  <span className="text-stone-400">· across every section</span>
                 )}
                 <button
                   onClick={() => {
