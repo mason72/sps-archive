@@ -2331,3 +2331,28 @@ anyway ("2Dudes LIB": one cluster with 78% of the labelled frames).
   (letters, ≥3, not shouted, not a gallery word, ≤60 frames per event) over
   keeping the two-word rule, on the reasoning that a wrong card is visible and
   one click to fix, while a missing person is invisible. 3,298 → 3,743 people.
+
+## 119 — A refetch that overwrites editor state races every debounced save (2026-09-02)
+
+"Use cover" kept switching itself off after picking Mosaic. The Design
+panel saves on a 600ms debounce and `fetchEvent` wrote the server's settings
+into page state on EVERY refetch — live upload events, section changes. A
+refresh landing inside the debounce window put the server's stale copy back
+over the toggle before the save went out, and the next click saved the stale
+copy for real. Mason hit it "a number of times".
+- **Server state is a seed, not a source, once a human is editing it.** Seed
+  local state on first load; after that the page's own state is the truth and
+  every editor writes through it. A refetch that clobbers is a race with
+  every debounce on the page, and it fails silently in the user's hands.
+- **The tell:** a control that "un-does itself" seconds after a click, on a
+  page with any background refresh. Look for the refetch before the control.
+
+## 120 — DESC sorts NULLs first, and the probe read as "no matches" (2026-09-02)
+
+Ranking every face in HR Florida by similarity to Francisca's, the top 25
+came back `sim: null` — which reads exactly like "her embedding is missing"
+or "nothing matches". Postgres puts NULLs FIRST on a descending sort, and 500
+of 5,005 faces had no embedding. `ORDER BY sim DESC NULLS LAST` found her
+day-two frames at 0.74–0.84 under another name. A probe whose empty result is
+plausible is the "empty poll is a broken probe" rule again: filter or order
+the nulls out before believing the top of a ranking.
