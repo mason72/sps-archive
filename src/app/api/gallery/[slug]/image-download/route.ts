@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { clientIp } from "@/lib/security/rate-limit";
+import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import {
   authorizeShareDownload,
@@ -54,6 +54,18 @@ export async function POST(
     });
     if (!auth.ok) {
       return NextResponse.json({ error: auth.message }, { status: auth.status });
+    }
+
+    // Past the gates, every request mints a presigned original. Counted AFTER
+    // authorization so a guest re-prompted for an expired token does not
+    // spend download budget on the 401s; the PIN path has its own failure
+    // limiter inside the authorizer. Budget reasoning lives on the constant.
+    const ip = clientIp(request);
+    if (!(await checkAuthRateLimit(supabase, "image-download", slug, ip))) {
+      return NextResponse.json(
+        { error: "Too many downloads — try again in a few minutes" },
+        { status: 429 }
+      );
     }
 
     const image = await selectShareImage(supabase, auth.share, imageId);
