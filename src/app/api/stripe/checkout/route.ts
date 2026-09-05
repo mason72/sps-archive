@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe/config";
+import { getStripe, planFromPriceId } from "@/lib/stripe/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -29,6 +29,12 @@ export async function POST(request: NextRequest) {
         { error: "Price ID is required" },
         { status: 400 }
       );
+    }
+    // Only prices in our plan map may start a checkout. Any recurring price
+    // in the Stripe account would otherwise reach the webhook, which grants
+    // nothing for an unmapped price — so this is the door, that is the lock.
+    if (typeof priceId !== "string" || !planFromPriceId(priceId)) {
+      return NextResponse.json({ error: "Unknown price" }, { status: 400 });
     }
 
     // Get or create Stripe customer
