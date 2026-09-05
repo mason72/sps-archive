@@ -318,10 +318,19 @@ origin fallback removed + rate limited ("forgot" scope).
       too, plus the favorites list and `enrich.ts`'s dashboard-link picker.
       23 scope tests; 347 green. Zero live favorite rows sit on selection shares,
       so nothing a customer can see changes.
-- [ ] LOWs: validate Stripe priceId against plan map (webhook falls back to
-      "pro"!); scope site/gallery DELETE website-sections query; ownership-check
-      emails/send templateId + eventId before writing to email_sends/usage_events;
-      uniform 404s on processing-status/share-readiness (existence oracle).
+- [x] Stripe priceId validated against the plan map (2026-09-05). The webhook
+      fell back to `"pro"` for any unmapped price; now an unknown price writes
+      only the Stripe linkage ids, alerts via `reportSystemError`, and returns
+      200 `{ignored:"unknown_price"}` so Stripe stops retrying; a deploy with
+      NO `STRIPE_PRICE_*` env at all is a 500 (retry once fixed) + alert; a
+      handler exception is a 500 + alert instead of a swallowed 200. Checkout
+      rejects an unmapped priceId (400) so the event never exists. Hermetic
+      route test fails against the old code. Production had never hit the
+      fallback (3 rows, all free, no Stripe sub) — closed before it mattered.
+- [ ] LOWs still open: scope site/gallery DELETE website-sections query;
+      ownership-check emails/send templateId + eventId before writing to
+      email_sends/usage_events; uniform 404s on processing-status/share-readiness
+      (existence oracle).
 - [x] LOW closed with the above: selection-share favorites writes now intersect
       `image_ids` — mattered because `/fav-thumb/[imageId]` treats a favorite row
       as authorization to serve that thumbnail (UUID-guess-gated, but real).
@@ -1623,8 +1632,12 @@ galleries?" from a worry into a fact.
       right-click-save from the lightbox. Deliberate for now (see above), but it
       means "downloads off" is a soft deterrent, not a control. Worth deciding
       explicitly rather than by omission.
-- [ ] No rate limit on `image-download` once a valid token is held — it is an
-      unbounded presign minter for someone who has passed the PIN.
+- [x] `image-download` presign budget (2026-09-05): 300 per 10 min per
+      (slug, ip) through the existing `record_auth_attempt` limiter, counted
+      after authorization, failing open like the other scopes. Sized to the
+      human ceiling (a click every 2s, or 30 guests on one NAT × 10 photos);
+      measured largest curated share 50, median event 396. Route test fails
+      against the old code (301st request still 200).
 - [ ] `opengraph-image.tsx` presigns the **full original** to rasterize a
       1200×630 card on a public, password-exempt route. Not a leak (Satori
       fetches server-side and the response is a PNG), but it downloads a

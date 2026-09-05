@@ -2376,3 +2376,33 @@ every tiny adjustment… is it re-pulling images every time?"
 - The same shape lived in lesson 119 (a refetch clobbering local state);
   both come from treating the server as the only source once a human is
   editing on the client.
+
+## 122 — A `|| "pro"` on an entitlement column is a grant, not a default (2026-09-05)
+
+The Stripe webhook resolved `plan` with `planFromPriceId(priceId)?.plan || "pro"`
+in both writers. The map is built from six `STRIPE_PRICE_*` env vars, so a
+deploy missing its env, or any recurring price the map did not know, would
+have entitled the second-most-expensive tier — silently, with a 200 to Stripe
+and no `system_errors` row. It never fired in production (three subscription
+rows, all free), which is the only reason this is a lesson and not an incident.
+- **A fallback on a column that grants something is a grant.** `|| "pro"`
+  reads as a harmless default because `"pro"` is a plausible value. Ask what
+  the column DOES: `getPlanLimits(plan)` is the entitlement, so the default was
+  "when unsure, give them 750 GB and proofing." Prefer a visible gap (write
+  nothing, alert, let the paying customer see "free" and complain) to a
+  plausible value nobody will ever question.
+- **A webhook's status code is a message to a retry queue, and the two
+  failure kinds want opposite answers.** A price not in the map is permanent:
+  200 with an `ignored` reason, or Stripe retries for three days. No price map
+  at all is the deployment broken: 500, so Stripe retries once the env is
+  fixed and the dashboard shows the endpoint failing. The old catch returned
+  200 on ANY handler error "to prevent retrying" — which dropped the event, and
+  a dropped `checkout.session.completed` is a customer who paid and got nothing.
+- **Look for the second writer, and for the door.** The same `|| "pro"` sat in
+  `customer.subscription.updated`; and checkout accepted any `priceId` from the
+  browser, so the unmapped price could be minted on purpose. Fixing the webhook
+  alone would have left both.
+- **Build a lookup from configured values only, in a Map.** The old object had
+  the key `""` for every unset env var, and `map["constructor"]` on a plain
+  object is a truthy Function. Neither was reachable today; both were one
+  refactor away.
