@@ -79,37 +79,52 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
 };
 
-/** Map Stripe price IDs to plan+interval for webhook processing */
-export function planFromPriceId(priceId: string): {
+export interface PricePlan {
   plan: PlanId;
   interval: "monthly" | "annual";
-} | null {
-  const map: Record<string, { plan: PlanId; interval: "monthly" | "annual" }> =
-    {
-      [process.env.STRIPE_PRICE_SOLO_MONTHLY || ""]: {
-        plan: "solo",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_SOLO_ANNUAL || ""]: {
-        plan: "solo",
-        interval: "annual",
-      },
-      [process.env.STRIPE_PRICE_PRO_MONTHLY || ""]: {
-        plan: "pro",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_PRO_ANNUAL || ""]: {
-        plan: "pro",
-        interval: "annual",
-      },
-      [process.env.STRIPE_PRICE_STUDIO_MONTHLY || ""]: {
-        plan: "studio",
-        interval: "monthly",
-      },
-      [process.env.STRIPE_PRICE_STUDIO_ANNUAL || ""]: {
-        plan: "studio",
-        interval: "annual",
-      },
-    };
-  return map[priceId] || null;
+}
+
+/** The env var that carries each sellable price. Free/enterprise have none. */
+const PRICE_ENV: ReadonlyArray<[envVar: string, plan: PricePlan]> = [
+  ["STRIPE_PRICE_SOLO_MONTHLY", { plan: "solo", interval: "monthly" }],
+  ["STRIPE_PRICE_SOLO_ANNUAL", { plan: "solo", interval: "annual" }],
+  ["STRIPE_PRICE_PRO_MONTHLY", { plan: "pro", interval: "monthly" }],
+  ["STRIPE_PRICE_PRO_ANNUAL", { plan: "pro", interval: "annual" }],
+  ["STRIPE_PRICE_STUDIO_MONTHLY", { plan: "studio", interval: "monthly" }],
+  ["STRIPE_PRICE_STUDIO_ANNUAL", { plan: "studio", interval: "annual" }],
+];
+
+/**
+ * Price ID → plan, built from the env on every call (the webhook must see a
+ * rotated price without a restart, and tests set the env per case). Only
+ * CONFIGURED prices are keys: an unset env var used to become the key "",
+ * and a Map rather than a plain object keeps "constructor"/"__proto__" from
+ * resolving to something truthy.
+ */
+function priceMap(): Map<string, PricePlan> {
+  const map = new Map<string, PricePlan>();
+  for (const [envVar, plan] of PRICE_ENV) {
+    const id = process.env[envVar];
+    if (id) map.set(id, plan);
+  }
+  return map;
+}
+
+/**
+ * True when at least one sellable price is configured. A deployment with NONE
+ * is misconfigured (env not set), which is a different failure from a single
+ * price the map does not know — the webhook treats the first as an outage
+ * worth a retry and the second as a permanently-bad event.
+ */
+export function priceMapConfigured(): boolean {
+  return priceMap().size > 0;
+}
+
+/**
+ * Map a Stripe price ID to plan+interval. Returns null for anything the map
+ * does not know — and null means "grant nothing", never "assume pro". The
+ * webhook fell back to "pro" for an unknown price until 2026-09-05.
+ */
+export function planFromPriceId(priceId: string): PricePlan | null {
+  return priceMap().get(priceId) ?? null;
 }
