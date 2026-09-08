@@ -33,6 +33,7 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
   const store = { "px.state": { ...state } };
   const asked = [];
   const requested = [];
+  const cancelled = [];
   let nextId = 100;
   const chrome = {
     storage: { local: {
@@ -41,6 +42,7 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
     } },
     downloads: {
       download: async ({ url }) => { const id = nextId++; requested.push({ id, url }); return id; },
+      cancel: async (id) => { cancelled.push(id); },
       // The real API returns an empty array for an unknown id — it does not throw.
       search: async ({ id }) => (downloads[id] ? [{ id, ...downloads[id] }] : []),
     },
@@ -60,7 +62,7 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
     },
     _onMessage: [],
   };
-  return { chrome, store, asked, requested, downloads, state: () => store["px.state"] };
+  return { chrome, store, asked, requested, cancelled, downloads, state: () => store["px.state"] };
 }
 
 async function loadBackground(chrome) {
@@ -185,6 +187,7 @@ test("a stalled download is given up after the timeout, and the retry waits a ti
   assert.equal(h.state().inflight, null);
   assert.match(h.state().log.join("\n"), /timed out after/);
   assert.deepEqual(h.asked, [], "the usual cause is a full disk, so the retry must not be instant");
+  assert.deepEqual(h.cancelled, [1], "an abandoned transfer must be cancelled, or it lands beside the retry's copy");
 
   await tick();
   assert.equal(h.asked.at(-1), "stalled", "attempt 2 of 3, one gap later");

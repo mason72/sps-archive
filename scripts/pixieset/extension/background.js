@@ -188,6 +188,15 @@ async function settleInflight(s) {
     return false;                                  // one collection at a time — do not stack another
   }
 
+  // Giving up while Chrome is still transferring would leave the download
+  // running: the parts would land later, under the same names, beside the
+  // re-request's — two racing sets and a " (N)" collision for the watcher to
+  // arbitrate. Abandoning a request means CANCELLING it.
+  for (const item of items) {
+    if (item.state !== "in_progress") continue;
+    try { await chrome.downloads.cancel(item.id); } catch { /* already finished or gone */ }
+  }
+
   const why = interrupted.length
     ? `${interrupted.length} download(s) interrupted (${interrupted[0].error ?? "unknown"})`
     : forgotten
