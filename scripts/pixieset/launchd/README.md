@@ -57,7 +57,25 @@ Four verdicts, because they need different reactions:
 | `BROKEN` | a launchd agent is not running | restart it |
 | `SPINNING` | far more passes per hour than work allows | a guard has failed open |
 | `STUCK` | collections staged, oldest waiting > 4h, nothing completing | the ingest |
-| `STARVED` | nothing staged, work queued, nothing done in > 36h | the download agent — read `download.log` |
+| `STARVED` | nothing staged, work queued, nothing done in > 36h | the download extension — open its popup |
+| `UNBACKED` | `queue.json` has not reached GitHub in > 48h | `machine-state`'s nightly sync — read `.sync.log` |
+
+`UNBACKED` (added 2026-09-08) watches the one file that is not replaceable.
+`scripts/pixieset/data/` is gitignored, so `queue.json` — the only record of
+which of the 1,371 collections are already safe — has no off-machine copy of its
+own; `machine-state`'s nightly 20:00 sync backs it up encrypted as
+`ledgers/pixieset-queue.json.gz`. The check asks whether it reached **origin**,
+not whether it was written or committed, because the point is a copy that
+survives this Mac. It earned its place the day it was written: that sync had
+been refusing to push for **26 consecutive nights** (its encryption audit was
+correctly blocking symlinked config the collector should never have copied), and
+nothing anywhere said so.
+
+Restore a night:
+
+```bash
+git -C ~/machine-state show origin/main:ledgers/pixieset-queue.json.gz | gunzip > queue.json
+```
 
 `STARVED` was the four-day case, and it used to be Mason's job: the download half
 needs Chrome pointed at Pixieset, and until 2026-08-28 that meant a human doing

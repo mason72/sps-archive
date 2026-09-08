@@ -56,8 +56,37 @@ const STUCK_HOURS = num(process.env.PIXIESET_STUCK_HOURS, 4);
 const STARVED_HOURS = num(process.env.PIXIESET_STARVED_HOURS, 36);
 const RENOTIFY_HOURS = 24;
 const MAX_PASSES_PER_HOUR = num(process.env.PIXIESET_MAX_PASSES, 40);   // ~12 expected at a 5-minute idle; 40 is generous
+const BACKUP_STALE_HOURS = num(process.env.PIXIESET_BACKUP_STALE_HOURS, 48);   // nightly, so 48h is two missed runs
 
-type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "STARVED";
+type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "STARVED" | "UNBACKED";
+
+/**
+ * When did the migration ledger last reach GitHub?
+ *
+ * `scripts/pixieset/data/` is gitignored, so `queue.json` — the only record of
+ * which of 1,371 collections are already safe — has no off-machine copy of its
+ * own. `machine-state`'s nightly sync backs it up encrypted; this is the
+ * independent check that the backup HAPPENED, because a backup nobody verifies
+ * is a belief. It was worth building on the day it was written: that sync had
+ * been silently refusing to push for 26 consecutive nights.
+ *
+ * The question asked is deliberately "did it reach ORIGIN", not "was it
+ * written" or "was it committed" — the whole point is a copy that survives this
+ * Mac. A missing repo, an unreadable one, or a commit older than the window are
+ * all the same answer: not backed up.
+ */
+function ledgerBackupAgeHours(): { hours: number | null; note: string } {
+  const repo = process.env.PIXIESET_BACKUP_REPO || path.join(HOME, "machine-state");
+  const file = process.env.PIXIESET_BACKUP_PATH || "ledgers/pixieset-queue.json.gz";
+  if (!fs.existsSync(repo)) return { hours: null, note: `${repo} is not on this machine` };
+  try {
+    const out = execFileSync("/usr/bin/git", ["-C", repo, "log", "-1", "--format=%cI", "origin/main", "--", file], { encoding: "utf8" }).trim();
+    if (!out) return { hours: null, note: `${file} has never reached origin/main` };
+    return { hours: (Date.now() - new Date(out).getTime()) / 3600_000, note: out };
+  } catch (e) {
+    return { hours: null, note: `could not read ${repo}: ${String((e as Error).message).slice(0, 80)}` };
+  }
+}
 
 function agentsRunning(): { label: string; up: boolean }[] {
   const out: { label: string; up: boolean }[] = [];
@@ -147,6 +176,7 @@ function main() {
   const agents = agentsRunning();
   const down = agents.filter((a) => !a.up).map((a) => a.label);
   const { passes, idles } = logRate();
+  const backup = ledgerBackupAgeHours();
 
   const verified = by.verified || 0;
   const queued = by.queued || 0;
@@ -171,6 +201,13 @@ function main() {
   } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
     headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
+  } else if (backup.hours === null || backup.hours > BACKUP_STALE_HOURS) {
+    // Checked LAST on purpose: a pipeline that has stopped matters more than one
+    // whose ledger is a day stale, and this must never mask a STARVED or STUCK.
+    verdict = "UNBACKED";
+    headline = backup.hours === null
+      ? `the migration ledger has no off-machine copy — ${backup.note}`
+      : `the migration ledger last reached GitHub ${backup.hours.toFixed(0)}h ago`;
   }
 
   const body = [
@@ -183,6 +220,10 @@ function main() {
     `agents     ${agents.map((a) => `${a.label.split(".").pop()}=${a.up ? "up" : "DOWN"}`).join("  ")}`,
     `staged for ${verified ? stagedHours.toFixed(1) + "h (oldest)" : "n/a"}`,
     `last hour  ${passes} passes, ${idles} idles`,
+    `ledger     ${backup.hours === null ? `NOT BACKED UP — ${backup.note}` : `backed up ${backup.hours.toFixed(1)}h ago`}`,
+    verdict === "UNBACKED"
+      ? `\nqueue.json is the only record of which of the 1,371 collections are\nalready safe. Losing it does not lose photos — it loses the knowledge of\nwhich ones are done, which is the difference between finishing this\nmigration and re-running a month of it blind.\n\nIt is backed up by machine-state's nightly sync (20:00). Read\n~/machine-state/.sync.log: that job refuses to push when anything tracked\nis unencrypted, and it stayed silently blocked for 26 nights once before.`
+      : "",
     verdict === "STARVED"
       ? `\nNothing has been requested from Pixieset. Since 2026-08-31 that is the\nChrome extension's job, so this is now a POINTER, not a chore: open its\npopup (pin it to the toolbar) and read the last line, which always says\nwhy it stopped. Known causes, in order of how often they have happened:\n\n  · the head of the queue is stuck  — fixed 2026-09-08; a gated collection\n    was re-requested every 20 min forever. If a single slug repeats down\n    the whole log, that is this shape returning.\n  · everything left is password-gated — sign in to galleries.pixieset.com\n    and press Arm passwords.\n  · Cloudflare challenged it three times — it stops deliberately. Do not\n    work around it; tell Mason.\n  · Chrome is not running, or the extension was unloaded.`
       : "",

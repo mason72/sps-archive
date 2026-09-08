@@ -2492,3 +2492,42 @@ of record with no way to express failure.
   got beacons by hand, so the ledger stopped claiming they were untouched:
   1,212 queued → 1,207 queued and 10 failed. A mechanism that only tells the
   truth about the future leaves the existing lie in place.
+
+## 125 — The backup had been refusing to push for 26 nights, and the refusal was correct (2026-09-08)
+
+Asked to back up `queue.json` nightly — it is gitignored, and its own header
+calls it "the only record of what has already been downloaded" for a
+1,371-collection migration. The obvious home was `machine-state`, a private
+git-crypt repo with a nightly launchd sync. Before trusting it with anything, one
+command: `launchctl list | grep machine-state` → **exit status 1**.
+
+`machine-state` was **26 commits ahead of origin**. Its pre-push audit — which
+verifies every tracked blob is encrypted — had been correctly refusing to push
+since 2026-08-12, the exact day `~/.claude/rules` and friends became symlinks
+into `claude-shared`. `rsync -a` preserves a symlink, so the repo tracked six
+`120000` blobs holding path strings instead of the rules, skills, hooks and
+CLAUDE.md they point at; git-crypt cannot encrypt a symlink, so the audit fired.
+Fix: `rsync -aL`.
+
+- **A guard that blocks correctly but reports only into a log is silence.** This
+  one worked exactly as designed, every single night, and the outcome was
+  identical to a job that had quietly died: no config, no memory, no 32 `.env`
+  files off that Mac for a month. Anything that refuses to complete must reach a
+  human on a channel they read, or be watched by something that does.
+- **A daily commit proves the job RAN, never that it SUCCEEDED.** `git log`
+  showed a tidy `sync 2026-09-07` and every day before it. The exit status and
+  the ahead/behind count were the two cheap probes that told the truth, and
+  neither was being read.
+- **Anything that walks or copies `~/.claude` must dereference** — `find -L`,
+  `ls -L`, `cp -RL`, `rsync -aL`. This is the THIRD instance of the same shape
+  (`claude-memory-path` had it, `claude-repo-path` had it), which is the tell
+  that it belongs in the rules file rather than in another lesson: it is now in
+  `~/.claude/rules/multi-machine.md`.
+- **Verify the vehicle before loading the cargo.** Adding the ledger to a job
+  that had not pushed in a month would have produced a backup that existed only
+  on the machine it was protecting against — and it would have LOOKED done.
+- The independent check now exists: `stall-check.ts` gained an `UNBACKED`
+  verdict that asks whether the ledger reached **origin**, not whether it was
+  written or committed. Checked last, so it can never mask a pipeline stall —
+  verified live, where a real `STARVED` correctly outranked a real missing
+  backup in the same run.
