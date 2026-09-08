@@ -2406,3 +2406,51 @@ rows, all free), which is the only reason this is a lesson and not an incident.
   the key `""` for every unset env var, and `map["constructor"]` on a plain
   object is a truthy Function. Neither was reachable today; both were one
   refactor away.
+
+## 123 — A deferral that does not move the cursor is a livelock, and "requested" is not "arrived" (2026-09-08)
+
+The STARVED email arrived after the migration had done nothing for 38 hours.
+Both causes were silent, and the second one had been quietly losing photos for a
+week before the first one stopped everything.
+
+**The livelock.** The download extension picks its next collection as *the first
+job not in `done`*. A password-gated collection with no password armed is
+deliberately NOT put in `done` — retiring it would silently kill all 282 gated
+collections in one unarmed run — but nothing skipped it either, so it came back
+to position 0 on every wake-up. `sjcbubblebash-2026` was requested and deferred
+**104 times over 32 hours** while 1,191 collections behind it were never
+reached. The file's own header documents this exact livelock for
+`apannualconferenceblue` (a permanent 404) and fixes it with an attempt counter
+— on the failure path only. **Fixing one instance of a failure mode does not
+retire the failure mode**; write the invariant as a test, not as a comment.
+
+- **Deferring is a two-part rule and both parts are load-bearing:** skip it when
+  choosing the head, AND put it back when the reason to defer goes away (here,
+  `arm`). Skipping alone converts a livelock into a silent omission, which is
+  worse — it looks like progress.
+- **"Queue drained" and "everything left is gated" must not share a message.**
+  The first reads as a finished migration.
+
+**Requested ≠ arrived.** `done` was written the moment
+`chrome.downloads.download()` accepted a URL. When the mini filled up on
+2026-09-01/02, Chrome interrupted the transfers and five collections — 14,516
+photos, including one of 8,518 and one of 5,314 — left the queue with no bytes
+on disk. Three produced no file at all; two left half a part-set that
+`watch.mjs` will wait on **forever**, because the watcher only stages a complete
+set and has no timeout. The migration ledger still read `queued`, so no surface
+anywhere disagreed with itself.
+
+- **Confirm the effect, never the acceptance of the request.** The downloads are
+  now held in `inflight` and confirmed `complete` per id; interrupted, timed out
+  and *"Chrome has forgotten this id"* are all failures, because **"I cannot
+  prove it arrived" and "it arrived" must never collapse into one answer**.
+- **The alert pointed at the wrong person.** STARVED still said "that needs
+  Chrome pointed at Pixieset, which is a Mason job" — true until 2026-08-31,
+  when the extension took the job over. **An alert whose remedy has been
+  automated is now misdirection**, and it costs the reader the one thing an
+  alert is for. It now names the popup and the four known causes.
+- **The evidence was in the extension's own log the whole time** — the same slug,
+  every 20 minutes, 104 times. Nothing reads that log but a human opening a
+  popup. A "never happened" counter is the cheapest probe there is (lesson 92's
+  `grep -c idling`), and its mirror — *the same thing happening over and over* —
+  is just as cheap and just as unread.

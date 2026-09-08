@@ -170,7 +170,7 @@ function main() {
     headline = `${verified} collection(s) staged, the oldest waiting ${stagedHours.toFixed(1)}h with nothing completing`;
   } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
-    headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download half needs running`;
+    headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
   }
 
   const body = [
@@ -184,7 +184,7 @@ function main() {
     `staged for ${verified ? stagedHours.toFixed(1) + "h (oldest)" : "n/a"}`,
     `last hour  ${passes} passes, ${idles} idles`,
     verdict === "STARVED"
-      ? `\nThis is not a fault. It means no downloads have been requested — that\nneeds Chrome pointed at Pixieset, which is a Mason job.`
+      ? `\nNothing has been requested from Pixieset. Since 2026-08-31 that is the\nChrome extension's job, so this is now a POINTER, not a chore: open its\npopup (pin it to the toolbar) and read the last line, which always says\nwhy it stopped. Known causes, in order of how often they have happened:\n\n  · the head of the queue is stuck  — fixed 2026-09-08; a gated collection\n    was re-requested every 20 min forever. If a single slug repeats down\n    the whole log, that is this shape returning.\n  · everything left is password-gated — sign in to galleries.pixieset.com\n    and press Arm passwords.\n  · Cloudflare challenged it three times — it stops deliberately. Do not\n    work around it; tell Mason.\n  · Chrome is not running, or the extension was unloaded.`
       : "",
   ].filter(Boolean).join("\n");
 

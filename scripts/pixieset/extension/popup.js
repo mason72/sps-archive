@@ -29,8 +29,14 @@ async function refresh() {
   box.textContent = (s.log || []).join("\n") || "no activity yet";
   if (atBottom) box.scrollTop = box.scrollHeight;   // don't yank it if you scrolled up
   // Say WHY it stopped — a silent stop is the failure this whole thing exists to fix.
+  // While bytes are in flight, SAY SO. A popup that reads "one collection every
+  // 20 min" during a four-hour 47 GB download looks like a scheduler that has
+  // stopped doing anything.
+  const flying = s.inflight
+    ? `Downloading ${s.inflight.slug} — ${s.inflight.parts} zip(s), started ${ago(s.inflight.at)}.`
+    : null;
   $("why").textContent = !s.running && s.stoppedReason ? `Stopped: ${s.stoppedReason}` :
-    s.running ? `One collection every ${s.gapMinutes} min.` : "";
+    s.running ? (flying ?? `One collection every ${s.gapMinutes} min.`) : "";
 }
 
 $("start").onclick = async () => { await send({ type: "start" }); refresh(); };

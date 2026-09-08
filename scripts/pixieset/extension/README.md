@@ -50,17 +50,45 @@ Chrome restart by itself.
 |---|---|
 | `background.js` | scheduling, state, downloads. No DOM. |
 | `offscreen.js` | the fetch/parse state machine. Has `DOMParser`; no visible tab. |
-| `popup.html/js` | status and controls, and it always says WHY it stopped. |
+| `popup.html/js` | status and controls, and it always says WHY it stopped — including which collection is downloading right now. |
 | `jobs.json` | the queue, newest-first. Seeds itself on install. |
 
 ## Invariants worth not breaking
 
 - **`done` is append-only and never cleared on reinstall.** A restart must
-  resume, not redo.
+  resume, not redo. The one sanctioned exception is a named entry in `REPAIRS`,
+  applied once per profile and recorded by id, so putting work back is a
+  reviewable line of code rather than a console paste nobody remembers.
+- **`done` means the BYTES LANDED, never that Chrome accepted the URL.** Every
+  download id is held in `inflight` and confirmed `complete` through
+  `chrome.downloads.search` before the collection is retired; interrupted, timed
+  out (6h) and "Chrome has forgotten this id" are all failures, because *cannot
+  prove it arrived* and *it arrived* must not be the same answer. Retiring on
+  request cost five collections and 14,516 photos when the disk filled on
+  2026-09-01/02 — the extension moved on, the migration ledger still read
+  `queued`, and nothing anywhere said so.
+- **One collection's downloads at a time.** A tick that finds bytes still in
+  flight does nothing else, so a 47 GB request cannot race the ingest for the
+  same free space. A failed settle costs a full gap before the retry, because the
+  usual cause is a full disk and that needs the ingest to drain.
 - **A gated collection with no password armed is DEFERRED, not done.** Marking it
   done would silently retire all 282 in one unarmed run.
-- **A failure leaves the collection queued.** Transient R2/network errors deserve
-  a retry, and it stays at the head so it cannot be silently skipped.
+- **A deferred collection must be SKIPPED when choosing the head, and `arm` must
+  put it back.** The head used to be "first job not `done`", so a deferral
+  returned the same slug to position 0 every 20 minutes: `sjcbubblebash-2026` was
+  requested and deferred **104 times across 32 hours** while 1,191 collections
+  behind it were never reached. That is the `apannualconferenceblue` livelock
+  this file already documented, arriving through a second door — fixing one
+  instance of a failure mode does not retire the failure mode. The two halves are
+  one rule: skipping without re-arming on `arm` turns a livelock into a silent
+  omission.
+- **"Queue drained" and "everything left is gated" are different stopped
+  reasons.** Saying the first when the second is true reads as a finished
+  migration.
+- **A failure leaves the collection queued for three attempts, then retires it
+  WITH A RECORDED REASON.** Transient R2/network errors deserve a retry; an
+  unbounded one at the head of the queue is the livelock above. 404/410 is
+  permanent and retires immediately as `gone`.
 - **Three Cloudflare challenges stop the run** and record why. Do not raise that
   number.
 - **No filename is supplied to `chrome.downloads`.** Pixieset's
@@ -71,6 +99,17 @@ Chrome restart by itself.
   Web Size copy, and only pixel dimensions can tell them apart.
 - **Passwords are Mason's clients' passwords.** They live in
   `chrome.storage.local` and must never be logged, printed, or sent anywhere.
+
+## Tests
+
+```bash
+node --test scripts/pixieset/extension/background.test.mjs
+```
+
+Nine tests over the scheduler, loaded against a stub `chrome`. Both bugs they
+guard were live and both were silent, so the interesting ones are the negative
+cases: a deferred collection must leave the head, a download Chrome has
+forgotten must count as a failure, and a repair must not run twice.
 
 ## What it does NOT do
 
