@@ -71,10 +71,20 @@ been refusing to push for **26 consecutive nights** (its encryption audit was
 correctly blocking symlinked config the collector should never have copied), and
 nothing anywhere said so.
 
-Restore a night:
+Restore a night. **`git show` is the wrong tool** — it hands back the raw
+encrypted blob, because git-crypt's smudge filter runs on checkout, not on
+`show`/`cat-file`. Tested both of these:
 
 ```bash
-git -C ~/machine-state show origin/main:ledgers/pixieset-queue.json.gz | gunzip > queue.json
+git -C ~/machine-state checkout <sha> -- ledgers/pixieset-queue.json.gz && gunzip -c ~/machine-state/ledgers/pixieset-queue.json.gz > queue.json
+```
+
+`<sha>` is `origin/main` for the latest, or any commit from
+`git -C ~/machine-state log --oneline -- ledgers/pixieset-queue.json.gz`. The
+piped form also works if you would rather not touch the working tree:
+
+```bash
+git -C ~/machine-state cat-file -p origin/main:ledgers/pixieset-queue.json.gz | git-crypt smudge | gunzip -c > queue.json
 ```
 
 `STARVED` was the four-day case, and it used to be Mason's job: the download half
