@@ -111,9 +111,38 @@ guard were live and both were silent, so the interesting ones are the negative
 cases: a deferred collection must leave the head, a download Chrome has
 forgotten must count as a failure, and a repair must not run twice.
 
+## Retirement beacons — how a NEGATIVE outcome reaches the ledger
+
+Everything downstream is evidence-driven: a ZIP appears, so a collection is
+verified. Nothing carried the other answer. When this extension gives a
+collection up — gone from Pixieset, downloads switched off, password refused,
+three failed attempts — `queue.json` went on reading `queued` for it, and the
+two records disagreed with nobody to notice.
+
+So a retirement now writes `px-retired-{slug}.json` into `~/Downloads`, which
+`watch.mjs` already sweeps every 20 seconds. It records the collection as
+`failed` with the reason and files the beacon in `pixieset-staging/retired/`.
+
+- **The slug lives in the BODY, not the filename.** Chrome dedupes a repeat as
+  `px-retired-x (1).json`, and identity read out of a filename is one suffix
+  away from wrong — the same trap the ZIP name parser exists for.
+- **A filename IS supplied to `chrome.downloads` here**, the single exception to
+  the rule above: a blob has no `Content-Disposition` to take one from.
+- **A deferral is not a retirement and writes nothing.** A ledger row reading
+  `failed` for work that is merely waiting on a password is a lie with a long
+  half-life.
+- **Bytes beat beacons.** A collection already `verified` or `ingested` has its
+  beacon filed and ignored, never obeyed — that check is re-run against fresh
+  queue data inside the lock.
+- **A beacon that fails to write is shouted about** in the log. One that
+  silently does not arrive is the same fail-open shape the beacon exists to end.
+- The blob URL is minted in the offscreen document, because a service worker has
+  no `URL.createObjectURL`. It is revoked after the download completes.
+
 ## What it does NOT do
 
 Everything after the download: `watch.mjs` proves and stages the ZIP,
 `ingest-loop.sh` imports it, `stall-check.ts` shouts if the pipeline goes quiet.
 Those are launchd agents and already work. This extension only fills
-`~/Downloads`.
+`~/Downloads` — with archives, and with the occasional beacon saying an archive
+is never coming.

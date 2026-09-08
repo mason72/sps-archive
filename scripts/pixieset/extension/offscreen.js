@@ -269,8 +269,31 @@ async function armPasswords() {
   return { map, total };
 }
 
+/**
+ * Mint a blob URL for the retirement beacon.
+ *
+ * A service worker has no `URL.createObjectURL`, and a `data:` URL through
+ * `chrome.downloads` is not a guarantee worth betting a silent failure on —
+ * which is the exact class of bug the beacon exists to end. This document is
+ * already open for `DOMParser`, so it does the one DOM thing the worker cannot.
+ * The caller downloads it immediately and revokes it after.
+ */
+function makeBlobUrl(text, type) {
+  return URL.createObjectURL(new Blob([text], { type: type || "application/json" }));
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
   if (msg?.target !== "offscreen") return;
+  if (msg.type === "blob") {
+    try { respond({ ok: true, url: makeBlobUrl(msg.text, msg.mime) }); }
+    catch (e) { respond({ ok: false, error: String(e?.message ?? e).slice(0, 180) }); }
+    return true;
+  }
+  if (msg.type === "revoke") {
+    try { URL.revokeObjectURL(msg.url); } catch { /* already gone */ }
+    respond({ ok: true });
+    return true;
+  }
   if (msg.type === "drive") {
     driveOne(msg.slug, msg.password, msg.opts).then(respond);
     return true;                       // keep the channel open for async

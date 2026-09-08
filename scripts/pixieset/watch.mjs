@@ -9,6 +9,13 @@
  * Chrome saves the ZIPs; this moves them off the download path, proves them, and
  * records the result in the queue. It never talks to Pixieset.
  *
+ * It also reads RETIREMENT BEACONS (`px-retired-*.json`, added 2026-09-08) — the
+ * downloader's word that a collection was given up on and its bytes will never
+ * arrive. That is the only channel by which a NEGATIVE outcome reaches the
+ * ledger; without it a retired collection reads `queued` forever, which is
+ * exactly how five of them (14,516 photos) went missing for a week. See
+ * `parseBeacon`.
+ *
  * FOUR THINGS THAT WILL BITE, all learned the hard way on 2026-08-12:
  *
  *  1. **The filename does not encode fidelity.** A Web Size archive and a High
@@ -78,6 +85,8 @@ export const DOWNLOADS = join(homedir(), "Downloads");
 export const STAGING = process.env.PIXIESET_STAGING || join(homedir(), "pixieset-staging");
 export const VERIFIED = join(STAGING, "verified");
 export const QUARANTINE = join(STAGING, "quarantine");
+/** Consumed retirement beacons, kept as the audit trail of what was given up on. */
+export const RETIRED = join(STAGING, "retired");
 const ORPHAN_LOG = join(STAGING, "orphans.json");
 
 /**
@@ -89,6 +98,7 @@ const ORPHAN_LOG = join(STAGING, "orphans.json");
 export const MIN_FREE_GB = Number(process.env.PIXIESET_MIN_FREE_GB) || 25;
 
 const ZIP = /\.zip$/i;
+const BEACON = /^px-retired-.*\.json$/i;
 
 /**
  * Strip Chrome's " (N)" dedupe suffix and read Pixieset's slug + part numbers.
@@ -113,6 +123,65 @@ async function isSettled(path) {
   await new Promise((r) => setTimeout(r, 1200));
   const b = await stat(path).catch(() => null);
   return !!b && a.size === b.size && b.size > 0;
+}
+
+/**
+ * Read a retirement beacon — the downloader's word that it gave a collection up.
+ *
+ * Written by the Chrome extension when it retires a collection WITHOUT its
+ * bytes: gone from Pixieset, downloads switched off, password refused, or three
+ * failed attempts. Before this existed, those left `queue.json` reading
+ * `queued` forever — the ledger and the scheduler disagreeing, with no surface
+ * that compared them. Five collections and 14,516 photos sat that way for a
+ * week (2026-09-01 → 09-08).
+ *
+ * The SLUG COMES FROM THE BODY, never from the filename. Chrome dedupes a
+ * repeat as `px-retired-x (1).json`, and identity read out of a filename is one
+ * suffix away from being wrong — the same trap as the ZIP names, which is why
+ * that parser strips " (N)" rather than trusting it.
+ *
+ * Returns null for anything that is not a well-formed beacon, so a stray JSON
+ * file in ~/Downloads is an orphan with a reason rather than a state change.
+ */
+export function parseBeacon(text) {
+  let b;
+  try { b = JSON.parse(text); } catch { return null; }
+  if (!b || b.kind !== "px-retired") return null;
+  if (typeof b.slug !== "string" || !b.slug) return null;
+  const reasons = ["gone", "no-download", "password-rejected", "failed"];
+  return {
+    slug: b.slug,
+    reason: reasons.includes(b.reason) ? b.reason : "failed",
+    detail: typeof b.detail === "string" ? b.detail.slice(0, 300) : "",
+    attempts: Number.isFinite(b.attempts) ? b.attempts : null,
+    at: typeof b.at === "string" ? b.at : null,
+  };
+}
+
+/** Human sentence for the ledger's `error` column. */
+export function beaconError(b) {
+  const why = {
+    gone: "deleted on Pixieset",
+    "no-download": "bulk download switched off on the collection",
+    "password-rejected": "gallery password refused",
+    failed: "the downloader gave up after repeated failures",
+  }[b.reason];
+  return `retired by the downloader: ${why}${b.detail ? ` — ${b.detail}` : ""}`;
+}
+
+/** Every beacon settled in ~/Downloads, parsed. */
+export async function scanBeacons(dir = DOWNLOADS) {
+  const files = (await readdir(dir).catch(() => [])).filter((f) => BEACON.test(f));
+  const found = [];
+  const orphans = [];
+  for (const f of files) {
+    const path = join(dir, f);
+    if (!(await isSettled(path))) continue;
+    const parsed = parseBeacon(await readFile(path, "utf8").catch(() => ""));
+    if (!parsed) { orphans.push({ name: f, reason: "not a readable px-retired beacon" }); continue; }
+    found.push({ ...parsed, path, name: f });
+  }
+  return { found, orphans };
 }
 
 export async function freeGB(dir = STAGING) {
@@ -173,10 +242,34 @@ export async function sweep({ dryRun = false } = {}) {
   await mkdir(QUARANTINE, { recursive: true });
 
   const { bySlug, skipped, orphans } = await scanDownloads();
+  const beaconScan = await scanBeacons();
+  orphans.push(...beaconScan.orphans);
   /** Final state per collection, applied under the lock once the slow work is done. */
   const pendingStates = [];
   const idx = slugIndex(queue);
   const done = [];
+
+  /**
+   * Retirement beacons, classified now and applied with everything else.
+   *
+   * A beacon is the downloader's CLAIM. Bytes on disk are stronger: a
+   * collection that is already `verified` or `ingested` really did arrive —
+   * by a re-request, by hand, from another route — and marking it failed on
+   * the strength of a file would walk the ledger backwards over the evidence.
+   * Those beacons are filed and ignored, never obeyed.
+   */
+  const retired = [];
+  for (const b of beaconScan.found) {
+    const collection = idx.get(b.slug);
+    if (!collection) {
+      await noteOrphan({ name: b.name, reason: `beacon slug "${b.slug}" is not in the queue` });
+      orphans.push({ name: b.name, reason: `beacon slug "${b.slug}" is not in the queue` });
+      continue;
+    }
+    const state = get(queue, collection.id).state;
+    const stale = state === "verified" || state === "ingested";
+    retired.push({ ...b, id: collection.id, name: collection.name, from: state, stale });
+  }
 
   for (const [slug, parts] of bySlug) {
     const collection = idx.get(slug);
@@ -319,8 +412,22 @@ export async function sweep({ dryRun = false } = {}) {
    * here — briefly, atomically, on current data. Lock hold time is milliseconds
    * rather than minutes, so the ingest is never blocked behind a verification.
    */
-  if (!dryRun && pendingStates.length) {
+  if (!dryRun && (pendingStates.length || retired.some((r) => !r.stale))) {
     await withQueue((fresh) => {
+      /**
+       * Beacons first, ZIPs second, deliberately.
+       *
+       * If a collection was retired AND its bytes turned up in the same sweep,
+       * the bytes win: `failed → queued → … → verified` is the ordinary retry
+       * path the loop below already walks. Doing it the other way round would
+       * mark a freshly verified archive as failed.
+       */
+      for (const r of retired) {
+        if (r.stale) continue;
+        const cur = get(fresh, r.id).state;
+        if (cur === "verified" || cur === "ingested") continue;   // re-checked on fresh data
+        transition(fresh, r.id, "failed", { error: beaconError(r) });
+      }
       for (const { id, to, patch } of pendingStates) {
         const cur = get(fresh, id).state;
         if (cur === to) continue;
@@ -335,8 +442,27 @@ export async function sweep({ dryRun = false } = {}) {
       }
     });
   }
+  /**
+   * File the beacons only after the ledger has them.
+   *
+   * Same rule the archives follow: the record lands before the evidence is
+   * moved. If this throws, the beacon stays in ~/Downloads and the next sweep
+   * re-applies it — `failed → failed` is a no-op transition that appends one
+   * history line, which is a far better failure than a retirement nobody kept.
+   */
+  if (!dryRun && retired.length) {
+    await mkdir(RETIRED, { recursive: true });
+    for (const r of retired) {
+      await rename(r.path, join(RETIRED, basename(r.path))).catch(async (err) => {
+        if (err?.code !== "EXDEV") throw err;
+        await copyFile(r.path, join(RETIRED, basename(r.path)));
+        await unlink(r.path);
+      });
+    }
+  }
+
   for (const o of orphans) await noteOrphan(o);
-  return { done, skipped, orphans, freeGB: await freeGB() };
+  return { done, skipped, orphans, retired, freeGB: await freeGB() };
 }
 
 // ---------------------------------------------------------------- CLI
@@ -353,6 +479,11 @@ const fmt = (r) => {
     if (d.sets) console.log(`    sets: ${Object.entries(d.sets).map(([k, v]) => `${k}=${v}`).join(", ")}`);
     for (const p of d.problems || []) console.log(`    ! ${p}`);
   }
+  for (const t of r.retired || []) {
+    console.log(t.stale
+      ? `· ${t.slug} — retirement beacon ignored, already ${t.from}`
+      : `✗ ${t.slug} — RETIRED by the downloader (${t.reason}): ${t.detail || "no detail"}`);
+  }
   for (const s of r.skipped) console.log(`… ${s.name} — ${s.reason}`);
   for (const o of r.orphans) console.log(`? ORPHAN ${o.name} — ${o.reason}`);
   console.log(`free ${r.freeGB} GB${r.freeGB < MIN_FREE_GB ? `  ⚠ below the ${MIN_FREE_GB} GB floor — stop requesting` : ""}`);
@@ -366,7 +497,7 @@ if (!isMain) {
   console.log(`watching ${DOWNLOADS} → ${VERIFIED} (ctrl-c to stop)`);
   for (;;) {
     const r = await sweep();
-    if (r.done.length || r.orphans.length) fmt(r);
+    if (r.done.length || r.orphans.length || r.retired.length) fmt(r);
     await new Promise((res) => setTimeout(res, 20000));
   }
 } else if (cmd === "orphans") {

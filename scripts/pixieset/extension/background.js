@@ -95,14 +95,73 @@ async function ensureOffscreen() {
   if (existing.length) return;
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
-    reasons: ["DOM_PARSER"],
-    justification: "Parse Pixieset's download pages, which are HTML, to find the archive links.",
+    reasons: ["DOM_PARSER", "BLOBS"],
+    justification: "Parse Pixieset's download pages, which are HTML, and mint the blob URL for the retirement beacon a service worker cannot create.",
   });
 }
 
 async function ask(msg) {
   await ensureOffscreen();
   return chrome.runtime.sendMessage({ target: "offscreen", ...msg });
+}
+
+/**
+ * Tell the pipeline, in a file, that a collection was given up on.
+ *
+ * The extension is the only thing that knows a collection has been retired
+ * without its bytes, and until now it recorded that in a 60-line in-memory log
+ * that nothing reads unless a human opens the popup. So `queue.json` went on
+ * saying `queued` for five collections that had already left the queue for
+ * good — the ledger and the scheduler disagreeing with nobody to notice.
+ *
+ * A beacon is a small JSON file dropped in ~/Downloads, which `watch.mjs`
+ * already sweeps every 20 seconds. It carries the slug in its BODY, never only
+ * in its name, so Chrome's " (N)" dedupe cannot make it unreadable; the watcher
+ * moves it to `pixieset-staging/retired/` after recording it, so the evidence
+ * outlives the sweep.
+ *
+ * A filename IS supplied here, unlike the ZIPs — a blob has no
+ * Content-Disposition to take one from. That exception is the whole reason the
+ * ZIP rule exists in the first place: the name must be the one the watcher
+ * expects, and here nothing else provides it.
+ *
+ * Failure to write one is reported LOUDLY rather than swallowed. A beacon that
+ * silently does not arrive is the same fail-open shape it was built to fix.
+ */
+async function writeBeacon(s, slug, reason, detail) {
+  const body = {
+    kind: "px-retired",
+    version: 1,
+    slug,
+    reason,                                    // gone | no-download | password-rejected | failed
+    detail: String(detail ?? "").slice(0, 300),
+    attempts: (s.attempts && s.attempts[slug]) || 0,
+    at: new Date().toISOString(),
+  };
+  let url = null;
+  try {
+    const minted = await ask({ type: "blob", text: JSON.stringify(body, null, 2), mime: "application/json" });
+    if (!minted?.ok) throw new Error(minted?.error ?? "offscreen refused");
+    url = minted.url;
+    const id = await chrome.downloads.download({
+      url,
+      filename: `px-retired-${slug}.json`,
+      conflictAction: "uniquify",              // never clobber a beacon the watcher has not read yet
+    });
+    // Confirm it landed. This is ~300 bytes, so it is complete almost at once;
+    // if it is not, that is worth a line in the log rather than a shrug.
+    let state = null;
+    for (let i = 0; i < 10 && state !== "complete"; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      state = (await chrome.downloads.search({ id }))[0]?.state ?? null;
+      if (state === "interrupted") break;
+    }
+    if (state !== "complete") note(s, `BEACON NOT WRITTEN for ${slug} (${state ?? "no record"}) — the ledger will not learn this`);
+  } catch (e) {
+    note(s, `BEACON FAILED for ${slug} — ${String(e?.message ?? e).slice(0, 60)}`);
+  } finally {
+    if (url) { try { await ask({ type: "revoke", url }); } catch { /* the doc may have closed */ } }
+  }
 }
 
 /**
@@ -212,6 +271,36 @@ async function settleInflight(s) {
  * strikes and it is retired WITH A RECORDED REASON, because retrying at the
  * head of the queue forever is the livelock this file already paid for twice.
  */
+/**
+ * Beacons queued by the synchronous retirement paths.
+ *
+ * `failedAttempt` is called from two places that are mid-way through mutating
+ * state, and writing a file is async; collecting them here and flushing once,
+ * after the state is saved, keeps the retirement decision and the record of it
+ * in one order — decide, persist, then announce.
+ */
+let beacons = [];
+
+async function flushBeacons(s) {
+  const pending = beacons;
+  beacons = [];
+  for (const b of pending) await writeBeacon(s, b.slug, b.reason, b.detail);
+}
+
+/**
+ * Persist the decision, THEN announce it, then persist the announcement.
+ *
+ * The order matters: a beacon written before the state was saved could survive
+ * a crash that lost the retirement, and the watcher would mark a collection
+ * failed that this extension still intends to retry.
+ */
+async function saveAndAnnounce(s) {
+  await save(s);
+  if (!beacons.length) return;
+  await flushBeacons(s);
+  await save(s);
+}
+
 function failedAttempt(s, slug, why) {
   s.attempts = s.attempts || {};
   const n = (s.attempts[slug] || 0) + 1;
@@ -219,6 +308,7 @@ function failedAttempt(s, slug, why) {
   if (n >= 3) {
     s.done.push(slug);
     note(s, `${slug}: failed ${n}x (${why}) — giving up, moving on`);
+    beacons.push({ slug, reason: "failed", detail: `${n} attempts: ${why}` });
   } else {
     note(s, `${slug}: ${why} (attempt ${n}/3, will retry)`);
   }
@@ -236,7 +326,7 @@ async function tick() {
   // serialises the downloads, which is what keeps a 47 GB collection from
   // racing the ingest for the same free space.
   const clear = await settleInflight(s);
-  await save(s);
+  await saveAndAnnounce(s);
   if (!clear) return;
 
   /**
@@ -305,9 +395,18 @@ async function tick() {
   if (r.phase === "gate") {
     // Only retire it if a password was actually tried and refused. With none
     // armed it stays queued, or an unarmed run would silently retire all 282.
-    if (s2.passwords[slug]) { s2.done.push(slug); note(s2, `${slug}: password rejected`); }
-    else { if (!s2.gated.includes(slug)) s2.gated.push(slug); note(s2, `${slug}: gated, deferred`); }
-    await save(s2);
+    if (s2.passwords[slug]) {
+      s2.done.push(slug);
+      note(s2, `${slug}: password rejected`);
+      beacons.push({ slug, reason: "password-rejected", detail: "the armed password was refused" });
+    } else {
+      if (!s2.gated.includes(slug)) s2.gated.push(slug);
+      note(s2, `${slug}: gated, deferred`);
+      // Deliberately NO beacon: deferred is not retired. Arming a password puts
+      // it straight back, and a ledger row reading `failed` for work that is
+      // merely waiting would be a lie with a long half-life.
+    }
+    await saveAndAnnounce(s2);
     return;
   }
 
@@ -315,7 +414,8 @@ async function tick() {
     if (!s2.noDownload.includes(slug)) s2.noDownload.push(slug);
     s2.done.push(slug);
     note(s2, `${slug}: downloads disabled`);
-    await save(s2);
+    beacons.push({ slug, reason: "no-download", detail: "bulk download is switched off on the collection" });
+    await saveAndAnnounce(s2);
     return;
   }
 
@@ -349,11 +449,12 @@ async function tick() {
       if (!s2.gone.includes(slug)) s2.gone.push(slug);
       s2.done.push(slug);
       note(s2, `${slug}: HTTP ${r.httpStatus} — gone from Pixieset, retired`);
+      beacons.push({ slug, reason: "gone", detail: `HTTP ${r.httpStatus} — deleted on Pixieset since the inventory sweep` });
     } else {
       failedAttempt(s2, slug, r.error ?? "failed");
     }
   }
-  await save(s2);
+  await saveAndAnnounce(s2);
 }
 
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) tick(); });

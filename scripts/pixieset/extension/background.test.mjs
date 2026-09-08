@@ -34,6 +34,8 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
   const asked = [];
   const requested = [];
   const cancelled = [];
+  const blobs = [];        // beacon bodies, as the offscreen doc would receive them
+  const revoked = [];
   let nextId = 100;
   const chrome = {
     storage: { local: {
@@ -41,7 +43,13 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
       set: async (o) => { Object.assign(store, o); },
     } },
     downloads: {
-      download: async ({ url }) => { const id = nextId++; requested.push({ id, url }); return id; },
+      download: async ({ url, filename }) => {
+        const id = nextId++;
+        requested.push({ id, url, filename });
+        // A beacon is ~300 bytes; the real API completes it before the poll.
+        if (filename) downloads[id] = { state: "complete" };
+        return id;
+      },
       cancel: async (id) => { cancelled.push(id); },
       // The real API returns an empty array for an unknown id — it does not throw.
       search: async ({ id }) => (downloads[id] ? [{ id, ...downloads[id] }] : []),
@@ -52,6 +60,8 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
       getContexts: async () => [{}],
       getURL: (p) => p,
       sendMessage: async (msg) => {
+        if (msg.type === "blob") { blobs.push(JSON.parse(msg.text)); return { ok: true, url: `blob:px/${blobs.length}` }; }
+        if (msg.type === "revoke") { revoked.push(msg.url); return { ok: true }; }
         if (msg.type === "arm") return arm ? arm(msg) : { ok: false };
         asked.push(msg.slug);
         return drive ? drive(msg) : { ok: false, error: "no stub" };
@@ -62,7 +72,7 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
     },
     _onMessage: [],
   };
-  return { chrome, store, asked, requested, cancelled, downloads, state: () => store["px.state"] };
+  return { chrome, store, asked, requested, cancelled, blobs, revoked, downloads, state: () => store["px.state"] };
 }
 
 async function loadBackground(chrome) {
@@ -207,4 +217,72 @@ test("a repair puts lost collections back exactly once", async () => {
   const second = applyRepairs(s);
   assert.deepEqual(second, [], "a reload must not undo real work a second time");
   assert.ok(s.done.includes("mcapsseattle2026"));
+});
+
+// ------------------------------------------------------------ retirement beacons
+//
+// Retiring a collection without its bytes used to be recorded ONLY in a 60-line
+// in-memory log that nothing reads unless a human opens the popup, so
+// `queue.json` went on saying `queued` for work that had permanently left the
+// queue. A beacon is a small JSON file the watcher already sweeps; these guard
+// that every giving-up path writes one, and that a DEFERRAL does not.
+
+test("giving up after three attempts announces it to the pipeline", async () => {
+  const h = harness(base({ jobs: ["flaky"], attempts: { flaky: 2 } }), {
+    drive: () => ({ ok: false, error: "R2 timeout" }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.blobs.length, 1);
+  assert.equal(h.blobs[0].kind, "px-retired");
+  assert.equal(h.blobs[0].slug, "flaky");
+  assert.equal(h.blobs[0].reason, "failed");
+  assert.match(h.blobs[0].detail, /R2 timeout/);
+  assert.equal(h.requested.at(-1).filename, "px-retired-flaky.json");
+  assert.equal(h.revoked.length, 1, "a blob URL that is never revoked leaks the whole file");
+});
+
+test("a collection deleted on Pixieset announces itself as gone", async () => {
+  const h = harness(base({ jobs: ["deleted"] }), { drive: () => ({ ok: false, httpStatus: 404 }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.blobs[0].reason, "gone");
+  assert.match(h.blobs[0].detail, /404/);
+});
+
+test("downloads switched off announces itself, and is not a failure", async () => {
+  const h = harness(base({ jobs: ["locked-down"] }), { drive: () => ({ phase: "nodl" }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.blobs[0].reason, "no-download");
+});
+
+test("a DEFERRED collection announces nothing — it is waiting, not retired", async () => {
+  const h = harness(base({ jobs: ["gatedone", "next"] }), {
+    drive: ({ slug }) => (slug === "gatedone" ? { phase: "gate" } : { ok: true, expect: 1, zips: [{ url: "u", size: "1 GB" }] }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.blobs, [], "a ledger row reading failed for work that is merely waiting is a lie with a long half-life");
+});
+
+test("a refused password IS a retirement and announces one", async () => {
+  const h = harness(base({ jobs: ["locked"], passwords: { locked: "hunter2" } }), {
+    drive: () => ({ phase: "gate" }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.blobs[0].reason, "password-rejected");
+  assert.ok(h.state().done.includes("locked"));
+});
+
+test("a beacon that cannot be written is shouted about, not swallowed", async () => {
+  const h = harness(base({ jobs: ["flaky"], attempts: { flaky: 2 } }), {
+    drive: () => ({ ok: false, error: "R2 timeout" }),
+  });
+  h.chrome.runtime.sendMessage = async (msg) =>
+    msg.type === "blob" ? { ok: false, error: "offscreen closed" } : { ok: false, error: "R2 timeout" };
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.match(h.state().log.join("\n"), /BEACON FAILED for flaky/, "a beacon that silently fails to arrive is the bug it exists to fix");
 });

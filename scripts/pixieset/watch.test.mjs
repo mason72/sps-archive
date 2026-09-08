@@ -10,7 +10,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDownloadName } from "./watch.mjs";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseDownloadName, parseBeacon, beaconError, scanBeacons } from "./watch.mjs";
 
 test("parses Pixieset's deterministic download name", () => {
   const p = parseDownloadName("nachisheadshots-photo-download-1of1.zip");
@@ -91,4 +94,46 @@ test("STATES still contains every state the walk relies on", () => {
   for (const s of ["queued", "requested", "ready", "downloaded", "verified", "ingested", "failed"]) {
     assert.ok(STATES.includes(s), `${s} missing from STATES`);
   }
+});
+
+// ------------------------------------------------------------ retirement beacons
+//
+// The downloader retires a collection it cannot get — gone from Pixieset,
+// downloads switched off, password refused, three failures — and until the
+// beacon existed that never reached `queue.json`, which went on reading
+// `queued` for five collections and 14,516 photos for a week. These guard the
+// two claims the design rests on: the slug comes from the BODY, and anything
+// malformed is an orphan rather than a state change.
+
+test("a beacon's slug comes from its body, not its filename", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "px-beacon-"));
+  const body = JSON.stringify({ kind: "px-retired", version: 1, slug: "mcapsseattle2026", reason: "gone", detail: "HTTP 404", at: new Date().toISOString() });
+  // Chrome's dedupe suffix: the name is unparseable, the body is not.
+  await writeFile(join(dir, "px-retired-mcapsseattle2026 (1).json"), body);
+  const { found, orphans } = await scanBeacons(dir);
+  assert.equal(orphans.length, 0);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].slug, "mcapsseattle2026", "a duplicate suffix must not cost us the identity");
+  assert.equal(found[0].reason, "gone");
+});
+
+test("anything that is not a beacon is an orphan, never a state change", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "px-beacon-"));
+  await writeFile(join(dir, "px-retired-broken.json"), "{ not json");
+  await writeFile(join(dir, "px-retired-other.json"), JSON.stringify({ kind: "something-else", slug: "x" }));
+  await writeFile(join(dir, "px-retired-noslug.json"), JSON.stringify({ kind: "px-retired" }));
+  const { found, orphans } = await scanBeacons(dir);
+  assert.equal(found.length, 0, "a malformed file must not be able to fail a collection");
+  assert.equal(orphans.length, 3);
+});
+
+test("an unknown reason degrades to failed rather than being trusted", () => {
+  const b = parseBeacon(JSON.stringify({ kind: "px-retired", slug: "x", reason: "haunted" }));
+  assert.equal(b.reason, "failed", "a reason we do not know is still a retirement");
+});
+
+test("the ledger's error says who retired it and why", () => {
+  const e = beaconError({ reason: "no-download", detail: "bulk download is switched off" });
+  assert.match(e, /retired by the downloader/);
+  assert.match(e, /switched off/);
 });

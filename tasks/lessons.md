@@ -2454,3 +2454,41 @@ anywhere disagreed with itself.
   popup. A "never happened" counter is the cheapest probe there is (lesson 92's
   `grep -c idling`), and its mirror — *the same thing happening over and over* —
   is just as cheap and just as unread.
+
+## 124 — A pipeline that only carries good news cannot report a loss (2026-09-08)
+
+Follow-on from 123, and the reason that bug could hide for a week.
+
+Every stage of the Pixieset migration was evidence-driven and every piece of
+evidence was POSITIVE: a ZIP appears in `~/Downloads`, so the watcher verifies
+it and the ledger advances. Nothing anywhere carried the other answer. When the
+downloader gave a collection up — deleted on Pixieset, downloads switched off,
+password refused, three failed attempts — it recorded that in a 60-line
+in-memory log that nothing reads unless a human opens a popup, and `queue.json`
+went on saying `queued` for work that had permanently left the queue.
+
+**A missing collection and an unstarted one were the same row.** That is what
+made five lost galleries invisible: not an error anybody swallowed, but a shape
+of record with no way to express failure.
+
+- **Give the negative outcome a channel with the same durability as the positive
+  one.** A retirement now writes a small JSON beacon into the directory the
+  watcher already sweeps; it lands in the ledger as `failed` with a reason, and
+  the file is filed rather than deleted. No new transport, no new daemon — the
+  cheapest possible path was the one already running.
+- **Identity goes in the body, never only in the filename.** Chrome dedupes a
+  repeat as `… (1).json`, and a parser reading the name would have lost the
+  slug — the identical trap the ZIP name parser was written for. Fixing one
+  instance of a failure mode does not retire the failure mode (123 again).
+- **The stronger evidence must win, and the check must re-run on fresh data.**
+  A beacon for a collection that is already `verified` or `ingested` is filed
+  and ignored: bytes on disk outrank a claim in a file, and obeying it would
+  walk the ledger backwards over real photos. Verified live, on an ingested
+  collection, by writing a beacon on purpose and confirming nothing moved.
+- **A guard that fails to fire must be loud.** The beacon writer confirms the
+  file actually landed and shouts in the log if it did not — a beacon that
+  silently does not arrive is precisely the failure it exists to end.
+- **Backfill is part of shipping it.** The five collections lost on 2026-09-01/02
+  got beacons by hand, so the ledger stopped claiming they were untouched:
+  1,212 queued → 1,207 queued and 10 failed. A mechanism that only tells the
+  truth about the future leaves the existing lie in place.
