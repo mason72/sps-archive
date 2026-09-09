@@ -43,6 +43,17 @@ const REPAIRS = [
       "applovinemployeeappreciationday",
     ],
   },
+  {
+    id: "2026-09-09-requeue-atlassian",
+    // Retired after three attempts on the night the 46 GB traps were found: a
+    // 19-minute drive against a 20-minute alarm ran three overlapping requests,
+    // one interrupted part discarded 16 that had landed, and each retry
+    // re-fetched everything. Its 46 GB of parts were deleted to keep the
+    // startup disk off zero — the collection is live on Pixieset (a 200, not
+    // the 404 that retired mcapsseattle2026), so this is one clean run now that
+    // the drive lock, the settle rule and alreadyHave() are all in place.
+    requeue: ["atlassian-team26expo"],
+  },
 ];
 
 const DEFAULTS = {
