@@ -2568,3 +2568,34 @@ may well have been working too.
   duplicates. `ls | sed 's/.*download-//' | sort -V` was one pipe further and
   gave the real answer. A count of files is not a count of the things the files
   represent.
+
+## 127 — The pipeline was never the bottleneck; the uplink was (2026-09-08)
+
+A night of real bugs — a livelocked queue, retirement without arrival, no disk
+floor — and every one of them was worth fixing. None of them is the constraint.
+
+Measured on the mini: **downloads run at ~29 MB/s and uploads at ~97 KB/s.** A
+300:1 asymmetry. Three independent observations agree (a 23 MB `git push` took 11
+minutes, a 15 MB R2 probe did not finish in five, the ingest sampled at 97 KB/s),
+and the durable cross-check settles it: **0.44 TB ingested over 25.4 days is 195
+KB/s sustained.** The migration has run at roughly this rate since the day it
+started.
+
+- **The disk kept filling because of a RATE MISMATCH, not a bug.** The
+  downloader can fill the volume ~300x faster than the ingest can drain it. That
+  reframes the disk brake from a patch into the structural fix: it throttles the
+  fast half to the slow half's pace, which is the only stable arrangement.
+- **Cross-check a spot measurement against history before quoting it.** 97 KB/s
+  over 20 seconds is a sample; 195 KB/s over 25 days of actual ingests is the
+  durable record, and the two agreeing is what makes the conclusion safe to act
+  on. Either alone would have been a guess — and the estimate that matters here
+  (~4.9 TB remaining, 9 months to 1.6 years) is exactly the kind of number that
+  gets quoted back as fact.
+- **Check the whole path before blaming a layer.** Wi-Fi looked like the obvious
+  culprit for an always-on machine — and it is 802.11ax at −18 dBm with a 1200
+  Mbps link rate. Syncthing looked like a competitor for the uplink, and a
+  10-second delta showed 9 KB. Both exonerated by one command each; the lifetime
+  byte totals I first read would have convicted Syncthing.
+- **Ask what the constraint IS before optimising anything else.** Every hour
+  tonight went into the pipeline. The one number that decides when this
+  migration finishes was ten minutes of measurement away.
