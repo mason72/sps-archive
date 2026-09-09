@@ -1,5 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClientOptions } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { Database } from "./database.types";
 
@@ -38,10 +38,19 @@ export async function createServerSupabaseClient() {
   );
 }
 
-/** Service-role client for server-side operations that bypass RLS */
-export function createServiceClient() {
+/**
+ * Service-role client for server-side operations that bypass RLS.
+ *
+ * `options` passes straight through to supabase-js. Routes never need it; the
+ * Pixieset ingest uses it to give every request a deadline, because a request
+ * with no timeout on a socket that has died waits forever (2026-09-09: one hung
+ * R2 call froze a whole collection for two hours — Supabase calls have the same
+ * shape and the same fix).
+ */
+export function createServiceClient(options?: SupabaseClientOptions<"public">) {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    options
   );
 }

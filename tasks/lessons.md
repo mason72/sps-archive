@@ -2721,3 +2721,45 @@ build. Fix: `PromiseLike<unknown>`. One character class of bug, one line.
   `git ls-tree HEAD <path>` and expect `100755`** — `ls -l` reports the disk,
   not the commit. And `git commit --amend -- <path>` does NOT carry a staged
   mode change for another path; check the committed tree, not the index.
+
+## 131 — One R2 call with no timeout froze a whole collection for two hours (2026-09-09)
+
+The stall checker emailed STUCK: 5 collections staged, oldest waiting 4.2h,
+last completion 1.8h ago, agents up, **0 passes and 0 idles in the last hour**.
+The durable record (`images`) said Docusign // Feb 2025 had 2,792 of 2,834 rows,
+all complete, all thumbnailed, newest 65 minutes old, no share minted. On the
+mini: the ingest process at 1h57m elapsed, **0.0% CPU, 69 MB resident, exactly
+one ESTABLISHED socket** — to 172.64.66.1, which `dig` resolved as the R2
+endpoint. One PUT on a dead connection, waiting forever, and because the four
+upload workers are awaited by a single `Promise.all`, that one call held the
+entire run: no summary, no publish, no `markIngested`, no next pass.
+
+- **Neither R2 client set a timeout, and neither did the Supabase or Inngest
+  calls.** The AWS SDK's default is to wait indefinitely. Fix:
+  `requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 }` on
+  both `S3Client`s (`requestTimeout` is socket IDLE time, so a moving transfer
+  never trips it), a 90s `fetch` deadline on the ingest's Supabase client via
+  the new `createServiceClient(options)` pass-through, and a 30s race around
+  each `inngest.send`. A timeout is a retryable error to the SDK, so the cost
+  of a dead socket is now one retry instead of one stalled migration.
+  **Negative-tested** (`scripts/triage/r2-timeout-probe.ts`): a blackhole
+  endpoint rejects at 10.0s with `TimeoutError`; a real HEAD still answers in
+  205ms.
+- **The ingest log is silent by DESIGN during a run.** `ingest-loop.sh` does
+  `out=$(npx tsx … 2>&1)` and echoes it only when the child exits, so a
+  two-hour run shows nothing in `ingest.log` however much it printed. Lesson
+  126 ("a silent log is not a stalled process") is therefore not a heuristic
+  here, it is a fact of the plumbing — **read the images table, then `ps` and
+  `lsof -i` on the process; never the log.** `0.0% CPU + one socket` is the
+  hung-call signature; `0.0% CPU + many sockets` is just a network-bound run.
+- **`0 passes in the last hour` was the load-bearing line of the email.** A
+  pass logs at its START, so zero passes with the agent up means one pass has
+  been running the whole window. The stall checker got this right; the
+  reaction should be "which call is it waiting on", not "is the ingest broken".
+- **Any `Promise.all` over network calls inherits the timeout of its slowest
+  member, and with no timeout that is forever.** Before awaiting a pool, name
+  the deadline on each member.
+- Mini is not reachable over ssh from the laptop; process-level facts there
+  come through Mason's terminal. Ask for `ps -Ao pid,etime,%cpu,rss,command`
+  and `lsof -nP -i -a -p <pid>` in the same breath — the second is what named
+  the culprit.

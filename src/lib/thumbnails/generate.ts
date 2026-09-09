@@ -12,6 +12,19 @@ const R2 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
+  /**
+   * TIMEOUTS, because a socket that dies mid-request otherwise waits forever.
+   *
+   * 2026-09-09: one R2 PUT hung for two hours with 0% CPU and a single
+   * ESTABLISHED socket, and since the Pixieset ingest awaits its workers with
+   * one Promise.all, that one call froze the whole collection at 2,792 of 2,834
+   * photos — silently, because the loop only prints a run's output when it
+   * exits. `requestTimeout` is socket IDLE time, not total time, so a large
+   * transfer that is still moving never trips it; a transfer that has stopped
+   * moving for two minutes is dead. A timeout is a retryable error to the SDK,
+   * so a flaky connection costs a retry, not a stall.
+   */
+  requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
 });
 
 const BUCKET = process.env.R2_BUCKET_NAME!;

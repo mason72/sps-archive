@@ -55,6 +55,22 @@ const run = promisify(execFile);
    importable at module scope here, and this file only ever holds the service
    client. */
 type SupabaseLike = Awaited<ReturnType<typeof import("../src/lib/supabase/server").createServiceClient>>;
+
+/** A `fetch` whose every call aborts after `ms` of no response — see the deadline note in main(). */
+function fetchWithDeadline(ms: number): typeof fetch {
+  return (input, init) => {
+    const deadline = AbortSignal.timeout(ms);
+    const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+    return fetch(input, { ...init, signal });
+  };
+}
+
+/** Reject after `ms` so a call with no timeout of its own cannot hang the run. The underlying request is not cancelled; the run simply stops waiting for it. */
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const t = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}: no response in ${ms / 1000}s`)), ms); });
+  return Promise.race([p, t]).finally(() => clearTimeout(timer));
+}
 type ResolveSharePins = typeof import("../src/types/event-settings").resolveSharePins;
 
 for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
@@ -406,7 +422,18 @@ async function main() {
       : `${setOrder.length} named set(s) → sections of the same name`}`
   );
 
-  const supabase = createServiceClient();
+  /**
+   * Every network call in this run gets a DEADLINE. On 2026-09-09 one R2 PUT
+   * hung for two hours on a dead socket (0% CPU, one ESTABLISHED connection),
+   * and because the workers below are awaited with a single Promise.all, that
+   * one call froze the collection at 2,792 of 2,834 with nothing printed —
+   * the loop only shows a run's output when it exits. The R2 clients now carry
+   * their own timeouts (src/lib/r2/client.ts); Supabase and Inngest calls have
+   * the same no-timeout shape, so they get one here. 90s is far beyond any
+   * legitimate round trip (a faces read averages 838ms under load, max 7.6s)
+   * and far short of a human noticing a stall.
+   */
+  const supabase = createServiceClient({ global: { fetch: fetchWithDeadline(90_000) } });
 
   // Owner. A new event needs one, and guessing is not acceptable on a live DB.
   let userId = flag("user");
@@ -778,8 +805,8 @@ async function main() {
   // how you get rate limited.
   if (imported) {
     try {
-      await inngest.send({ name: "focal/auto.suggest", data: { eventId } });
-      await inngest.send({ name: "ai/index.requested", data: { eventId } });
+      await withDeadline(inngest.send({ name: "focal/auto.suggest", data: { eventId } }), 30_000, "inngest focal/auto.suggest");
+      await withDeadline(inngest.send({ name: "ai/index.requested", data: { eventId } }), 30_000, "inngest ai/index.requested");
       console.log("settlement dispatched (focal points + AI indexing)");
     } catch (err) {
       console.error("settlement dispatch failed (not fatal):", err);
