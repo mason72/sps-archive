@@ -2531,3 +2531,40 @@ Fix: `rsync -aL`.
   written or committed. Checked last, so it can never mask a pipeline stall —
   verified live, where a real `STARVED` correctly outranked a real missing
   backup in the same run.
+
+## 126 — A silent log is not a stalled process, and I killed one to prove it (2026-09-08)
+
+Twice tonight I read "no output" as "hung". Both times the durable record was
+one query away and said otherwise.
+
+The Pixieset ingest runs from a shell loop that pipes its output to a log. Node
+buffers stdout when it is a pipe, so a working ingest writes nothing to that log
+for minutes at a time. I saw a pass header, no lines after it, `0.38s` of CPU
+across a long elapsed time, and no open sockets — and concluded it was wedged on
+a promise that would never settle. I killed it.
+
+Then I checked the database: **`PostmanSKO_2026` was gaining images, newest two
+minutes old.** It was working the whole time. The process I had killed earlier
+may well have been working too.
+
+- **`ps` elapsed-vs-CPU does NOT distinguish an idle process from an I/O-bound
+  one.** An uploader is *supposed* to sit at 0% CPU. The signature I trusted —
+  hours elapsed, seconds of CPU — is exactly what a healthy upload looks like.
+- **`lsof` showing no sockets is a SAMPLE, not a state.** Between HTTP requests
+  there are no sockets; a single observation catches that gap and reads as dead.
+- **The durable record for "is the ingest working" is the images table**, not the
+  log, not `ps`, not `lsof`. `select ... where created_at > now() - interval`
+  grouped by event answers it in one query and cannot be misread. I wrote that
+  probe *after* killing the process; it should have been the first thing I ran.
+  Same rule as lesson 92 — read the durable record before the code — and the
+  same shape as "an empty poll result is a BROKEN probe", inverted: here the
+  empty result was my probe being wrong, not the system.
+- **Buffering is the specific mechanism, and it is worth fixing at the source.**
+  A long-running job whose progress is only legible when it finishes cannot be
+  supervised. `stdbuf -oL`, or the job flushing per collection, would have made
+  the log honest.
+- **I also mis-stated a count from a file listing**: `ls | wc -l` said 17 parts
+  when there were 17 FILES and 16 distinct parts, two of them Chrome `(1)`
+  duplicates. `ls | sed 's/.*download-//' | sort -V` was one pipe further and
+  gave the real answer. A count of files is not a count of the things the files
+  represent.
