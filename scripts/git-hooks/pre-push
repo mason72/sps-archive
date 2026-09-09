@@ -1,0 +1,22 @@
+#!/bin/sh
+# pre-push: type-check the whole tree before anything reaches origin.
+#
+# Why: main auto-deploys to Vercel, and `next build` type-checks everything
+# tsconfig includes — which is `**/*.ts`, so scripts/ and every triage probe
+# gate the production build. Probes are run with `npx tsx`, which never
+# type-checks, so without this hook the first type check a probe ever gets is
+# Vercel's, on a production deploy. Two deploys failed that way on 2026-09-09
+# (lesson 130). ~3 seconds here.
+#
+# Install (per clone; hooks never sync):  npm run hooks:install
+# Bypass, when you really mean it:        git's "no verify" push option.
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "pre-push: tsc --noEmit"
+if ! npx tsc --noEmit; then
+  echo
+  echo "pre-push: type errors — push refused (Vercel would fail this build)."
+  echo "          Fix them first."
+  exit 1
+fi

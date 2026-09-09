@@ -46,12 +46,15 @@ npm run dev          # Start dev server (port 3000)
 npm run build        # Production build
 npm run lint         # ESLint
 npm run db:gen-types # Regenerate Supabase types
+npm run typecheck    # tsc --noEmit — the SAME check Vercel runs; ~3s, includes scripts/
+npm run hooks:install # once per clone: points core.hooksPath at scripts/git-hooks (pre-push runs typecheck)
 ~/.venvs/modal-cli/bin/modal deploy modal/ai_pipeline.py  # Deploy AI pipeline (CLI lives in this venv)
 ```
 
 ## Hard-won gotchas (full log: `tasks/lessons.md` — skim it before touching API routes)
 
 - **`getAuthUser()` hands back the SERVICE client, which bypasses RLS.** Every query in every route it feeds must carry an ownership filter (`.eq("user_id", ...)` or `events!inner(user_id)` join). This exact omission shipped as an IDOR twice (lessons #2 and #14) — when touching an API file, scan its siblings for the same hole.
+- **`scripts/` is part of the PRODUCTION type check.** tsconfig includes `**/*.ts`, so a throwaway triage probe that fails `tsc` fails the Vercel build — two deploys died that way on 2026-09-09 (lesson 130). Probes run via `npx tsx`, which never type-checks, so the versioned pre-push hook (`scripts/git-hooks/pre-push`, installed with `npm run hooks:install`, per clone — hooks do not sync) runs `tsc --noEmit` before every push. Negative-tested: a planted type error refuses the push.
 - **Never run `npm run build` while a dev server is up *in the same working directory*** — they share `.next` and the build corrupts the running server (has bitten three separate times). `main` auto-deploys to Vercel, so `next build` (not just tsc) must pass before every commit. **A git worktree is a different working directory and has its own `.next`**, so building in `.claude/worktrees/<name>/` is safe while a dev server runs in the main checkout — the test is the process's cwd, not the port. Confirm with `lsof -p <pid> -a -d cwd -Fn`, and run that check as its own command: batching it into the same invocation as the build means you read the answer after the build has already run.
 - **The repo lives in iCloud-synced ~/Documents.** Sync races drop conflict copies (`file 2.ts`) inside `.next` → phantom duplicate-identifier tsc errors. tsconfig excludes them; if a ` N.ts` file errors, it's iCloud, not the code. Edits can also silently fail to apply — verify Edits landed before building.
 - **Upsert `onConflict` must exactly match a LIVE unique constraint** — check `pg_constraint` on the live DB, not the migration file. Optimistic UI masks failed writes; guest favorites 500'd for months unseen.

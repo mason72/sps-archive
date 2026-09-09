@@ -9,7 +9,9 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:gen-types": "bash scripts/gen-types.sh"
+    "db:gen-types": "bash scripts/gen-types.sh",
+    "typecheck": "tsc --noEmit",
+    "hooks:install": "chmod +x scripts/git-hooks/* && git config core.hooksPath scripts/git-hooks && echo hooks installed: scripts/git-hooks"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1078.0",

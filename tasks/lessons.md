@@ -2702,7 +2702,22 @@ build. Fix: `PromiseLike<unknown>`. One character class of bug, one line.
   `multi-machine.md` phantom set again. After `git reset --mixed origin/main`,
   one real modified file remained. Run the ahead/behind count before reading
   `git status` in any session that opens with a big number.
-- Open question worth deciding, not deciding alone: should `scripts/triage/`
-  be excluded from the build's tsconfig? 55 untracked probes sit on this disk
-  right now, and every committed one gates prod. The counter-argument is that
-  this typecheck is the only one those scripts ever get.
+- **Decided (Mason, same day): a versioned pre-push hook runs `tsc --noEmit`.**
+  `scripts/git-hooks/pre-push`, wired by `npm run hooks:install` (sets
+  `core.hooksPath`; per clone, because hooks never sync — see
+  `multi-machine.md`). Excluding `scripts/` from tsconfig was the other option
+  and was rejected: this build is the only type check a probe ever gets, and
+  a probe filtering on a renamed column should fail loudly, not at runtime.
+  Negative-tested before trusting it: a planted `const n: number = "x"` in
+  `scripts/triage/` refused `git push --dry-run` with exit 1; removed, the
+  same push passed. A guard that has not been seen to fail is a belief.
+- **Trap found while shipping the hook: `core.fileMode` is `false` in this
+  repo** (set to hide Syncthing mode-bit noise), so `chmod +x` on disk changed
+  nothing in git and the first commit recorded the hook as `100644`. Git
+  silently SKIPS a non-executable hook — a fresh clone would have had a guard
+  that never ran, failing open. `git update-index --chmod=+x <file>` sets the
+  bit in the index regardless of fileMode; `hooks:install` also chmods, belt
+  and braces. **After committing any script that must execute, read
+  `git ls-tree HEAD <path>` and expect `100755`** — `ls -l` reports the disk,
+  not the commit. And `git commit --amend -- <path>` does NOT carry a staged
+  mode change for another path; check the committed tree, not the index.
