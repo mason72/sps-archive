@@ -2599,3 +2599,11 @@ started.
 - **Ask what the constraint IS before optimising anything else.** Every hour
   tonight went into the pipeline. The one number that decides when this
   migration finishes was ten minutes of measurement away.
+- **And the probe stole from the thing it was measuring.** Three 5 MB PUTs took
+  564s, 325s and 272s — 13 KB/s — because they ran alongside the ingest on the
+  same saturated uplink. Their sum with the ingest's 97 KB/s is ~110 KB/s, which
+  is the real aggregate, so the measurement was still usable. But for ~20 minutes
+  my diagnostic was competing with production for the scarce resource: lesson
+  104's rule ("diagnostic traffic spends the SAME budget as production traffic")
+  applies to bandwidth exactly as it does to a rate-limited host. Measure a
+  saturated link by sampling the EXISTING traffic, not by adding more.
