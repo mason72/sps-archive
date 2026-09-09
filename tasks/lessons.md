@@ -2642,3 +2642,37 @@ can still deliver under 1 Mbps upstream, and every layer above it looks broken.
 - **Correct the record when the cause moves.** Lesson 127 and the project memory
   both asserted "the migration is upload-bound at 100–200 KB/s". True on Wi-Fi,
   stale within the hour. A memory that survives its cause is worse than none.
+
+## 129 — I regexed a binary store four times and it lied to me every time (2026-09-09)
+
+Reading the download extension's `chrome.storage.local` state, I wrote a regex
+over the raw LevelDB bytes: find the newest `lastTickAt`, then search backwards
+for `"repairs":[` and friends. It produced four wrong answers in two days, each
+of which sent me somewhere useless:
+
+- a 400 KB lookback window **spans several stored records**, so "the newest
+  state" returned an older record's `repairs`, `done` or `log`;
+- **one tick saves more than once**, and taking the first record with the newest
+  timestamp returns the earliest of the ties — missing everything the tick did
+  after its first save;
+- the last of these had me concluding a tick had logged NOTHING, which is
+  impossible on any code path, and hunting a hang in a `fetch` with no timeout.
+  The line was there the whole time.
+
+The fix was 25 lines: a LevelDB write-ahead log is 32 KB **blocks** of records,
+each with a 7-byte header (crc, length, type), and a record may be split across
+blocks as FIRST/MIDDLE/LAST fragments. Strip the headers, rejoin the fragments,
+`JSON.parse`. No guessing. `scripts/triage/px-state.mjs`.
+
+- **When a probe surprises you, suspect the probe before the system** — and when
+  it surprises you twice, stop using it. I kept patching the regex (wider
+  window, `>=` instead of `>`, nearest-before instead of first) rather than
+  admitting the approach could not be made correct. Each patch made it wrong in
+  a new way.
+- **"That output is impossible" is information.** A tick with no log line cannot
+  happen; every branch notes. That should have indicted the reader immediately
+  instead of sending me into the code.
+- **A format with a spec deserves a parser, not a pattern.** Regex over a binary
+  container is a guess that looks like a measurement, which is the worst kind.
+- The parser prints named fields only, because the same blob holds 282 of
+  Mason's clients' gallery passwords — see [[secrets-handling]].
