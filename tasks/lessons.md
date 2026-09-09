@@ -2676,3 +2676,33 @@ blocks as FIRST/MIDDLE/LAST fragments. Strip the headers, rejoin the fragments,
   container is a guess that looks like a measurement, which is the worst kind.
 - The parser prints named fields only, because the same blob holds 282 of
   Mason's clients' gallery passwords — see [[secrets-handling]].
+
+## 130 — A throwaway probe took down two production deploys (2026-09-09)
+
+Mason got a Vercel "production deployment failed" notice. The cause was
+`scripts/triage/db-latency.ts`, an 18-line latency probe committed the night
+before: its `time()` helper typed the callback as `() => Promise<unknown>`, and
+a Supabase query builder is a *thenable* (it has `.then`) but not a `Promise`
+(no `.catch`, no `.finally`). `next build` typechecks everything `tsconfig`
+includes, and `include` is `**/*.ts` — so `scripts/` is part of the production
+gate, and the next commit (`162fe53`, the LevelDB parser) inherited the break.
+Two red deploys; prod kept serving `3d8bdfa` because Vercel holds the last good
+build. Fix: `PromiseLike<unknown>`. One character class of bug, one line.
+
+- **The probe was never built.** It was run with `npx tsx`, which strips types
+  and does not check them (same fact as the "vitest does not typecheck" rule in
+  `ship-discipline.md`). The ONLY thing that ever typechecked it was Vercel, at
+  the moment it mattered most. **Before committing anything under `scripts/`,
+  run `npx tsc --noEmit` — 3 seconds here, 164 triage files included.**
+- **Nothing runtime was in the failed deploys** (`git diff --stat <last-good>..HEAD
+  -- src/` was empty), which is also what made the fix safe to push without the
+  live-event check: the app that shipped is byte-equivalent to the one serving.
+  Check that diff before deciding how careful a recovery push needs to be.
+- **The "73 uncommitted" at session start was 14-behind, not 73-dirty** — the
+  `multi-machine.md` phantom set again. After `git reset --mixed origin/main`,
+  one real modified file remained. Run the ahead/behind count before reading
+  `git status` in any session that opens with a big number.
+- Open question worth deciding, not deciding alone: should `scripts/triage/`
+  be excluded from the build's tsconfig? 55 untracked probes sit on this disk
+  right now, and every committed one gates prod. The counter-argument is that
+  this typecheck is the only one those scripts ever get.
