@@ -52,7 +52,16 @@ function harness(state, { drive, arm, downloads = {} } = {}) {
       },
       cancel: async (id) => { cancelled.push(id); },
       // The real API returns an empty array for an unknown id — it does not throw.
-      search: async ({ id }) => (downloads[id] ? [{ id, ...downloads[id] }] : []),
+      // filenameRegex is how downloadAll asks "do I already have this part?".
+      search: async ({ id, filenameRegex, state }) => {
+        if (filenameRegex) {
+          const re = new RegExp(filenameRegex);
+          return Object.entries(downloads)
+            .filter(([, d]) => d.filename && re.test(d.filename) && (!state || d.state === state))
+            .map(([k, d]) => ({ id: Number(k), ...d }));
+        }
+        return downloads[id] ? [{ id, ...downloads[id] }] : [];
+      },
     },
     alarms: { create() {}, clear: async () => {}, onAlarm: { addListener() {} } },
     offscreen: { createDocument: async () => {} },
@@ -86,7 +95,7 @@ async function loadBackground(chrome) {
 const base = (over = {}) => ({
   running: true, jobs: [], done: [], gated: [], noDownload: [], gone: [],
   passwords: {}, results: [], log: [], attempts: {}, challenges: 0, gapMinutes: 20,
-  inflight: null, repairs: ["2026-09-08-requeue-lost-downloads"], ...over,
+  inflight: null, driving: null, repairs: ["2026-09-08-requeue-lost-downloads"], ...over,
 });
 
 test("a deferred collection leaves the head of the queue", async () => {
@@ -285,4 +294,80 @@ test("a beacon that cannot be written is shouted about, not swallowed", async ()
   const { tick } = await loadBackground(h.chrome);
   await tick();
   assert.match(h.state().log.join("\n"), /BEACON FAILED for flaky/, "a beacon that silently fails to arrive is the bug it exists to fix");
+});
+
+// ------------------------------------------------------------ big multi-part sets
+//
+// All three of these are atlassian-team26expo, 8,518 photos across 17 parts and
+// 46 GB, live on 2026-09-08. It exposed every assumption that only holds for a
+// small collection: a drive takes 19 minutes against a 20-minute alarm, one part
+// out of seventeen failing is ordinary, and re-fetching the set to recover one
+// part costs 46 GB on a disk with 113 GB free.
+
+test("one failed part does not discard a set that is still landing", async () => {
+  const h = harness(base({ jobs: ["big"] }), {
+    drive: () => ({ ok: true, expect: 3, zips: [1, 2, 3].map((n) => ({ url: `u${n}`, name: `big-photo-download-${n}of3.zip`, size: "3 GB" })) }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  const [a, b, c] = h.state().inflight.ids;
+
+  h.downloads[a] = { state: "complete", filename: "big-photo-download-1of3.zip" };
+  h.downloads[b] = { state: "interrupted", error: "NETWORK_FAILED" };
+  h.downloads[c] = { state: "in_progress" };
+  await tick();
+  assert.equal(h.state().inflight?.slug, "big", "a failed part while others are moving is not a dead set");
+  assert.equal(h.state().attempts.big ?? 0, 0, "the verdict waits until nothing is in flight");
+  assert.deepEqual(h.cancelled, [], "cancelling a healthy transfer throws away good bytes");
+});
+
+test("a retry fetches only the parts that are missing", async () => {
+  const zips = [1, 2, 3].map((n) => ({ url: `u${n}`, name: `big-photo-download-${n}of3.zip`, size: "3 GB" }));
+  const h = harness(base({ jobs: ["big"] }), { drive: () => ({ ok: true, expect: 3, zips }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  const ids = [...h.state().inflight.ids];
+  // Two landed; the third failed and nothing is still moving.
+  h.downloads[ids[0]] = { state: "complete", filename: "big-photo-download-1of3.zip" };
+  h.downloads[ids[1]] = { state: "complete", filename: "big-photo-download-2of3.zip" };
+  h.downloads[ids[2]] = { state: "interrupted", error: "NETWORK_FAILED" };
+  await tick();                                   // settles as failed, waits a gap
+  assert.equal(h.state().attempts.big, 1);
+
+  const before = h.requested.length;
+  await tick();                                   // the retry
+  const fresh = h.requested.slice(before);
+  assert.equal(fresh.length, 1, "re-fetching 46 GB to recover one part is how the disk fills");
+  assert.equal(fresh[0].url, "u3");
+  assert.match(h.state().log.join("\n"), /2 already on disk/);
+});
+
+test("a slow drive does not let the next alarm start a second one", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const h = harness(base({ jobs: ["big", "next"] }), {
+    drive: async () => { await gate; return { ok: true, expect: 1, zips: [{ url: "u", name: "big-photo-download-1of1.zip", size: "1 GB" }] }; },
+  });
+  const { tick } = await loadBackground(h.chrome);
+
+  const first = tick();                            // still inside the drive
+  await new Promise((r) => setTimeout(r, 20));
+  await tick();                                    // the 20-minute alarm fires again
+  assert.deepEqual(h.asked, ["big"], "three concurrent drives requested three 46 GB archives");
+  assert.match(h.state().log.join("\n"), /still being requested/);
+
+  release();
+  await first;
+  assert.equal(h.state().driving, null, "the lock must not outlive the drive");
+});
+
+test("a drive that died with the service worker expires rather than blocking forever", async () => {
+  const stale = new Date(Date.now() - 60 * 60_000).toISOString();
+  const h = harness(base({ jobs: ["big"], driving: { slug: "big", at: stale } }), {
+    drive: () => ({ phase: "nodl" }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.asked.at(-1), "big", "a worker eviction must not stall the queue permanently");
+  assert.match(h.state().log.join("\n"), /request abandoned after/);
 });

@@ -67,6 +67,23 @@ Chrome restart by itself.
   request cost five collections and 14,516 photos when the disk filled on
   2026-09-01/02 — the extension moved on, the migration ledger still read
   `queued`, and nothing anywhere said so.
+- **One DRIVE at a time, and one collection's downloads at a time.** The alarm
+  fires every 20 minutes whether or not the last tick finished, and a drive on a
+  big collection takes about 19 — measured 19m on atlassian-team26expo (8,518
+  photos, 17 parts, 46 GB). Its ticks overlapped, three drives ran at once for
+  the same collection, and each would have requested its own 46 GB archive
+  against 113 GB of free disk. The lock lives in storage, not a variable,
+  because the worker is evicted between wake-ups; it expires after 45 minutes so
+  a drive that died with the worker cannot block the queue forever.
+- **A retry fetches only the parts that are missing.** Pixieset regenerates the
+  whole archive per request, so a retry hands back 17 fresh links even when 16
+  of those parts are on disk. `alreadyHave()` skips any part Chrome has already
+  completed and still has. Mixing generations is checked rather than assumed:
+  `verifyArchive` quarantines a set whose file count or dimensions disagree.
+- **One failed part does not discard a set that is still landing.** The first
+  version gave up the moment any download reported interrupted, which threw away
+  16 of 17 landed parts because part 17 hit NETWORK_FAILED. The verdict now waits
+  until nothing is in flight, and healthy transfers are never cancelled.
 - **One collection's downloads at a time.** A tick that finds bytes still in
   flight does nothing else, so a 47 GB request cannot race the ingest for the
   same free space. A failed settle costs a full gap before the retry, because the

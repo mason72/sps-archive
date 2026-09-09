@@ -58,6 +58,7 @@ const DEFAULTS = {
   attempts: {},        // slug -> consecutive failures, so a bad one cannot livelock
   gone: [],            // 404/410 — deleted on Pixieset since the inventory sweep
   inflight: null,      // { slug, ids, sizes, expect, at } — requested, bytes not yet proven
+  driving: null,       // { slug, at } — an offscreen drive is running RIGHT NOW
   repairs: [],         // ids of one-shot repairs already applied to THIS profile
   challenges: 0,
   gapMinutes: 20,
@@ -172,14 +173,42 @@ async function writeBeacon(s, slug, reason, detail) {
  * (`{slug}-photo-download-NofM.zip`). Inventing a name here would break the
  * handoff to a pipeline that already works.
  */
+/** Chrome's record of a completed download whose file is still on disk. */
+async function alreadyHave(name) {
+  if (!name) return null;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    const hits = await chrome.downloads.search({ filenameRegex: `${esc}$`, state: "complete", exists: true });
+    return hits.length ? hits[0] : null;
+  } catch { return null; }
+}
+
 async function downloadAll(zips) {
   const ids = [];
+  let skipped = 0;
   for (const z of zips) {
+    /**
+     * A retry must not re-fetch the parts that already landed.
+     *
+     * Pixieset regenerates the whole archive per request, so a retry hands back
+     * seventeen fresh links even when sixteen of those parts are sitting on
+     * disk. Re-downloading them cost 46 GB to recover one 1.3 GB part, and on a
+     * staging volume with 113 GB free that is how the disk fills — which is the
+     * accident that started all of this.
+     *
+     * Mixing generations is safe HERE because it is checked downstream, not
+     * assumed: Pixieset splits deterministically and the driver forces High
+     * Resolution, and if the two halves disagree anyway then `verifyArchive`'s
+     * file count and dimension sampling quarantine the set rather than staging
+     * it. A wrong mix fails loudly; it does not pass silently.
+     */
+    const have = await alreadyHave(z.name);
+    if (have) { ids.push(have.id); skipped++; continue; }
     const id = await chrome.downloads.download({ url: z.url, conflictAction: "uniquify" });
     ids.push(id);
     await new Promise((r) => setTimeout(r, 1500));   // stagger: simultaneous starts can drop one
   }
-  return ids;
+  return { ids, skipped };
 }
 
 /**
@@ -189,6 +218,17 @@ async function downloadAll(zips) {
  * cannot hold the queue for a day.
  */
 const INFLIGHT_TIMEOUT_MIN = 360;
+
+/**
+ * How long a single drive may hold the lock below.
+ *
+ * A drive is a conversation with Pixieset: request the archive, then poll while
+ * it builds. Measured on atlassian-team26expo (8,518 photos, 46 GB) it took 19
+ * MINUTES — against a 20-minute alarm. That is the margin this constant exists
+ * to cover, and 45 gives a very large collection room without letting a dead
+ * drive block the queue for an hour.
+ */
+const DRIVE_TIMEOUT_MIN = 45;
 
 /**
  * Did the bytes actually land?
@@ -242,15 +282,28 @@ async function settleInflight(s) {
     return true;
   }
 
+  /**
+   * Anything still moving means WAIT — even alongside a part that has already
+   * failed.
+   *
+   * The first version gave the whole set up the moment one download reported
+   * interrupted. On atlassian-team26expo (17 parts, 46 GB) that discarded a
+   * transfer where 16 parts had landed, because part 17 hit NETWORK_FAILED —
+   * and then re-requested all 46 GB. A single flaky part out of seventeen is
+   * ordinary; treating it as a dead set is not. The verdict is deferred until
+   * nothing is in flight, and the retry below only fetches what is missing.
+   */
   if (running && ageMin < INFLIGHT_TIMEOUT_MIN) {
-    note(s, `${f.slug}: ${complete}/${f.ids.length} landed, ${running} still downloading (${Math.round(ageMin)}m)`);
+    const hurt = interrupted.length ? `, ${interrupted.length} failed` : "";
+    note(s, `${f.slug}: ${complete}/${f.ids.length} landed, ${running} still downloading${hurt} (${Math.round(ageMin)}m)`);
     return false;                                  // one collection at a time — do not stack another
   }
 
-  // Giving up while Chrome is still transferring would leave the download
-  // running: the parts would land later, under the same names, beside the
-  // re-request's — two racing sets and a " (N)" collision for the watcher to
-  // arbitrate. Abandoning a request means CANCELLING it.
+  // Only the TIMEOUT path can still have live transfers, and abandoning one
+  // means cancelling it: left running, those parts land later under the same
+  // names beside the re-request's — two racing sets and a " (N)" collision for
+  // the watcher to arbitrate. When nothing is in progress this loop is a no-op,
+  // which is the ordinary case now that a failure waits for the set to settle.
   for (const item of items) {
     if (item.state !== "in_progress") continue;
     try { await chrome.downloads.cancel(item.id); } catch { /* already finished or gone */ }
@@ -361,8 +414,36 @@ async function tick() {
     return;
   }
 
+  /**
+   * One drive at a time.
+   *
+   * `chrome.alarms` fires every 20 minutes whether or not the last tick has
+   * finished, and a drive on a big collection takes about 19 — so on
+   * atlassian-team26expo the ticks began overlapping and three drives ran at
+   * once for the same collection, each of which would have requested its own
+   * 17-part, 46 GB archive. Against 113 GB of free disk that is the 09-01
+   * accident happening again, and it is also three times the traffic at a host
+   * whose protection we are careful not to provoke.
+   *
+   * The lock is a timestamp in storage rather than a variable, because the
+   * service worker is evicted between wake-ups and a variable would not
+   * survive. A drive that dies with the worker leaves the lock behind, so it
+   * expires — the queue stalls for at most DRIVE_TIMEOUT_MIN, never forever.
+   */
+  if (s.driving) {
+    const drivingMin = (Date.now() - new Date(s.driving.at).getTime()) / 60000;
+    if (drivingMin < DRIVE_TIMEOUT_MIN) {
+      note(s, `${s.driving.slug}: still being requested (${Math.round(drivingMin)}m) — not starting another`);
+      await save(s);
+      return;
+    }
+    note(s, `${s.driving.slug}: request abandoned after ${Math.round(drivingMin)}m`);
+    s.driving = null;
+  }
+
   const slug = remaining[0];
   note(s, `→ ${slug}`);
+  s.driving = { slug, at: new Date().toISOString() };
   await save(s);                                   // record intent BEFORE the work
 
   let r;
@@ -370,14 +451,23 @@ async function tick() {
     r = await ask({ type: "drive", slug, password: s.passwords[slug], opts: { email: s.email, pollTries: 120 } });
   } catch (e) {
     note(s, `${slug}: offscreen failed — ${String(e?.message ?? e).slice(0, 80)}`);
-    await save(s);
+    const sErr = await load();
+    sErr.driving = null; sErr.log = s.log;
+    await save(sErr);
     return;                                        // try again next tick
   }
-  if (!r) { note(s, `${slug}: no result from offscreen`); await save(s); return; }
+  if (!r) {
+    note(s, `${slug}: no result from offscreen`);
+    const sNone = await load();
+    sNone.driving = null; sNone.log = s.log;
+    await save(sNone);
+    return;
+  }
 
   const s2 = await load();                          // re-read: a popup may have written
   s2.lastTickAt = s.lastTickAt;
   s2.log = s.log;
+  s2.driving = null;                                // the conversation is over, whatever it said
 
   if (r.phase === "challenged") {
     s2.challenges = (s2.challenges || 0) + 1;
@@ -420,7 +510,7 @@ async function tick() {
   }
 
   if (r.ok && r.zips?.length) {
-    const ids = await downloadAll(r.zips);
+    const { ids, skipped } = await downloadAll(r.zips);
     // NOT done yet — `settleInflight` retires it once every byte has landed.
     s2.inflight = {
       slug,
@@ -430,7 +520,7 @@ async function tick() {
       unlocked: r.unlocked,
       at: new Date().toISOString(),
     };
-    note(s2, `${slug}: requested ${r.zips.length} zip(s) · ${r.zips.map((z) => z.size).join("+")}${r.unlocked ? " (unlocked)" : ""}`);
+    note(s2, `${slug}: requested ${r.zips.length - skipped} of ${r.zips.length} zip(s)${skipped ? `, ${skipped} already on disk` : ""} · ${r.zips.map((z) => z.size).join("+")}${r.unlocked ? " (unlocked)" : ""}`);
   } else {
     /**
      * A failure leaves the collection QUEUED so a transient R2 or network error
