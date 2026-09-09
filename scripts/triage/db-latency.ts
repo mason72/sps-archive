@@ -4,7 +4,7 @@ for (const l of fs.readFileSync(".env.local","utf8").split("\n")) { const m=l.ma
 async function main(){
   const { createClient } = await import("@supabase/supabase-js");
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  const time = async (label: string, fn: () => Promise<unknown>) => {
+  const time = async (label: string, fn: () => PromiseLike<unknown>) => {
     const t = Date.now(); let err = "";
     try { const r = await fn() as { error?: { message: string } }; if (r?.error) err = r.error.message.slice(0,60); }
     catch (e) { err = String((e as Error).message).slice(0,60); }
