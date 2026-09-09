@@ -88,6 +88,28 @@ function ledgerBackupAgeHours(): { hours: number | null; note: string } {
   }
 }
 
+/**
+ * Is the watcher's disk brake answering?
+ *
+ * The downloader fails CLOSED on this endpoint: no answer means no downloads.
+ * That is the safe direction for a guard protecting a disk, but it hands the
+ * migration a way to stop silently — so the stall check probes it too, and a
+ * brake that is down while its agent is up is BROKEN, reported within the hour.
+ * Without this the failure would surface as STARVED, 36 hours later.
+ */
+async function diskBrake(): Promise<{ ok: boolean; freeGB: number | null; note: string }> {
+  const url = process.env.PIXIESET_DISK_URL || "http://127.0.0.1:8788/disk";
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return { ok: false, freeGB: null, note: `HTTP ${res.status}` };
+    const body = (await res.json()) as { freeGB?: number };
+    if (!Number.isFinite(body?.freeGB)) return { ok: false, freeGB: null, note: "no freeGB in the response" };
+    return { ok: true, freeGB: body.freeGB!, note: "" };
+  } catch (e) {
+    return { ok: false, freeGB: null, note: String((e as Error).message).slice(0, 80) };
+  }
+}
+
 function agentsRunning(): { label: string; up: boolean }[] {
   const out: { label: string; up: boolean }[] = [];
   for (const label of ["com.twodudes.pixieset.watch", "com.twodudes.pixieset.ingest"]) {
@@ -138,7 +160,7 @@ function logRate(): { passes: number; idles: number } {
   return { passes, idles };
 }
 
-function main() {
+async function main() {
   const q = JSON.parse(fs.readFileSync(QUEUE, "utf8")) as {
     collections: Record<string, { state: string; history?: { state: string; at: string }[] }>;
   };
@@ -177,6 +199,7 @@ function main() {
   const down = agents.filter((a) => !a.up).map((a) => a.label);
   const { passes, idles } = logRate();
   const backup = ledgerBackupAgeHours();
+  const brake = await diskBrake();
 
   const verified = by.verified || 0;
   const queued = by.queued || 0;
@@ -187,6 +210,11 @@ function main() {
   if (down.length) {
     verdict = "BROKEN";
     headline = `launchd agent not running: ${down.join(", ")}`;
+  } else if (!brake.ok) {
+    // The watch agent is up but its disk brake is not answering. The downloader
+    // fails closed on it, so nothing will be requested until this is fixed.
+    verdict = "BROKEN";
+    headline = `the disk brake is not answering (${brake.note}) — the downloader fails closed, so no collection will be requested`;
   } else if (passes > MAX_PASSES_PER_HOUR) {
     // Deliberately NOT `&& idles === 0`. That is the signature of the total
     // 34-hour spin, but requiring it means a PARTIAL spin — one that still idles
@@ -221,6 +249,7 @@ function main() {
     `staged for ${verified ? stagedHours.toFixed(1) + "h (oldest)" : "n/a"}`,
     `last hour  ${passes} passes, ${idles} idles`,
     `ledger     ${backup.hours === null ? `NOT BACKED UP — ${backup.note}` : `backed up ${backup.hours.toFixed(1)}h ago`}`,
+    `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
     verdict === "UNBACKED"
       ? `\nqueue.json is the only record of which of the 1,371 collections are\nalready safe. Losing it does not lose photos — it loses the knowledge of\nwhich ones are done, which is the difference between finishing this\nmigration and re-running a month of it blind.\n\nIt is backed up by machine-state's nightly sync (20:00). Read\n~/machine-state/.sync.log: that job refuses to push when anything tracked\nis unencrypted, and it stayed silently blocked for 26 nights once before.`
       : "",
@@ -258,9 +287,9 @@ async function send(subject: string, body: string) {
 (async () => {
   const dry = process.argv.includes("--dry");
   const force = process.argv.includes("--force");
-  let r: ReturnType<typeof main>;
+  let r: Awaited<ReturnType<typeof main>>;
   try {
-    r = main();
+    r = await main();
   } catch (err) {
     const msg = `The migration health check itself failed:\n\n${String(err).slice(0, 800)}`;
     console.error(msg);

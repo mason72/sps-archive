@@ -242,6 +242,56 @@ const INFLIGHT_TIMEOUT_MIN = 360;
 const DRIVE_TIMEOUT_MIN = 45;
 
 /**
+ * The disk brake.
+ *
+ * An extension cannot see the disk — no API exposes it — so this one drove the
+ * mini's startup volume from 117 GB to 47 GB on 2026-09-08, requesting a 46 GB
+ * collection against 53 GB free while the ingest sat halted below its own 60 GB
+ * floor, unable to drain. Every other stage of this pipeline has a floor; the
+ * stage that actually consumes the space had none.
+ *
+ * `watch.mjs` now serves free space on loopback. Two gates, because the honest
+ * question changes once the archive's real size is known:
+ *
+ *   BEFORE the drive — is there room to start anything at all?
+ *   AFTER it, before downloading — does THIS archive fit, with headroom left for
+ *   the ingest to keep working? The ingest needs 60 GB to run, and if it cannot
+ *   run nothing ever drains, which is how a tight disk becomes a stuck one.
+ *
+ * It fails CLOSED: no answer means no download. A stalled migration is visible
+ * within the hour (stall-check probes this endpoint and reports BROKEN); a full
+ * disk takes the machine down and has already done so once.
+ */
+const DISK_URL = "http://127.0.0.1:8788/disk";
+const DISK_START_GB = 80;    // don't even begin a collection below this
+const DISK_KEEP_GB = 60;     // what must remain after this archive lands: the ingest's floor
+
+/** Free GB from the watcher, or null if it cannot be reached. */
+async function freeGB() {
+  try {
+    const res = await fetch(DISK_URL, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return Number.isFinite(body?.freeGB) ? body.freeGB : null;
+  } catch { return null; }
+}
+
+/**
+ * "3.9 GB" / "189.9 MB" / "778.3 MB" → GB. Pixieset's own labels, straight off
+ * the ready page. Anything unparseable counts as 0 rather than NaN, which would
+ * poison the sum and disable the gate silently — the failure mode this whole
+ * file keeps running into.
+ */
+function sizeToGB(label) {
+  const m = String(label ?? "").match(/([\d.]+)\s*(TB|GB|MB|KB)/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return 0;
+  const unit = m[2].toUpperCase();
+  return unit === "TB" ? n * 1024 : unit === "GB" ? n : unit === "MB" ? n / 1024 : n / 1048576;
+}
+
+/**
  * Did the bytes actually land?
  *
  * `done` used to be written the moment `chrome.downloads.download()` accepted a
@@ -452,6 +502,18 @@ async function tick() {
     s.driving = null;
   }
 
+  const free = await freeGB();
+  if (free === null) {
+    note(s, "disk check unreachable — not downloading (is the watch agent running?)");
+    await save(s);
+    return;
+  }
+  if (free < DISK_START_GB) {
+    note(s, `${free} GB free, below the ${DISK_START_GB} GB start floor — waiting for the ingest to drain`);
+    await save(s);
+    return;
+  }
+
   const slug = remaining[0];
   note(s, `→ ${slug}`);
   s.driving = { slug, at: new Date().toISOString() };
@@ -521,6 +583,20 @@ async function tick() {
   }
 
   if (r.ok && r.zips?.length) {
+    /**
+     * Now the size is known, so ask the precise question. The collection stays
+     * QUEUED — this is not a failure, it is a collection that does not fit
+     * today, and it must not burn an attempt or be retired for it.
+     */
+    const need = r.zips.reduce((sum, z) => sum + sizeToGB(z.size), 0);
+    const freeNow = await freeGB();
+    if (freeNow === null || freeNow - need < DISK_KEEP_GB) {
+      note(s2, freeNow === null
+        ? `${slug}: disk check unreachable after the request — not downloading`
+        : `${slug}: needs ${need.toFixed(1)} GB and only ${freeNow} GB is free — would leave under ${DISK_KEEP_GB} GB for the ingest. Waiting.`);
+      await saveAndAnnounce(s2);
+      return;
+    }
     const { ids, skipped } = await downloadAll(r.zips);
     // NOT done yet — `settleInflight` retires it once every byte has landed.
     s2.inflight = {

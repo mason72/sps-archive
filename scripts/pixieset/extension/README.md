@@ -67,6 +67,18 @@ Chrome restart by itself.
   request cost five collections and 14,516 photos when the disk filled on
   2026-09-01/02 — the extension moved on, the migration ledger still read
   `queued`, and nothing anywhere said so.
+- **It has a disk floor, served over loopback, and it fails CLOSED.** An
+  extension cannot see the disk — no API exposes it — so this one requested a
+  46 GB collection against 53 GB free on 2026-09-08 and drove the startup volume
+  from 117 GB to 47 GB while the ingest sat halted below its own floor, unable to
+  drain. `watch.mjs` now serves `http://127.0.0.1:8788/disk`; the extension asks
+  twice, because the honest question changes once the size is known: **before the
+  drive**, is there room to start anything (80 GB)? **after it**, does THIS
+  archive fit and still leave the ingest its 60 GB to work in? A collection that
+  does not fit today stays QUEUED — it is not a failure and must not burn an
+  attempt. No answer means no download, and `stall-check.ts` probes the same
+  endpoint hourly and reports BROKEN if it is down, so failing closed cannot
+  stall the migration for more than an hour.
 - **One DRIVE at a time, and one collection's downloads at a time.** The alarm
   fires every 20 minutes whether or not the last tick finished, and a drive on a
   big collection takes about 19 — measured 19m on atlassian-team26expo (8,518

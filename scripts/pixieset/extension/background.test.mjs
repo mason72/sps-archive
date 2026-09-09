@@ -29,13 +29,20 @@ import path from "node:path";
 const SRC = new URL("./background.js", import.meta.url);
 
 /** A chrome stub, plus the levers a test needs to drive it. */
-function harness(state, { drive, arm, downloads = {} } = {}) {
+function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
   const store = { "px.state": { ...state } };
   const asked = [];
   const requested = [];
   const cancelled = [];
   const blobs = [];        // beacon bodies, as the offscreen doc would receive them
   const revoked = [];
+  // The watcher's loopback disk brake. `freeGB: null` stands in for "the watch
+  // agent is not running", which must stop downloads rather than be ignored.
+  globalThis.fetch = async (url) => {
+    if (!String(url).includes("/disk")) throw new Error(`unexpected fetch: ${url}`);
+    if (freeGB === null) throw new Error("connection refused");
+    return { ok: true, json: async () => ({ freeGB, floorGB: 25, at: new Date().toISOString() }) };
+  };
   let nextId = 100;
   const chrome = {
     storage: { local: {
@@ -370,4 +377,62 @@ test("a drive that died with the service worker expires rather than blocking for
   await tick();
   assert.equal(h.asked.at(-1), "big", "a worker eviction must not stall the queue permanently");
   assert.match(h.state().log.join("\n"), /request abandoned after/);
+});
+
+// ------------------------------------------------------------ the disk brake
+//
+// An extension cannot see the disk, so this one drove the mini's startup volume
+// from 117 GB to 47 GB on 2026-09-08 — requesting a 46 GB collection against 53
+// GB free while the ingest sat halted below its own floor, unable to drain.
+// Every other stage had a floor; the stage that consumes the space had none.
+
+test("no disk answer means no download", async () => {
+  const h = harness(base({ jobs: ["big"] }), { freeGB: null, drive: () => ({ ok: true, expect: 1, zips: [{ url: "u", name: "n.zip", size: "1 GB" }] }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.asked, [], "a guard that fails open on an unreachable check is not a guard");
+  assert.match(h.state().log.join("\n"), /disk check unreachable/);
+});
+
+test("below the start floor it does not even begin a collection", async () => {
+  const h = harness(base({ jobs: ["big"] }), { freeGB: 53, drive: () => ({ ok: true, expect: 1, zips: [{ url: "u", name: "n.zip", size: "1 GB" }] }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.asked, [], "53 GB free is where the 09-08 near-miss started");
+  assert.match(h.state().log.join("\n"), /below the 80 GB start floor/);
+});
+
+test("an archive that would starve the ingest is left queued, not failed", async () => {
+  // 100 GB free, a 46 GB archive: it fits, but leaves 54 — under the 60 the
+  // ingest needs to run, so nothing would ever drain afterwards.
+  const zips = [{ url: "u1", name: "a.zip", size: "40 GB" }, { url: "u2", name: "b.zip", size: "6 GB" }];
+  const h = harness(base({ jobs: ["huge"] }), { freeGB: 100, drive: () => ({ ok: true, expect: 2, zips }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.requested, [], "downloading it is how a tight disk becomes a stuck one");
+  assert.equal(h.state().done.length, 0, "not fitting today is not a failure");
+  assert.equal(h.state().attempts.huge ?? 0, 0, "and it must not burn an attempt");
+  assert.match(h.state().log.join("\n"), /needs 46.0 GB and only 100 GB is free/);
+});
+
+test("it downloads when the archive fits with the ingest's floor left over", async () => {
+  const zips = [{ url: "u1", name: "a.zip", size: "10 GB" }, { url: "u2", name: "b.zip", size: "500 MB" }];
+  const h = harness(base({ jobs: ["fits"] }), { freeGB: 100, drive: () => ({ ok: true, expect: 2, zips }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.requested.length, 2);
+  assert.equal(h.state().inflight.slug, "fits");
+});
+
+test("MB and KB labels are not read as gigabytes", async () => {
+  // 189.9 MB parsed as 189.9 GB would refuse every multi-part collection
+  // forever, and the refusal would look like a disk problem.
+  const zips = Array.from({ length: 9 }, (_, i) => ({ url: `u${i}`, name: `${i}.zip`, size: "900 MB" }));
+  // 85 GB free: above the start floor, so the run reaches the size gate and the
+  // parsing is what decides. Misread as GB, 9 x 900 would be 8,100 GB and the
+  // collection would be refused forever with a message about disk.
+  const h = harness(base({ jobs: ["small-parts"] }), { freeGB: 85, drive: () => ({ ok: true, expect: 9, zips }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.requested.length, 9, "9 x 900 MB is 7.9 GB, which fits in 85 GB with 60 to spare");
 });

@@ -46,6 +46,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { load, save, get, transition, withQueue } from "./lib/store.mjs";
@@ -96,6 +97,14 @@ const ORPHAN_LOG = join(STAGING, "orphans.json");
  * that also needs room (the external SSD also holds Time Machine).
  */
 export const MIN_FREE_GB = Number(process.env.PIXIESET_MIN_FREE_GB) || 25;
+
+/**
+ * Loopback port for the disk brake (see `startDiskServer`).
+ *
+ * 8788, next door to `gates-server.mjs` on 8787, so the two loopback couriers in
+ * this migration sit together and neither collides with a dev server.
+ */
+export const DISK_PORT = Number(process.env.PIXIESET_DISK_PORT) || 8788;
 
 const ZIP = /\.zip$/i;
 const BEACON = /^px-retired-.*\.json$/i;
@@ -465,6 +474,47 @@ export async function sweep({ dryRun = false } = {}) {
   return { done, skipped, orphans, retired, freeGB: await freeGB() };
 }
 
+/**
+ * Serve free space on loopback, so the DOWNLOADER can have a floor.
+ *
+ * Every other stage of this pipeline has one: the ingest halts below 60 GB, this
+ * watcher warns below its own, the old Playwright downloader took a byte budget.
+ * The Chrome extension that actually does the downloading has none, because an
+ * extension cannot see the disk at all — no API exposes it. So it requested a
+ * 46 GB collection against 53 GB free on 2026-09-08 and drove the startup disk
+ * from 117 GB to 47 GB while the ingest sat halted, unable to drain. That is the
+ * 2026-09-02 shape, where the mini reached zero and lost its shell.
+ *
+ * This is the missing sense. It runs inside the watcher because the watcher is
+ * already the process that knows where the ZIPs land and how much room is left,
+ * and because sharing its lifecycle means there is exactly one thing to restart.
+ *
+ * Loopback only, no secrets, read-only — the whole payload is a number anyone on
+ * this Mac could get from `df`. Chrome treats http://localhost as a trustworthy
+ * origin, which is what lets the extension reach it at all (the same property
+ * `gates-server.mjs` relies on).
+ */
+export function startDiskServer(port = DISK_PORT) {
+  const server = createServer(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");   // the caller is an extension origin
+    if (!req.url?.startsWith("/disk")) { res.writeHead(404).end(); return; }
+    try {
+      const free = await freeGB();
+      const staged = existsSync(VERIFIED) ? (await readdir(VERIFIED)).filter((f) => ZIP.test(f)).length : 0;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ freeGB: free, floorGB: MIN_FREE_GB, stagedZips: staged, at: new Date().toISOString() }));
+    } catch (e) {
+      // No answer is better than a wrong one: the caller fails CLOSED on a
+      // non-200, which is the safe direction for a guard protecting a disk.
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: String(e?.message ?? e).slice(0, 200) }));
+    }
+  });
+  server.on("error", (e) => console.error(`disk server on ${port}: ${e?.message ?? e}`));
+  server.listen(port, "127.0.0.1", () => console.log(`disk brake on http://127.0.0.1:${port}/disk`));
+  return server;
+}
+
 // ---------------------------------------------------------------- CLI
 //
 // Guarded so importing this module (from tests, or from an ingest script that
@@ -495,6 +545,7 @@ if (!isMain) {
   fmt(await sweep({ dryRun: cmd === "dry" }));
 } else if (cmd === "watch") {
   console.log(`watching ${DOWNLOADS} → ${VERIFIED} (ctrl-c to stop)`);
+  startDiskServer();
   for (;;) {
     const r = await sweep();
     if (r.done.length || r.orphans.length || r.retired.length) fmt(r);

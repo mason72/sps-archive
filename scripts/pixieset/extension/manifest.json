@@ -19,7 +19,8 @@
   ],
   "host_permissions": [
     "https://twodudesphoto.pixieset.com/*",
-    "https://galleries.pixieset.com/*"
+    "https://galleries.pixieset.com/*",
+    "http://127.0.0.1:8788/*"
   ],
   "web_accessible_resources": [
     {

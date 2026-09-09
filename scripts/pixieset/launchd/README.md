@@ -54,7 +54,7 @@ Four verdicts, because they need different reactions:
 
 | Verdict | Means | Who fixes it |
 |---|---|---|
-| `BROKEN` | a launchd agent is not running | restart it |
+| `BROKEN` | a launchd agent is not running, or the disk brake is not answering | restart the agent — the brake lives inside the watcher |
 | `SPINNING` | far more passes per hour than work allows | a guard has failed open |
 | `STUCK` | collections staged, oldest waiting > 4h, nothing completing | the ingest |
 | `STARVED` | nothing staged, work queued, nothing done in > 36h | the download extension — open its popup |
