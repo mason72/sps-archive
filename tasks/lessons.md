@@ -2607,3 +2607,38 @@ started.
   104's rule ("diagnostic traffic spends the SAME budget as production traffic")
   applies to bandwidth exactly as it does to a rate-limited host. Measure a
   saturated link by sampling the EXISTING traffic, not by adding more.
+
+## 128 — Ethernet fixed it, and my "self-limited ingest" reading was a windowing artifact (2026-09-08)
+
+Mason plugged the mini into a hard line. The correction to lesson 127 matters
+more than the confirmation:
+
+| | Wi-Fi | Ethernet |
+|---|---|---|
+| 2 MB R2 PUT | (5 MB took 272–564s) | **0.5s — 30.7 Mbps** |
+| ingest | ~97 KB/s | **1.5 MB/s, ~1 image/second** |
+| remaining ~4.9 TB | 9 months–1.6 years | **~3–6 weeks** |
+
+The Wi-Fi radio was never the problem — 802.11ax, −18 dBm, 1200 Mbps link rate —
+so the limit sat between the access point and the internet. A perfect local link
+can still deliver under 1 Mbps upstream, and every layer above it looks broken.
+
+- **A rolling-window count is not a rate, and it reads as a stall.** My probe
+  counted "images created in the last 90 minutes". While the ingest ran at ONE
+  PER SECOND, that number moved 126 → 127 in two minutes, because rows aged out
+  of the window as fast as new ones arrived. I concluded the ingest was
+  self-limited on a fast link and went looking for a bug in it. `count(*) where
+  event_id = …`, sampled twice with a real gap, gave 91 images in 91 seconds
+  immediately. **A window is a filter; a rate needs two counts and a clock.**
+- **That is three wrong readings of the same subsystem in one night** — hung,
+  then slow, then self-limited — every one from a probe I trusted over the
+  durable record. The pattern is not carelessness about any single probe; it is
+  that I kept choosing the convenient surface (log, `ps`, a windowed query) over
+  the one that defines the fact (rows in the table).
+- **Exonerate cheaply, in order.** unzip: 32 ms per entry across five reads. R2:
+  30 Mbps. Supabase: 66–204 ms, and 1.7 s for the documented HNSW `faces` count.
+  Each one command, each ruling out a layer, and together they said the fast path
+  was fine — which was the evidence the link had already been fixed.
+- **Correct the record when the cause moves.** Lesson 127 and the project memory
+  both asserted "the migration is upload-bound at 100–200 KB/s". True on Wi-Fi,
+  stale within the hour. A memory that survives its cause is worse than none.
