@@ -94,10 +94,16 @@ async function main() {
   if (stemsFile) {
     for (const s of JSON.parse(fs.readFileSync(stemsFile, "utf8")) as string[]) {
       const real = s.normalize("NFC");
-      const g = garble(real);
-      if (g === real) continue;
-      if (!byStemGarble.has(g)) byStemGarble.set(g, new Set());
-      byStemGarble.get(g)!.add(real);
+      // The stored `?`s encode the BYTES the ZIP held, and a Mac-exported name is
+      // usually NFD (`o` + a combining accent → `Co??rdova`), where an NFC `ó`
+      // would have garbled to `C??rdova`. So key every canonical form: they are
+      // the same name, and the one that matches is the one the ZIP carried.
+      for (const form of new Set([s, real, s.normalize("NFD")])) {
+        const g = garble(form);
+        if (g === form) continue;
+        if (!byStemGarble.has(g)) byStemGarble.set(g, new Set());
+        byStemGarble.get(g)!.add(real);
+      }
     }
   }
 
@@ -130,7 +136,7 @@ async function main() {
     const next = [...cands][0];
     // The proof, restated on the final name: a `?` left over means part of the
     // name was garbled OUTSIDE the stem, and a stored `?` is not a real character.
-    if (next.includes("?") || garble(next) !== r.original_filename) { unmatched.push(`${r.original_filename} (not an exact inverse)`); continue; }
+    if (next.includes("?") || ![next, next.normalize("NFD")].some((f) => garble(f) === r.original_filename)) { unmatched.push(`${r.original_filename} (not an exact inverse)`); continue; }
     if (held.has(next)) { collides.push(`${r.original_filename} → ${next} (already in the event)`); continue; }
     plan.push({ id: r.id, old: r.original_filename, next, oldParsed: r.parsed_name, nextParsed: parseFilename(next).name });
   }

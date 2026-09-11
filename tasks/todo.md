@@ -170,17 +170,15 @@ BUILT 2026-08-28 (all checks green — `scripts/verify-guest-share.ts`):
    - [x] 2026-09-11 STARVED deadlock broken (lesson 133, 8a0b81d): 45 GB of
          KEPT archives released, Atlassian Expo (47 GB) re-staged from
          quarantine, 115 garbled names repaired.
-   - [ ] **786 photo names still garbled** (`original_filename LIKE '%?%'`),
-         which is only **26 name stems**: ~380 photos of ~25 people + 407 Chime
-         junk-URL names. Dropbox and SPS images hold none; SPS check-ins held 1
-         (Hunter O’Connell, repaired via `--stems`). Pixieset is the only source
-         left: a full listing is 1,833 calls (24/page), so first test ONE call
-         for a filename-search parameter from a signed-in session, then feed the
-         stems to `repair-garbled-names.ts <eventId> --stems <names.json>`.
-         Ask Mason before any full listing.
-   - [ ] The pre-push hook type-checks the working tree, not the commit being
-         pushed — another session's WIP refuses a clean push, and a fixed-but-
-         uncommitted tree would pass a broken one. Check the pushed commit instead.
+   - [x] **All 911 garbled photo names repaired (2026-09-11).** 115 from ZIPs
+         on disk, 10 from an SPS check-in, 786 from Pixieset's own filename
+         search (`POST /api/v1/photos/search`, one call per name stem, 27 calls
+         paced a minute apart from the signed-in Mac Mini Chrome), plus 79
+         `parsed_name` rows left garbled by the 08-31 fix. Every name proven by
+         exact inverse and logged in `~/pixieset-staging/logs/`. Archive-wide:
+         0 `?` in `original_filename`, 0 in `parsed_name`.
+   - [x] The pre-push hook checks the PUSHED commit, not the working tree
+         (124773a, the other session, 2026-09-11).
 2. **Crew confirmation on the CREATE EVENT screen** — the piece Mason actually
    asked for first, and still the biggest gap. Enter name + date, the gig is
    looked up from the calendar, venue/crew/client pre-populate, he confirms
