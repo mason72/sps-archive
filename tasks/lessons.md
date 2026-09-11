@@ -3007,3 +3007,12 @@ showed "Brendan O’Gibney" but not "Cassandra Córdova", "Nicholas Muñoz" or
 - Measured before migrating: 1 stored key changes (Armando Nájera's reference
   centroid); 0 differences from the old rule across every ASCII cluster name
   and 200,000 ASCII filenames — for plain names nothing moves.
+- **The reviewer found what widening a gate newly exposes.** Letting accented
+  names onto the wall also let on names whose every word is too short for the
+  search token ("Lê Hà" has no run of two plain letters), so their card opened
+  to a 404 — a path the old gate had made unreachable. It also caught that
+  NFKD turns symbols into letters ("Twitch™" → `twitchtm`), so both twins
+  use NFD, and that the face engine (auto-namer, split and merge suggestions,
+  un-reject on rename) still compared names with `toLowerCase()`. **When a
+  change admits new inputs, walk every downstream consumer with the newly
+  admitted shapes, not just the ones you were asked about.**

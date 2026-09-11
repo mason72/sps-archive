@@ -9,8 +9,8 @@
  * people simply were not there.
  *
  * Two jobs, deliberately different:
- *   - SHAPE tests ("is this a name?") read real letters — `\p{L}`, with
- *     combining marks allowed — on NFC text (`nameText`).
+ *   - SHAPE tests ("is this a name?") read real letters — Latin script with
+ *     its accents, combining marks allowed — on NFC text (`nameText`).
  *   - KEYS ("is this the same name?") fold to plain a–z, so "Córdova",
  *     "Cordova" and a Mac export's decomposed "Co◌́rdova" are one person
  *     (`normalizeNameKey` in index-people.ts, built on `foldName`). The key
@@ -21,11 +21,15 @@
  *     and stays off the wall, exactly as before (measured: none in the
  *     archive on 2026-09-11).
  *
+ * Folding uses NFD (canonical: a letter and its accents), NOT NFKD, which
+ * also turns symbols into letters — "Twitch™" would key as "twitchtm" and
+ * split from "Twitch". With NFD the key is exactly the old rule plus accents.
+ *
  * Pure and dependency-free: the client event page imports the People index.
  */
 
 /**
- * Letters NFKD leaves whole, folded the way they are typed without the key.
+ * Letters NFD leaves whole, folded the way they are typed without the key.
  * Both cases are listed, so the fold never depends on a locale's lowercasing
  * — `person_name_key()` in SQL carries this same table.
  */
@@ -39,11 +43,12 @@ const UNDECOMPOSED = new RegExp(`[${Object.keys(UNDECOMPOSED_FOLDS).join("")}]`,
 /**
  * Accent-, case- and ligature-folded, everything else kept:
  * "Nájera-Smith" → "najera-smith", "Søren" → "soren". For comparisons that
- * still want word boundaries (search boxes, the stacks' cleaner).
+ * still want word boundaries (search boxes, the face engine's name groups).
+ * On plain ASCII it is exactly `toLowerCase()`.
  */
 export function foldName(s: string): string {
   return s
-    .normalize("NFKD")
+    .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .replace(UNDECOMPOSED, (c) => UNDECOMPOSED_FOLDS[c])
     .toLowerCase();
@@ -53,10 +58,10 @@ export function foldName(s: string): string {
  * The form every name derivation reads: NFC (so a decomposed Mac export and a
  * typed "ó" are the same string), minus the stray symbols some exports put in
  * front of a name — "✓ClaraHowell", "￼EdJackson" (U+FFFC, a pasted-object
- * placeholder), "©DCP".
+ * placeholder), "©DCP". Leading whitespace is left for the callers' own trims.
  */
 export function nameText(s: string): string {
-  return s.normalize("NFC").replace(/^[\p{S}\p{C}\p{Z}]+/u, "");
+  return s.normalize("NFC").replace(/^[\p{S}\p{C}]+/u, "");
 }
 
 /**
@@ -83,4 +88,22 @@ export function asciiLetterRuns(s: string): string[] {
   return (s.normalize("NFC").match(/[A-Za-z]+/g) ?? []).sort(
     (a, b) => b.length - a.length
   );
+}
+
+/**
+ * The `ilike` tokens that find one spelling's files, whichever way they were
+ * encoded. Normally the longest plain-letter run. A short accented name can
+ * have no run of two ("Lê Hà", "Đỗ Ái" — which then opened to an empty
+ * spotlight, caught in review), so it falls back to its longest word in all
+ * three encodings: composed, decomposed, and folded ("Lê", "Le◌̂", "le").
+ * Letters and marks only, so nothing can break PostgREST's inline `or`.
+ */
+export function ilikeTokens(s: string): string[] {
+  const run = asciiLetterRuns(s)[0];
+  if (run && run.length >= 2) return [run];
+  const word = (s.normalize("NFC").match(/[\p{L}\p{M}]+/gu) ?? []).sort(
+    (a, b) => b.length - a.length
+  )[0];
+  if (!word) return [];
+  return [...new Set([word, word.normalize("NFD"), foldName(word)])].filter(Boolean);
 }

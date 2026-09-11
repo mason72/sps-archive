@@ -17,12 +17,18 @@
  * holds by construction — no anti-link bookkeeping needed.
  */
 
+import { foldName } from "@/lib/people/name-text";
+
 import { centroidOf, dot } from "./clustering-core";
 
-/** One name extends the other at a word boundary → same name family. */
+/**
+ * One name extends the other at a word boundary → same name family. Case-
+ * and accent-folded, so "Rodrigo Bretón" and "rodrigo breton" are one name,
+ * never a proposed split.
+ */
 export function sameNameFamily(a: string, b: string): boolean {
-  const la = a.trim().toLowerCase();
-  const lb = b.trim().toLowerCase();
+  const la = foldName(a.trim());
+  const lb = foldName(b.trim());
   if (la === lb) return true;
   const [shorter, longer] = la.length <= lb.length ? [la, lb] : [lb, la];
   return longer.startsWith(`${shorter} `);
@@ -81,7 +87,7 @@ export function filenameSplitGroups(
     const name = extractName(filename).trim();
     if (!name || !personLike(name)) continue;
     // Collapse name families onto the longest form seen so far.
-    let key = name.toLowerCase();
+    let key = foldName(name);
     for (const existing of byName.keys()) {
       if (sameNameFamily(existing, key)) {
         key = existing.length >= key.length ? existing : key;

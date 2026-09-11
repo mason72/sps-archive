@@ -85,9 +85,14 @@ export async function PATCH(
     if (person.name && name === null) rejected.add(person.name);
     // Typing a name un-rejects it: the human is overriding their own earlier
     // clear, and the auto-namer should be allowed to agree with them again.
+    // Compared on the identity key — the same comparison `nameIsRejected`
+    // makes — or typing "Armando Najera" would leave "Armando Nájera" in the
+    // list, still blocking the name just typed.
     if (name) {
+      const { normalizeNameKey } = await import("@/lib/people/index-people");
+      const typedKey = normalizeNameKey(name);
       for (const r of [...rejected]) {
-        if (r.toLowerCase() === name.toLowerCase()) rejected.delete(r);
+        if (normalizeNameKey(r) === typedKey) rejected.delete(r);
       }
     }
 

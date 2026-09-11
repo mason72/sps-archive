@@ -11,7 +11,12 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import { extractPersonName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "@/lib/people/aliases";
 import { eventLabelKeys } from "@/lib/people/event-labels";
-import { loadExcludedPersonKeys, normalizeNameKey } from "@/lib/people/index-people";
+import {
+  loadExcludedPersonKeys,
+  normalizeNameKey,
+  preferredSpelling,
+} from "@/lib/people/index-people";
+import { foldName } from "@/lib/people/name-text";
 import { isPersonLike } from "@/lib/sections/auto-plan";
 
 import {
@@ -74,6 +79,8 @@ async function fetchEventFaces(
  * Requirements: ≥80% of members share one extracted name, ≥2 supporting
  * files, and it must look like a person-name (photobooth/camera-code
  * filenames fail and stay blank). Fill-nulls-only — never overwrites.
+ * Spellings that differ only by case or accent are one vote ("Rodrigo
+ * Bretón" + "Rodrigo Breton" — the archive has both), shown accented.
  */
 export function consensusName(
   memberImageIds: string[],
@@ -89,9 +96,10 @@ export function consensusName(
     const name = extractName(filename).trim();
     considered += 1;
     if (!name) continue;
-    const key = name.toLowerCase();
+    const key = foldName(name);
     const cur = counts.get(key) ?? { count: 0, display: name };
     cur.count += 1;
+    cur.display = preferredSpelling(cur.display, name);
     counts.set(key, cur);
   }
   if (!considered) return null;

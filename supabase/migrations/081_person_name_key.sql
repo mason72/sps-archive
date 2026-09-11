@@ -11,8 +11,11 @@
 -- a key the wall does not know.
 --
 -- So the key gets one SQL home that mirrors the TypeScript step for step:
---   NFKD → fold the letters NFKD leaves whole (both cases listed, so no
+--   NFD → fold the letters NFD leaves whole (both cases listed, so no
 --   locale's lowercasing is involved) → lower → keep a–z.
+-- NFD, not NFKD: NFKD also turns symbols into letters ("Twitch™" would key as
+-- "twitchtm" and split from "Twitch"). With NFD the key is exactly the old
+-- rule plus folded accents.
 -- The fold table must match UNDECOMPOSED_FOLDS in name-text.ts — a unit test
 -- parses this file to check, and `npx tsx scripts/triage/name-key-parity.ts`
 -- compares the two functions on live data. ⚠️ translate() pairs its two strings
@@ -30,11 +33,12 @@ returns text
 language sql
 immutable
 parallel safe
+set search_path = ''
 as $$
   select regexp_replace(
     lower(
       replace(replace(replace(replace(replace(replace(replace(replace(
-        translate(normalize(p, NFKD), 'ØøŁłĐđÐðĦħŦŧŊŋıĸ', 'oollddddhhttnnik'),
+        translate(normalize(p, NFD), 'ØøŁłĐđÐðĦħŦŧŊŋıĸ', 'oollddddhhttnnik'),
         'ß', 'ss'), 'ẞ', 'ss'), 'Æ', 'ae'), 'æ', 'ae'),
         'Œ', 'oe'), 'œ', 'oe'), 'Þ', 'th'), 'þ', 'th')
     ),

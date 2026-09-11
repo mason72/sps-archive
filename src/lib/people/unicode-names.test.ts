@@ -8,7 +8,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { nameIsRejected } from "@/lib/faces/cluster-event";
+import { consensusName, nameIsRejected } from "@/lib/faces/cluster-event";
+import { sameNameFamily } from "@/lib/faces/split";
 import { buildStacks, extractPersonName, personNameFromParts } from "@/lib/gallery/stacks";
 import { isPersonLike } from "@/lib/sections/auto-plan";
 import { parseFilename } from "@/lib/upload/parse-filename";
@@ -20,7 +21,14 @@ import {
   personKeyForImage,
   preferredSpelling,
 } from "./index-people";
-import { asciiLetterRuns, foldName, nameText, splitCamel, UNDECOMPOSED_FOLDS } from "./name-text";
+import {
+  asciiLetterRuns,
+  foldName,
+  ilikeTokens,
+  nameText,
+  splitCamel,
+  UNDECOMPOSED_FOLDS,
+} from "./name-text";
 
 const REAL = [
   "Cassandra Córdova", "Stephan Wächter", "Alëna Aksënova", "Tiffany Bolaños",
@@ -31,8 +39,11 @@ const REAL = [
 
 /** How a Mac export often writes the same name: letter + combining mark. */
 const nfd = (s: string) => s.normalize("NFD");
-/** The same name typed without the accent key. */
-const plain = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "");
+/** The same name typed without the accent key (lowercase — every consumer here ignores case). */
+const plain = (s: string) => foldName(s);
+
+/** Short names whose words hold no run of two plain letters (review, 2026-09-11). */
+const SHORT = ["Lê Hà", "Hà Vũ", "Đỗ Ái", "Lý Ân"];
 
 /** What the /people index does with one photo: parse, then derive the name. */
 const wallName = (filename: string) =>
@@ -78,6 +89,10 @@ describe("looksLikePersonName", () => {
       expect(looksLikePersonName(n), n).toBe(false);
     }
   });
+
+  it("requires Latin letters — the key is folded Latin, so 'Алёна Smith' would key as a stranger's 'smith'", () => {
+    for (const n of ["Алёна Smith", "Алёна Аксёнова"]) expect(looksLikePersonName(n), n).toBe(false);
+  });
 });
 
 describe("looksLikeSingleName", () => {
@@ -101,6 +116,11 @@ describe("normalizeNameKey", () => {
     expect(normalizeNameKey("Łukasz Wałęsa")).toBe("lukaszwalesa");
     expect(normalizeNameKey("Straße")).toBe("strasse");
     expect(normalizeNameKey("İlkay Gündoğan")).toBe("ilkaygundogan");
+  });
+
+  it("does not turn symbols into letters (NFD, not NFKD)", () => {
+    expect(normalizeNameKey("Twitch™")).toBe("twitch");
+    expect(normalizeNameKey("Nº ª")).toBe("n");
   });
 
   it("is byte-identical to the old rule for every plain-ASCII name", () => {
@@ -152,11 +172,20 @@ describe("asciiLetterRuns — the spotlight's search token", () => {
   });
 
   it("finds every encoding of the spelling it came from", () => {
-    // ilike is case-insensitive, so compare lowercased.
-    for (const n of [...REAL, "Molly O’Neill", "Brendan O’Gibney"]) {
-      const token = asciiLetterRuns(n)[0].toLowerCase();
-      for (const s of [n, nfd(n), plain(n)]) expect(s.toLowerCase(), `${n} → ${token}`).toContain(token);
+    // ilike is case-insensitive, so compare lowercased. A spelling is found
+    // when ANY of its tokens is inside it (the filter ORs them).
+    for (const n of [...REAL, ...SHORT, "Molly O’Neill", "Brendan O’Gibney"]) {
+      const tokens = ilikeTokens(n).map((t) => t.toLowerCase());
+      expect(tokens.length, n).toBeGreaterThan(0);
+      for (const s of [n, nfd(n), plain(n)]) {
+        expect(tokens.some((t) => s.toLowerCase().includes(t)), `${n} in ${JSON.stringify(s)}`).toBe(true);
+      }
     }
+  });
+
+  it("gives a short accented name a token instead of none (it opened to a 404)", () => {
+    expect(ilikeTokens("Lê Hà")).toEqual(["Lê", nfd("Lê"), "le"]);
+    expect(ilikeTokens("Cassandra Córdova")).toEqual(["Cassandra"]);
   });
 });
 
@@ -191,6 +220,24 @@ describe("the other name heuristics", () => {
     expect(isPersonLike("Cher")).toBe(false);
   });
 
+  it("the face engine treats an accent-only difference as one name", () => {
+    const files = [
+      "RodrigoBretón_26-04-30_Stripe_0001.jpg",
+      "RodrigoBretón_26-04-30_Stripe_0002.jpg",
+      "RodrigoBretón_26-04-30_Stripe_0003.jpg",
+      "RodrigoBreton_26-04-30_Stripe_0004.jpg",
+      "RodrigoBreton_26-04-30_Stripe_0005.jpg",
+      "RodrigoBreton_26-04-30_Stripe_0006.jpg",
+    ];
+    const filenameOf = new Map(files.map((f, i) => [`img${i}`, f]));
+    // The auto-namer: one consensus of six, not two halves of three.
+    expect(consensusName([...filenameOf.keys()], filenameOf, extractPersonName, isPersonLike)).toBe(
+      "Rodrigo Bretón"
+    );
+    // The split engine: one name family, never "might be two people".
+    expect(sameNameFamily("Rodrigo Bretón", "rodrigo breton")).toBe(true);
+  });
+
   it("nameIsRejected holds across accents", () => {
     expect(nameIsRejected("Armando Najera", ["Armando Nájera"])).toBe(true);
     expect(nameIsRejected(nfd("Armando Nájera"), ["armando najera"])).toBe(true);
@@ -215,7 +262,7 @@ describe("the SQL twin (migration 081)", () => {
       path.join(process.cwd(), "supabase/migrations/081_person_name_key.sql"),
       "utf8"
     );
-    const tr = sql.match(/translate\(normalize\(p, NFKD\), '([^']+)', '([^']+)'\)/u);
+    const tr = sql.match(/translate\(normalize\(p, NFD\), '([^']+)', '([^']+)'\)/u);
     expect(tr).not.toBeNull();
     const from = [...tr![1]];
     const to = [...tr![2]];

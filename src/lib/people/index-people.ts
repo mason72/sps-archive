@@ -23,7 +23,7 @@ import {
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
-import { asciiLetterRuns, foldName, nameText } from "./name-text";
+import { foldName, ilikeTokens, nameText } from "./name-text";
 import {
   loadSplitLinks,
   sampleKey,
@@ -54,15 +54,20 @@ export const NON_PERSON_GALLERIES = new Set([
  * tags ("GitHub Universe5") mostly fall out here; the gallery exclusion above
  * catches the rest.
  *
- * A letter is any script's letter, accents included (name-text.ts). This was
- * `[A-Za-z]` until 2026-09-11, which silently kept Cassandra Córdova, Nicholas
- * Muñoz and 60-odd others off the wall.
+ * A letter is a Latin-script letter, accents included (name-text.ts). This
+ * was `[A-Za-z]` until 2026-09-11, which silently kept Cassandra Córdova,
+ * Nicholas Muñoz and 60-odd others off the wall. Latin, not any script,
+ * because the identity key is folded Latin: "Алёна Smith" would pass a
+ * `\p{L}` test and then key as plain "smith", merging with a stranger.
  */
 export function looksLikePersonName(name: string): boolean {
   const trimmed = nameText(name).trim();
   if (trimmed.length < 4 || /\p{N}/u.test(trimmed)) return false;
   const words = trimmed.split(/\s+/);
-  return words.length >= 2 && words.every((w) => /^\p{L}[\p{L}\p{M}'’.-]*$/u.test(w));
+  return (
+    words.length >= 2 &&
+    words.every((w) => /^\p{Script=Latin}[\p{Script=Latin}\p{M}'’.-]*$/u.test(w))
+  );
 }
 
 export interface PersonEventAppearance {
@@ -262,19 +267,13 @@ export async function buildPersonDetail(
   // widens to an OR across every spelling's token; membership below still
   // decides.
   //
-  // The token is the longest run of plain letters (`asciiLetterRuns`), which
-  // every encoding of the spelling carries verbatim: "Córdova" searches
-  // "rdova", "O’Neill" searches "Neill". It used to strip the accent or
-  // apostrophe out of the MIDDLE of the word — "Crdova", "ONeill" — which
-  // matched no file at all, so those spotlights opened empty. Letters only,
-  // so nothing can terminate PostgREST's inline `or` expression.
-  const tokens = [
-    ...new Set(
-      groupSpellings
-        .map((s) => asciiLetterRuns(s)[0])
-        .filter((t): t is string => !!t && t.length >= 2)
-    ),
-  ];
+  // The token is text every encoding of the spelling carries verbatim
+  // (`ilikeTokens`): "Córdova" searches "rdova", "O’Neill" searches "Neill",
+  // and a short "Lê Hà" searches "Lê" composed, decomposed and folded. It used
+  // to strip the accent or apostrophe out of the MIDDLE of the word —
+  // "Crdova", "ONeill" — which matched none of Cassandra Córdova's 12 files or
+  // Molly O'Neill's 14, so those spotlights opened empty.
+  const tokens = [...new Set(groupSpellings.flatMap(ilikeTokens))];
   if (tokens.length === 0) return null;
   const candidateFilter = tokens
     .flatMap((t) => [`parsed_name.ilike.%${t}%`, `original_filename.ilike.%${t}%`])

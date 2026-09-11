@@ -99,14 +99,15 @@ const SINGLE_NAME_STOP = new Set([
 
 /**
  * Shape check only — the per-event frame cap is applied by the caller, which
- * holds the counts. Letters (any script, accents included — "Zoë", "Łukasz";
- * with an apostrophe or hyphen inside), three or more, not all-caps ("MS",
- * "KARN" are codes; a shouted real name is the price), not a gallery word.
+ * holds the counts. Latin letters (accents included — "Zoë", "Łukasz"; the
+ * key is folded Latin, see looksLikePersonName; with an apostrophe or hyphen
+ * inside), three or more, not all-caps ("MS", "KARN" are codes; a shouted
+ * real name is the price), not a gallery word.
  */
 export function looksLikeSingleName(name: string): boolean {
   const w = nameText(name).trim();
   if (w.length < 3 || /\s/.test(w)) return false;
-  if (!/^\p{L}[\p{L}\p{M}'’-]*[\p{L}\p{M}]$/u.test(w)) return false;
+  if (!/^\p{Script=Latin}[\p{Script=Latin}\p{M}'’-]*[\p{Script=Latin}\p{M}]$/u.test(w)) return false;
   if (w === w.toUpperCase()) return false;
   return !SINGLE_NAME_STOP.has(w.toLowerCase());
 }

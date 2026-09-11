@@ -72,6 +72,8 @@ const MISLABEL_MINORITY_CEILING = 0.2;
 /** A fuller name needs at least this many supporting files to be suggested. */
 const REFINEMENT_MIN_SUPPORT = 2;
 
+import { foldName } from "@/lib/people/name-text";
+
 import { filenameSplitGroups, sameNameFamily } from "./split";
 
 export { sameNameFamily };
@@ -148,7 +150,7 @@ export function computeSuggestions(
         sameNameFamily(fileClaim, personName) &&
         fileClaim.length > personName.length
       ) {
-        const k = fileClaim.toLowerCase();
+        const k = foldName(fileClaim);
         const cur = extensions.get(k) ?? { display: fileClaim, count: 0 };
         cur.count += 1;
         extensions.set(k, cur);
@@ -165,7 +167,9 @@ export function computeSuggestions(
       considered += 1;
       if (sameNameFamily(fileClaim, personName)) continue;
       if (personLike(fileClaim)) {
-        const k = fileClaim.toLowerCase();
+        // Grouped case- and accent-folded: "Bretón" and "Breton" are one
+        // filed-as name, not two rename rows.
+        const k = foldName(fileClaim);
         const cur = conflicts.get(k) ?? { display: fileClaim, imageIds: [] };
         cur.imageIds.push(imageId);
         conflicts.set(k, cur);
@@ -194,8 +198,10 @@ export function computeSuggestions(
     if (!considered || conflicts.size === 0) continue;
     const conflictTotal = [...conflicts.values()].reduce((s, c) => s + c.imageIds.length, 0);
     if (conflictTotal / considered > MISLABEL_MINORITY_CEILING) continue;
-    for (const [filedKey, c] of conflicts) {
-      const key = `mislabel:${person.id}:${filedKey}`;
+    for (const c of conflicts.values()) {
+      // The dismissal key keeps its pre-fold spelling (lowercased display), so
+      // a suggestion dismissed before 2026-09-11 stays dismissed.
+      const key = `mislabel:${person.id}:${c.display.toLowerCase()}`;
       if (dismissed.has(key)) continue;
       mislabels.push({
         key,
@@ -212,7 +218,7 @@ export function computeSuggestions(
   const byName = new Map<string, SuggestionPerson[]>();
   for (const person of persons) {
     if (!person.name) continue;
-    const k = person.name.trim().toLowerCase();
+    const k = foldName(person.name.trim());
     const list = byName.get(k) ?? [];
     list.push(person);
     byName.set(k, list);

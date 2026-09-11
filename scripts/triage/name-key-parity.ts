@@ -27,7 +27,8 @@ import { UNDECOMPOSED_FOLDS } from "../../src/lib/people/name-text";
 const SYNTHETIC = [
   ...Object.keys(UNDECOMPOSED_FOLDS).map((c) => `A${c}b ${c}z`),
   "İstanbul Öztürk",
-  "ﬁona Ｗｉｄｅ", // a ligature and full-width letters: NFKD, not NFD
+  "ﬁona Ｗｉｄｅ", // a ligature and full-width letters: NFD leaves them, both sides drop them
+  "Twitch™ Nº ª", // symbols NFKD would turn into letters; NFD must not
   "Córdova Nguyễn", // decomposed
   "José García-Márquez",
   "Brendan O’Gibney",
