@@ -3,6 +3,15 @@
  *
  *   npx tsx scripts/pixieset/repair-garbled-names.ts <eventId> <zip> [<zip> ...]           # report only
  *   npx tsx scripts/pixieset/repair-garbled-names.ts <eventId> <zip> [<zip> ...] --apply   # write
+ *   npx tsx scripts/pixieset/repair-garbled-names.ts <eventId> --stems <names.json> [--apply]
+ *
+ * `--stems` is for when the ZIP is gone. It takes a JSON array of real NAME
+ * STEMS (the part of a filename before the first `_`, e.g. `HunterO’Connell`)
+ * from another authoritative source, such as an SPS check-in, and applies the
+ * same proof anchored at the stem: the real stem must garble to exactly the
+ * stored stem, one candidate or nothing. On 2026-09-11 the 796 rows left after
+ * the ZIP repair came down to 27 stems — Dropbox held none of the renamed
+ * deliveries, SPS check-ins held one.
  *
  * WHY. Until 2026-09-11 the ingest took each photo's name from `unzip -Z1`, which
  * prints every byte it cannot render as a literal `?`. `AndreasLöcher_….jpg` was
@@ -57,10 +66,13 @@ function namelist(zip: string): string[] {
 }
 
 async function main() {
-  const apply = process.argv.includes("--apply");
-  const [eventId, ...zips] = process.argv.slice(2).filter((a) => a !== "--apply");
-  if (!eventId || !zips.length) {
-    console.error("usage: repair-garbled-names.ts <eventId> <zip> [<zip> ...] [--apply]");
+  const args = process.argv.slice(2);
+  const apply = args.includes("--apply");
+  const at = args.indexOf("--stems");
+  const stemsFile = at >= 0 ? args[at + 1] : null;
+  const [eventId, ...zips] = args.filter((a, i) => a !== "--apply" && (at < 0 || (i !== at && i !== at + 1)));
+  if (!eventId || (!zips.length && !stemsFile)) {
+    console.error("usage: repair-garbled-names.ts <eventId> (<zip> [<zip> ...] | --stems <names.json>) [--apply]");
     process.exit(2);
   }
 
@@ -74,6 +86,18 @@ async function main() {
       if (g === base) continue;                           // pure ASCII — never garbled
       if (!byGarble.has(g)) byGarble.set(g, new Set());
       byGarble.get(g)!.add(base.normalize("NFC"));
+    }
+  }
+
+  // garbled stem → every real stem that produces it (--stems mode)
+  const byStemGarble = new Map<string, Set<string>>();
+  if (stemsFile) {
+    for (const s of JSON.parse(fs.readFileSync(stemsFile, "utf8")) as string[]) {
+      const real = s.normalize("NFC");
+      const g = garble(real);
+      if (g === real) continue;
+      if (!byStemGarble.has(g)) byStemGarble.set(g, new Set());
+      byStemGarble.get(g)!.add(real);
     }
   }
 
@@ -97,10 +121,16 @@ async function main() {
   const plan: { id: string; old: string; next: string; oldParsed: string | null; nextParsed: string }[] = [];
   const unmatched: string[] = [], ambiguous: string[] = [], collides: string[] = [];
   for (const r of garbledRows) {
-    const cands = byGarble.get(r.original_filename);
+    const stem = r.original_filename.split("_")[0];
+    const stemCands = byStemGarble.get(stem);
+    const cands = byGarble.get(r.original_filename)
+      ?? (stemCands && new Set([...stemCands].map((s) => s + r.original_filename.slice(stem.length))));
     if (!cands) { unmatched.push(r.original_filename); continue; }
     if (cands.size !== 1) { ambiguous.push(`${r.original_filename} → ${[...cands].join(" | ")}`); continue; }
     const next = [...cands][0];
+    // The proof, restated on the final name: a `?` left over means part of the
+    // name was garbled OUTSIDE the stem, and a stored `?` is not a real character.
+    if (next.includes("?") || garble(next) !== r.original_filename) { unmatched.push(`${r.original_filename} (not an exact inverse)`); continue; }
     if (held.has(next)) { collides.push(`${r.original_filename} → ${next} (already in the event)`); continue; }
     plan.push({ id: r.id, old: r.original_filename, next, oldParsed: r.parsed_name, nextParsed: parseFilename(next).name });
   }

@@ -170,11 +170,14 @@ BUILT 2026-08-28 (all checks green — `scripts/verify-guest-share.ts`):
    - [x] 2026-09-11 STARVED deadlock broken (lesson 133, 8a0b81d): 45 GB of
          KEPT archives released, Atlassian Expo (47 GB) re-staged from
          quarantine, 115 garbled names repaired.
-   - [ ] **796 photo names still garbled** (`original_filename LIKE '%?%'`,
-         12 events: Chime 407, College Board 120, Stripe 91, …). Their ZIPs are
-         released, so real names must come from Pixieset's photo listing, then
-         go through the same exact-inverse pairing as
-         `scripts/pixieset/repair-garbled-names.ts`.
+   - [ ] **786 photo names still garbled** (`original_filename LIKE '%?%'`),
+         which is only **26 name stems**: ~380 photos of ~25 people + 407 Chime
+         junk-URL names. Dropbox and SPS images hold none; SPS check-ins held 1
+         (Hunter O’Connell, repaired via `--stems`). Pixieset is the only source
+         left: a full listing is 1,833 calls (24/page), so first test ONE call
+         for a filename-search parameter from a signed-in session, then feed the
+         stems to `repair-garbled-names.ts <eventId> --stems <names.json>`.
+         Ask Mason before any full listing.
    - [ ] The pre-push hook type-checks the working tree, not the commit being
          pushed — another session's WIP refuses a clean push, and a fixed-but-
          uncommitted tree would pass a broken one. Check the pushed commit instead.
