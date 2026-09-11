@@ -157,9 +157,52 @@ function zipsFor(slug: string): string[] {
   return out.sort();
 }
 
-async function listEntries(zipPath: string): Promise<string[]> {
+/**
+ * One archive entry, under BOTH of its names.
+ *
+ * `entry` is unzip's own listing — the only spelling `readEntry` can hand back
+ * to unzip as a pattern. `name` is the real filename, and it is what the archive
+ * records. They differ for any non-ASCII name: `unzip -Z1` prints each byte it
+ * cannot render as `?` (see escapeZipGlob), and until 2026-09-11 that listing
+ * was stored as `original_filename` — `AndreasLöcher` became `AndreasLo??cher`
+ * in 911 rows across 15 events, in the People index, stacks and guest downloads.
+ * Reading by `entry` and recording `name` keeps the proven read path and fixes
+ * the record.
+ */
+interface ZipEntry { entry: string; name: string }
+
+/** What `unzip -Z1` prints for a real name: every non-ASCII byte becomes `?`. */
+const garble = (s: string) =>
+  [...Buffer.from(s, "utf8")].map((b) => (b > 0x7f ? "?" : String.fromCharCode(b))).join("");
+
+async function listEntries(zipPath: string): Promise<ZipEntry[]> {
   const { stdout } = await run("unzip", ["-Z1", zipPath], { maxBuffer: 256 * 1024 * 1024 });
-  return stdout.split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !l.endsWith("/"));
+  const listed = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Python's zipfile decodes names per the ZIP spec; it is the only listing that
+  // round-trips (see scripts/triage/px-filecheck.ts for unzip's and bsdtar's failures).
+  const { stdout: decoded } = await run(
+    "python3",
+    ["-c", "import sys,zipfile\nfor n in zipfile.ZipFile(sys.argv[1]).namelist(): sys.stdout.write(n+chr(10))", zipPath],
+    { maxBuffer: 256 * 1024 * 1024 },
+  );
+  const real = decoded.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Both walk the central directory in order, but that is an assumption, so each
+  // pair is PROVEN: the real name must garble to exactly what unzip printed. Any
+  // pair that fails keeps unzip's spelling — a wrong name is repairable later
+  // (scripts/pixieset/repair-garbled-names.ts); a halted migration is what this
+  // whole fix exists to prevent.
+  const sameLength = real.length === listed.length;
+  let unproven = 0;
+  const out: ZipEntry[] = listed.map((entry, i) => {
+    if (sameLength && garble(real[i]) === entry) return { entry, name: real[i].normalize("NFC") };
+    if (entry !== garble(entry) || entry.includes("?")) unproven++;
+    return { entry, name: entry };
+  });
+  if (!sameLength) console.warn(`  ⚠ ${path.basename(zipPath)}: unzip lists ${listed.length} entries, zipfile ${real.length} — recording unzip's names`);
+  else if (unproven) console.warn(`  ⚠ ${path.basename(zipPath)}: ${unproven} name(s) could not be proven — recorded as unzip prints them`);
+  return out.filter((e) => !e.entry.endsWith("/"));
 }
 
 /**
@@ -236,19 +279,21 @@ async function readEntry(zipPath: string, entry: string): Promise<Buffer> {
  * frame several times — and `photo_count` double-counts for precisely this
  * reason.
  */
-function planEntries(byZip: { zipPath: string; entries: string[] }[]) {
+function planEntries(byZip: { zipPath: string; entries: ZipEntry[] }[]) {
   const photos = new Map<
     string,
-    { zipPath: string; entry: string; sets: string[] }
+    // `legacy` is the name the pre-2026-09-11 ingest recorded (unzip's spelling),
+    // so a resumed collection recognises the rows it already wrote.
+    { zipPath: string; entry: string; legacy: string; sets: string[] }
   >();
   const setOrder: string[] = [];
 
   for (const { zipPath, entries } of byZip) {
-    for (const entry of entries) {
-      if (!JPEG.test(entry)) continue;
-      const slash = entry.indexOf("/");
-      const set = slash === -1 ? "(root)" : entry.slice(0, slash);
-      const base = path.basename(entry);
+    for (const { entry, name } of entries) {
+      if (!JPEG.test(name)) continue;
+      const slash = name.indexOf("/");
+      const set = slash === -1 ? "(root)" : name.slice(0, slash);
+      const base = path.basename(name);
       if (!setOrder.includes(set)) setOrder.push(set);
 
       const existing = photos.get(base);
@@ -257,7 +302,7 @@ function planEntries(byZip: { zipPath: string; entries: string[] }[]) {
         if (!existing.sets.includes(set)) existing.sets.push(set);
         continue;
       }
-      photos.set(base, { zipPath, entry, sets: [set] });
+      photos.set(base, { zipPath, entry, legacy: path.basename(entry), sets: [set] });
     }
   }
   return { photos, setOrder };
@@ -403,7 +448,7 @@ async function main() {
   for (const z of zips) byZip.push({ zipPath: z, entries: await listEntries(z) });
   const { photos, setOrder } = planEntries(byZip);
 
-  const totalEntries = byZip.reduce((a, z) => a + z.entries.filter((e) => JPEG.test(e)).length, 0);
+  const totalEntries = byZip.reduce((a, z) => a + z.entries.filter((e) => JPEG.test(e.name)).length, 0);
   const duplicates = totalEntries - photos.size;
 
   console.log(`entries: ${n(totalEntries)} JPEGs across ${setOrder.length} set(s)`);
@@ -493,14 +538,16 @@ async function main() {
         .range(from, from + PAGE - 1);
       if (rowsErr) throw rowsErr;
       if (!rows?.length) break;
-      for (const r of rows) if (r.original_filename) present.add(r.original_filename);
+      for (const r of rows) if (r.original_filename) present.add(r.original_filename.normalize("NFC"));
       seen += rows.length;
       if (rows.length < PAGE) break;
     }
     console.log(`already in : ${n(present.size)} image(s)${seen !== present.size ? ` (${n(seen)} rows — ${n(seen - present.size)} DUPLICATE rows present)` : ""}`);
   }
 
-  const todo = [...photos.entries()].filter(([base]) => !present.has(base));
+  // A row written before 2026-09-11 carries unzip's garbled spelling; matching
+  // on `legacy` too keeps a resumed collection from uploading those frames again.
+  const todo = [...photos.entries()].filter(([base, p]) => !present.has(base) && !present.has(p.legacy));
   const bytesEstimate = collection.bytes ?? 0;
   console.log(`to ingest  : ${n(todo.length)} image(s)${bytesEstimate ? ` · archive is ${mb(bytesEstimate)}` : ""}\n`);
 

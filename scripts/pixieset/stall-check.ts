@@ -160,6 +160,29 @@ function logRate(): { passes: number; idles: number } {
   return { passes, idles };
 }
 
+/**
+ * What the ingest's housekeeping is refusing to release, from its most recent pass.
+ *
+ * Added 2026-09-11 after a 37-hour STARVED that this check reported but could not
+ * EXPLAIN. The downloader will not start below 80 GB free and waits "for the
+ * ingest to drain"; the ingest had nothing to drain, because its release sweep
+ * was KEEPING 45 GB it could not prove safe. Two guards, both failing closed,
+ * each waiting on the other. The KEPT line was in ingest.log every five minutes;
+ * putting it in the email turns that deadlock from a hunt into one sentence.
+ */
+function housekeepingKept(): { collections: number; gb: number } | null {
+  if (!fs.existsSync(LOG)) return null;
+  const size = fs.statSync(LOG).size;
+  const start = Math.max(0, size - 200_000);
+  const fd = fs.openSync(LOG, "r");
+  const buf = Buffer.alloc(size - start);
+  fs.readSync(fd, buf, 0, buf.length, start);
+  fs.closeSync(fd);
+  const hits = [...buf.toString("utf8").matchAll(/kept for review: (\d+) collection\(s\), ([\d.]+) GB/g)];
+  const last = hits.at(-1);
+  return last ? { collections: Number(last[1]), gb: Number(last[2]) } : null;
+}
+
 async function main() {
   const q = JSON.parse(fs.readFileSync(QUEUE, "utf8")) as {
     collections: Record<string, { state: string; history?: { state: string; at: string }[] }>;
@@ -200,6 +223,7 @@ async function main() {
   const { passes, idles } = logRate();
   const backup = ledgerBackupAgeHours();
   const brake = await diskBrake();
+  const kept = housekeepingKept();
 
   const verified = by.verified || 0;
   const queued = by.queued || 0;
@@ -228,7 +252,9 @@ async function main() {
     headline = `${verified} collection(s) staged, the oldest waiting ${stagedHours.toFixed(1)}h with nothing completing`;
   } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
-    headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
+    headline = kept && kept.collections > 0
+      ? `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — and the ingest is KEEPING ${kept.gb} GB across ${kept.collections} collection(s) it cannot prove safe to release. If the disk is under the downloader's 80 GB start floor, that is a deadlock: each half is waiting on the other. Run release-sweep.ts and read why each is kept.`
+      : `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
   } else if (backup.hours === null || backup.hours > BACKUP_STALE_HOURS) {
     // Checked LAST on purpose: a pipeline that has stopped matters more than one
     // whose ledger is a day stale, and this must never mask a STARVED or STUCK.
@@ -250,6 +276,7 @@ async function main() {
     `last hour  ${passes} passes, ${idles} idles`,
     `ledger     ${backup.hours === null ? `NOT BACKED UP — ${backup.note}` : `backed up ${backup.hours.toFixed(1)}h ago`}`,
     `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
+    `kept       ${kept ? `${kept.gb} GB across ${kept.collections} collection(s) housekeeping will not release` : "n/a (no housekeeping line in the log)"}`,
     verdict === "UNBACKED"
       ? `\nqueue.json is the only record of which of the 1,371 collections are\nalready safe. Losing it does not lose photos — it loses the knowledge of\nwhich ones are done, which is the difference between finishing this\nmigration and re-running a month of it blind.\n\nIt is backed up by machine-state's nightly sync (20:00). Read\n~/machine-state/.sync.log: that job refuses to push when anything tracked\nis unencrypted, and it stayed silently blocked for 26 nights once before.`
       : "",

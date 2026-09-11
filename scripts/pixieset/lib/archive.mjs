@@ -42,12 +42,20 @@ const JPEG = /\.(jpe?g)$/i;
  * have not actually observed.
  */
 export function parseParts(filename) {
-  const m = basename(filename).match(/-(\d+)of(\d+)\.zip$/i);
-  if (!m) return { part: 1, of: 1, stem: basename(filename).replace(/\.zip$/i, ""), explicit: false };
+  // Strip Chrome's " (N)" dedupe suffix first, exactly as watch.mjs's
+  // parseDownloadName does. Without it `x-10of17 (1).zip` fails the -NofM match
+  // and falls through to the bare-name branch as "part 1 of 1" — so a set with
+  // any re-downloaded part reads as parts disagreeing on the total. That rejected
+  // a COMPLETE 8,518-photo Atlassian Expo archive into quarantine on 2026-09-08
+  // (14 of its 17 parts carried " (1)"). Two parsers for one filename format is
+  // how they drifted; the suffix rule must stay identical in both.
+  const name = basename(filename).replace(/\s+\(\d+\)(?=\.zip$)/i, "");
+  const m = name.match(/-(\d+)of(\d+)\.zip$/i);
+  if (!m) return { part: 1, of: 1, stem: name.replace(/\.zip$/i, ""), explicit: false };
   return {
     part: Number(m[1]),
     of: Number(m[2]),
-    stem: basename(filename).slice(0, m.index),
+    stem: name.slice(0, m.index),
     explicit: true,
   };
 }

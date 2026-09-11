@@ -20,6 +20,22 @@ for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
 }
 
+/**
+ * One comparison key for both sides: Unicode-normalized, then lowercased.
+ *
+ * `ö` can be ONE code point (U+00F6, NFC) or TWO (`o` + combining U+0308, NFD).
+ * They render identically and compare unequal. Pixieset's ZIPs carry either form,
+ * sometimes both in one archive, while the database holds NFC — so a raw compare
+ * reported 8 frames of `kinexionslasvegas` MISSING that were sitting in the event,
+ * and this check gates a delete, so it failed closed and pinned 11.6 GB. Part of
+ * the 2026-09-11 deadlock: 45 GB pinned here, the downloader waiting for disk that
+ * only this release could free.
+ *
+ * Normalizing is not loosening. Two strings that NFC-normalize equal are the
+ * same name by definition; nothing that is genuinely absent can match.
+ */
+const key = (name: string) => name.normalize("NFC").toLowerCase();
+
 async function main() {
   const eventId = process.argv[2];
   const zips = process.argv.slice(3);
@@ -46,7 +62,7 @@ async function main() {
     );
     for (const l of out.split("\n")) {
       const name = (l.trim().split("/").pop() || "").trim();
-      if (/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) inZip.add(name.toLowerCase());
+      if (/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) inZip.add(key(name));
     }
   }
 
@@ -68,7 +84,7 @@ async function main() {
     if (!data?.length) break;
     // `filename` is the R2 storage key (a UUID). The name that came off the camera —
     // and the only thing comparable to a ZIP entry — is `original_filename`.
-    for (const r of data) if (r.original_filename) have.add(String(r.original_filename).toLowerCase());
+    for (const r of data) if (r.original_filename) have.add(key(String(r.original_filename)));
     if (data.length < 1000) break;
   }
 

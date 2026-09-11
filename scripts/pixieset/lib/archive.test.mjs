@@ -58,6 +58,15 @@ test("the last part alone never passes as a complete set", () => {
   assert.deepEqual(only.missing, [1, 2]);
 });
 
+test("Chrome's ' (N)' re-download suffix does not change the part number", () => {
+  assert.deepEqual(parseParts("atlassian-team26expo-photo-download-10of17 (1).zip"),
+    { part: 10, of: 17, stem: "atlassian-team26expo-photo-download", explicit: true });
+  // The 2026-09-08 shape: most parts re-downloaded, a few not. Must be complete, not a conflict.
+  const mixed = partsComplete(["g-1of3 (1).zip", "g-2of3.zip", "g-3of3 (2).zip"]);
+  assert.equal(mixed.conflict, undefined);
+  assert.equal(mixed.complete, true);
+});
+
 test("parts disagreeing on the total is a conflict, not a pass", () => {
   const c = partsComplete(["g-1of2.zip", "g-2of3.zip"]);
   assert.equal(c.complete, false);
