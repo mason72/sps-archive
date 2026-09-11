@@ -700,6 +700,7 @@ export type Database = {
           name: string | null
           person_key: string
           reason: string | null
+          rescan_event_ids: string[] | null
           user_id: string
         }
         Insert: {
@@ -708,6 +709,7 @@ export type Database = {
           name?: string | null
           person_key: string
           reason?: string | null
+          rescan_event_ids?: string[] | null
           user_id: string
         }
         Update: {
@@ -716,6 +718,7 @@ export type Database = {
           name?: string | null
           person_key?: string
           reason?: string | null
+          rescan_event_ids?: string[] | null
           user_id?: string
         }
         Relationships: []

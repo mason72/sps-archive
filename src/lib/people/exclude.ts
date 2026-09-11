@@ -109,12 +109,32 @@ export async function excludeNonPerson(
     await Promise.all(groupKeys.map((k) => clustersNamed(supabase, userId, k)))
   ).flat();
 
+  // Which events hold suggestions about to be deleted. Read BEFORE the
+  // record is written, so the record can carry them: the undo has to re-scan
+  // these, and once the rows are deleted nothing else remembers where they
+  // were (the first version forgot, and its undo never brought them back).
+  const { data: pendingEvents, error: peErr } = await supabase
+    .from("person_identity_suggestions")
+    .select("event_id")
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .in("suggested_key", groupKeys)
+    .order("id")
+    .limit(1000);
+  if (peErr) throw peErr;
+  const eventIds = [
+    ...new Set([
+      ...clusters.map((c) => c.eventId),
+      ...(pendingEvents ?? []).map((r) => r.event_id),
+    ]),
+  ].filter((id): id is string => !!id);
+
   // Record the exclusion AND what it is about to clear BEFORE clearing
   // anything: a failure part-way leaves a complete undo record, and running
   // it again finishes the job (every step below is idempotent).
   const { data: existing, error: readErr } = await supabase
     .from("excluded_people")
-    .select("cleared_persons")
+    .select("cleared_persons, rescan_event_ids")
     .eq("user_id", userId)
     .eq("person_key", key)
     .maybeSingle();
@@ -131,6 +151,7 @@ export async function excludeNonPerson(
       name,
       reason: reason?.slice(0, 500) || null,
       cleared_persons: [...cleared].map(([id, n]) => ({ id, name: n })),
+      rescan_event_ids: [...new Set([...(existing?.rescan_event_ids ?? []), ...eventIds])],
     },
     { onConflict: "user_id,person_key" }
   );
@@ -151,17 +172,8 @@ export async function excludeNonPerson(
     .in("name_key", groupKeys);
   if (refErr) throw refErr;
 
-  // Events first (for the re-scan), then the delete by the same filter — one
-  // statement, so the delete cannot miss rows past a page boundary.
-  const { data: pendingEvents, error: peErr } = await supabase
-    .from("person_identity_suggestions")
-    .select("event_id")
-    .eq("user_id", userId)
-    .eq("status", "pending")
-    .in("suggested_key", groupKeys)
-    .order("id")
-    .limit(1000);
-  if (peErr) throw peErr;
+  // One statement by the same filter, so the delete cannot miss rows past a
+  // page boundary the event read above was capped at.
   const { count: clearedSuggestions, error: delErr } = await supabase
     .from("person_identity_suggestions")
     .delete({ count: "exact" })
@@ -169,13 +181,6 @@ export async function excludeNonPerson(
     .eq("status", "pending")
     .in("suggested_key", groupKeys);
   if (delErr) throw delErr;
-
-  const eventIds = [
-    ...new Set([
-      ...clusters.map((c) => c.eventId),
-      ...(pendingEvents ?? []).map((r) => r.event_id),
-    ]),
-  ].filter((id): id is string => !!id);
 
   return {
     key,
@@ -200,13 +205,16 @@ export async function restoreNonPerson(
 
   const { data: rows, error: readErr } = await supabase
     .from("excluded_people")
-    .select("cleared_persons")
+    .select("cleared_persons, rescan_event_ids")
     .eq("user_id", userId)
     .in("person_key", keys);
   if (readErr) throw readErr;
   const cleared = (rows ?? []).flatMap(
     (r) => (r.cleared_persons ?? []) as unknown as ClearedCluster[]
   );
+  // Where the deleted suggestions lived. The engine is asked to look at these
+  // again, which is what actually brings the cards back.
+  const rescan = (rows ?? []).flatMap((r) => r.rescan_event_ids ?? []);
 
   // Labels FIRST, the record second. If this fails part-way, the record that
   // says what to restore still exists and running undo again finishes the job:
@@ -256,5 +264,5 @@ export async function restoreNonPerson(
     if (error) throw error;
   }
 
-  return { key, restoredClusters, eventIds: [...events] };
+  return { key, restoredClusters, eventIds: [...new Set([...events, ...rescan])] };
 }

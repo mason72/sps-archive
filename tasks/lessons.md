@@ -2773,7 +2773,9 @@ the suggestion tray was full of "Is this Weka SKO27?".
   (Oregon).** There was no `vercel.json`, so Vercel's default won silently, and
   every sequential query on every page paid a cross-country round trip. One
   response header named it: `x-vercel-id: sfo1::iad1::…` (entry edge ::
-  function region). Fix: `"regions": ["pdx1"]`, same price. **When everything
+  function region). Fix: `"regions": ["pdx1"]`, same price. Measured in
+  Mason's browser, warm: dashboard 1.0–1.3s → 0.4–0.5s, an event page 0.6s →
+  0.3s, `/api/events` 2.8–3.6s → 0.9s. **When everything
   is uniformly slow, check where the code runs relative to its database before
   profiling any one page** — it is one curl, and it explains a flat tax that no
   single-page profile will.
@@ -2804,6 +2806,19 @@ the suggestion tray was full of "Is this Weka SKO27?".
   user plus a debounce, and a store never overwrites a newer `builtat`. **Joining
   an in-flight job is only safe for callers that do not care about a write that
   happened after it started** — reads yes, write-triggered refreshes never.
+- **An undo must record where its deletions came FROM, not just what it
+  changed.** Verifying on production, the exclusion cleared 53 WEKA cards
+  across five events and the undo restored all 57 labels and 57 reference
+  faces exactly — and the cards never came back. The undo re-scanned only the
+  event whose labels it restored; the five events that had held the cards
+  were recorded nowhere once their rows were deleted. The notice's promise
+  ("its suggestions return at the next scan") was true only for an event that
+  happened to be re-clustered, which for a finished shoot is never. Fixed with
+  `excluded_people.rescan_event_ids` (migration 078). Every unit check passed
+  throughout; only a round trip through the real UI, followed by waiting for
+  the thing the notice promised, could see it. Side effect worth knowing: the
+  manual re-scan found Ironclad's last scan predated most confirms, and it
+  gained ~70 real-name suggestions — a stale scan is invisible until it runs.
 
 ## 133 — Two guards that fail closed deadlocked the migration for 37 hours (2026-09-11)
 
