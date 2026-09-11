@@ -6,6 +6,7 @@ import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight, type SplitLink } from "./PersonSpotlight";
 import { IdentitySuggestions } from "./IdentitySuggestions";
 import { CrewWall } from "@/components/crew/CrewWall";
+import { foldName } from "@/lib/people/name-text";
 
 export interface PersonAppearance {
   eventId: string;
@@ -202,10 +203,12 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
   } | null>(null);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // Accent-folded both sides (name-text.ts), so "cordova" finds Cassandra
+    // Córdova as well as Damon Cordova — plain toLowerCase() found only him.
+    const q = foldName(query.trim());
     let list = people.filter((p) => !notAPerson.hidden.has(p.name) && !folded.has(p.key));
     if (repeatOnly) list = list.filter((p) => p.eventCount >= 2);
-    if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
+    if (q) list = list.filter((p) => foldName(p.name).includes(q));
     if (sort === "alpha") {
       list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     } else if (sort === "photos") {
@@ -250,7 +253,7 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
   // Windowed rendering. The window belongs to one shape of the list — a new
   // search, sort or filter starts again from the top rather than rendering
   // however far the last list had been scrolled.
-  const shape = `${query} ${sort} ${repeatOnly}`;
+  const shape = `${query}\u0000${sort}\u0000${repeatOnly}`;
   const [win, setWin] = useState({ shape, limit: WINDOW });
   const limit = win.shape === shape ? win.limit : WINDOW;
   const grow = useCallback(

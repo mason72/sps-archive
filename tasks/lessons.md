@@ -3016,3 +3016,17 @@ showed "Brendan O’Gibney" but not "Cassandra Córdova", "Nicholas Muñoz" or
   un-reject on rename) still compared names with `toLowerCase()`. **When a
   change admits new inputs, walk every downstream consumer with the newly
   admitted shapes, not just the ones you were asked about.**
+- **Then I searched the finished wall the way a human would, and found one
+  more.** The board's own search box still matched on `toLowerCase()`, so
+  typing "cordova" returned Damon, Dayanna and Nicko Cordova and NOT Cassandra
+  Córdova — the card was there, and the one interaction someone would use to
+  look for her said she was not. **Verifying a fix means using the feature,
+  not only asserting on its data.**
+- **A literal NUL byte in a source file makes every locale-aware grep of that
+  file silently return nothing.** `PeopleBoard.tsx` built its memo key as
+  `` `${query}\0${sort}` `` with a real NUL, so `file` called it "data" and
+  four greps for the search code came back empty while the code sat at line
+  205. `LC_ALL=C grep -a` found it instantly. Written as ` ` now — the
+  same string, and greppable. **When grep finds nothing in a file you can see
+  contains the thing, suspect the FILE, not your pattern** (same family as the
+  empty-poll rule: an empty result is a broken probe).
