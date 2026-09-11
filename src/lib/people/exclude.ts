@@ -57,19 +57,19 @@ export interface RestoreResult {
 }
 
 /**
- * A pattern that matches every spelling a letters-only key can come from
- * ("wekasko" ← "Weka SKO27", "WEKA sko-27"), so PostgREST narrows the rows.
- * It over-matches on purpose; the exact key comparison happens in code, with
- * the same normaliser the index uses.
+ * Every cluster of this user's whose name keys to one of `keys`.
+ *
+ * Reads every NAMED cluster and compares in code, with the normaliser the
+ * index uses. It used to narrow first with an `ilike` spelled from the key's
+ * letters ("%w%e%k%a%…"), which can never match an accented name — the key
+ * says "a", the row says "á" — so "Not a person" on "Armando Nájera" would
+ * have cleared none of his clusters (2026-09-11). The largest account holds
+ * ~7,500 named clusters: eight pages, on a rare, human-initiated action.
  */
-function spellingPattern(key: string): string {
-  return `%${key.split("").join("%")}%`;
-}
-
 async function clustersNamed(
   supabase: SupabaseDB,
   userId: string,
-  key: string
+  keys: ReadonlySet<string>
 ): Promise<{ id: string; name: string; eventId: string }[]> {
   const out: { id: string; name: string; eventId: string }[] = [];
   for (let page = 0; ; page++) {
@@ -77,12 +77,12 @@ async function clustersNamed(
       .from("persons")
       .select("id, name, event_id, events!inner(user_id)")
       .eq("events.user_id", userId)
-      .ilike("name", spellingPattern(key))
+      .not("name", "is", null)
       .order("id")
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
     for (const p of data ?? []) {
-      if (p.name && normalizeNameKey(p.name) === key) {
+      if (p.name && keys.has(normalizeNameKey(p.name))) {
         out.push({ id: p.id, name: p.name, eventId: p.event_id });
       }
     }
@@ -105,9 +105,7 @@ export async function excludeNonPerson(
   const key = aliases.resolve(rawKey);
   const groupKeys = aliases.groupKeys(key);
 
-  const clusters = (
-    await Promise.all(groupKeys.map((k) => clustersNamed(supabase, userId, k)))
-  ).flat();
+  const clusters = await clustersNamed(supabase, userId, new Set(groupKeys));
 
   // Which events hold suggestions about to be deleted. Read BEFORE the
   // record is written, so the record can carry them: the undo has to re-scan

@@ -2958,3 +2958,52 @@ anything was written.
 - **The root cause is upstream and still live**: the migration ingest does not
   ask whether a shoot already exists, with ~1,200 collections to go. Fixing the
   copies without fixing the writer is lesson 132's reader-vs-writer trap again.
+
+## 136 — Every accented name was missing from /people, and the key had a second home in SQL (2026-09-11)
+
+After the 911 garbled filenames were repaired (lesson 133), the rebuilt wall
+showed "Brendan O’Gibney" but not "Cassandra Córdova", "Nicholas Muñoz" or
+"Stephan Wächter".
+
+- **An ASCII letter class is a silent filter.** `looksLikePersonName` required
+  `[A-Za-z]` per word, so every accented person — 66 distinct name stems
+  across 4,945 photos — failed the shape test and was simply not there. No
+  error, no count anywhere. The same assumption lived in the siblings: the
+  single-name test, the camel splitter (it cannot see the boundary in
+  "TaísSales"), the stacks' comparison key, the auto-section person and
+  initial tests (the person test also gates the face-cluster namer),
+  `nameIsRejected`, and the spotlight's search token. **Fix the class, not the
+  instance: grep every name heuristic for `[A-Za-z]`, `[a-z]`, `[A-Z]` before
+  calling it done.** `src/lib/people/name-text.ts` is now the one home.
+- **Shape and identity want different answers.** A shape test should see real
+  letters (`\p{L}`, marks allowed, on NFC). A key should fold them away, so the
+  composed "Córdova", a Mac export's decomposed "Co◌́rdova" (59 filenames
+  arrive that way) and the plain "Cordova" are one person — the archive files
+  Rodrigo Bretón under both "RodrigoBretón" (13) and "RodrigoBreton" (10).
+- **The key had a second home, in SQL, and the brief did not list it.**
+  `refresh_person_reference_centroids` minted `name_key` with the old
+  `regexp_replace(lower(name), '[^a-z]', …)` and compared it against keys
+  TypeScript wrote. Changing only the TS side would have made every accented
+  exclusion stop reaching its reference faces, silently. **When you change a
+  key, grep the migrations AND the live `pg_proc` for its other mints**
+  (`prosrc like '%[^a-z]%'` found the one live function). Migration 081 adds
+  `person_name_key()` as the SQL twin; `scripts/triage/name-key-parity.ts`
+  compares the two on live data.
+- **I made the exact mistake the parity check exists for, in my own draft.**
+  The SQL `translate()` target string had one letter too many, which shifts
+  every later mapping (Ħ→d, ı→n). Real names never contain those letters, so
+  every data-driven check would have passed. Caught by counting; a unit test
+  now parses the migration and compares its table with the TS one, and was
+  negative-tested against two mutations. **A fold table is tested on its
+  alphabet, never only on the data that happens to exist.**
+- **Two narrowing filters were keyed on text an accent breaks.** The
+  spotlight's `ilike` token stripped punctuation out of the MIDDLE of a word
+  ("ONeill", "Crdova" — matching none of Molly O’Neill's or Cassandra
+  Córdova's files), and "Not a person" narrowed clusters with a
+  letters-of-the-key pattern that can never match "á". The token is now the
+  longest run of plain letters, which every encoding of the spelling contains
+  verbatim; the exclusion reads the user's named clusters (≤7,510) and
+  compares keys in code.
+- Measured before migrating: 1 stored key changes (Armando Nájera's reference
+  centroid); 0 differences from the old rule across every ASCII cluster name
+  and 200,000 ASCII filenames — for plain names nothing moves.

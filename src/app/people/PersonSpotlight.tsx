@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronLeft, ChevronRight, X } from "lucide-react";
 
+import { foldName } from "@/lib/people/name-text";
+
 /**
  * The archive-wide person spotlight: every photo of one person, everywhere,
  * grouped by shoot.
@@ -216,13 +218,14 @@ export function PersonSpotlight({
   const splitBase = cardKey ? cardKey.split("~")[0] : null;
   const pickable = useMemo(() => {
     if (!data || !mergeCandidates) return [];
-    const q = mergeQuery.trim().toLowerCase();
+    // Accent-folded both sides, so typing "cordova" finds "Córdova".
+    const q = foldName(mergeQuery.trim());
     return mergeCandidates.filter(
       (c) =>
         c.key !== data.key &&
         (splitBase
           ? c.key === splitBase || c.key.startsWith(`${splitBase}~`)
-          : !!q && c.name.toLowerCase().includes(q))
+          : !!q && foldName(c.name).includes(q))
     );
   }, [data, mergeCandidates, mergeQuery, splitBase]);
 

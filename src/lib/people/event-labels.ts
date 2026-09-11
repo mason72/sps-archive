@@ -17,6 +17,8 @@
  * or host in many frames makes one cluster large on a label event too.
  */
 
+import { nameText } from "./name-text";
+
 /** A name covering fewer photos than this is never a label, whatever its share. */
 export const EVENT_LABEL_MIN_COUNT = 100;
 /**
@@ -97,14 +99,14 @@ const SINGLE_NAME_STOP = new Set([
 
 /**
  * Shape check only — the per-event frame cap is applied by the caller, which
- * holds the counts. Letters (with an apostrophe or hyphen inside), three or
- * more, not all-caps ("MS", "KARN" are codes; a shouted real name is the
- * price), not a gallery word.
+ * holds the counts. Letters (any script, accents included — "Zoë", "Łukasz";
+ * with an apostrophe or hyphen inside), three or more, not all-caps ("MS",
+ * "KARN" are codes; a shouted real name is the price), not a gallery word.
  */
 export function looksLikeSingleName(name: string): boolean {
-  const w = name.trim();
+  const w = nameText(name).trim();
   if (w.length < 3 || /\s/.test(w)) return false;
-  if (!/^[A-Za-z][A-Za-z'’-]*[A-Za-z]$/.test(w)) return false;
+  if (!/^\p{L}[\p{L}\p{M}'’-]*[\p{L}\p{M}]$/u.test(w)) return false;
   if (w === w.toUpperCase()) return false;
   return !SINGLE_NAME_STOP.has(w.toLowerCase());
 }

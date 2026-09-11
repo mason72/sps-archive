@@ -104,16 +104,15 @@ export function consensusName(
 }
 
 /**
- * Has a human already said this cluster is NOT this name? Compared on a
- * letters-only lowercase key, so "Jenna Wombles", "jenna wombles" and a
- * run-together filename blob of the same identity all stay rejected. Gates
- * only the automatic namer — a human typing a name is never blocked (the
- * PATCH route un-rejects on explicit set).
+ * Has a human already said this cluster is NOT this name? Compared on the
+ * identity key (`normalizeNameKey`), so "Jenna Wombles", "jenna wombles", a
+ * run-together filename blob and an accent-stripped "Armando Najera" for
+ * "Armando Nájera" all stay rejected. Gates only the automatic namer — a human
+ * typing a name is never blocked (the PATCH route un-rejects on explicit set).
  */
 export function nameIsRejected(candidate: string, rejectedNames: string[]): boolean {
-  const key = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
-  const c = key(candidate);
-  return rejectedNames.some((r) => key(r) === c);
+  const c = normalizeNameKey(candidate);
+  return rejectedNames.some((r) => normalizeNameKey(r) === c);
 }
 
 /**

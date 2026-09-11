@@ -26,6 +26,7 @@ const CAMERA_PREFIXES = /^(IMG|DSC|DSCF|DSCN|P|_MG|_DSC|SAM|GOPR|DJI|R0|DCIM)/i;
 
 /** Common separators used in filenames */
 import { collapseRepeatedWords } from "@/lib/gallery/stacks";
+import { nameText } from "@/lib/people/name-text";
 
 const SEPARATORS = /[_\- ]+/;
 
@@ -56,8 +57,10 @@ export function parseFilename(filename: string): ParsedFilename {
     };
   }
 
-  // Try to extract name and sequence
-  const parts = stem.split(SEPARATORS).filter(Boolean);
+  // Try to extract name and sequence. The name is read from NFC text, so a
+  // Mac export's decomposed "Co◌́rdova" stores the same parsed name as a
+  // typed "Córdova" (name-text.ts).
+  const parts = nameText(stem).split(SEPARATORS).filter(Boolean);
 
   // Find trailing number (sequence)
   let sequence: number | null = null;
@@ -75,9 +78,10 @@ export function parseFilename(filename: string): ParsedFilename {
     return { name: null, sequence, stem, extension };
   }
 
-  // Try to detect CamelCase: "SmithJohn" → "Smith, John"
-  if (nameParts.length === 1 && /^[A-Z][a-z]+[A-Z]/.test(nameParts[0])) {
-    const camelParts = nameParts[0].match(/[A-Z][a-z]+/g);
+  // Try to detect CamelCase: "SmithJohn" → "Smith, John", "CórdovaCassandra"
+  // → "Córdova, Cassandra" (Unicode case classes; marks ride with their letter).
+  if (nameParts.length === 1 && /^\p{Lu}[\p{Ll}\p{M}]+\p{Lu}/u.test(nameParts[0])) {
+    const camelParts = nameParts[0].match(/\p{Lu}[\p{Ll}\p{M}]+/gu);
     if (camelParts && camelParts.length === 2) {
       return {
         name: `${camelParts[0]}, ${camelParts[1]}`,

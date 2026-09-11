@@ -23,6 +23,7 @@ import {
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
+import { asciiLetterRuns, foldName, nameText } from "./name-text";
 import {
   loadSplitLinks,
   sampleKey,
@@ -52,12 +53,16 @@ export const NON_PERSON_GALLERIES = new Set([
  * all caps, admitted deliberately since real names can be capitalised) and
  * tags ("GitHub Universe5") mostly fall out here; the gallery exclusion above
  * catches the rest.
+ *
+ * A letter is any script's letter, accents included (name-text.ts). This was
+ * `[A-Za-z]` until 2026-09-11, which silently kept Cassandra Córdova, Nicholas
+ * Muñoz and 60-odd others off the wall.
  */
 export function looksLikePersonName(name: string): boolean {
-  const trimmed = name.trim();
-  if (trimmed.length < 4 || /\d/.test(trimmed)) return false;
+  const trimmed = nameText(name).trim();
+  if (trimmed.length < 4 || /\p{N}/u.test(trimmed)) return false;
   const words = trimmed.split(/\s+/);
-  return words.length >= 2 && words.every((w) => /^[A-Za-z][A-Za-z'’.-]*$/.test(w));
+  return words.length >= 2 && words.every((w) => /^\p{L}[\p{L}\p{M}'’.-]*$/u.test(w));
 }
 
 export interface PersonEventAppearance {
@@ -93,24 +98,44 @@ export interface IndexedPerson {
 
 export { displayName };
 
+/**
+ * The identity key: accents, case and punctuation folded away, plain a–z
+ * left. "Córdova", "Cordova" and a Mac export's decomposed "Co◌́rdova" are one
+ * person — the archive files Rodrigo Bretón under both "RodrigoBretón" and
+ * "RodrigoBreton".
+ *
+ * ⚠️ SQL has a twin, `person_name_key()` (migration 081), which the reference
+ * refresh uses to key faces and to honour exclusions. The two must agree byte
+ * for byte: change both, then run `npx tsx scripts/triage/name-key-parity.ts`.
+ */
 export function normalizeNameKey(name: string): string {
-  return name.toLowerCase().replace(/[^a-z]/g, "");
+  return foldName(name).replace(/[^a-z]/g, "");
+}
+
+/** Letters outside plain a–z — how much a spelling carries that an export can strip. */
+function nonAsciiLetters(s: string): number {
+  return [...s].filter((c) => /\p{L}/u.test(c) && !/[A-Za-z]/.test(c)).length;
 }
 
 /**
  * Of two spellings of the SAME identity, the one to show a human.
  * Person-like ("Brittany Reed") always beats a run-together filename blob
  * ("brittanyreed"); between two of the same kind, the longer one carries more
- * information. Order-independent, so the label doesn't depend on which shoot
- * the scan reached first.
+ * information, and at equal length the accented one does — an export can lose
+ * an accent but never invents one ("Rodrigo Bretón" over "Rodrigo Breton").
+ * Order-independent, so the label doesn't depend on which shoot the scan
+ * reached first.
  */
 export function preferredSpelling(a: string, b: string): string {
+  a = a.normalize("NFC");
+  b = b.normalize("NFC");
   // A single clean name counts as person-shaped too, or "Twitch3" (the
   // longer spelling) would front a key that "Twitch" vouched for.
   const aPerson = looksLikePersonName(a) || looksLikeSingleName(a);
   const bPerson = looksLikePersonName(b) || looksLikeSingleName(b);
   if (aPerson !== bPerson) return aPerson ? a : b;
-  return b.length > a.length ? b : a;
+  if (a.length !== b.length) return b.length > a.length ? b : a;
+  return nonAsciiLetters(b) > nonAsciiLetters(a) ? b : a;
 }
 
 /**
@@ -231,22 +256,22 @@ export async function buildPersonDetail(
   );
   if (eventById.size === 0) return null;
 
-  // Longest word per SPELLING — a merged identity's photos carry any of its
-  // spellings, and one spelling's token can miss another's files entirely
-  // ("Bob Smith" files don't contain "Robert"). The candidate filter widens to
-  // an OR across every spelling's most selective token; membership below still
-  // decides. PostgREST `or` needs values inline, so strip anything that could
-  // terminate the filter expression.
+  // Most selective token per SPELLING — a merged identity's photos carry any
+  // of its spellings, and one spelling's token can miss another's files
+  // entirely ("Bob Smith" files don't contain "Robert"). The candidate filter
+  // widens to an OR across every spelling's token; membership below still
+  // decides.
+  //
+  // The token is the longest run of plain letters (`asciiLetterRuns`), which
+  // every encoding of the spelling carries verbatim: "Córdova" searches
+  // "rdova", "O’Neill" searches "Neill". It used to strip the accent or
+  // apostrophe out of the MIDDLE of the word — "Crdova", "ONeill" — which
+  // matched no file at all, so those spotlights opened empty. Letters only,
+  // so nothing can terminate PostgREST's inline `or` expression.
   const tokens = [
     ...new Set(
       groupSpellings
-        .map(
-          (s) =>
-            s
-              .split(/\s+/)
-              .map((w) => w.replace(/[^A-Za-z]/g, ""))
-              .sort((a, b) => b.length - a.length)[0]
-        )
+        .map((s) => asciiLetterRuns(s)[0])
         .filter((t): t is string => !!t && t.length >= 2)
     ),
   ];

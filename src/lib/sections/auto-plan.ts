@@ -1,4 +1,5 @@
 import { buildNameCleaner, personNameFromParts } from "@/lib/gallery/stacks";
+import { foldName, nameText } from "@/lib/people/name-text";
 
 /**
  * Auto-sections — turn a big undifferentiated upload into balanced, scannable
@@ -73,9 +74,11 @@ export interface DetectionSummary {
  * than either being wrong.
  */
 export function isPersonLike(name: string): boolean {
-  // "Chelsee Crawford", "Nga Chi Lai", "Smith, John" → yes.
+  // "Chelsee Crawford", "Nga Chi Lai", "Smith, John", "José García" → yes.
   // "2Dudes WF", "JRM7521", "VTVFMTE3UDY1", "Cher" → no.
-  return /^[A-Za-z][A-Za-z'.-]*[,]?\s+[A-Za-z]/.test(name.trim());
+  // Letters are any script's, accents included (name-text.ts) — this also
+  // gates the face-cluster namer, which refused "José García" until 2026-09-11.
+  return /^\p{L}[\p{L}\p{M}'’.-]*,?\s+\p{L}/u.test(nameText(name).trim());
 }
 
 /**
@@ -87,12 +90,13 @@ export function isPersonLike(name: string): boolean {
  * strips the trailing frame code.)
  */
 function isNamey(name: string): boolean {
-  const t = name.trim();
-  return /^[A-Za-z]/.test(t) && !/\d/.test(t);
+  const t = nameText(name).trim();
+  return /^\p{L}/u.test(t) && !/\d/.test(t);
 }
 
 function initialOf(name: string): string {
-  const c = name.trim()[0]?.toUpperCase() ?? "#";
+  // Folded, so "Émile" files under E and "Łukasz" under L rather than "#".
+  const c = foldName(name.trim()).charAt(0).toUpperCase();
   return /[A-Z]/.test(c) ? c : "#";
 }
 
@@ -123,7 +127,7 @@ function peopleOf(items: NamedImage[]): Map<string, NamedImage[]> {
   const groups = new Map<string, NamedImage[]>();
   for (const it of items) {
     const key =
-      it.personName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() ||
+      foldName(it.personName).replace(/[^a-z0-9]+/g, " ").trim() ||
       it.personName.toLowerCase();
     const arr = groups.get(key);
     if (arr) arr.push(it);

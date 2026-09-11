@@ -1,4 +1,5 @@
 import type { GalleryImage } from "@/types/gallery";
+import { foldName, nameText, splitCamel } from "@/lib/people/name-text";
 
 /**
  * Smart stacks — group a gallery's photos by the person they belong to,
@@ -17,7 +18,9 @@ import type { GalleryImage } from "@/types/gallery";
  * "Amber Artis". Falls back to the first underscore-delimited segment.
  */
 export function extractPersonName(filename: string): string {
-  const base = filename.replace(/\.\w+$/, "");
+  // NFC + stray leading symbols dropped, and a Unicode case split
+  // ("TaísSales" → "Taís Sales") — see name-text.ts.
+  const base = nameText(filename).replace(/\.\w+$/, "");
   const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
   let name: string;
   if (match) {
@@ -25,7 +28,7 @@ export function extractPersonName(filename: string): string {
   } else {
     name = base.split("_")[0];
   }
-  return collapseRepeatedWords(name.replace(/([a-z])([A-Z])/g, "$1 $2").trim());
+  return collapseRepeatedWords(splitCamel(name).trim());
 }
 
 /**
@@ -53,11 +56,11 @@ export function collapseRepeatedWords(name: string): string {
  * itself proves where the name ends.
  */
 export function nameBeforeDate(filename: string): string | null {
-  const base = filename.replace(/\.\w+$/, "");
+  const base = nameText(filename).replace(/\.\w+$/, "");
   const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
   if (!match) return null;
   const name = match[1].replace(/_/g, " ").trim();
-  return collapseRepeatedWords(name.replace(/([a-z])([A-Z])/g, "$1 $2").trim()) || null;
+  return collapseRepeatedWords(splitCamel(name).trim()) || null;
 }
 
 /**
@@ -73,9 +76,9 @@ export function stackPersonName(img: GalleryImage): string {
   return personNameFromParts(img.parsedName, img.originalFilename);
 }
 
-/** Lowercased, punctuation/space-free form for name comparisons. */
+/** Lowercased, accent-folded, punctuation/space-free form for name comparisons. */
 function normName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return foldName(s).replace(/[^a-z0-9]/g, "");
 }
 
 /**
@@ -119,7 +122,7 @@ export function personNameFromParts(
   parsedName: string | null | undefined,
   originalFilename: string
 ): string {
-  const parsed = parsedName?.trim();
+  const parsed = parsedName ? nameText(parsedName).trim() : "";
   if (!parsed) return extractPersonName(originalFilename);
   const dated = nameBeforeDate(originalFilename);
   // Compare punctuation/space-insensitively: nameBeforeDate camel-splits
@@ -165,7 +168,7 @@ function nameTokens(name: string): string[] {
  *  ("AaronCote"). A lone plain word ("Aaron") doesn't qualify. */
 function looksPersonish(name: string): boolean {
   const t = name.trim();
-  return /\s/.test(t) || /^[A-Z][a-z]+[A-Z]/.test(t);
+  return /\s/.test(t) || /^\p{Lu}[\p{Ll}\p{M}]+\p{Lu}/u.test(t);
 }
 
 /** `name` with every word matching `token` (normalized) removed. */
@@ -230,7 +233,7 @@ export function buildNameCleaner(rawNames: Iterable<string>): (name: string) => 
     // it like the filename extractors do, so anchor-less files read the same
     // as date-anchored ones ("Aaron Cote").
     if (cleaned !== name && !/\s/.test(cleaned)) {
-      return cleaned.replace(/([a-z])([A-Z])/g, "$1 $2");
+      return splitCamel(cleaned);
     }
     return cleaned;
   };
