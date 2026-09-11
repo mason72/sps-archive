@@ -2721,6 +2721,30 @@ build. Fix: `PromiseLike<unknown>`. One character class of bug, one line.
   `git ls-tree HEAD <path>` and expect `100755`** — `ls -l` reports the disk,
   not the commit. And `git commit --amend -- <path>` does NOT carry a staged
   mode change for another path; check the committed tree, not the index.
+- **Addendum 2026-09-11: the hook checked the wrong tree.** It ran `tsc` in
+  the working tree, but Vercel builds the pushed COMMIT, so the hook answered
+  a different question and got it wrong in both directions. Observed: another
+  session's uncommitted edits (`PersonSpotlight.tsx`, an untracked
+  `exclude.ts`) failed tsc and refused a clean scripts-only push. The inverse
+  is worse because it is silent: an uncommitted fix lets the broken commit it
+  fixes go out, which is the one thing the hook exists to stop. Both were
+  reproduced with the old hook against a local bare remote: it refused a
+  clean commit over an untracked broken file, and it ACCEPTED a commit with a
+  planted type error while the working tree held the fix. The hook now checks
+  each pushed tip in a throwaway `git worktree add --detach` under `$TMPDIR`,
+  with `node_modules` linked in (unlinked before removal, never walked), and
+  runs `next typegen` first so the gitignored `.next/types` route checks that
+  `next build` runs are included. The old hook only got those when a dev
+  server had happened to leave `.next` behind. A cold tsc there takes ~8s, not
+  3: the 3s figure was the incremental cache. **A guard must check the
+  artifact that ships, not the directory you happen to be standing in.** It
+  is the same shape as "assert on the published payload, not the source"
+  (`ship-discipline.md`).
+- **Rollout trap: `core.hooksPath` is absolute in this clone**, so every
+  worktree runs the MAIN checkout's working-tree copy of the hook. Pushing a
+  hook change does not arm it; the main checkout pulling it does. Also, the
+  zsh refspec trap bit during testing: `"$c:refs/heads/x"` became
+  `…efs/heads/x`. Brace it as `"${c}:refs/…"`.
 
 ## 131 — One R2 call with no timeout froze a whole collection for two hours (2026-09-09)
 
