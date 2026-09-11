@@ -24,12 +24,14 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 
+import { FACE_MATCH_FLOOR } from "@/lib/faces/calibration";
 import { nameIsRejected } from "@/lib/faces/cluster-event";
 import { NON_PERSON_GALLERIES, loadExcludedPersonKeys } from "./index-people";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
-export const SUGGESTION_CONFIDENCE_FLOOR = 0.55;
+/** The measured floor (src/lib/faces/calibration.ts) — shared with the /people split. */
+export const SUGGESTION_CONFIDENCE_FLOOR = FACE_MATCH_FLOOR;
 
 export interface MatchHit {
   matched_person_id: string;

@@ -2893,3 +2893,39 @@ Rule: on STARVED, read the last `kept for review:` line and `du -sh
 ~/pixieset-staging/*` before anything else. A downloader waiting on disk plus
 an ingest keeping bytes is a deadlock, and it is fixed at whichever guard is
 wrong, never by deleting a kept archive by hand.
+
+## 134 — A first name is not an identity, and a shared module broke the build (2026-09-11)
+
+Mason, looking at the #1 and #2 cards on the Wall of Fame: "These are multiple
+Alexes and Brandons… they are totally different people."
+
+- **The index keyed identity on the name, and a name is not evidence of a
+  person.** Measured before designing anything: across every identity spanning
+  2+ events, comparing the faces filed under the name in each event, 34
+  one-word cards and 13 FULL-name cards (two Jessica Johnsons, two Manish
+  Patels) were several people. The obvious rule — "split one-word names" —
+  would have been wrong both ways: squashed full names ("Linapatel") collide
+  too, and 72 one-word names are genuinely one person. **Measure the evidence
+  before choosing the rule; the rule that reads right is often the proxy.**
+- **The reference library could not answer it, and I nearly assumed it
+  could.** The auto-namer never names clusters with single names, so the
+  centroids I reached for first did not exist for any Alex. The census used
+  per-event solo-frame faces instead — and found no pair in the uncertain band
+  at all, which is what made an automatic split defensible.
+- **`tsc` passed a change that could not build.** `index-people.ts` is
+  imported by a CLIENT page for its name helpers; the new split module
+  imported the error reporter, which imports `next/headers`, which Next
+  refuses in a browser bundle. Typecheck is clean on that; only `next build`
+  sees the client/server boundary — and the pre-push hook runs only `tsc`.
+  Fixed by injecting the reporter. **A module imported from both sides must
+  take its server dependencies as parameters.**
+- **I reused a table because it had the right shape, and it had the wrong
+  meaning.** My first "re-join two split cards" stored alias rows on the cards'
+  derived keys. The reviewer showed the alias table IS the name resolver — a
+  card-key row folded every Alex filename into one card's key — and that
+  derived keys move when photos land, orphaning the merge. Fixed with
+  `person_split_links`, a pair of EVENTS under the name. **Store a human's
+  decision against the most stable thing it is about (here, events), never
+  against an id the system recomputes.**
+- Found on the way: shoots imported twice (College Board // NASAI, Hilton)
+  score 1.000 against themselves and quietly double every count they touch.

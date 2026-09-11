@@ -1301,6 +1301,45 @@ export type Database = {
         }
         Relationships: []
       }
+      person_split_links: {
+        Row: {
+          created_at: string
+          event_a: string
+          event_b: string
+          name_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_a: string
+          event_b: string
+          name_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_a?: string
+          event_b?: string
+          name_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_split_links_event_a_fkey"
+            columns: ["event_a"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "person_split_links_event_b_fkey"
+            columns: ["event_b"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       persons: {
         Row: {
           created_at: string
@@ -2095,6 +2134,21 @@ export type Database = {
           event_id: string
           oldest: string
           pending: number
+        }[]
+      }
+      face_group_similarity: {
+        Args: {
+          p_a: string[]
+          p_b: string[]
+          p_group: string[]
+          p_image: string[]
+        }
+        Returns: {
+          a: string
+          b: string
+          sim: number
+          solo_a: number
+          solo_b: number
         }[]
       }
       first_image_per_event: {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
-import { EventChip, PersonSpotlight } from "./PersonSpotlight";
+import { EventChip, PersonSpotlight, type SplitLink } from "./PersonSpotlight";
 import { IdentitySuggestions } from "./IdentitySuggestions";
 import { CrewWall } from "@/components/crew/CrewWall";
 
@@ -29,6 +29,11 @@ export interface PersonCard {
   heroUrlLg?: string | null;
   /** Has a hero frame at all, so the board never asks for one that doesn't exist. */
   hasHero: boolean;
+  /** Set when faces split one name into several people: the event that tells
+   *  this card apart ("CHIME // Headshots 2026"). */
+  label?: string;
+  /** A split card's own events — the spotlight opens these and only these. */
+  detailEvents?: string[];
   /** Repeat people only: the podium's chips are the one reader. */
   events: PersonAppearance[];
 }
@@ -156,12 +161,29 @@ function useHeroes(people: PersonCard[]) {
   return { heroes, ensureHeroes };
 }
 
-export function PeopleBoard({ people }: { people: PersonCard[] }) {
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt: number }) {
   const notAPerson = useNotAPerson();
   const { heroes, ensureHeroes } = useHeroes(people);
-  /** Names just merged away. The wall's snapshot rebuilds behind the merge,
-   *  so without this the folded tile would linger until the rebuild lands. */
-  const [folded, setFolded] = useState<Set<string>>(new Set());
+  /** Card keys just merged away. The wall's snapshot rebuilds behind the
+   *  merge, so without this the folded tile would linger until it lands. Keyed
+   *  on the CARD, not the name: split cards share a name. And it belongs to ONE
+   *  snapshot: once a newer one arrives the rebuild has landed and the merged
+   *  card is real — a merged card can inherit the folded key, and would
+   *  otherwise stay hidden until reload (caught in review). */
+  const [foldedAt, setFoldedAt] = useState<{ at: number; keys: ReadonlySet<string> }>({
+    at: builtAt,
+    keys: NO_KEYS,
+  });
+  const folded = foldedAt.at === builtAt ? foldedAt.keys : NO_KEYS;
+  const fold = (key: string) =>
+    setFoldedAt((f) => ({ at: builtAt, keys: new Set([...(f.at === builtAt ? f.keys : []), key]) }));
+  const unfold = (key: string) =>
+    setFoldedAt((f) => ({
+      at: builtAt,
+      keys: new Set([...(f.at === builtAt ? f.keys : [])].filter((k) => k !== key)),
+    }));
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("rank");
@@ -170,13 +192,18 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
    *  while the spotlight is open must not silently swap who you're reading. */
   const [openKey, setOpenKey] = useState<string | null>(null);
   /** A just-recorded merge, held for the undo bar. */
-  const [mergeUndo, setMergeUndo] = useState<{ aliasName: string; canonicalName: string } | null>(
-    null
-  );
+  const [mergeUndo, setMergeUndo] = useState<{
+    aliasName: string;
+    canonicalName: string;
+    /** Present when two split cards were joined — undo deletes the link. */
+    link?: SplitLink;
+    /** The card hidden until the rebuild lands. */
+    foldedKey: string;
+  } | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = people.filter((p) => !notAPerson.hidden.has(p.name) && !folded.has(p.name));
+    let list = people.filter((p) => !notAPerson.hidden.has(p.name) && !folded.has(p.key));
     if (repeatOnly) list = list.filter((p) => p.eventCount >= 2);
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
     if (sort === "alpha") {
@@ -257,6 +284,8 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
         name: p.name,
         heroUrl: heroes.get(p.key)?.md ?? null,
         imageCount: p.imageCount,
+        label: p.label,
+        anchorEvent: p.detailEvents?.[0],
       })),
     [people, heroes]
   );
@@ -419,6 +448,9 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       {open && (
         <PersonSpotlight
           name={open.name}
+          eventIds={open.detailEvents}
+          cardKey={open.detailEvents ? open.key : undefined}
+          label={open.label}
           onClose={() => setOpenKey(null)}
           onPrev={
             openAt > 0 ? () => setOpenKey(filtered[openAt - 1].key) : undefined
@@ -430,13 +462,14 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
           }
           mergeCandidates={mergeCandidates}
           onNeedHeroes={ensureHeroes}
-          onMerged={(aliasName, canonicalName) => {
+          onMerged={(aliasName, canonicalName, link) => {
             // Close rather than leave the spotlight pointing at an identity
             // that no longer exists, and hold the undo. The folded tile hides
             // now; the wall's snapshot catches up behind the merge.
+            const foldedKey = open.key;
             setOpenKey(null);
-            setFolded((f) => new Set(f).add(aliasName));
-            setMergeUndo({ aliasName, canonicalName });
+            fold(foldedKey);
+            setMergeUndo({ aliasName, canonicalName, link, foldedKey });
             router.refresh();
           }}
           onUnmerged={() => {
@@ -456,16 +489,17 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
           <button
             type="button"
             onClick={async () => {
-              const alias = mergeUndo.aliasName;
+              const { aliasName: alias, link, foldedKey } = mergeUndo;
               setMergeUndo(null);
-              setFolded((f) => {
-                const next = new Set(f);
-                next.delete(alias);
-                return next;
-              });
-              await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
-                method: "DELETE",
-              });
+              unfold(foldedKey);
+              if (link) {
+                const q = new URLSearchParams({ ...link });
+                await fetch(`/api/people/split-links?${q}`, { method: "DELETE" });
+              } else {
+                await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
+                  method: "DELETE",
+                });
+              }
               router.refresh();
             }}
             className="ml-3 text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
@@ -550,6 +584,7 @@ function PodiumCard({
       </button>
       <p className="mt-1 text-[12px] text-stone-400">
         {person.eventCount} events · {person.imageCount.toLocaleString()} photos
+        {person.label && ` · ${person.label}`}
       </p>
       <EventChips person={person} />
     </div>
@@ -637,8 +672,10 @@ function PersonTile({
       <p className="mt-2 truncate text-[13px] text-stone-900" title={person.name}>
         {person.name}
       </p>
-      <p className="text-[11px] tabular-nums text-stone-400">
+      {/* A split card names its event so two "Alex" tiles read as two people. */}
+      <p className="truncate text-[11px] tabular-nums text-stone-400" title={person.label}>
         {person.imageCount} photo{person.imageCount === 1 ? "" : "s"}
+        {person.label && ` · ${person.label}`}
       </p>
     </button>
     </div>

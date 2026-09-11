@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronLeft, ChevronRight, X } from "lucide-react";
 
@@ -36,6 +36,8 @@ interface SpotlightData {
   events: SpotlightEvent[];
   /** Other spellings merged into this identity — a merge stays visible. */
   aliases?: string[];
+  /** A split card's "same person" joins, each separable (person_split_links). */
+  links?: { eventA: string; eventB: string; label: string }[];
 }
 
 /** A tile the merge picker can offer — the board's own card data. */
@@ -44,6 +46,17 @@ export interface MergeCandidate {
   name: string;
   heroUrl: string | null;
   imageCount: number;
+  /** A split card's event — five "Alex" chips must be tellable apart. */
+  label?: string;
+  /** Any one of a split card's events: what a "same person" link anchors to. */
+  anchorEvent?: string;
+}
+
+/** "In this name, these two shoots are one person" (person_split_links). */
+export interface SplitLink {
+  baseKey: string;
+  eventA: string;
+  eventB: string;
 }
 
 /** DATE columns are calendar dates — format them in UTC or they slip a day. */
@@ -128,6 +141,9 @@ export function PersonSpotlight({
   onMerged,
   onUnmerged,
   onNeedHeroes,
+  eventIds,
+  cardKey,
+  label,
 }: {
   name: string;
   onClose: () => void;
@@ -135,12 +151,18 @@ export function PersonSpotlight({
   onNext?: () => void;
   /** Everyone else on the wall — what "same person as…" can pick from. */
   mergeCandidates?: MergeCandidate[];
-  /** A merge was recorded — the board refreshes and offers undo. */
-  onMerged?: (aliasName: string, canonicalName: string) => void;
+  /** A merge was recorded — the board refreshes and offers undo. `link` is
+   *  set when two split cards were joined (undo deletes the link, not a name). */
+  onMerged?: (aliasName: string, canonicalName: string, link?: SplitLink) => void;
   /** An alias was detached — the board refreshes. */
   onUnmerged?: () => void;
   /** Ask the board to load faces it hasn't signed yet (it signs on demand). */
   onNeedHeroes?: (keys: string[]) => void;
+  /** A card split by faces: open only its events, under its own card key. */
+  eventIds?: string[];
+  cardKey?: string;
+  /** A split card's event, shown under the name. */
+  label?: string;
 }) {
   const [data, setData] = useState<SpotlightData | null>(null);
   const [failed, setFailed] = useState(false);
@@ -170,7 +192,10 @@ export function PersonSpotlight({
     setMerging(false);
     setMergeQuery("");
     setMergeTarget(null);
-    fetch(`/api/people/detail?name=${encodeURIComponent(name)}`)
+    const scope = eventIds?.length
+      ? `&events=${encodeURIComponent(eventIds.join(","))}&key=${encodeURIComponent(cardKey ?? "")}`
+      : "";
+    fetch(`/api/people/detail?name=${encodeURIComponent(name)}${scope}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((json: SpotlightData) => {
         if (!cancelled) setData(json);
@@ -181,22 +206,32 @@ export function PersonSpotlight({
     return () => {
       cancelled = true;
     };
-  }, [name]);
+    // eventIds is a fresh array each render; its contents are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, cardKey, eventIds?.join(",")]);
+
+  // A card split by faces can only be joined with another card of its OWN
+  // name: that is a "same person" link between two of its events. Any other
+  // merge is a name merge, which for a shared name would fold every card of it.
+  const splitBase = cardKey ? cardKey.split("~")[0] : null;
+  const pickable = useMemo(() => {
+    if (!data || !mergeCandidates) return [];
+    const q = mergeQuery.trim().toLowerCase();
+    return mergeCandidates.filter(
+      (c) =>
+        c.key !== data.key &&
+        (splitBase
+          ? c.key === splitBase || c.key.startsWith(`${splitBase}~`)
+          : !!q && c.name.toLowerCase().includes(q))
+    );
+  }, [data, mergeCandidates, mergeQuery, splitBase]);
 
   // The merge is decided on FACES, so the picker's candidates and this
   // person's own hero must be loaded — the board only signs faces on screen.
   useEffect(() => {
-    if (!onNeedHeroes || !merging || !data || !mergeCandidates) return;
-    const q = mergeQuery.trim().toLowerCase();
-    const keys = [data.key];
-    if (q) {
-      for (const c of mergeCandidates) {
-        if (keys.length > 8) break;
-        if (c.key !== data.key && c.name.toLowerCase().includes(q)) keys.push(c.key);
-      }
-    }
-    onNeedHeroes(keys);
-  }, [onNeedHeroes, merging, data, mergeCandidates, mergeQuery]);
+    if (!onNeedHeroes || !merging || !data) return;
+    onNeedHeroes([data.key, ...pickable.slice(0, 8).map((c) => c.key)]);
+  }, [onNeedHeroes, merging, data, pickable]);
 
   const [mergeError, setMergeError] = useState<string | null>(null);
   const confirmMerge = async () => {
@@ -204,19 +239,31 @@ export function PersonSpotlight({
     setMergeBusy(true);
     setMergeError(null);
     try {
-      const res = await fetch("/api/people/aliases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // The open person folds INTO the picked one — "this person IS that
-        // person". Display name still resolves by preferredSpelling over the
-        // combined photos, so direction never changes what the tile says.
-        body: JSON.stringify({ aliasName: data.name, canonicalName: mergeTarget.name }),
-      });
+      // Two split cards of one name are joined by a link between one event of
+      // each, anchored to EVENTS so it survives the card keys moving.
+      const link: SplitLink | null =
+        splitBase && eventIds?.[0] && mergeTarget.anchorEvent
+          ? { baseKey: splitBase, eventA: eventIds[0], eventB: mergeTarget.anchorEvent }
+          : null;
+      const res = link
+        ? await fetch("/api/people/split-links", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(link),
+          })
+        : await fetch("/api/people/aliases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // The open person folds INTO the picked one — "this person IS that
+            // person". Display name still resolves by preferredSpelling over the
+            // combined photos, so direction never changes what the tile says.
+            body: JSON.stringify({ aliasName: data.name, canonicalName: mergeTarget.name }),
+          });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Failed to merge");
       }
-      onMerged?.(data.name, mergeTarget.name);
+      onMerged?.(data.name, mergeTarget.name, link ?? undefined);
     } catch (e) {
       setMergeError(e instanceof Error ? e.message : "Failed to merge");
       setMergeBusy(false);
@@ -226,6 +273,13 @@ export function PersonSpotlight({
     const res = await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
       method: "DELETE",
     });
+    if (res.ok) onUnmerged?.();
+  };
+  /** Undo a "same person" join — the two shoots go back to their faces' verdict. */
+  const separate = async (l: { eventA: string; eventB: string }) => {
+    if (!splitBase) return;
+    const q = new URLSearchParams({ baseKey: splitBase, eventA: l.eventA, eventB: l.eventB });
+    const res = await fetch(`/api/people/split-links?${q}`, { method: "DELETE" });
     if (res.ok) onUnmerged?.();
   };
 
@@ -292,6 +346,9 @@ export function PersonSpotlight({
             <h2 className="font-editorial truncate text-[28px] leading-tight text-stone-900">
               {data?.name ?? name}
             </h2>
+            {/* A split card names its event: this is one of several people
+                who share the name. */}
+            {label && <p className="label-caps mt-1.5">{label}</p>}
             <p className="mt-1 text-[13px] text-stone-500">
               {data
                 ? `${data.imageCount.toLocaleString()} photo${data.imageCount === 1 ? "" : "s"} across ${data.events.length} ${data.events.length === 1 ? "shoot" : "shoots"}`
@@ -314,6 +371,24 @@ export function PersonSpotlight({
                       title={`Undo the merge — "${a}" becomes its own card again`}
                     >
                       unmerge
+                    </button>
+                  </span>
+                ))}
+              </p>
+            )}
+            {/* A join stays visible too, and separates with one click. */}
+            {data && (data.links?.length ?? 0) > 0 && (
+              <p className="mt-1 text-[12px] text-stone-400">
+                {data.links!.map((l, i) => (
+                  <span key={`${l.eventA}-${l.eventB}`}>
+                    {i > 0 && " · "}
+                    joined by you: <span className="text-stone-600">{l.label}</span>{" "}
+                    <button
+                      onClick={() => separate(l)}
+                      className="underline hover:text-stone-600"
+                      title="Undo the join — these shoots go back to being judged by their faces"
+                    >
+                      separate
                     </button>
                   </span>
                 ))}
@@ -360,25 +435,30 @@ export function PersonSpotlight({
           <div className="shrink-0 border-b border-stone-100 bg-stone-50/70 px-8 py-4">
             {!mergeTarget ? (
               <>
-                <p className="text-[13px] text-stone-600">
-                  Fold <span className="text-stone-900">{data.name}</span> into another
-                  card — their photos combine, and the merge is undoable.
-                </p>
-                <input
-                  autoFocus
-                  value={mergeQuery}
-                  onChange={(e) => setMergeQuery(e.target.value)}
-                  placeholder="Search for the other spelling…"
-                  className="mt-2 w-full max-w-sm border-b border-stone-300 bg-transparent py-1.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
-                />
-                {mergeQuery.trim() && (
+                {splitBase ? (
+                  <p className="text-[13px] text-stone-600">
+                    Faces say these are different people named{" "}
+                    <span className="text-stone-900">{data.name}</span>. If one of them is
+                    this person, join them — it is undoable.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[13px] text-stone-600">
+                      Fold <span className="text-stone-900">{data.name}</span> into another
+                      card — their photos combine, and the merge is undoable.
+                    </p>
+                    <input
+                      autoFocus
+                      value={mergeQuery}
+                      onChange={(e) => setMergeQuery(e.target.value)}
+                      placeholder="Search for the other spelling…"
+                      className="mt-2 w-full max-w-sm border-b border-stone-300 bg-transparent py-1.5 text-[14px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none"
+                    />
+                  </>
+                )}
+                {pickable.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {mergeCandidates
-                      .filter(
-                        (c) =>
-                          c.key !== data.key &&
-                          c.name.toLowerCase().includes(mergeQuery.trim().toLowerCase())
-                      )
+                    {pickable
                       .slice(0, 8)
                       .map((c) => (
                         <button
@@ -401,6 +481,7 @@ export function PersonSpotlight({
                             <span className="block text-[12px] text-stone-900">{c.name}</span>
                             <span className="block text-[11px] tabular-nums text-stone-400">
                               {c.imageCount} photo{c.imageCount === 1 ? "" : "s"}
+                              {c.label && ` · ${c.label}`}
                             </span>
                           </span>
                         </button>
@@ -418,6 +499,7 @@ export function PersonSpotlight({
                     heroUrl:
                       mergeCandidates.find((c) => c.key === data.key)?.heroUrl ?? null,
                     imageCount: data.imageCount,
+                    label,
                   },
                   // Re-read the face: it may have loaded after the pick.
                   {
@@ -444,6 +526,7 @@ export function PersonSpotlight({
                       <span className="block tabular-nums text-stone-400">
                         {p.imageCount} photo{p.imageCount === 1 ? "" : "s"}
                       </span>
+                      {p.label && <span className="block truncate text-stone-400">{p.label}</span>}
                     </figcaption>
                   </figure>
                 ))}

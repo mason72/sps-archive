@@ -47,8 +47,11 @@ import { buildPeopleIndex, loadExcludedPersonKeys, type IndexedPerson } from "./
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
-/** Bump when IndexedPerson changes shape — older snapshots are then never read. */
-const SNAPSHOT_VERSION = 1;
+/**
+ * Bump when IndexedPerson changes shape — older snapshots are then never read.
+ * v2 (2026-09-11): cards split by faces (label, splitFrom).
+ */
+const SNAPSHOT_VERSION = 2;
 /** A snapshot older than this is served once more and a rebuild is requested. */
 export const PEOPLE_INDEX_FRESH_MS = 10 * 60 * 1000;
 /**
@@ -90,7 +93,11 @@ async function readSnapshot(userId: string, allowMemo: boolean): Promise<Snapsho
 async function buildSnapshot(supabase: SupabaseDB, userId: string): Promise<Snapshot> {
   // Stamped at the START: the snapshot is as old as the first row it read.
   const builtAt = Date.now();
-  return { builtAt, people: await buildPeopleIndex(supabase, userId) };
+  const people = await buildPeopleIndex(supabase, userId, {
+    // The face split fails OPEN (one card per name, the old behaviour) and says so.
+    onSplitError: (err, detail) => reportSystemError("people.face-split", err, { userId, ...detail }),
+  });
+  return { builtAt, people };
 }
 
 /**
@@ -163,7 +170,9 @@ export async function getPeopleIndex(
     after(() => requestPeopleIndexRefresh(userId));
   }
   return {
-    people: served.people.filter((p) => !excluded.has(p.key)),
+    // A split card carries its NAME's key in splitFrom — excluding "Alex"
+    // hides every Alex card, not only the one that kept the base key.
+    people: served.people.filter((p) => !excluded.has(p.splitFrom ?? p.key)),
     builtAt: served.builtAt,
   };
 }

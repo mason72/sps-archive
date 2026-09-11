@@ -23,6 +23,13 @@ import {
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
+import {
+  loadSplitLinks,
+  sampleKey,
+  splitByFaces,
+  type FaceSample,
+  type SplitErrorHandler,
+} from "./face-split";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -74,6 +81,14 @@ export interface IndexedPerson {
   events: PersonEventAppearance[];
   /** Overall best frame across every event. */
   heroKey: string | null;
+  /**
+   * Present only when faces split one name into several people
+   * (face-split.ts): the event that tells this card apart on screen —
+   * "Alex · CHIME // Headshots 2026".
+   */
+  label?: string;
+  /** The name identity this card was split from. Present only on split cards. */
+  splitFrom?: string;
 }
 
 export { displayName };
@@ -181,7 +196,12 @@ export async function loadExcludedPersonKeys(
 export async function buildPersonDetail(
   supabase: SupabaseDB,
   userId: string,
-  name: string
+  name: string,
+  /**
+   * For a card split by faces (face-split.ts): only its events, and its card
+   * key. Without this, opening one "Alex" would gather every Alex again.
+   */
+  opts?: { eventIds?: string[]; key?: string }
 ): Promise<PersonDetail | null> {
   const rawKey = normalizeNameKey(name);
   if (!rawKey) return null;
@@ -200,9 +220,13 @@ export async function buildPersonDetail(
     .eq("user_id", userId);
   if (eventsError) throw eventsError;
 
+  // Scoped to the caller's own events first (the ownership boundary), then
+  // narrowed to a split card's events — an id outside the user's events can
+  // only narrow the set, never widen it.
+  const only = opts?.eventIds?.length ? new Set(opts.eventIds) : null;
   const eventById = new Map(
     (events ?? [])
-      .filter((e) => !NON_PERSON_GALLERIES.has(e.name))
+      .filter((e) => !NON_PERSON_GALLERIES.has(e.name) && (!only || only.has(e.id)))
       .map((e) => [e.id, e])
   );
   if (eventById.size === 0) return null;
@@ -361,7 +385,7 @@ export async function buildPersonDetail(
 
   const finalName = displayName(display);
   return {
-    key,
+    key: opts?.key ?? key,
     name: finalName,
     imageCount: count,
     events: grouped,
@@ -379,7 +403,9 @@ export async function buildPersonDetail(
  */
 export async function buildPeopleIndex(
   supabase: SupabaseDB,
-  userId: string
+  userId: string,
+  /** How a face-split failure is reported (it then fails open). Absent → it throws. */
+  opts?: { onSplitError?: SplitErrorHandler }
 ): Promise<IndexedPerson[]> {
   const excluded = await loadExcludedPersonKeys(supabase, userId);
   const { data: events, error: eventsError } = await supabase
@@ -538,6 +564,10 @@ export async function buildPeopleIndex(
     }
   }
 
+  // The frames filed under each identity in each event — what face-split.ts
+  // compares to decide whether one name is one person.
+  const samplesByKeyEvent = new Map<string, FaceSample[]>();
+
   for (const row of rows) {
     const parsedRow = parsedByRow.get(row.id);
     if (!parsedRow) continue;
@@ -574,6 +604,10 @@ export async function buildPeopleIndex(
     }
     person.events.set(row.event_id, appearance);
     people.set(key, person);
+    const sk = sampleKey(key, row.event_id);
+    const samples = samplesByKeyEvent.get(sk);
+    if (samples) samples.push({ id: row.id, score });
+    else samplesByKeyEvent.set(sk, [{ id: row.id, score }]);
   }
 
   // Pass 3: photos this person is IN, from the face clusters — group shots.
@@ -659,13 +693,24 @@ export async function buildPeopleIndex(
     });
   }
 
+  // A shared name is not a shared person: split any identity whose events
+  // show different faces (face-split.ts — measured, and it fails open).
+  const split = await splitByFaces(
+    supabase,
+    indexed,
+    samplesByKeyEvent,
+    // A human's "same person" links win over the faces (migration 080).
+    await loadSplitLinks(supabase, userId),
+    opts?.onSplitError
+  );
+
   // Default order: most events first (the wall of fame), then most photos,
   // then alphabetical so ties are stable across reloads.
-  indexed.sort(
+  split.sort(
     (a, b) =>
       b.eventCount - a.eventCount ||
       b.imageCount - a.imageCount ||
       a.name.localeCompare(b.name)
   );
-  return indexed;
+  return split;
 }

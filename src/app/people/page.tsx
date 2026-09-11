@@ -75,14 +75,13 @@ export default async function PeoplePage() {
   // The board's default order is server rank with crew closing the list
   // (PeopleBoard's rule), so these are the tiles on screen first. If the two
   // ever drift, the cost is only that a few faces load on demand instead.
-  const defaultOrder = [
-    ...people.filter((p) => !crewKeys.has(p.key)),
-    ...people.filter((p) => crewKeys.has(p.key)),
-  ];
+  // Crew is a fact about the NAME, so a card split by faces checks its base.
+  const isCrew = (p: { key: string; splitFrom?: string }) => crewKeys.has(p.splitFrom ?? p.key);
+  const defaultOrder = [...people.filter((p) => !isCrew(p)), ...people.filter((p) => isCrew(p))];
   const inline = new Set(defaultOrder.slice(0, INLINE_HEROES).map((p) => p.key));
   const chipPeople = new Set(
     people
-      .filter((p) => p.eventCount >= 2 && !crewKeys.has(p.key))
+      .filter((p) => p.eventCount >= 2 && !isCrew(p))
       .slice(0, CHIP_PEOPLE)
       .map((p) => p.key)
   );
@@ -95,10 +94,15 @@ export default async function PeoplePage() {
       return {
         key: p.key,
         name: p.name,
-        isCrew: crewKeys.has(p.key),
+        isCrew: isCrew(p),
         eventCount: p.eventCount,
         imageCount: p.imageCount,
         hasHero: !!p.heroKey,
+        // A card split by faces names its event on screen, and opens only its
+        // own events — otherwise the spotlight would gather every Alex again.
+        ...(p.splitFrom
+          ? { label: p.label, detailEvents: p.events.map((e) => e.eventId) }
+          : {}),
         ...(hero ? { heroUrl: hero.md, heroUrlLg: hero.lg } : {}),
         // Only the podium's chips read these, and only repeat people reach
         // the podium — sending every single-shoot appearance was dead weight.
@@ -146,7 +150,7 @@ export default async function PeoplePage() {
         </p>
       </div>
 
-      <PeopleBoard people={cards} />
+      <PeopleBoard people={cards} builtAt={builtAt} />
 
       <Footer />
     </div>
