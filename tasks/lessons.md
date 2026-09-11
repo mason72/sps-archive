@@ -2929,3 +2929,32 @@ Alexes and Brandons… they are totally different people."
   against an id the system recomputes.**
 - Found on the way: shoots imported twice (College Board // NASAI, Hilton)
   score 1.000 against themselves and quietly double every count they touch.
+
+## 135 — The obvious fingerprint missed the duplicates that mattered, and I had the original backwards (2026-09-11)
+
+Trimming shoots the Pixieset migration had re-imported (lesson 134's side
+finding) went right, but only because two assumptions were measured before
+anything was written.
+
+- **The first scan keyed on (filename, bytes) and found 4 pairs. The real
+  number was 8**, and it missed NASAI, the case that started it all. The
+  migration renames files, so a filename key only sees the pairs where it
+  didn't. Capture-second overlap found all of them. **Before trusting a
+  duplicate detector, check it against the one case you already know is a
+  duplicate** — here the known pair was missing from its first output, and
+  that absence was the signal.
+- **I assumed DAIS's shape (the migration copy is the curated one) and it was
+  the reverse.** Here the ORIGINAL was the gallery delivered in June/July —
+  views, favorites, crew — and the copy was the migration's. Created-at dates
+  and share views settled it in one query. **A precedent tells you what
+  questions to ask, not which answer to expect.**
+- **Two directions, not one.** Coverage from A to B and from B to A separates
+  "one shoot twice" (both ≈100%) from "a deliberate subset gallery" (one side
+  100%, the other small). One-way coverage would have merged four client
+  deliverables into their parent shoots.
+- **Measure the bytes before deleting either side.** DAIS's copy was
+  recompressed to 0.81x; these were 1.00x. The rule "keep the delivered one"
+  was only safe because the check said the delivered one was not worse.
+- **The root cause is upstream and still live**: the migration ingest does not
+  ask whether a shoot already exists, with ~1,200 collections to go. Fixing the
+  copies without fixing the writer is lesson 132's reader-vs-writer trap again.
