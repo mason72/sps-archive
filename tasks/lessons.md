@@ -2736,7 +2736,11 @@ build. Fix: `PromiseLike<unknown>`. One character class of bug, one line.
   runs `next typegen` first so the gitignored `.next/types` route checks that
   `next build` runs are included. The old hook only got those when a dev
   server had happened to leave `.next` behind. A cold tsc there takes ~8s, not
-  3: the 3s figure was the incremental cache. **A guard must check the
+  3: the 3s figure was the incremental cache. The same day, Mason chose to
+  add lint: `next build` fails on ESLint errors too, which is what broke the
+  2026-05-30 deploy, so `next lint --quiet` now runs in the background beside
+  tsc. The total is ~9s. It was negative-tested with a committed `any`, which
+  type-checks clean and fails only lint. **A guard must check the
   artifact that ships, not the directory you happen to be standing in.** It
   is the same shape as "assert on the published payload, not the source"
   (`ship-discipline.md`).

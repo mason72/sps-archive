@@ -1,12 +1,14 @@
 #!/bin/sh
-# pre-push: type-check the COMMIT being pushed, in a clean checkout of it.
+# pre-push: type-check and lint the COMMIT being pushed, in a clean checkout.
 #
 # Why a hook: main auto-deploys to Vercel, and `next build` type-checks
 # everything tsconfig includes — which is `**/*.ts`, so scripts/ and every
 # triage probe gate the production build. Probes run with `npx tsx`, which
 # never type-checks, so without this hook the first type check a probe ever
 # gets is Vercel's, on a production deploy. Two deploys failed that way on
-# 2026-09-09 (lesson 130).
+# 2026-09-09 (lesson 130). `next build` also runs ESLint over src/ and fails
+# on lint ERRORS (warnings pass) — an unused variable broke a deploy that way
+# on 2026-05-30 — so the hook runs the same `next lint`.
 #
 # Why a clean checkout and not the working tree: Vercel builds the pushed
 # commit and nothing else. The first version of this hook ran tsc in the
@@ -18,23 +20,25 @@
 # How: git passes one line per ref on stdin,
 #   <local ref> <local sha> <remote ref> <remote sha>
 # For each distinct branch tip it checks the commit out as a throwaway
-# detached worktree under $TMPDIR, links this checkout's node_modules into
-# it, generates Next's route types (`next typegen` — the gitignored
-# next-env.d.ts and .next/types that `next build` checks page and route
-# exports against), then runs `tsc --noEmit` there. Only branch tips are
-# checked, because only branch tips are built: deletes and tags are skipped.
-# The worktree is removed on every exit path, and the node_modules LINK is
-# unlinked first, never walked. Never `git worktree prune` here: it drops
-# every OTHER worktree whose folder happens to be missing (moved to Trash,
-# unmounted), and a detached commit in one of those becomes collectable.
+# detached worktree under $TMPDIR and links this checkout's node_modules into
+# it. There it starts `next lint` in the background, generates Next's route
+# types (`next typegen` — the gitignored next-env.d.ts and .next/types that
+# `next build` checks page and route exports against), and runs
+# `tsc --noEmit` alongside the lint. Only branch tips are checked, because
+# only branch tips are built: deletes and tags are skipped. The worktree is
+# removed on every exit path (a still-running lint is killed first), and the
+# node_modules LINK is unlinked first, never walked. Never `git worktree
+# prune` here: it drops every OTHER worktree whose folder happens to be
+# missing (moved to Trash, unmounted), and a detached commit in one of those
+# becomes collectable.
 #
-# Cost: ~8s per distinct tip, most of it a cold tsc (a fresh tree has no
-# incremental cache). Dependencies come from the local node_modules, not the
-# pushed package.json, so a commit that changes deps is checked against what
-# is installed here — run npm install first.
+# Cost: ~9s per distinct tip, most of it a cold tsc (a fresh tree has no
+# incremental cache); lint runs in parallel with it. Dependencies come from
+# the local node_modules, not the pushed package.json, so a commit that
+# changes deps is checked against what is installed here — npm install first.
 #
-# NOT covered: ESLint. `next build` lints src/ as well and fails on lint
-# errors, so a lint error can still fail Vercel after this hook passes.
+# Next 16 removes linting from `next build` and removes `next lint` itself:
+# on that upgrade, delete the lint step rather than porting it.
 #
 # Install (per clone; hooks never sync):  npm run hooks:install
 # Bypass, when you really mean it:        git's "no verify" push option.
@@ -58,7 +62,13 @@ if [ -z "$node_modules" ]; then
 fi
 
 tmp=
+lint_pid=
 cleanup() {
+  if [ -n "$lint_pid" ]; then                        # never delete a tree mid-read
+    kill "$lint_pid" 2>/dev/null
+    wait "$lint_pid" 2>/dev/null
+    lint_pid=
+  fi
   [ -n "$tmp" ] || return 0
   rm -f "$tmp/tree/node_modules"                      # the link, not its target
   if [ -e "$tmp/tree" ] && ! git worktree remove --force "$tmp/tree" >/dev/null 2>&1; then
@@ -73,14 +83,15 @@ trap 'exit 130' INT TERM HUP
 
 # git exports GIT_DIR to hooks run from a linked worktree; anything in the
 # check that shells out to git must see the temp tree, not the pusher's.
-in_tree() { (cd "$tree" && unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE && "$@"); }
+# `exec` so a backgrounded run's $! is the tool itself, which cleanup can kill.
+in_tree() { (cd "$tree" && unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE && exec "$@"); }
 
 check() { # $1 = commit sha, $2 = branch it is headed for
   short=$(git rev-parse --short "$1")
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-tsc.XXXXXX") || return 1
   tree="$tmp/tree"
   started=$(date +%s)
-  echo "pre-push: type-checking $short (-> $2) in a clean checkout"
+  echo "pre-push: type-checking and linting $short (-> $2) in a clean checkout"
 
   if ! git -c core.hooksPath=/dev/null worktree add --detach --quiet "$tree" "$1" >"$tmp/log" 2>&1; then
     cat "$tmp/log"
@@ -89,20 +100,37 @@ check() { # $1 = commit sha, $2 = branch it is headed for
   fi
   ln -s "$node_modules" "$tree/node_modules" || return 1
 
+  # Lint needs neither the route types nor tsc, so it starts first.
+  (cd "$tree" && unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE &&
+    exec ./node_modules/.bin/next lint --quiet) >"$tmp/lint.log" 2>&1 &
+  lint_pid=$!
+
   if ! in_tree ./node_modules/.bin/next typegen >"$tmp/log" 2>&1; then
     cat "$tmp/log"
     echo "pre-push: next typegen failed on $short — push refused."
     return 1
   fi
 
-  if ! in_tree ./node_modules/.bin/tsc --noEmit; then
+  in_tree ./node_modules/.bin/tsc --noEmit
+  tsc_rc=$?
+  wait "$lint_pid"
+  lint_rc=$?
+  lint_pid=
+
+  if [ "$tsc_rc" -ne 0 ]; then
     echo
     echo "pre-push: type errors in $short — push refused (Vercel would fail this build)."
     echo "          Fix them in a commit: Vercel never sees your working tree."
-    return 1
   fi
+  if [ "$lint_rc" -ne 0 ]; then
+    [ "$tsc_rc" -ne 0 ] || echo
+    cat "$tmp/lint.log"
+    echo "pre-push: lint errors in $short — push refused (Vercel would fail this build)."
+    echo "          Fix them in a commit: Vercel never sees your working tree."
+  fi
+  [ "$tsc_rc" -eq 0 ] && [ "$lint_rc" -eq 0 ] || return 1
 
-  echo "pre-push: $short types clean ($(( $(date +%s) - started ))s)"
+  echo "pre-push: $short clean — types and lint ($(( $(date +%s) - started ))s)"
   cleanup
 }
 
