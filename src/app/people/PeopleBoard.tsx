@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight } from "./PersonSpotlight";
@@ -12,7 +12,7 @@ export interface PersonAppearance {
   eventName: string;
   eventDate: string | null;
   imageCount: number;
-  heroUrl: string | null;
+  heroUrl?: string | null;
 }
 
 export interface PersonCard {
@@ -22,9 +22,14 @@ export interface PersonCard {
   isCrew?: boolean;
   eventCount: number;
   imageCount: number;
-  heroUrl: string | null;
+  /** Signed inline for the first screenfuls only — the rest arrive from
+   *  /api/people/heroes as the board scrolls (useHeroes). */
+  heroUrl?: string | null;
   /** 800px rendition — the podium is far too big for thumb-md. */
   heroUrlLg?: string | null;
+  /** Has a hero frame at all, so the board never asks for one that doesn't exist. */
+  hasHero: boolean;
+  /** Repeat people only: the podium's chips are the one reader. */
   events: PersonAppearance[];
 }
 
@@ -70,8 +75,93 @@ function useNotAPerson() {
   return { hidden, undo, exclude, restore, dismissUndo: () => setUndo(null) };
 }
 
+type Hero = { md: string; lg: string | null };
+
+/**
+ * Tiles rendered per step. ~8,300 tiles in the DOM at once was most of the
+ * page's weight, and nobody scrolls past a few hundred without searching.
+ */
+const WINDOW = 240;
+/** Faces requested per round trip as tiles approach the viewport. */
+const HERO_BATCH = 120;
+
+/**
+ * Hero faces, signed on demand. The server inlines the first screenfuls; this
+ * asks /api/people/heroes for whatever is about to be seen. `requested` is the
+ * guard against asking twice — a failed batch is forgotten, so it is asked for
+ * again the next time what's on screen changes (a scroll step, a search).
+ */
+function useHeroes(people: PersonCard[]) {
+  const [heroes, setHeroes] = useState<Map<string, Hero>>(() => {
+    const m = new Map<string, Hero>();
+    for (const p of people) {
+      if (p.heroUrl) m.set(p.key, { md: p.heroUrl, lg: p.heroUrlLg ?? null });
+    }
+    return m;
+  });
+  const requested = useRef<Set<string> | null>(null);
+  if (requested.current === null) {
+    requested.current = new Set(people.filter((p) => p.heroUrl).map((p) => p.key));
+  }
+
+  // A router.refresh brings a fresh set of inline faces — fold them in.
+  useEffect(() => {
+    const inline = people.filter((p) => p.heroUrl);
+    for (const p of inline) requested.current!.add(p.key);
+    setHeroes((prev) => {
+      let next: Map<string, Hero> | null = null;
+      for (const p of inline) {
+        if (prev.get(p.key)?.md === p.heroUrl) continue;
+        next ??= new Map(prev);
+        next.set(p.key, { md: p.heroUrl!, lg: p.heroUrlLg ?? null });
+      }
+      return next ?? prev;
+    });
+  }, [people]);
+
+  const withHero = useMemo(
+    () => new Set(people.filter((p) => p.hasHero).map((p) => p.key)),
+    [people]
+  );
+
+  const ensureHeroes = useCallback(
+    (keys: string[]) => {
+      const asked = requested.current!;
+      const need = keys.filter((k) => withHero.has(k) && !asked.has(k));
+      if (need.length === 0) return;
+      for (const k of need) asked.add(k);
+      for (let i = 0; i < need.length; i += HERO_BATCH) {
+        const batch = need.slice(i, i + HERO_BATCH);
+        fetch("/api/people/heroes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keys: batch }),
+        })
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+          .then((body: { heroes: Record<string, Hero> }) => {
+            setHeroes((prev) => {
+              const next = new Map(prev);
+              for (const [k, v] of Object.entries(body.heroes)) next.set(k, v);
+              return next;
+            });
+          })
+          .catch(() => {
+            for (const k of batch) asked.delete(k);
+          });
+      }
+    },
+    [withHero]
+  );
+
+  return { heroes, ensureHeroes };
+}
+
 export function PeopleBoard({ people }: { people: PersonCard[] }) {
   const notAPerson = useNotAPerson();
+  const { heroes, ensureHeroes } = useHeroes(people);
+  /** Names just merged away. The wall's snapshot rebuilds behind the merge,
+   *  so without this the folded tile would linger until the rebuild lands. */
+  const [folded, setFolded] = useState<Set<string>>(new Set());
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("rank");
@@ -86,7 +176,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = people.filter((p) => !notAPerson.hidden.has(p.name));
+    let list = people.filter((p) => !notAPerson.hidden.has(p.name) && !folded.has(p.name));
     if (repeatOnly) list = list.filter((p) => p.eventCount >= 2);
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
     if (sort === "alpha") {
@@ -113,7 +203,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       list = [...list.filter((p) => !p.isCrew), ...list.filter((p) => p.isCrew)];
     }
     return list;
-  }, [people, query, sort, repeatOnly, notAPerson.hidden]);
+  }, [people, query, sort, repeatOnly, notAPerson.hidden, folded]);
 
   // The wall of fame: the podium only means something when it's earned, so it
   // appears solely in rank order, unfiltered, and only for people who have
@@ -121,11 +211,55 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
   // in which case we say so instead of rendering a hollow trophy shelf.
   // Top 6 — two rows of three (Mason, 2026-08-16) — and crew are excluded:
   // being paid to be in frame is not a trophy. They stay in Everyone below.
-  const podium =
-    sort === "rank" && !query.trim()
-      ? filtered.filter((p) => p.eventCount >= 2 && !p.isCrew).slice(0, 6)
-      : [];
-  const rest = filtered.filter((p) => !podium.includes(p));
+  const podium = useMemo(
+    () =>
+      sort === "rank" && !query.trim()
+        ? filtered.filter((p) => p.eventCount >= 2 && !p.isCrew).slice(0, 6)
+        : [],
+    [filtered, sort, query]
+  );
+  const rest = useMemo(() => filtered.filter((p) => !podium.includes(p)), [filtered, podium]);
+
+  // Windowed rendering. The window belongs to one shape of the list — a new
+  // search, sort or filter starts again from the top rather than rendering
+  // however far the last list had been scrolled.
+  const shape = `${query} ${sort} ${repeatOnly}`;
+  const [win, setWin] = useState({ shape, limit: WINDOW });
+  const limit = win.shape === shape ? win.limit : WINDOW;
+  const grow = useCallback(
+    () => setWin((w) => ({ shape, limit: (w.shape === shape ? w.limit : WINDOW) + WINDOW })),
+    [shape]
+  );
+  const shown = useMemo(() => rest.slice(0, limit), [rest, limit]);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) grow();
+      },
+      { rootMargin: "1200px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [grow, shown.length, rest.length]);
+
+  // Faces for everything on screen: the podium and the rendered window.
+  useEffect(() => {
+    ensureHeroes([...podium, ...shown].map((p) => p.key));
+  }, [podium, shown, ensureHeroes]);
+
+  const mergeCandidates = useMemo(
+    () =>
+      people.map((p) => ({
+        key: p.key,
+        name: p.name,
+        heroUrl: heroes.get(p.key)?.md ?? null,
+        imageCount: p.imageCount,
+      })),
+    [people, heroes]
+  );
 
   const openAt = openKey ? filtered.findIndex((p) => p.key === openKey) : -1;
   const open = openAt >= 0 ? filtered[openAt] : null;
@@ -209,6 +343,7 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
               <PodiumCard
                 key={p.key}
                 person={p}
+                hero={heroes.get(p.key)}
                 place={i + 1}
                 onOpen={() => setOpenKey(p.key)}
                 onNotAPerson={() => notAPerson.exclude(p.name)}
@@ -222,16 +357,30 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
       <CrewWall />
 
       {/* ─── Everyone ─── */}
-      {rest.length > 0 && (
+      {shown.length > 0 && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-          {rest.map((p) => (
+          {shown.map((p) => (
             <PersonTile
               key={p.key}
               person={p}
+              hero={heroes.get(p.key)}
               onOpen={() => setOpenKey(p.key)}
               onNotAPerson={() => notAPerson.exclude(p.name)}
             />
           ))}
+        </div>
+      )}
+      {/* The sentinel grows the window before it scrolls into view; the
+          button is the same step for anyone not scrolling. */}
+      {rest.length > shown.length && (
+        <div ref={sentinelRef} className="mt-12 flex justify-center">
+          <button
+            type="button"
+            onClick={grow}
+            className="text-[12px] uppercase tracking-[0.12em] text-stone-400 transition-colors hover:text-stone-700"
+          >
+            Show more · {(rest.length - shown.length).toLocaleString()} to go
+          </button>
         </div>
       )}
 
@@ -279,17 +428,14 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
               ? () => setOpenKey(filtered[openAt + 1].key)
               : undefined
           }
-          mergeCandidates={people.map((p) => ({
-            key: p.key,
-            name: p.name,
-            heroUrl: p.heroUrl,
-            imageCount: p.imageCount,
-          }))}
+          mergeCandidates={mergeCandidates}
+          onNeedHeroes={ensureHeroes}
           onMerged={(aliasName, canonicalName) => {
-            // The folded tile is about to vanish from the server data — close
-            // rather than leave the spotlight pointing at an identity that no
-            // longer exists, and hold the undo.
+            // Close rather than leave the spotlight pointing at an identity
+            // that no longer exists, and hold the undo. The folded tile hides
+            // now; the wall's snapshot catches up behind the merge.
             setOpenKey(null);
+            setFolded((f) => new Set(f).add(aliasName));
             setMergeUndo({ aliasName, canonicalName });
             router.refresh();
           }}
@@ -312,6 +458,11 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
             onClick={async () => {
               const alias = mergeUndo.aliasName;
               setMergeUndo(null);
+              setFolded((f) => {
+                const next = new Set(f);
+                next.delete(alias);
+                return next;
+              });
               await fetch(`/api/people/aliases?aliasName=${encodeURIComponent(alias)}`, {
                 method: "DELETE",
               });
@@ -338,11 +489,13 @@ export function PeopleBoard({ people }: { people: PersonCard[] }) {
 /* ─── Podium: bigger frame, editorial numeral, and the event chips ─── */
 function PodiumCard({
   person,
+  hero,
   place,
   onOpen,
   onNotAPerson,
 }: {
   person: PersonCard;
+  hero?: Hero;
   place: number;
   onOpen: () => void;
   onNotAPerson?: () => void;
@@ -367,15 +520,11 @@ function PodiumCard({
         className="relative block aspect-[4/5] w-full overflow-hidden bg-stone-100"
         title={`All ${person.imageCount.toLocaleString()} photos of ${person.name}`}
       >
-        {person.heroUrl ? (
+        {hero ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={person.heroUrlLg ?? person.heroUrl}
-            srcSet={
-              person.heroUrlLg
-                ? `${person.heroUrl} 400w, ${person.heroUrlLg} 800w`
-                : undefined
-            }
+            src={hero.lg ?? hero.md}
+            srcSet={hero.lg ? `${hero.md} 400w, ${hero.lg} 800w` : undefined}
             sizes="(max-width: 640px) 90vw, 33vw"
             alt={person.name}
             className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
@@ -431,10 +580,12 @@ function EventChips({ person }: { person: PersonCard }) {
 /* ─── Everyone else ─── */
 function PersonTile({
   person,
+  hero,
   onOpen,
   onNotAPerson,
 }: {
   person: PersonCard;
+  hero?: Hero;
   onOpen: () => void;
   onNotAPerson?: () => void;
 }) {
@@ -463,15 +614,11 @@ function PersonTile({
       title={`All ${person.imageCount.toLocaleString()} photos of ${person.name}`}
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
-        {person.heroUrl ? (
+        {hero ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={person.heroUrl}
-            srcSet={
-              person.heroUrlLg
-                ? `${person.heroUrl} 400w, ${person.heroUrlLg} 800w`
-                : undefined
-            }
+            src={hero.md}
+            srcSet={hero.lg ? `${hero.md} 400w, ${hero.lg} 800w` : undefined}
             sizes="(max-width: 640px) 45vw, 16vw"
             alt={person.name}
             loading="lazy"

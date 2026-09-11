@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { requestPeopleIndexRefresh } from "@/lib/people/index-cache";
 
 export const runtime = "nodejs";
 
@@ -96,6 +97,8 @@ export async function PATCH(
       .eq("id", personId);
     if (error) throw error;
 
+    // A named cluster carries its group shots onto a card — rebuild the wall.
+    await requestPeopleIndexRefresh(user!.id);
     return NextResponse.json({ id: personId, name });
   } catch (error) {
     await reportSystemError("people.rename", error, { personId });

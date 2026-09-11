@@ -127,6 +127,7 @@ export function PersonSpotlight({
   mergeCandidates,
   onMerged,
   onUnmerged,
+  onNeedHeroes,
 }: {
   name: string;
   onClose: () => void;
@@ -138,6 +139,8 @@ export function PersonSpotlight({
   onMerged?: (aliasName: string, canonicalName: string) => void;
   /** An alias was detached — the board refreshes. */
   onUnmerged?: () => void;
+  /** Ask the board to load faces it hasn't signed yet (it signs on demand). */
+  onNeedHeroes?: (keys: string[]) => void;
 }) {
   const [data, setData] = useState<SpotlightData | null>(null);
   const [failed, setFailed] = useState(false);
@@ -179,6 +182,21 @@ export function PersonSpotlight({
       cancelled = true;
     };
   }, [name]);
+
+  // The merge is decided on FACES, so the picker's candidates and this
+  // person's own hero must be loaded — the board only signs faces on screen.
+  useEffect(() => {
+    if (!onNeedHeroes || !merging || !data || !mergeCandidates) return;
+    const q = mergeQuery.trim().toLowerCase();
+    const keys = [data.key];
+    if (q) {
+      for (const c of mergeCandidates) {
+        if (keys.length > 8) break;
+        if (c.key !== data.key && c.name.toLowerCase().includes(q)) keys.push(c.key);
+      }
+    }
+    onNeedHeroes(keys);
+  }, [onNeedHeroes, merging, data, mergeCandidates, mergeQuery]);
 
   const [mergeError, setMergeError] = useState<string | null>(null);
   const confirmMerge = async () => {
@@ -401,7 +419,13 @@ export function PersonSpotlight({
                       mergeCandidates.find((c) => c.key === data.key)?.heroUrl ?? null,
                     imageCount: data.imageCount,
                   },
-                  mergeTarget,
+                  // Re-read the face: it may have loaded after the pick.
+                  {
+                    ...mergeTarget,
+                    heroUrl:
+                      mergeCandidates.find((c) => c.key === mergeTarget.key)?.heroUrl ??
+                      mergeTarget.heroUrl,
+                  },
                 ].map((p, i) => (
                   <figure key={i} className="w-24 text-center">
                     <div className="relative aspect-square w-24 overflow-hidden bg-stone-100">

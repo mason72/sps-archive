@@ -25,7 +25,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 
 import { nameIsRejected } from "@/lib/faces/cluster-event";
-import { NON_PERSON_GALLERIES } from "./index-people";
+import { NON_PERSON_GALLERIES, loadExcludedPersonKeys } from "./index-people";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -76,6 +76,12 @@ export function decideSuggestion(
     selfId: string;
     /** Names a human already cleared off this cluster (migration 063). */
     rejectedNames: string[];
+    /**
+     * Identities marked "Not a person". Excluding one drops its reference
+     * faces, so a hit here means a reference outlived its exclusion (a race
+     * with a refresh) — skipped rather than offered.
+     */
+    excludedKeys?: ReadonlySet<string>;
     threshold?: number;
   }
 ): MatchHit | null {
@@ -83,6 +89,7 @@ export function decideSuggestion(
   for (const hit of hits) {
     if (hit.matched_person_id === opts.selfId) continue;
     if (hit.similarity < threshold) return null; // hits arrive sorted best-first
+    if (opts.excludedKeys?.has(hit.name_key)) continue;
     // A rejected name stays rejected — the same durability contract the
     // consensus namer honours. The next-best hit may still qualify: rejecting
     // "Steven Hughes" must not silence a genuine "Joe Delgado" match.
@@ -222,6 +229,8 @@ export async function scanEventForIdentitySuggestions(
     }
   }
 
+  const excludedKeys = await loadExcludedPersonKeys(supabase, userId);
+
   let suggested = 0;
   let skippedDecided = 0;
   for (const cluster of clusters) {
@@ -284,6 +293,7 @@ export async function scanEventForIdentitySuggestions(
     const best = decideSuggestion((hits ?? []) as MatchHit[], {
       selfId: cluster.id,
       rejectedNames: cluster.rejected_names ?? [],
+      excludedKeys,
       threshold: opts?.threshold,
     });
     const existingPendingId = pendingByPerson.get(cluster.id)?.id;

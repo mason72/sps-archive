@@ -8,10 +8,13 @@
  * face, decided on FACES, one click per cluster. Confirm names the cluster
  * (its group shots flow onto the person's card through the live plumbing);
  * "Not them" is durable — the engine never re-asks that name of that cluster.
+ * "Not a person" is for a suggested name that is a label, not a human ("Weka
+ * SKO27", a gallery name every file carried): one click removes it
+ * everywhere and clears every card offering it, with an undo.
  *
  * Deliberately NOT an inbox: renders nothing when the queue is empty, sorts
- * by payoff (biggest clusters first), and leaving it untouched costs nothing
- * but unharvested group shots.
+ * least-confident first (those are the ones that need a person), and leaving
+ * it untouched costs nothing but unharvested group shots.
  */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -47,6 +50,14 @@ export function IdentitySuggestions() {
   const [confirmedAny, setConfirmedAny] = useState(false);
   const [sureCount, setSureCount] = useState(0);
   const [bulkBusy, setBulkBusy] = useState(false);
+  /** The last "Not a person", held for its undo. */
+  const [notice, setNotice] = useState<{
+    key: string;
+    name: string;
+    clearedSuggestions: number;
+    clearedClusters: number;
+    undone?: boolean;
+  } | null>(null);
 
   const load = async () => {
     try {
@@ -90,6 +101,49 @@ export function IdentitySuggestions() {
     }
   };
 
+  // One click for a name that labels a gallery rather than a person — it
+  // clears every card offering it at once, so the tray reloads rather than
+  // dropping a single card.
+  const notAPerson = async (card: SuggestionCard) => {
+    setBusy(card.id);
+    try {
+      const res = await fetch("/api/people/exclude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: card.suggestedName,
+          reason: `Suggestion card, ${card.eventName}`,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const body = (await res.json()) as {
+        key: string;
+        name: string;
+        clearedSuggestions: number;
+        clearedClusters: number;
+      };
+      setNotice(body);
+      await load();
+      router.refresh();
+    } catch {
+      // Leave the cards in place — a card that vanishes on a 500 is a lie.
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const undoNotAPerson = async () => {
+    if (!notice) return;
+    const res = await fetch(`/api/people/exclude?key=${encodeURIComponent(notice.key)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) return;
+    // The cards come back when the engine next scans those events, not now —
+    // say so, rather than leave an empty tray looking like the undo failed.
+    setNotice({ ...notice, undone: true });
+    router.refresh();
+  };
+
   if (!cards || cards.length === 0) {
     // Confirms change the wall's counts — refresh once on the way out rather
     // than on every click, so the tray stays snappy mid-run.
@@ -97,7 +151,8 @@ export function IdentitySuggestions() {
       router.refresh();
       setConfirmedAny(false);
     }
-    return null;
+    // A "Not a person" can empty the tray; its undo must outlive the cards.
+    if (!notice) return null;
   }
 
   const confirmSure = async () => {
@@ -156,8 +211,41 @@ export function IdentitySuggestions() {
           )}
         </div>
       </div>
+      {notice && (
+        <p role="status" className="mb-4 text-[12px] text-stone-500">
+          {notice.undone ? (
+            <>
+              Put <span className="text-stone-900">{notice.name}</span> back. Its suggestions
+              return when those events are next scanned.
+            </>
+          ) : (
+            <>
+              <span className="text-stone-900">{notice.name}</span> is not a person — cleared{" "}
+              {notice.clearedSuggestions} suggestion{notice.clearedSuggestions === 1 ? "" : "s"}
+              {notice.clearedClusters > 0 &&
+                ` and took the name off ${notice.clearedClusters} face group${notice.clearedClusters === 1 ? "" : "s"}`}
+              .
+              <button
+                type="button"
+                onClick={undoNotAPerson}
+                className="ml-2 text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+              >
+                Undo
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="ml-2 text-stone-400 hover:text-stone-700"
+          >
+            ×
+          </button>
+        </p>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
+        {(cards ?? []).map((card) => (
           <div key={card.id} className="border border-stone-200 bg-white p-4">
             <div className="flex items-center justify-center gap-3">
               <figure className="text-center">
@@ -195,7 +283,7 @@ export function IdentitySuggestions() {
             <p className="mt-0.5 truncate text-center text-[11px] text-stone-400">
               {card.photoCount} photo{card.photoCount === 1 ? "" : "s"} at {card.eventName}
             </p>
-            <div className="mt-3 flex items-center justify-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
               <button
                 onClick={() => decide(card, "confirm")}
                 disabled={busy === card.id}
@@ -210,6 +298,18 @@ export function IdentitySuggestions() {
               >
                 Not them
               </button>
+              {/* Crew are real people by construction — only a filename-born
+                  guest name can be a label. */}
+              {card.kind === "guest" && (
+                <button
+                  onClick={() => notAPerson(card)}
+                  disabled={busy === card.id}
+                  title={`"${card.suggestedName}" is a label, not a human. Removes the name everywhere and clears every card offering it. Undoable.`}
+                  className="px-1 py-1.5 text-[12px] text-stone-400 transition-colors hover:text-stone-600 disabled:opacity-40"
+                >
+                  Not a person
+                </button>
+              )}
             </div>
           </div>
         ))}

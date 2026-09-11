@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { requestPeopleIndexRefresh } from "@/lib/people/index-cache";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -349,6 +350,8 @@ export async function POST(request: NextRequest) {
       }
       // Teach ONCE per event, after the writes (see decideOne's note).
       for (const eventId of events) await teachEvent(supabase, user!.id, eventId, "bulk");
+      // A confirm puts group shots on a card — the wall's snapshot is stale.
+      if ((counts.confirmed ?? 0) > 0) await requestPeopleIndexRefresh(user!.id);
       return NextResponse.json({ bulk: true, requested: ids.length, counts, failed });
     }
 
@@ -358,6 +361,7 @@ export async function POST(request: NextRequest) {
     if (result.status === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (result.status === "already_decided") return NextResponse.json({ error: "Already decided" }, { status: 409 });
     if (result.status === "gone") return NextResponse.json({ error: "Cluster is gone" }, { status: 410 });
+    if (result.status === "confirmed") await requestPeopleIndexRefresh(user!.id);
     return NextResponse.json(result);
   } catch (error) {
     await reportSystemError("people.identity-suggestions.decide", error);

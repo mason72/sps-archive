@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { normalizeNameKey } from "@/lib/people/index-people";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { requestPeopleIndexRefresh } from "@/lib/people/index-cache";
 
 export const runtime = "nodejs";
 
@@ -77,6 +78,8 @@ export async function POST(request: NextRequest) {
       .eq("canonical_key", aliasKey);
     if (flattenError) throw flattenError;
 
+    // A merge folds two tiles into one — the wall's snapshot is stale.
+    await requestPeopleIndexRefresh(user!.id);
     return NextResponse.json({ aliasKey, canonicalKey });
   } catch (error) {
     await reportSystemError("people.aliases.create", error);
@@ -124,6 +127,7 @@ export async function DELETE(request: NextRequest) {
       .eq("user_id", user!.id)
       .eq("alias_key", aliasKey);
     if (error) throw error;
+    await requestPeopleIndexRefresh(user!.id);
     return NextResponse.json({ removed: aliasKey });
   } catch (error) {
     await reportSystemError("people.aliases.delete", error);

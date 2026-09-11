@@ -61,6 +61,28 @@ describe("decideSuggestion", () => {
     ).toBeNull();
   });
 
+  it("never offers a name marked Not a person, and lets the next one through", () => {
+    // The WEKA case (2026-09-11): a gallery label that had become reference
+    // faces. An exclusion drops those references; this is the belt for a
+    // reference that outlives its exclusion.
+    const hits = [
+      hit({ similarity: 0.93, name: "Weka SKO27", name_key: "wekasko" }),
+      hit({
+        similarity: 0.8,
+        name: "Joe Delgado",
+        name_key: "joedelgado",
+        matched_person_id: "ref-2",
+      }),
+    ];
+    expect(
+      decideSuggestion(hits, {
+        selfId: "c",
+        rejectedNames: [],
+        excludedKeys: new Set(["wekasko"]),
+      })
+    ).toMatchObject({ name: "Joe Delgado" });
+  });
+
   it("stops at the first below-bar hit rather than scanning junk", () => {
     const hits = [
       hit({ similarity: 0.5 }),

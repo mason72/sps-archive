@@ -695,6 +695,7 @@ export type Database = {
       }
       excluded_people: {
         Row: {
+          cleared_persons: Json | null
           created_at: string
           name: string | null
           person_key: string
@@ -702,6 +703,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          cleared_persons?: Json | null
           created_at?: string
           name?: string | null
           person_key: string
@@ -709,6 +711,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          cleared_persons?: Json | null
           created_at?: string
           name?: string | null
           person_key?: string

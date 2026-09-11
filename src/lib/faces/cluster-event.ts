@@ -8,7 +8,10 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 
-import { extractPersonName } from "@/lib/gallery/stacks";
+import { extractPersonName, personNameFromParts } from "@/lib/gallery/stacks";
+import { loadAliasResolver } from "@/lib/people/aliases";
+import { eventLabelKeys } from "@/lib/people/event-labels";
+import { loadExcludedPersonKeys, normalizeNameKey } from "@/lib/people/index-people";
 import { isPersonLike } from "@/lib/sections/auto-plan";
 
 import {
@@ -113,6 +116,76 @@ export function nameIsRejected(candidate: string, rejectedNames: string[]): bool
   return rejectedNames.some((r) => key(r) === c);
 }
 
+/**
+ * The filename namer's final word on one cluster. A consensus name is used
+ * only if no human rejected it for this cluster AND it is not a name that must
+ * never be a person here: a gallery LABEL (the event-label rule the wall
+ * already applied — before this existed, "WekaSKO27_EventPhotos-03055.jpg"
+ * named all 57 clusters of its gallery "Weka SKO27", and the naming engine
+ * then offered that name 53 times; 2026-09-11), or an identity a human marked
+ * "Not a person". Pure, so the rule is testable without a database.
+ */
+export function autoNameFor(
+  consensus: string | null,
+  rejectedNames: string[],
+  blockedKeys: ReadonlySet<string>
+): string | null {
+  if (!consensus) return null;
+  if (nameIsRejected(consensus, rejectedNames)) return null;
+  if (blockedKeys.has(normalizeNameKey(consensus))) return null;
+  return consensus;
+}
+
+/**
+ * Keys the namer may not use in this event: its gallery labels, judged the way
+ * the wall judges them (`eventLabelKeys` — ≥100 frames and ≥10% — over every
+ * complete photo, identity via `personNameFromParts`), plus every spelling of
+ * an identity marked "Not a person". An earlier draft counted only the frames
+ * with faces, so a label event with fewer than 100 detected faces would have
+ * been a label on the wall and a name to the namer (caught in review).
+ */
+async function blockedNameKeys(supabase: SupabaseDB, eventId: string): Promise<Set<string>> {
+  const { data: ev, error: evErr } = await supabase
+    .from("events")
+    .select("user_id")
+    .eq("id", eventId)
+    .single();
+  if (evErr) throw evErr;
+
+  const keyByRow: { eventId: string; key: string }[] = [];
+  let total = 0;
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from("images")
+      .select("id, parsed_name, original_filename")
+      .eq("event_id", eventId)
+      .eq("media_type", "image")
+      .eq("processing_status", "complete")
+      .order("id")
+      .range(page * 1000, page * 1000 + 999);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      total += 1;
+      // The wall's identity for the photo AND the namer's own reading of the
+      // filename, each counted once, so neither derivation slips a label past.
+      const keys = new Set<string>();
+      const wallName = personNameFromParts(row.parsed_name, row.original_filename)?.trim();
+      if (wallName) keys.add(normalizeNameKey(wallName));
+      keys.add(normalizeNameKey(extractPersonName(row.original_filename).trim()));
+      for (const key of keys) if (key) keyByRow.push({ eventId, key });
+    }
+    if (!data || data.length < 1000) break;
+  }
+
+  const blocked = new Set(eventLabelKeys(keyByRow, new Map([[eventId, total]])).get(eventId) ?? []);
+  const [excluded, aliases] = await Promise.all([
+    loadExcludedPersonKeys(supabase, ev.user_id),
+    loadAliasResolver(supabase, ev.user_id),
+  ]);
+  for (const key of excluded) for (const k of aliases.groupKeys(key)) blocked.add(k);
+  return blocked;
+}
+
 export async function clusterEventFaces(
   supabase: SupabaseDB,
   eventId: string,
@@ -212,6 +285,7 @@ export async function clusterEventFaces(
     .select("id, name, face_count, representative_face_id, rejected_names")
     .eq("event_id", eventId);
   if (apErr) throw apErr;
+  const blocked = await blockedNameKeys(supabase, eventId);
 
   const imageIdOfFace = new Map(faces.map((f) => [f.id, f.imageId]));
   // Faces per image (among embedded faces): representative selection prefers
@@ -250,9 +324,9 @@ export async function clusterEventFaces(
         );
     // …and never re-applies a name a human explicitly cleared. A cleared name
     // is a null, and nulls get refilled — which un-did the human's correction
-    // every clustering run until rejected_names existed (migration 063).
-    const autoName =
-      consensus && !nameIsRejected(consensus, p.rejected_names ?? []) ? consensus : null;
+    // every clustering run until rejected_names existed (migration 063). Nor
+    // a gallery label, nor a name marked "Not a person" (autoNameFor).
+    const autoName = autoNameFor(consensus, p.rejected_names ?? [], blocked);
     if (autoName) personsNamed += 1;
     if (
       p.face_count !== list.length ||

@@ -106,6 +106,16 @@ type Events = {
       eventId: string;
     };
   };
+  /**
+   * Rebuild one photographer's /people snapshot. Sent by every write that
+   * changes who is on the wall and by any read of a stale snapshot; the job
+   * runs one build per user at a time (src/lib/inngest/people-index.ts).
+   */
+  "people/index-refresh.requested": {
+    data: {
+      userId: string;
+    };
+  };
 };
 
 export const inngest = new Inngest({

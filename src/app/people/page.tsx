@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { buildPeopleIndex, normalizeNameKey } from "@/lib/people/index-people";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
+import { normalizeNameKey } from "@/lib/people/index-people";
+import { getPeopleIndex, heroUrlsFor } from "@/lib/people/index-cache";
+import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { Nav } from "@/components/layout/Nav";
 import { AppNavServer } from "@/components/layout/AppNavServer";
 import { Footer } from "@/components/layout/Footer";
-import { PeopleBoard } from "./PeopleBoard";
+import { PeopleBoard, type PersonCard } from "./PeopleBoard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,6 +16,26 @@ export const metadata = {
 };
 
 /**
+ * Faces signed inline: the first screenfuls, in the board's default order.
+ * The rest arrive from /api/people/heroes as the board scrolls. Signing all
+ * ~8,300 people up front (two renditions each, plus one per event) made this
+ * page a 40 MB, 57-second load — measured 2026-09-11.
+ */
+const INLINE_HEROES = 240;
+/**
+ * Repeat people whose event chips get thumbnails. The podium shows six; the
+ * spares cover "Not a person" clicks promoting the next in line.
+ */
+const CHIP_PEOPLE = 12;
+
+function builtAgo(builtAt: number): string {
+  const min = Math.floor((Date.now() - builtAt) / 60000);
+  if (min < 1) return "updated just now";
+  if (min < 60) return `updated ${min} min ago`;
+  return `updated ${Math.floor(min / 60)} h ago`;
+}
+
+/**
  * /people — everyone you've ever photographed, across every event.
  *
  * Internal to the photographer (their own events only). The "wall of fame"
@@ -22,12 +43,15 @@ export const metadata = {
  * partially-migrated archive a repeat-subjects-only view is empty, while the
  * full index is useful from day one and the ranking fills in as work moves
  * over (2026-08-10: 1,570 named people, 1 with two events).
+ *
+ * The index is read from its R2 snapshot (src/lib/people/index-cache.ts) and
+ * rebuilt behind the response when stale, so the header says how old it is.
  */
 export default async function PeoplePage() {
   const { user, supabase } = await getAuthUser();
   if (!user) redirect("/login?redirect=/people");
 
-  const people = await buildPeopleIndex(supabase, user.id);
+  const { people, builtAt } = await getPeopleIndex(supabase, user.id);
 
   // Crew stay off the PODIUM (Mason: "exclude crew from the wall of fame") —
   // the trophy shelf is for clients and guests, not the people paid to be in
@@ -47,40 +71,57 @@ export default async function PeoplePage() {
       if (key) crewKeys.add(key);
     }
   }
-  const withHeroes = await Promise.all(
-    people.map(async (p) => ({
-      key: p.key,
-      name: p.name,
-      isCrew: crewKeys.has(p.key),
-      eventCount: p.eventCount,
-      imageCount: p.imageCount,
-      heroUrl: p.heroKey
-        ? await getPresignedDownloadUrl(getThumbnailKey(p.heroKey), 14400)
-        : null,
-      // The podium renders ~600px wide; thumb-md (400px) visibly pixelates
-      // there. Small tiles keep the md rendition via srcset — serving 800px
-      // to a 180px tile would be 900 wasted large images on first paint.
-      heroUrlLg: p.heroKey
-        ? await getPresignedDownloadUrl(
-            getThumbnailKey(p.heroKey, "thumb-lg"),
-            14400
-          )
-        : null,
-      events: await Promise.all(
-        p.events.map(async (e) => ({
-          eventId: e.eventId,
-          eventName: e.eventName,
-          eventDate: e.eventDate,
-          imageCount: e.imageCount,
-          heroUrl: e.heroKey
-            ? await getPresignedDownloadUrl(getThumbnailKey(e.heroKey), 14400)
-            : null,
-        }))
-      ),
-    }))
+
+  // The board's default order is server rank with crew closing the list
+  // (PeopleBoard's rule), so these are the tiles on screen first. If the two
+  // ever drift, the cost is only that a few faces load on demand instead.
+  const defaultOrder = [
+    ...people.filter((p) => !crewKeys.has(p.key)),
+    ...people.filter((p) => crewKeys.has(p.key)),
+  ];
+  const inline = new Set(defaultOrder.slice(0, INLINE_HEROES).map((p) => p.key));
+  const chipPeople = new Set(
+    people
+      .filter((p) => p.eventCount >= 2 && !crewKeys.has(p.key))
+      .slice(0, CHIP_PEOPLE)
+      .map((p) => p.key)
   );
 
-  const repeat = withHeroes.filter((p) => p.eventCount >= 2).length;
+  const cards: PersonCard[] = await Promise.all(
+    people.map(async (p) => {
+      // The podium renders ~600px wide; thumb-md (400px) visibly pixelates
+      // there, so both renditions travel and srcset picks.
+      const hero = p.heroKey && inline.has(p.key) ? await heroUrlsFor(p.heroKey) : null;
+      return {
+        key: p.key,
+        name: p.name,
+        isCrew: crewKeys.has(p.key),
+        eventCount: p.eventCount,
+        imageCount: p.imageCount,
+        hasHero: !!p.heroKey,
+        ...(hero ? { heroUrl: hero.md, heroUrlLg: hero.lg } : {}),
+        // Only the podium's chips read these, and only repeat people reach
+        // the podium — sending every single-shoot appearance was dead weight.
+        events:
+          p.eventCount >= 2
+            ? await Promise.all(
+                p.events.map(async (e) => ({
+                  eventId: e.eventId,
+                  eventName: e.eventName,
+                  eventDate: e.eventDate,
+                  imageCount: e.imageCount,
+                  heroUrl:
+                    chipPeople.has(p.key) && e.heroKey
+                      ? await getCachedThumbnailUrl(getThumbnailKey(e.heroKey), 14400)
+                      : null,
+                }))
+              )
+            : [],
+      };
+    })
+  );
+
+  const repeat = cards.filter((p) => p.eventCount >= 2).length;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -94,12 +135,18 @@ export default async function PeoplePage() {
           <span className="font-serif italic text-emerald-600">photographed</span>
         </h2>
         <p className="label-caps reveal mt-4">
-          {withHeroes.length.toLocaleString()} people
+          {cards.length.toLocaleString()} people
           {repeat > 0 && ` · ${repeat} across multiple events`}
+          <span
+            className="ml-2 normal-case tracking-normal text-stone-300"
+            title="Rebuilt in the background after confirms, merges, renames and exclusions, and whenever it is over 10 minutes old."
+          >
+            · {builtAgo(builtAt)}
+          </span>
         </p>
       </div>
 
-      <PeopleBoard people={withHeroes} />
+      <PeopleBoard people={cards} />
 
       <Footer />
     </div>

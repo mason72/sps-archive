@@ -19,6 +19,7 @@ import {
   usageAnomalyDaily,
   pricingSummaryWeekly,
 } from "@/lib/inngest/ops-functions";
+import { peopleIndexRefresh } from "@/lib/inngest/people-index";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
 // execution route the Fluid ceiling, same reasoning as the download route.
@@ -40,6 +41,7 @@ export const { GET, POST, PUT } = serve({
     aiIndex,
     faceCluster,
     identityScan,
+    peopleIndexRefresh,
     usageAnomalyDaily,
     pricingSummaryWeekly,
   ],

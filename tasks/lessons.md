@@ -2764,6 +2764,47 @@ entire run: no summary, no publish, no `markIngested`, no next pass.
   and `lsof -nP -i -a -p <pid>` in the same breath — the second is what named
   the culprit.
 
+## 132 — The server was on the wrong coast, and a gallery label had become 57 reference faces (2026-09-11)
+
+Mason: the app is "loading quite slowly across most surfaces", and separately,
+the suggestion tray was full of "Is this Weka SKO27?".
+
+- **Every function ran in iad1 (Washington DC); the database is in us-west-2
+  (Oregon).** There was no `vercel.json`, so Vercel's default won silently, and
+  every sequential query on every page paid a cross-country round trip. One
+  response header named it: `x-vercel-id: sfo1::iad1::…` (entry edge ::
+  function region). Fix: `"regions": ["pdx1"]`, same price. **When everything
+  is uniformly slow, check where the code runs relative to its database before
+  profiling any one page** — it is one curl, and it explains a flat tax that no
+  single-page profile will.
+- **`pg_stat_statements` ordered by TOTAL time found the other one.** The /people
+  index scan: 6,323 calls at a 925ms mean, ≈5,800s in all, the biggest consumer
+  since February — ≈190 parallel OFFSET pages rebuilt on every visit, then every
+  face presigned into a 40 MB page (57s end to end). Fixed with an R2 snapshot
+  served stale-while-revalidate and faces signed on demand. Ordering by MEAN put
+  backup and catalog queries first; total time is what users feel.
+- **A junk-name rule applied at one READER is not applied.** The event-label
+  rule (2026-09-02) lived only in the wall's index. The filename namer, a
+  WRITER, kept stamping "Weka SKO27" on all 57 clusters of a gallery whose every
+  file carries it; those clusters became reference faces; the engine offered
+  the label 53 times. The wall looked clean, so it looked fixed — and "Not a
+  person" wrote only the table the wall reads. **A filter for a class of junk
+  belongs at the writer that mints it, and every consumer of that data gets
+  listed before calling it done.** Same family as the NOT NULL DEFAULT rule:
+  fixing a reader covers only the readers you looked at.
+- **Measure in the user's browser, not from the laptop.** The laptop sits near
+  the database (a 26s cold build); Mason's page was 57s because of a payload the
+  laptop's script never downloaded.
+- **A cache rebuild must be serialized per key, or it publishes pre-write
+  data.** My first draft rebuilt the snapshot inside the request with `after()`
+  and let concurrent callers join a build already running. The fresh-context
+  reviewer found the hole: "Not a person" then Undo inside 26 seconds shares a
+  build that read the exclusion, so the restored person stays off the wall until
+  the next stale check. Rebuilds are now an Inngest job with concurrency 1 per
+  user plus a debounce, and a store never overwrites a newer `builtat`. **Joining
+  an in-flight job is only safe for callers that do not care about a write that
+  happened after it started** — reads yes, write-triggered refreshes never.
+
 ## 133 — Two guards that fail closed deadlocked the migration for 37 hours (2026-09-11)
 
 A STARVED email. Nothing had crashed. The Chrome extension will not start a
