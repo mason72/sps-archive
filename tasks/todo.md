@@ -167,6 +167,17 @@ BUILT 2026-08-28 (all checks green — `scripts/verify-guest-share.ts`):
    - [ ] **Disk:** 851 of 855 at-risk collections fit in ~32 GB free. 18 of all
          1,369 do not (largest 128 GB, and a collection cannot be ingested
          part-by-part). Not urgent — see `tasks/pixieset-migration.md`.
+   - [x] 2026-09-11 STARVED deadlock broken (lesson 133, 8a0b81d): 45 GB of
+         KEPT archives released, Atlassian Expo (47 GB) re-staged from
+         quarantine, 115 garbled names repaired.
+   - [ ] **796 photo names still garbled** (`original_filename LIKE '%?%'`,
+         12 events: Chime 407, College Board 120, Stripe 91, …). Their ZIPs are
+         released, so real names must come from Pixieset's photo listing, then
+         go through the same exact-inverse pairing as
+         `scripts/pixieset/repair-garbled-names.ts`.
+   - [ ] The pre-push hook type-checks the working tree, not the commit being
+         pushed — another session's WIP refuses a clean push, and a fixed-but-
+         uncommitted tree would pass a broken one. Check the pushed commit instead.
 2. **Crew confirmation on the CREATE EVENT screen** — the piece Mason actually
    asked for first, and still the biggest gap. Enter name + date, the gig is
    looked up from the calendar, venue/crew/client pre-populate, he confirms

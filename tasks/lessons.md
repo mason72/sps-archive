@@ -2763,3 +2763,49 @@ entire run: no summary, no publish, no `markIngested`, no next pass.
   come through Mason's terminal. Ask for `ps -Ao pid,etime,%cpu,rss,command`
   and `lsof -nP -i -a -p <pid>` in the same breath — the second is what named
   the culprit.
+
+## 133 — Two guards that fail closed deadlocked the migration for 37 hours (2026-09-11)
+
+A STARVED email. Nothing had crashed. The Chrome extension will not start a
+collection under 80 GB free, and had logged "waiting for the ingest to drain"
+every 20 minutes since 9/9 22:44 PT. The ingest had nothing to drain: its
+release sweep was KEEPING 45 GB (ALIS, Kinexions, Okta SKO) it could not prove
+safe to delete. Each guard was right on its own. Together they were a deadlock.
+
+- **The 91 "missing" photos were two naming bugs, not loss.** 8 were Unicode
+  normalization: `ö` as one code point (NFC) in the row, as `o` + a combining
+  mark (NFD) in the ZIP. Same name, unequal strings. 83 had been STORED the way
+  `unzip -Z1` prints them, one `?` per non-ASCII byte: `AndreasLo??cher`. The
+  ingest's own comment documented that this listing garbles names (it is why `?`
+  is left open as a wildcard for reads), and still used it as the name it
+  RECORDED. The read path was right; the record was the listing. **911 rows
+  across 15 events**, all feeding People, stacks, search and download filenames.
+  Fix: read by unzip's spelling, record the zipfile-decoded name, and prove each
+  pair (the real name must garble back to exactly what unzip printed).
+- **Two parsers for one filename format drift.** `parseDownloadName` (watch.mjs)
+  stripped Chrome's ` (1)` re-download suffix; `parseParts` (lib/archive.mjs) did
+  not. A complete 8,518-photo Atlassian Expo set read as "part 1 of 1" fourteen
+  times, failed as "parts disagree on total", and sat in quarantine: 47 GB of
+  finished work, which the downloader then retired as "not ready".
+- **A guard that fails closed still needs a voice.** The KEPT line was in
+  ingest.log every five minutes for 37 hours. The STARVED email listed four
+  causes and none was this one. It now prints what housekeeping is keeping and
+  names the deadlock. When two safety mechanisms can wait on each other, the
+  watcher over them must name the PAIR, not the symptom.
+- **Repair by exact inverse, not by likeness.** My first probe paired names by
+  an ASCII skeleton, which was enough to believe the photos had landed and not
+  enough to write with. The repair accepts a row only when exactly one real name
+  garbles to it byte for byte, logs old → new before the first write, and does a
+  compare-and-set per row. 115 repaired, 0 ambiguous.
+- **Negative-test the check you just "fixed".** After adding NFC normalization,
+  the checker had to still FAIL ALIS (38 missing) until its names were repaired.
+  Otherwise "normalizing" could have quietly been "loosening".
+- **The pre-push hook type-checks the WORKING TREE, not the commit.** Another
+  session's uncommitted People edits failed `tsc`, so the hook would refuse a
+  clean commit. Pushed from a detached worktree at the commit instead, where the
+  hook checks exactly what ships.
+
+Rule: on STARVED, read the last `kept for review:` line and `du -sh
+~/pixieset-staging/*` before anything else. A downloader waiting on disk plus
+an ingest keeping bytes is a deadlock, and it is fixed at whichever guard is
+wrong, never by deleting a kept archive by hand.
