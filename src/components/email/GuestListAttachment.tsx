@@ -66,7 +66,14 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
   const [include, setInclude] = useState(true);
   const [message, setMessage] = useState(initial?.message || DEFAULT_MESSAGE);
   const [copied, setCopied] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * `dragenter`/`dragleave` fire for every child element the cursor crosses, so
+   * a single boolean flickers off the moment the pointer passes over the icon
+   * or the button. Counting depth is what makes the highlight steady.
+   */
+  const dragDepth = useRef(0);
 
   // Report upward whenever the effective choice changes. A token we don't
   // have, or a box that isn't ticked, both mean "send nothing".
@@ -124,6 +131,57 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
       }
     },
     [eventId]
+  );
+
+  /**
+   * Drag-and-drop onto the card. This was missing entirely until 2026-09-11:
+   * the area looked like a drop target and was inert, because **without
+   * `preventDefault()` on `dragover` the browser never fires `drop` at all**
+   * and instead navigates the tab to the dropped file. There is no error and
+   * nothing in the console — it simply does nothing, which is what made it read
+   * as a broken feature rather than an absent one.
+   *
+   * Accepts the same three extensions as the file input and the POST route.
+   * A dropped sheet REPLACES an attached one, exactly as the Replace button
+   * does — and, like it, kills every link already emailed.
+   */
+  const dragHasFiles = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes("Files");
+
+  const onDragEnter = useCallback((e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    dragDepth.current += 1;
+    setDragging(true);
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!dragHasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      if (busy) return;
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      if (!/\.(xlsx|csv|tsv)$/i.test(file.name)) {
+        toast.error("Drop a spreadsheet — .xlsx, .csv or .tsv");
+        return;
+      }
+      void upload(file);
+    },
+    [busy, upload]
   );
 
   const rotate = useCallback(async () => {
@@ -186,7 +244,24 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
   if (loading) return null;
 
   return (
-    <div className="border border-stone-200 p-4">
+    <div
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`relative border p-4 transition-colors ${
+        dragging ? "border-emerald-500 bg-emerald-50/40" : "border-stone-200"
+      }`}
+    >
+      {/* `pointer-events-none` matters: an overlay that accepts the pointer
+          becomes the drag target itself and thrashes enter/leave. */}
+      {dragging && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 pointer-events-none">
+          <span className="text-[11px] uppercase tracking-[0.15em] font-medium text-emerald-700">
+            Drop to attach
+          </span>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -196,7 +271,7 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
           <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
             {meta
               ? "Sent only to the people you email here — it never appears in the gallery."
-              : "Attach the spreadsheet from SPS → Analytics → Create Spreadsheet."}
+              : "Drop it here, or attach it from SPS → Analytics → Create Spreadsheet."}
           </p>
         </div>
 
