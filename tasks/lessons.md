@@ -3068,3 +3068,34 @@ bugs produced the identical symptom, and neither one said anything.
   is still one home for the value. **A constant shared across the edge/node
   boundary belongs in a leaf module with zero imports**, not in the file that
   happens to use it most.
+
+## 138 — The drop target was never wired, and my probe for it hit a trap I had already written down
+
+Mason: *"I can't drag a file onto the 'Attach Spreadsheet' area of the email
+form."* `GuestListAttachment.tsx` had no `onDrop`/`onDragOver` at all — the card
+was styled like a target and was inert.
+
+- **A drop zone with no `preventDefault()` on `dragover` fails SILENTLY and in
+  the worst way**: the browser never fires `drop`, and instead navigates the tab
+  to the dropped file, discarding whatever the user was composing. No error, no
+  console line. That is why it read as a broken feature rather than a missing
+  one — an absent feature usually announces itself, and this one could not.
+- **Verify a UI fix with a before/after on the SAME probe.** I ran the synthetic
+  drop against production BEFORE the deploy (`dragover` prevented: false, class
+  unchanged, no toast) and after (true, emerald highlight, toast). The negative
+  control is what makes the second reading mean anything; a passing check alone
+  would not distinguish "fixed" from "my probe always passes".
+- **Exercise the refusal path when the accept path would WRITE.** The test event
+  already had a real 786 KB guest list attached, so dropping a spreadsheet would
+  have replaced it and killed every emailed link. Dropping a `.txt` proves the
+  handler fires, bubbles to React, and validates — and returns before any write.
+  For the accept path, patching `window.fetch` to intercept the POST proved the
+  upload was invoked without sending it.
+- **I hit the `text-transform` trap again, in the same session I was being
+  careful.** The overlay check matched `innerText` against "Drop to attach" and
+  returned false; the label is CSS `uppercase`, so the rendered text is "DROP TO
+  ATTACH" and the overlay was there the whole time. `innerText` is RENDERED text;
+  `textContent` is the source. `rules/workflow.md` already carries this lesson
+  from tdp-website, and knowing it did not stop me writing it. **Match on
+  `textContent`, or `/…/i` — and treat any single false reading in a probe as a
+  broken probe until proven otherwise.**
