@@ -225,6 +225,35 @@ that is correct, not an error.
 > SPS's copy already gone. Confirm in batches as you drain, so a crash
 > mid-import does not lose the confirmations already earned.
 
+### `GET /events/{eventId}/guest-list`
+
+Added 2026-09-11 (spsv2 `e960621`). Returns the event's guest-list spreadsheet
+as **XLSX bytes** — the same workbook the photographer downloads from
+SPS → Analytics → Create Spreadsheet, because both routes call one builder
+(`apps/admin/src/lib/guest-list-xlsx.ts`) rather than each rolling their own.
+
+```
+200  application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     Content-Disposition: attachment; filename="twodudes-<event>-guest-list.xlsx"
+     X-Guest-Count: 148
+```
+
+Four things that make this endpoint unlike the three above:
+
+- **It is not JSON.** The Pixeltrunk client cannot route it through `call()`,
+  which ends in `res.json()`. `fetchGuestList()` has its own fetch.
+- **404 is overloaded on purpose, so the MESSAGE carries the meaning.** The
+  event may not exist, may not be yours, or may simply have no guests checked in
+  yet. The client must surface SPS's own sentence rather than the generic
+  "no such event" — they need completely different responses from a human.
+- **It is PII** (guest names, emails, sign-in answers), so the account gate from
+  the photographer's route is carried over, resolved from the token owner's
+  email. A refusal names the account, because a bare 403 is indistinguishable
+  from a broken connection when the likely cause is connecting with the wrong
+  SPS login.
+- **It is a read, with no `pulled` counterpart.** Nothing is released on the SPS
+  side, so the ordering rule above does not apply and the call is safe to repeat.
+
 ## Timing
 
 SPS holds an unclaimed `archive.jpg` for **30 days** from upload, then releases

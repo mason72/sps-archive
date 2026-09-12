@@ -8,6 +8,7 @@ import {
   mintToken,
   readGuestList,
 } from "@/lib/guest-list/store";
+import { readSpsEventId } from "@/lib/sps-integration/event-link";
 
 export const runtime = "nodejs";
 
@@ -220,11 +221,18 @@ export async function GET(
     .maybeSingle();
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const meta = readGuestList((event as { settings: unknown }).settings);
+  const settings = (event as { settings: unknown }).settings;
+  const meta = readGuestList(settings);
   return NextResponse.json({
     attached: !!meta,
     filename: meta?.filename ?? null,
     uploadedAt: meta?.uploadedAt ?? null,
     sizeBytes: meta?.sizeBytes ?? null,
+    source: meta?.source ?? null,
+    // Whether "Pull from SPS" can work at all. Offering a control that is
+    // guaranteed to fail teaches nothing — the composer hides it for galleries
+    // that were never imported, and the AI-controls rule applies in reverse:
+    // there is no "available later" here, only "not applicable".
+    spsLinked: !!readSpsEventId(settings as Parameters<typeof readSpsEventId>[0]),
   });
 }

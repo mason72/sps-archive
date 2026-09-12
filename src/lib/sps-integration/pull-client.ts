@@ -280,3 +280,81 @@ export async function confirmPulled(
   }
   return confirmed;
 }
+
+export interface SpsGuestList {
+  bytes: Buffer;
+  filename: string;
+  contentType: string;
+  /** Rows in the sheet, reported by SPS so nothing here parses the workbook. */
+  guestCount: number | null;
+}
+
+/**
+ * The event's guest-list spreadsheet, as SPS builds it for its own export.
+ *
+ * Does NOT go through `call()`, for two reasons that both matter:
+ *
+ *  - the response is an XLSX, and `call()` ends in `res.json()`;
+ *  - `classify()` rewrites every 404 to "SPS has no such event for this
+ *    connection", which is exactly wrong here. This endpoint also 404s for an
+ *    event that exists and simply has no guests yet, and turning "nobody has
+ *    checked in" into "that event doesn't exist" would send someone hunting a
+ *    broken connection. SPS's own sentence is surfaced instead.
+ *
+ * PII: guest names, emails and sign-in answers. The bytes go straight to R2
+ * under the event's attachment key and are never logged or echoed.
+ */
+export async function fetchGuestList(
+  token: string,
+  spsEventId: string
+): Promise<SpsGuestList> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl()}/events/${spsEventId}/guest-list`, {
+      headers: { "X-SPS-Archive-Token": token },
+      // Building the workbook reads every guest and their photos; give it the
+      // same room a manifest page gets.
+      signal: AbortSignal.timeout(60_000),
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new SpsPullError(
+      "network",
+      null,
+      `Could not reach SPS: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    let reason = "";
+    try {
+      reason = (JSON.parse(body) as { error?: string }).error || "";
+    } catch {
+      reason = body.slice(0, 200);
+    }
+    if (res.status === 404 || res.status === 403) {
+      throw new SpsPullError(
+        "not-found",
+        res.status,
+        reason || "SPS has no guest list for this event."
+      );
+    }
+    throw classify(res.status, reason);
+  }
+
+  const bytes = Buffer.from(await res.arrayBuffer());
+  const disposition = res.headers.get("content-disposition") || "";
+  const named = /filename="([^"]+)"/.exec(disposition)?.[1];
+  const countHeader = res.headers.get("x-guest-count");
+  const guestCount = countHeader ? Number.parseInt(countHeader, 10) : null;
+
+  return {
+    bytes,
+    filename: named || "guest-list.xlsx",
+    contentType:
+      res.headers.get("content-type") ||
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    guestCount: Number.isFinite(guestCount as number) ? guestCount : null,
+  };
+}

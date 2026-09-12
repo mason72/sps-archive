@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   Check,
   Copy,
+  Download,
   FileSpreadsheet,
   Loader2,
   RefreshCw,
@@ -59,8 +60,12 @@ const DEFAULT_MESSAGE = "The guest list from the event is attached below.";
 
 export function GuestListAttachment({ eventId, initial, onChange }: Props) {
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<null | "upload" | "rotate" | "revoke">(null);
+  const [busy, setBusy] = useState<null | "upload" | "rotate" | "revoke" | "sps">(
+    null
+  );
   const [meta, setMeta] = useState<GuestListMetaView | null>(null);
+  /** Imported from SPS, so the sheet can be fetched instead of exported by hand. */
+  const [spsLinked, setSpsLinked] = useState(false);
   /** Present only for a sheet attached in THIS session — see `initial`. */
   const [token, setToken] = useState<string | null>(initial?.token ?? null);
   const [include, setInclude] = useState(true);
@@ -87,6 +92,7 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
         const res = await fetch(`/api/events/${eventId}/guest-list`);
         if (res.ok) {
           const data = await res.json();
+          setSpsLinked(!!data.spsLinked);
           if (data.attached) {
             setMeta({
               filename: data.filename,
@@ -184,6 +190,50 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
     [busy, upload]
   );
 
+  /**
+   * Fetch the sheet from SPS rather than making the photographer export it.
+   *
+   * Mints a fresh token exactly as an upload does, so pulling an updated sheet
+   * kills every link already emailed — the confirm below says so, and only when
+   * there is something to lose.
+   */
+  const pullFromSps = useCallback(async () => {
+    if (
+      meta &&
+      !window.confirm(
+        "Replace the attached guest list with the current one from SPS?\n\nAny link you have already emailed for it will stop working immediately."
+      )
+    )
+      return;
+    setBusy("sps");
+    try {
+      const res = await fetch(`/api/events/${eventId}/guest-list/from-sps`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      // SPS's own sentence, when it has one — "nobody has checked in yet" and
+      // "that account can't export guest lists" need completely different
+      // responses from the person reading it.
+      if (!res.ok) throw new Error(data.error || "Could not reach SPS");
+      setToken(data.token);
+      setInclude(true);
+      setMeta({
+        filename: data.filename,
+        sizeBytes: data.sizeBytes,
+        uploadedAt: new Date().toISOString(),
+      });
+      toast.success(
+        typeof data.guestCount === "number"
+          ? `Guest list pulled from SPS — ${data.guestCount} guests`
+          : "Guest list pulled from SPS"
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reach SPS");
+    } finally {
+      setBusy(null);
+    }
+  }, [eventId, meta]);
+
   const rotate = useCallback(async () => {
     if (
       !window.confirm(
@@ -271,7 +321,9 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
           <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
             {meta
               ? "Sent only to the people you email here — it never appears in the gallery."
-              : "Drop it here, or attach it from SPS → Analytics → Create Spreadsheet."}
+              : spsLinked
+                ? "Pull the current list straight from SPS, or drop a file here."
+                : "Drop it here, or attach it from SPS → Analytics → Create Spreadsheet."}
           </p>
         </div>
 
@@ -307,19 +359,39 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
       />
 
       {!meta ? (
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy === "upload"}
-          className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-all disabled:opacity-40"
-        >
-          {busy === "upload" ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Upload size={12} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* Only for galleries imported from SPS — for anything else the pull
+              has no event to ask about, and a button that cannot work is worse
+              than no button. */}
+          {spsLinked && (
+            <button
+              type="button"
+              onClick={pullFromSps}
+              disabled={!!busy}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white transition-all disabled:opacity-40"
+            >
+              {busy === "sps" ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Download size={12} />
+              )}
+              {busy === "sps" ? "Pulling…" : "Pull from SPS"}
+            </button>
           )}
-          {busy === "upload" ? "Uploading…" : "Attach spreadsheet"}
-        </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={!!busy}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] font-medium border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 transition-all disabled:opacity-40"
+          >
+            {busy === "upload" ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Upload size={12} />
+            )}
+            {busy === "upload" ? "Uploading…" : "Attach spreadsheet"}
+          </button>
+        </div>
       ) : (
         <div className="mt-3 pt-3 border-t border-stone-100 space-y-3">
           {/* What's attached */}
@@ -394,6 +466,21 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
               )}
               New link
             </button>
+            {spsLinked && (
+              <button
+                type="button"
+                onClick={pullFromSps}
+                disabled={!!busy}
+                className="inline-flex items-center gap-1.5 text-[11px] text-stone-500 hover:text-stone-900 transition-colors disabled:opacity-40"
+              >
+                {busy === "sps" ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Download size={11} />
+                )}
+                Refresh from SPS
+              </button>
+            )}
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
