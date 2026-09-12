@@ -3099,3 +3099,43 @@ was styled like a target and was inert.
   from tdp-website, and knowing it did not stop me writing it. **Match on
   `textContent`, or `/…/i` — and treat any single false reading in a probe as a
   broken probe until proven otherwise.**
+
+## 139 — A status code that means three things must carry its own message
+
+Building the guest-list pull, the endpoint's 404 turned out to mean *no such
+event*, *not your event*, or *nobody has checked in yet*. The archive client's
+shared `classify()` rewrites every 404 to "SPS has no such event for this
+connection" — correct for the manifest, and a lie here. Left alone it would have
+told Mason his connection was broken every time an event simply had no guests.
+
+- **A shared error classifier is a shared ASSUMPTION about what a status means.**
+  It was right for three endpoints and wrong for the fourth, and nothing about
+  adding the fourth would have surfaced that — the code compiles, the call
+  succeeds, and only the sentence is wrong. When adding an endpoint to an
+  existing client, read what the classifier does to each status BEFORE reusing
+  it. `fetchGuestList` deliberately bypasses it and surfaces the server's own
+  sentence.
+- **Pin it with a test that asserts the NEGATIVE too.** The regression guard is
+  `expect(err.message).not.toContain("no such event")` beside the positive
+  match — a test that only checks the good string would still pass if someone
+  later routed the call back through `classify()` and the message happened to
+  contain both.
+- **Extract the builder; never write the second one.** SPS already built this
+  workbook for the photographer's own download. Copying those ~90 lines into the
+  new route would have compiled and shipped and then drifted the first time a
+  column changed. It moved to `lib/guest-list-xlsx.ts` and both routes call it,
+  so the two routes now differ ONLY in how they authenticate. Same family as the
+  email hero and share cover.
+- **`npm test` is not `tsc`, demonstrated again in one command.** 701 tests
+  passed while `tsc --noEmit` failed: since TS 5.7 typed arrays are generic over
+  their buffer, so a bare `Uint8Array` is `Uint8Array<ArrayBufferLike>`, which
+  admits `SharedArrayBuffer` and is therefore not a `BodyInit`. Vitest strips
+  types without checking them. The pre-push hook caught nothing because I ran
+  the tests first and believed them.
+- **Verify a writing path without leaving a write.** The chain was proven twice
+  over with no side effects: the event whose guest list is EMPTY exercises auth →
+  lookup → token → fetch → error surfacing and writes nothing, and the success
+  path was proven by pulling on a small event, asserting the stored bytes matched
+  a direct SPS call exactly (7,707 both sides), then revoking — returning the
+  event to the state it was found in. Choose the fixture that makes the
+  destructive half unnecessary.
