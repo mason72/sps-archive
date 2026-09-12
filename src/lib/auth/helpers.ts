@@ -63,11 +63,34 @@ export async function getAuthUser(): Promise<AuthResult> {
   const jar = await cookies();
   const target = decodeActAs(jar.get(ACT_AS_COOKIE)?.value);
   if (target && target.uid !== user.id) {
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("is_admin")
-      .eq("user_id", user.id)
-      .single();
+    // This check runs on EVERY request, and its error was ignored: one blink
+    // from the database dropped the act-as and served Mason his own empty
+    // account, with nothing recorded anywhere (reported 2026-09-11). Falling
+    // back is still right — acting without a verified admin is not an option —
+    // but it must never be invisible again. `.maybeSingle()` because a missing
+    // profile row is an answer ("not an admin"), not an error.
+    let profile: { is_admin: boolean | null } | null = null;
+    let lookupError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await supabase
+        .from("user_profiles")
+        .select("is_admin")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!res.error) {
+        profile = res.data;
+        lookupError = null;
+        break;
+      }
+      lookupError = res.error;
+    }
+    if (lookupError) {
+      const { reportSystemError } = await import("@/lib/monitoring/report");
+      await reportSystemError("auth.act-as.admin-check", lookupError, {
+        userId: user.id,
+        actingAs: target.email,
+      });
+    }
     if (profile?.is_admin) {
       const effective = {
         ...user,

@@ -547,9 +547,40 @@ async function main() {
 
   // A row written before 2026-09-11 carries unzip's garbled spelling; matching
   // on `legacy` too keeps a resumed collection from uploading those frames again.
-  const todo = [...photos.entries()].filter(([base, p]) => !present.has(base) && !present.has(p.legacy));
+  let todo = [...photos.entries()].filter(([base, p]) => !present.has(base) && !present.has(p.legacy));
   const bytesEstimate = collection.bytes ?? 0;
   console.log(`to ingest  : ${n(todo.length)} image(s)${bytesEstimate ? ` · archive is ${mb(bytesEstimate)}` : ""}\n`);
+
+  /**
+   * Is this shoot already in the archive? (scripts/pixieset/twin-skip.ts)
+   *
+   * Six shoots Mason had already delivered from Pixeltrunk were imported a
+   * second time — 5,231 duplicate frames, found and trimmed 2026-09-11. Asking
+   * BEFORE the upload is what makes it free: uploads are this migration's
+   * bottleneck. A normal collection pays one ~40-frame sample and moves on.
+   *
+   * Filtered here, above every downstream count: `todo.length` is what
+   * verifyLanded() checks before the archive is released, so a skipped twin
+   * must never look like a frame that failed to land.
+   */
+  if (todo.length) {
+    const { findTwinsToSkip } = await import("./pixieset/twin-skip");
+    const scan = await findTwinsToSkip({
+      supabase,
+      userId,
+      excludeEventId: eventId,
+      entries: todo.map(([base, p]) => ({ base, read: () => readEntry(p.zipPath, p.entry) })),
+      extractExif,
+      log: (line) => console.log(line),
+    });
+    if (scan.skip.size) {
+      todo = todo.filter(([base]) => !scan.skip.has(base));
+      console.log(
+        `already delivered: skipping ${n(scan.skip.size)} frame(s) already in "${scan.matchedEventName}"` +
+        `${todo.length ? ` — ${n(todo.length)} new frame(s) remain` : " — nothing new in this collection"}\n`
+      );
+    }
+  }
 
   if (!todo.length) {
     console.log("nothing new to import — every photo is already in the archive.");

@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+// Name + lifetime only: the signing lives in impersonation.ts, which imports
+// node's crypto and cannot be loaded here (edge runtime).
+import { ACT_AS_COOKIE, ACT_AS_MAX_AGE } from "@/lib/auth/act-as-cookie";
 
 /** 400 days in seconds — max persistent cookie lifetime per RFC 6265bis */
 const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
@@ -178,6 +181,24 @@ export async function middleware(request: NextRequest) {
   // Redirect authenticated users away from auth pages
   if (user && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Keep an ACTIVE act-as alive. The cookie was 12 hours from the moment it
+  // was issued, so it lapsed mid-session and the next reload silently served
+  // Mason his own empty admin account instead of the team archive he was
+  // working in. Every authenticated app request now slides it forward; it
+  // still lapses after 12 hours of not using the app, and extending it grants
+  // nothing on its own — getAuthUser re-checks is_admin on the REAL session
+  // for every request.
+  const actAs = request.cookies.get(ACT_AS_COOKIE)?.value;
+  if (user && actAs) {
+    supabaseResponse.cookies.set(ACT_AS_COOKIE, actAs, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: ACT_AS_MAX_AGE,
+    });
   }
 
   return supabaseResponse;

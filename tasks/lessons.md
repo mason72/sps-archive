@@ -3030,3 +3030,41 @@ showed "Brendan O’Gibney" but not "Cassandra Córdova", "Nicholas Muñoz" or
   same string, and greppable. **When grep finds nothing in a file you can see
   contains the thing, suspect the FILE, not your pattern** (same family as the
   empty-poll rule: an empty result is a broken probe).
+
+## 137 — Kicked out of his own archive twice a day, and both causes were silent
+
+Mason: *"I also keep getting kicked out of the Two Dudes page (like multiple
+times a day when I reload I'm back in my empty ops account)."* Two independent
+bugs produced the identical symptom, and neither one said anything.
+
+- **A cookie set ONCE with a fixed lifetime is a timer, not a session.** The
+  act-as cookie carried a 12-hour `maxAge` stamped at switch time and was never
+  re-sent, so an ops day that started at 8am ended at 8pm regardless of how
+  active it was — and the eviction landed mid-task on a reload. The fix is to
+  re-set it on every authenticated response, which is what makes it an idle
+  timeout instead of an absolute one. **Any cookie representing "who you are
+  acting as" must be refreshed on use, or its expiry is measured from the wrong
+  event.**
+- **The admin check behind it swallowed its error.** `.maybeSingle()` on a
+  transient PostgREST failure returns no row, and the code read no-row as "not
+  an admin" and dropped the identity. One slow moment in the database logged him
+  out. It now retries once and calls `reportSystemError("auth.act-as.admin-check")`.
+  **A silent identity DOWNGRADE is indistinguishable from a deliberate sign-out**
+  — the user has no way to tell "something broke" from "you were logged out", so
+  they report it as flakiness rather than as an error, and nothing in
+  `system_errors` corroborates them. Any auth check that can fail transiently
+  must retry and report; failing closed is correct, failing *quietly* is not.
+- **Two causes, one symptom, and fixing either alone would have looked like a
+  partial fix.** The 12-hour timer explains a twice-daily eviction; the swallowed
+  error explains the random ones. Had I shipped only the cookie fix, his next
+  report would have read "still happening, less often", which is the shape that
+  invites widening the same guard (see the Loom double-prompt lesson). **When a
+  symptom has a plausible cause AND a plausible frequency mismatch, look for the
+  second cause before shipping.**
+- **The fix could not import the module that already held the constant.**
+  `impersonation.ts` reaches node `crypto` transitively, and edge middleware
+  cannot. So the cookie name and TTL moved to `src/lib/auth/act-as-cookie.ts`,
+  which imports nothing — and `impersonation.ts` now re-exports from it, so there
+  is still one home for the value. **A constant shared across the edge/node
+  boundary belongs in a leaf module with zero imports**, not in the file that
+  happens to use it most.
