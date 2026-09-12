@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   confirmPulled,
+  fetchGuestList,
   fetchManifestPage,
   listSpsEvents,
   walkManifest,
@@ -184,5 +185,95 @@ describe("confirmPulled", () => {
   it("makes no call at all for an empty id list", async () => {
     await expect(confirmPulled(TOKEN, "evt", [])).resolves.toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The guest-list fetch is the one endpoint that is NOT JSON and whose 404 is
+ * overloaded, so both of those are pinned here. The failure they guard against
+ * is quiet: a generic "SPS has no such event" shown to someone whose event
+ * exists and simply has nobody checked in yet sends them hunting a broken
+ * connection instead of telling them to wait for guests.
+ */
+describe("fetchGuestList", () => {
+  // `Uint8Array<ArrayBuffer>`, not a bare `Uint8Array`: since TS 5.7 the typed
+  // arrays are generic over their buffer, and the default `ArrayBufferLike`
+  // admits SharedArrayBuffer, which is not a BodyInit. `npm test` would never
+  // have caught it — vitest strips types without checking them.
+  function xlsxResponse(
+    bytes: Uint8Array<ArrayBuffer>,
+    headers: Record<string, string> = {},
+    status = 200
+  ): Response {
+    return new Response(bytes, {
+      status,
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ...headers,
+      },
+    });
+  }
+
+  it("returns the bytes, the filename SPS chose, and the guest count", async () => {
+    const body = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x11, 0x22]);
+    fetchMock.mockResolvedValue(
+      xlsxResponse(body, {
+        "Content-Disposition": 'attachment; filename="twodudes-k1-guest-list.xlsx"',
+        "X-Guest-Count": "148",
+      })
+    );
+
+    const sheet = await fetchGuestList(TOKEN, "evt");
+    expect(Array.from(sheet.bytes)).toEqual(Array.from(body));
+    expect(sheet.filename).toBe("twodudes-k1-guest-list.xlsx");
+    expect(sheet.guestCount).toBe(148);
+    expect(sheet.contentType).toContain("spreadsheetml");
+
+    // Same rule as every other call: the token is a header, never the URL.
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).not.toContain(TOKEN);
+    expect(String(url)).toContain("/events/evt/guest-list");
+    expect(
+      (init.headers as Record<string, string>)["X-SPS-Archive-Token"]
+    ).toBe(TOKEN);
+  });
+
+  it("surfaces SPS's own 404 sentence instead of the generic not-found text", async () => {
+    const sentence = "This event has no guest list yet — nobody has checked in.";
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: sentence }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const err = await fetchGuestList(TOKEN, "evt").catch((e) => e);
+    expect(err).toBeInstanceOf(SpsPullError);
+    expect(err.kind).toBe("not-found");
+    expect(err.message).toBe(sentence);
+    // The trap this pins down: classify() would have said this instead.
+    expect(err.message).not.toContain("no such event");
+  });
+
+  it("passes a 403 through with its reason, since it names the wrong account", async () => {
+    const sentence =
+      "Guest-list export is limited to info@twodudesphoto.com; this archive token belongs to someone@else.com.";
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: sentence }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const err = await fetchGuestList(TOKEN, "evt").catch((e) => e);
+    expect(err.message).toBe(sentence);
+  });
+
+  it("falls back to a sane filename and a null count when the headers are bare", async () => {
+    fetchMock.mockResolvedValue(xlsxResponse(new Uint8Array([1, 2, 3])));
+    const sheet = await fetchGuestList(TOKEN, "evt");
+    expect(sheet.filename).toBe("guest-list.xlsx");
+    expect(sheet.guestCount).toBeNull();
   });
 });
