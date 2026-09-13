@@ -235,6 +235,21 @@ test("a repair puts lost collections back exactly once", async () => {
   assert.ok(s.done.includes("mcapsseattle2026"));
 });
 
+test("a repair can set a collection aside without retiring it, and the queue moves at once", async () => {
+  // The reload that ships the never-answers fix must unblock the queue right
+  // away, not spend three more hours of 128 GB build requests retiring it.
+  const hung = { slug: "servicenowsko26", at: new Date(Date.now() - 20 * 60_000).toISOString() };
+  const h = harness(base({ jobs: ["servicenowsko26", "next"], driving: hung }), { freeGB: 158, drive: () => ({ phase: "nodl" }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.asked, ["next"]);
+  assert.equal(h.state().tooBig.servicenowsko26, 128);
+  assert.ok(!h.state().done.includes("servicenowsko26"), "set aside is not retired");
+  assert.equal(h.state().attempts.servicenowsko26 ?? 0, 0, "and burns no attempt");
+  assert.ok(!h.blobs.some((b) => b.slug === "servicenowsko26"), "and writes no retirement beacon");
+  assert.match(h.state().log.join("\n"), /1 set aside until the disk can hold it/);
+});
+
 // ------------------------------------------------------------ retirement beacons
 //
 // Retiring a collection without its bytes used to be recorded ONLY in a 60-line

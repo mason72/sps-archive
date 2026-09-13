@@ -54,6 +54,18 @@ const REPAIRS = [
     // the drive lock, the settle rule and alreadyHave() are all in place.
     requeue: ["atlassian-team26expo"],
   },
+  {
+    id: "2026-09-13-set-aside-servicenowsko26",
+    // Its drive never answered, every hour for ~44 hours from 2026-09-11 20:31Z,
+    // and nothing counted it (see DRIVE_ANSWER_MS). Counting alone would still
+    // spend three more hours — three more requests for a ~128 GB build — to
+    // retire it. It cannot fit beside the ingest's 60 GB floor on either disk
+    // today, so it is SET ASIDE instead: not retired, no beacon, and the tooBig
+    // skip brings it back by itself once there is room. 128 is the migration
+    // doc's ESTIMATE (34,274 photos), not a measured size; the drive measures it
+    // for real when it next runs.
+    tooBig: { servicenowsko26: 128 },
+  },
 ];
 
 const DEFAULTS = {
@@ -91,8 +103,15 @@ function applyRepairs(s) {
     const back = (r.requeue || []).filter((slug) => s.done.includes(slug));
     s.done = s.done.filter((slug) => !(r.requeue || []).includes(slug));
     for (const slug of back) if (s.attempts) delete s.attempts[slug];
+    // Set aside: skipped until the disk can hold it, never retired. A drive
+    // still holding the lock for it would block the queue, so release that too.
+    const aside = Object.entries(r.tooBig || {});
+    for (const [slug, gb] of aside) {
+      s.tooBig = { ...(s.tooBig || {}), [slug]: gb };
+      if (s.driving?.slug === slug) s.driving = null;
+    }
     s.repairs.push(r.id);
-    applied.push({ id: r.id, count: back.length });
+    applied.push({ id: r.id, count: back.length, setAside: aside.length });
   }
   return applied;
 }
@@ -448,7 +467,7 @@ async function tick() {
   const s = await load();
   s.lastTickAt = new Date().toISOString();
 
-  for (const r of applyRepairs(s)) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue`);
+  for (const r of applyRepairs(s)) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue${r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : ""}`);
 
   if (!s.running) { await save(s); return; }
 
@@ -752,7 +771,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   const s = await load();
   const repaired = applyRepairs(s);
   if (repaired.length) {
-    for (const r of repaired) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue`);
+    for (const r of repaired) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue${r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : ""}`);
     await save(s);
   }
   // Seed the queue from the bundled jobs.json the first time, so nobody has to
