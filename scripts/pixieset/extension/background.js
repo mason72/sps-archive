@@ -70,6 +70,7 @@ const DEFAULTS = {
   gone: [],            // 404/410 — deleted on Pixieset since the inventory sweep
   inflight: null,      // { slug, ids, sizes, expect, at } — requested, bytes not yet proven
   driving: null,       // { slug, at } — an offscreen drive is running RIGHT NOW
+  tooBig: {},          // slug -> GB it needs: set aside until the disk can hold it. NOT done.
   repairs: [],         // ids of one-shot repairs already applied to THIS profile
   challenges: 0,
   gapMinutes: 20,
@@ -112,9 +113,15 @@ async function ensureOffscreen() {
   });
 }
 
-async function ask(msg) {
+async function ask(msg, timeoutMs) {
   await ensureOffscreen();
-  return chrome.runtime.sendMessage({ target: "offscreen", ...msg });
+  const answer = chrome.runtime.sendMessage({ target: "offscreen", ...msg });
+  if (!timeoutMs) return answer;
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer in ${Math.round(timeoutMs / 60_000)}m`)), timeoutMs);
+  });
+  return Promise.race([answer, late]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -240,6 +247,15 @@ const INFLIGHT_TIMEOUT_MIN = 360;
  * drive block the queue for an hour.
  */
 const DRIVE_TIMEOUT_MIN = 45;
+
+/**
+ * How long a tick waits for the drive to ANSWER. Shorter than the lock, so a
+ * drive that hangs is caught as a counted failure instead of expiring silently
+ * under the lock. Service Now SKO26 (34,274 photos, ~128 GB) was re-requested
+ * every hour from 2026-09-11 20:31Z to 09-13 with zero attempts recorded,
+ * because neither this wait nor the lock's expiry counted as a failure.
+ */
+const DRIVE_ANSWER_MS = (DRIVE_TIMEOUT_MIN - 5) * 60_000;
 
 /**
  * The disk brake.
@@ -498,8 +514,19 @@ async function tick() {
       await save(s);
       return;
     }
-    note(s, `${s.driving.slug}: request abandoned after ${Math.round(drivingMin)}m`);
+    /**
+     * An expired lock is a drive that never answered: the worker died, or the
+     * drive hung. It COUNTS. Before 2026-09-13 it did not, so a collection whose
+     * drive always hangs was re-requested at the head of the queue every hour,
+     * forever — the gated-head and 404-head livelocks again, through a third
+     * door. The retry waits a tick, like a stalled download's.
+     */
+    const abandoned = s.driving.slug;
+    note(s, `${abandoned}: request abandoned after ${Math.round(drivingMin)}m`);
     s.driving = null;
+    failedAttempt(s, abandoned, `drive never answered (${Math.round(drivingMin)}m)`);
+    await saveAndAnnounce(s);
+    return;
   }
 
   const free = await freeGB();
@@ -514,26 +541,36 @@ async function tick() {
     return;
   }
 
-  const slug = remaining[0];
+  // A collection known to be too big for today's disk steps aside rather than
+  // being re-requested at the head every tick — each request is a fresh
+  // multi-GB build at Pixieset. It comes back by itself once the space is there.
+  const slug = remaining.find((j) => !((s.tooBig?.[j] ?? 0) > free - DISK_KEEP_GB));
+  if (!slug) {
+    note(s, `everything left is too big for ${free} GB free — waiting for space`);
+    await save(s);
+    return;
+  }
   note(s, `→ ${slug}`);
   s.driving = { slug, at: new Date().toISOString() };
   await save(s);                                   // record intent BEFORE the work
 
   let r;
   try {
-    r = await ask({ type: "drive", slug, password: s.passwords[slug], opts: { email: s.email, pollTries: 120 } });
+    r = await ask({ type: "drive", slug, password: s.passwords[slug], opts: { email: s.email, pollTries: 120 } }, DRIVE_ANSWER_MS);
   } catch (e) {
-    note(s, `${slug}: offscreen failed — ${String(e?.message ?? e).slice(0, 80)}`);
+    // Includes DRIVE_ANSWER_MS running out. A non-answer is a failed attempt,
+    // or a drive that always hangs holds the head of the queue forever.
     const sErr = await load();
     sErr.driving = null; sErr.log = s.log;
-    await save(sErr);
+    failedAttempt(sErr, slug, `offscreen failed — ${String(e?.message ?? e).slice(0, 80)}`);
+    await saveAndAnnounce(sErr);
     return;                                        // try again next tick
   }
   if (!r) {
-    note(s, `${slug}: no result from offscreen`);
     const sNone = await load();
     sNone.driving = null; sNone.log = s.log;
-    await save(sNone);
+    failedAttempt(sNone, slug, "no result from offscreen");
+    await saveAndAnnounce(sNone);
     return;
   }
 
@@ -591,12 +628,14 @@ async function tick() {
     const need = r.zips.reduce((sum, z) => sum + sizeToGB(z.size), 0);
     const freeNow = await freeGB();
     if (freeNow === null || freeNow - need < DISK_KEEP_GB) {
+      if (freeNow !== null) s2.tooBig = { ...(s2.tooBig || {}), [slug]: Math.round(need * 10) / 10 };
       note(s2, freeNow === null
         ? `${slug}: disk check unreachable after the request — not downloading`
-        : `${slug}: needs ${need.toFixed(1)} GB and only ${freeNow} GB is free — would leave under ${DISK_KEEP_GB} GB for the ingest. Waiting.`);
+        : `${slug}: needs ${need.toFixed(1)} GB and only ${freeNow} GB is free — would leave under ${DISK_KEEP_GB} GB for the ingest. Set aside until it fits.`);
       await saveAndAnnounce(s2);
       return;
     }
+    if (s2.tooBig && slug in s2.tooBig) delete s2.tooBig[slug];
     const { ids, skipped } = await downloadAll(r.zips);
     // NOT done yet — `settleInflight` retires it once every byte has landed.
     s2.inflight = {

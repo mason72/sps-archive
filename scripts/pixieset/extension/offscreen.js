@@ -34,8 +34,18 @@ const scrub = (s) => String(s ?? "")
   .replace(/[?&][^\s"'`)\]]*/g, "")
   .replace(/[A-Za-z0-9_-]{20,}/g, "<k>");
 
+/**
+ * Every request carries a deadline. A fetch with none waits forever on a dead
+ * or stalled response, and a drive stuck inside one never answers the
+ * scheduler — which is how Service Now SKO26 (34,274 photos) held the head of
+ * the queue for 44 hours from 2026-09-11. The same rule as the ingest's R2
+ * client (lesson 131): an outbound call without a timeout is a hang waiting to
+ * happen. Generous, because Pixieset's pages for a huge collection are slow.
+ */
+const REQUEST_TIMEOUT_MS = 180_000;
+
 async function GET(url) {
-  const r = await fetch(url, { credentials: "include" });
+  const r = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   return { url: r.url, status: r.status, html: await r.text() };
 }
 async function POST(url, params) {
@@ -44,6 +54,7 @@ async function POST(url, params) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
     credentials: "include",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return { url: r.url, status: r.status, html: await r.text() };
 }

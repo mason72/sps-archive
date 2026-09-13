@@ -368,15 +368,44 @@ test("a slow drive does not let the next alarm start a second one", async () => 
   assert.equal(h.state().driving, null, "the lock must not outlive the drive");
 });
 
-test("a drive that died with the service worker expires rather than blocking forever", async () => {
+test("a drive that died with the service worker counts as an attempt, and the retry waits a tick", async () => {
   const stale = new Date(Date.now() - 60 * 60_000).toISOString();
   const h = harness(base({ jobs: ["big"], driving: { slug: "big", at: stale } }), {
     drive: () => ({ phase: "nodl" }),
   });
   const { tick } = await loadBackground(h.chrome);
   await tick();
-  assert.equal(h.asked.at(-1), "big", "a worker eviction must not stall the queue permanently");
+  assert.equal(h.state().driving, null, "a worker eviction must not stall the queue permanently");
   assert.match(h.state().log.join("\n"), /request abandoned after/);
+  assert.equal(h.state().attempts.big, 1, "a drive that never answered is a failed attempt");
+  assert.deepEqual(h.asked, [], "and the retry is not instant");
+  await tick();
+  assert.equal(h.asked.at(-1), "big");
+});
+
+test("a drive that never answers three times is retired, and the queue moves on", async () => {
+  // servicenowsko26, 2026-09-11 → 09-13: 34,274 photos, re-requested every hour
+  // for 44 hours, because an expired lock was never counted as a failure.
+  const stale = new Date(Date.now() - 60 * 60_000).toISOString();
+  const h = harness(base({ jobs: ["hangs", "after"], attempts: { hangs: 2 }, driving: { slug: "hangs", at: stale } }), {
+    drive: () => ({ phase: "nodl" }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.ok(h.state().done.includes("hangs"));
+  assert.match(h.state().log.join("\n"), /failed 3x \(drive never answered/);
+  assert.equal(h.blobs.at(-1)?.slug, "hangs", "retiring it must reach the ledger, not just the log");
+  await tick();
+  assert.equal(h.asked.at(-1), "after");
+});
+
+test("an offscreen error counts as an attempt", async () => {
+  const h = harness(base({ jobs: ["x"] }), { drive: () => { throw new Error("Could not establish connection"); } });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.state().attempts.x, 1, "an error that retries forever is the same livelock");
+  assert.equal(h.state().driving, null);
+  assert.match(h.state().log.join("\n"), /offscreen failed/);
 });
 
 // ------------------------------------------------------------ the disk brake
@@ -413,6 +442,27 @@ test("an archive that would starve the ingest is left queued, not failed", async
   assert.equal(h.state().done.length, 0, "not fitting today is not a failure");
   assert.equal(h.state().attempts.huge ?? 0, 0, "and it must not burn an attempt");
   assert.match(h.state().log.join("\n"), /needs 46.0 GB and only 100 GB is free/);
+});
+
+test("an archive too big for today's disk steps aside instead of holding the head", async () => {
+  const zips = [{ url: "u1", name: "a.zip", size: "40 GB" }, { url: "u2", name: "b.zip", size: "6 GB" }];
+  const h = harness(base({ jobs: ["huge", "next"] }), {
+    freeGB: 100,
+    drive: ({ slug }) => (slug === "huge" ? { ok: true, expect: 2, zips } : { phase: "nodl" }),
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.state().tooBig.huge, 46);
+  await tick();
+  assert.deepEqual(h.asked, ["huge", "next"], "re-requesting it every tick is a fresh 46 GB build at Pixieset each time");
+  assert.equal(h.state().attempts.huge ?? 0, 0, "not fitting is still not a failure");
+
+  // The space arrives, and it comes back by itself.
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ freeGB: 200, floorGB: 25 }) });
+  await tick();
+  assert.equal(h.asked.at(-1), "huge");
+  assert.equal(h.state().inflight?.slug, "huge");
+  assert.equal(h.state().tooBig.huge, undefined, "once requested it is no longer set aside");
 });
 
 test("it downloads when the archive fits with the ingest's floor left over", async () => {
