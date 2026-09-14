@@ -146,8 +146,17 @@ export const RENDITION_WIDTH_MAX = 2560;
  * Derived from the decoded pixels, deliberately NOT from the byte size or the
  * inventory's `size` field: a guard that reads the same source as the thing it
  * is guarding can only ever agree with it.
+ *
+ * Reads EVERY frame by default. It read 5 until 2026-09-14, and five frames
+ * cannot measure "uniform": an all-portrait gallery's minority width hides
+ * between them, so genuine originals were quarantined as renditions
+ * (cemasummit2018: widths 2000×7 and 1335×3, every sampled frame 2000). The
+ * cost is ~2 ms a frame (200 frames of a 3.9 GB part in 401 ms), next to a CRC
+ * pass over the whole archive. Checked against the 203 collections already
+ * accepted: four are uniform across every frame, all at 3200px or wider, so
+ * none crosses RENDITION_WIDTH_MAX.
  */
-export async function sampleDimensions(zipPath, entries, { sample = 5 } = {}) {
+export async function sampleDimensions(zipPath, entries, { sample = Infinity } = {}) {
   const jpegs = entries.filter((e) => JPEG.test(e));
   if (!jpegs.length) return { sampled: 0, longEdges: [], medianLongEdge: null };
   // Spread the sample across the archive — a burst from the front would miss a
@@ -229,8 +238,9 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedF
     dimensions = await sampleDimensions(widest.path, widest.entries);
     if (dimensions.isRendition) {
       problems.push(
-        `looks like a Web Size rendition, not originals: every sampled frame is ${dimensions.uniformWidth}px wide ` +
-        `(median long edge ${dimensions.medianLongEdge}). Re-request this collection at High Resolution.`
+        `looks like a Web Size rendition, not originals: all ${dimensions.sampled} frames are ${dimensions.uniformWidth}px wide ` +
+        `(median long edge ${dimensions.medianLongEdge}). Download size is already Original account-wide, so do not ` +
+        `re-request; compare its widths with an accepted collection of the same era before accepting it.`
       );
     }
   }

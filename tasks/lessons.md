@@ -3753,3 +3753,34 @@ live wall carried 38 of them, 1,508 photos, several among its largest cards.
 - **Build the old code AGAIN after the new build, not only before.** Two builds an hour apart on a live archive differ by whatever landed; a control built at the same time turns "18 added, 125 changed" into "one card, uploaded mid-session".
 - **List what a rule touches, not only what it changes on the wall.** 821 groups flagged against 26 cards removed shows the other 795 were already off the wall, which is what makes the rule safe to share with the next reader.
 - **A lesson number is claimed at commit time, not at start.** Other sessions took 150, 151 and 152 while this ran (it was drafted as 150, then 151); check `origin/main` before writing the number into code comments.
+
+## 154 — The Web Size guard read five frames, and its own test could not see the bug (2026-09-14)
+
+**What happened.** `sampleDimensions()` judged a Pixieset archive a Web Size
+rendition when five evenly spaced frames shared one width at or under 2,560px.
+The fix was argued in memory on 2026-08-28 ("the bug is the SAMPLE SIZE") and
+never applied, so the ledger kept failing genuine originals: CEMA Summit 2018
+(widths 2000×7, 1335×3) went to quarantine on 08-30, two days after the
+diagnosis. Four collections sat `failed` with advice ("re-request at High
+Resolution") that the same memory had already proven wrong.
+
+- **A settled diagnosis in memory is not a fix.** Grep the code for the change
+  before trusting "SETTLED" in a note. `sample = 5` was still there.
+- **Every frame is cheap; measure before sampling.** 200 frames of a 3.9 GB part
+  took 401 ms (~2 ms each). Reading all of them removes the sample-size risk
+  instead of shrinking it.
+- **Check a full-population rule against the accepted population.** Of 203
+  ingested collections, 4 are uniform across EVERY frame (RSAC 2026 Chairman's
+  Reception: 180 at 4,800). Memory claimed none were. All are ≥3,200px, so the
+  cap still holds, but the claim was false and is corrected.
+- **The first test passed for the wrong reason, twice.** A positional fixture
+  (the minority width placed where a 5-frame sample could not see it) did not
+  fail on the old code. `zip -r .` stores files in readdir order, and APFS
+  readdir is not alphabetical: a 10-frame zip came back 001,003,002,006,…,
+  which moved frames under the sample. Zero-padding names did not help. The
+  helper now passes files to `zip` by name. **A regression test must be run
+  against the old code and fail on the assertion that names the bug** — the
+  first run failed on a different assertion, which proved nothing.
+- **Uniform narrow width across every frame still fails, deliberately.** CEMA
+  Covers is 24 of 24 at 2,400×3,000: a designed export, not the 2,048px Web Size
+  signature, but whether it is an original is a human call.

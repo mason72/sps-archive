@@ -176,10 +176,19 @@ function sofJpeg(width, height) {
 async function makeSizedZip(name, dims) {
   const staging = join(dir, `stage-${name}`);
   await mkdir(join(staging, "All_Photos"), { recursive: true });
+  // Files are handed to zip BY NAME, in the order given. `zip -r .` stores them
+  // in readdir order, and APFS readdir is not alphabetical: a 10-frame zip came
+  // back 001,003,002,006,007,005,010,… (2026-09-14), which moved frames under
+  // the fidelity sample and made a positional test pass for the wrong reason.
+  const names = [];
   let i = 0;
-  for (const [w, h] of dims) await writeFile(join(staging, "All_Photos", `img_${++i}.jpg`), sofJpeg(w, h));
+  for (const [w, h] of dims) {
+    const entry = `All_Photos/img_${String(++i).padStart(3, "0")}.jpg`;
+    await writeFile(join(staging, entry), sofJpeg(w, h));
+    names.push(entry);
+  }
   const zipPath = join(dir, name);
-  await run("zip", ["-rq", zipPath, ".", "-i", "*"], { cwd: staging });
+  await run("zip", ["-q", zipPath, ...names], { cwd: staging });
   return zipPath;
 }
 
@@ -208,6 +217,30 @@ test("the fidelity guard does not fire on a uniform LARGE width", async () => {
   const z = await makeSizedZip("uniform-big-1of1.zip", [[6000, 4000], [6000, 4000], [6000, 4000], [6000, 4000]]);
   const r = await verifyArchive([z], { expectedFiles: 4 });
   assert.equal(r.ok, true, r.problems.join("; "));
+});
+
+test("originals pass even when a few frames would have hidden their second width", async () => {
+  // cemasummit2018, quarantined 2026-08-30: 7 frames 2000 wide, 3 at 1335. The old
+  // guard read 5 evenly spaced frames (indices 0,2,4,6,8), every one 2000, and
+  // called genuine originals a rendition. The other width was at 1, 3 and 5.
+  const w = (x) => [x, 2000];
+  const z = await makeSizedZip("cema2018-1of1.zip", [
+    w(2000), w(1335), w(2000), w(1335), w(2000), w(1335), w(2000), w(2000), w(2000), w(2000),
+  ]);
+  const r = await verifyArchive([z], { expectedFiles: 10 });
+  assert.equal(r.ok, true, r.problems.join("; "));
+  assert.equal(r.dimensions.sampled, 10, "every frame is read, not a sample");
+  assert.equal(r.dimensions.uniformWidth, null);
+});
+
+test("a narrow width uniform across EVERY frame is still rejected", async () => {
+  // cemacovers: 24 of 24 frames at 2400x3000. Reading every frame does not clear
+  // it; whether a designed export is an original stays a human call.
+  const z = await makeSizedZip("covers-1of1.zip", Array.from({ length: 24 }, () => [2400, 3000]));
+  const r = await verifyArchive([z], { expectedFiles: 24 });
+  assert.equal(r.ok, false);
+  assert.equal(r.dimensions.uniformWidth, 2400);
+  assert.match(r.problems.join(" "), /Web Size rendition/);
 });
 
 test("the set picker's count is an equality target, unlike photo_count", async () => {
