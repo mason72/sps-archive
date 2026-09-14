@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   eventLabelKeys,
+  firstNameKeys,
+  isSessionLabelFile,
   looksLikeSingleName,
   nameHasSessionWord,
   EVENT_LABEL_MIN_COUNT,
   EVENT_LABEL_MIN_SHARE,
 } from "./event-labels";
+import { nameBeforeDate } from "@/lib/gallery/stacks";
 
 const rows = (eventId: string, key: string, n: number) =>
   Array.from({ length: n }, () => ({ eventId, key }));
@@ -75,6 +78,48 @@ describe("eventLabelKeys", () => {
       new Map([["e", EVENT_LABEL_MIN_COUNT - 1]])
     );
     expect(under.size).toBe(0);
+  });
+});
+
+describe("isSessionLabelFile (lesson 151)", () => {
+  // First names the archive knows from dated files, measured 2026-09-14.
+  const known = firstNameKeys(["Julia Chambers", "Kelly Bottarini", "Bill Birdsall", "Tessa Smith"]);
+  const session = (file: string, event: string, first: ReadonlySet<string> = known) =>
+    isSessionLabelFile(file, event, first, nameBeforeDate(file));
+
+  it("flags the session exports measured on /people", () => {
+    const cases: [string, string][] = [
+      ["Guardant_Team-Spirit-Night_13.jpg", "Guardant Event Photos"],
+      ["Guardant_General-Session_25.jpg", "Guardant Event Photos"],
+      ["Atlassian_Partner_Welcome-3.jpg", "Atlassian Partner Accelerator"],
+      ["Atlassian_Breakouts_1_Highlights-17.jpg", "Atlassian Partner Accelerator"],
+      ["Atlassian-Champions-Breakouts-Day-2-highlights-11.jpg", "Atlassian Champions"],
+      ["CEMA_Recep_0053.jpg", "CEMA Summit"],
+      ["eBay_HR_6503.jpg", "eBay Staff Photos"],
+    ];
+    for (const [file, event] of cases) expect(session(file, event), file).toBe(true);
+  });
+
+  it("keeps a person whose file leads with their own name", () => {
+    expect(session("KellyBottarini_063.jpg", "KELLY BOTTARINI'S HEADSHOTS")).toBe(false);
+    expect(session("TESSA_CHIME_10811.jpg", "CHIME // Headshots 2026")).toBe(false);
+    expect(session("260508_BillBirdsall_0129.jpg", "Bill, Dinah, and Steve")).toBe(false);
+  });
+
+  it("keeps a dated file even when it leads with the event's word", () => {
+    expect(session("Guardant_26-03-10_Booth_0012.jpg", "Guardant Event Photos")).toBe(false);
+  });
+
+  it("a known first name guards a gallery titled for its sitter", () => {
+    // The shape the rejected "shares a word" rule broke, spelled with separators.
+    expect(session("Kelly_Bottarini_001.jpg", "KELLY BOTTARINI'S HEADSHOTS")).toBe(false);
+    expect(session("Julia_Chambers_01.jpg", "CoStar Group // Julia & Tom")).toBe(false);
+    // …and it is the guard doing it: without the known names both would go.
+    expect(session("Julia_Chambers_01.jpg", "CoStar Group // Julia & Tom", new Set())).toBe(true);
+  });
+
+  it("matches the lead token whole, never a prefix of an event word", () => {
+    expect(session("Guard_Team_12.jpg", "Guardant Event Photos")).toBe(false);
   });
 });
 

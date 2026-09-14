@@ -17,7 +17,7 @@
  * or host in many frames makes one cluster large on a label event too.
  */
 
-import { nameText } from "./name-text";
+import { foldName, nameText } from "./name-text";
 
 /** A name covering fewer photos than this is never a label, whatever its share. */
 export const EVENT_LABEL_MIN_COUNT = 100;
@@ -57,6 +57,71 @@ export function eventLabelKeys(
     }
   }
   return labels;
+}
+
+/**
+ * A SESSION label is a label too small to be caught by share: an event's
+ * coverage exported one folder per session, "Guardant_Team-Spirit-Night_13.jpg",
+ * "CEMA_Recep_0053.jpg", "eBay_HR_6503.jpg". Each parses to a person-shaped
+ * name, and each session is a few percent of its event, so `eventLabelKeys`
+ * never fires. Measured 2026-09-14: 26 cards, 1,111 photos (lesson 151).
+ *
+ * The file is one when ALL of these hold:
+ * - no date anchor proves where a name ends (a dated file names its sitter);
+ * - the filename's first `_`/`-` token is, as a whole, a word of the EVENT's
+ *   name ("Guardant" in "Guardant Event Photos"). A person's file leads with
+ *   their own name, usually fused ("KellyBottarini_063");
+ * - that word is not a first name the archive already knows (`firstNameKeys`).
+ *   This is what keeps "Kelly_Bottarini_001.jpg" in KELLY BOTTARINI'S
+ *   HEADSHOTS, or "Julia_Chambers_01.jpg" in "CoStar Group // Julia & Tom":
+ *   a gallery titled for its sitter shares her first name with the files.
+ *
+ * Rejected on measurement: "the name shares a word with its event" (73 cards,
+ * Kelly Bottarini, Bill/Dinah/Steve and every "Amy Chime" among them), and
+ * "several names in the event start with the same word" (604). Every miss is
+ * fail-safe: a brand that is also a first name ("Jordan") stays on the wall,
+ * one "Not a person" click away, rather than a person vanishing silently.
+ */
+export function isSessionLabelFile(
+  originalFilename: string,
+  eventName: string,
+  knownFirstNames: ReadonlySet<string>,
+  /** `nameBeforeDate(originalFilename)`, which the caller already computed. */
+  datedName: string | null
+): boolean {
+  if (datedName) return false;
+  const lead = wordKey(
+    nameText(originalFilename.replace(/^\(AI\)\s*/i, "")).replace(/\.\w+$/, "").split(/[_-]/)[0]
+  );
+  if (lead.length < 2 || knownFirstNames.has(lead)) return false;
+  return nameWordKeys(eventName).includes(lead);
+}
+
+/**
+ * First-word keys of person-shaped names read from DATED filenames, where the
+ * date proves where the name ends. Pass names already judged person-shaped.
+ * A brand or session word never leads one: Guardant, Atlassian, CEMA and eBay
+ * all count 0 across 213,114 rows; Julia 185, Kelly 223, Bill 67.
+ */
+export function firstNameKeys(personNames: Iterable<string>): Set<string> {
+  const keys = new Set<string>();
+  for (const name of personNames) {
+    const first = nameWordKeys(name)[0];
+    if (first) keys.add(first);
+  }
+  return keys;
+}
+
+/** Same folding as `normalizeNameKey` (index-people.ts imports this file). */
+function wordKey(s: string): string {
+  return foldName(s).replace(/[^a-z]/g, "");
+}
+
+function nameWordKeys(s: string): string[] {
+  return nameText(s)
+    .split(/[^\p{L}\p{M}]+/u)
+    .map(wordKey)
+    .filter((w) => w.length >= 2);
 }
 
 /** eventId → identity key → how many of that event's photos carry it. */

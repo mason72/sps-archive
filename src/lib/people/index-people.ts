@@ -17,11 +17,13 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import {
   countByEventKey,
   eventLabelKeys,
+  firstNameKeys,
+  isSessionLabelFile,
   looksLikeSingleName,
   nameHasSessionWord,
   SINGLE_NAME_MAX_FRAMES_PER_EVENT,
 } from "./event-labels";
-import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
+import { displayName, nameBeforeDate, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "./aliases";
 import { loadFaceMembership } from "./face-membership";
 import { foldName, ilikeTokens, nameText } from "./name-text";
@@ -581,6 +583,25 @@ export async function buildPeopleIndex(
     for (const row of rows) {
       const p = parsedByRow.get(row.id);
       if (p && labelsByEvent.get(row.event_id)?.has(p.key)) parsedByRow.delete(row.id);
+    }
+  }
+
+  // Session labels — "Guardant_Team-Spirit-Night_13.jpg" — are too small a
+  // share for the rule above; see isSessionLabelFile for the shape and why
+  // the archive's known first names guard it (lesson 151).
+  const datedNameByRow = new Map<string, string | null>();
+  const datedPersonNames: string[] = [];
+  for (const row of rows) {
+    const dated = nameBeforeDate(row.original_filename);
+    datedNameByRow.set(row.id, dated);
+    if (dated && looksLikePersonName(dated)) datedPersonNames.push(dated);
+  }
+  const knownFirstNames = firstNameKeys(datedPersonNames);
+  for (const row of rows) {
+    if (!parsedByRow.has(row.id)) continue;
+    const ev = eventById.get(row.event_id);
+    if (ev && isSessionLabelFile(row.original_filename, ev.name, knownFirstNames, datedNameByRow.get(row.id) ?? null)) {
+      parsedByRow.delete(row.id);
     }
   }
 
