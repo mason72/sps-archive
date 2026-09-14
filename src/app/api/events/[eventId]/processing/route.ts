@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { inngest } from "@/lib/inngest/client";
@@ -225,11 +225,16 @@ export async function GET(
         Date.now() - lastKick > INDEX_KICK_THROTTLE_MS
       ) {
         lastIndexKick.set(eventId, Date.now());
-        inngest
-          .send({ name: "ai/index.requested", data: { eventId } })
-          .catch(() => {
+        // after(), not a bare un-awaited send: a serverless function can be
+        // frozen the moment its response is sent, taking an in-flight request
+        // with it — on 2026-09-14 a kick from this route never produced a run
+        // (lesson 147). after() keeps the instance alive until the send settles
+        // without making the status read wait on it.
+        after(() =>
+          inngest.send({ name: "ai/index.requested", data: { eventId } }).catch(() => {
             /* a status read must never fail on a nicety */
-          });
+          })
+        );
       }
     }
 

@@ -78,9 +78,10 @@ type Events = {
   };
   /**
    * AI-index an event (SigLIP-2 embeddings, face embeddings, quality scores).
-   * Settlement-triggered: debounced 15m per event AND the job re-checks that
+   * Settlement-triggered: debounced 2m per event AND the job re-checks that
    * no uploads are pending before touching anything. Fired from upload
-   * finalize/reconcile paths and the nightly reconciler sweep.
+   * finalize, the processing route's stall self-heal, and the 30-minute
+   * `ai-index-sweep` cron.
    */
   "ai/index.requested": {
     data: {

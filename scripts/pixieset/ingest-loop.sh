@@ -84,7 +84,7 @@ while :; do
 
   out=$(npx tsx scripts/pixieset-ingest.ts --next --apply 2>&1)
   # Inngest settlement cannot fire from this machine (no event key); production's
-  # nightly ai-index sweep picks these events up. Not worth a stack trace a pass.
+  # ai-index-sweep (every 30 min, lesson 147) picks these events up. Not worth a stack trace a pass.
   echo "$out" | grep -vE "^\s+at |Inngest API Error|settlement dispatch"
 
   # The ingest prints "nothing is verified and waiting to ingest." — which

@@ -3451,3 +3451,39 @@ as "its own problem" and left it.
   removing cards?"). A decision card on a rule change must first say what the
   thing is for and why the input breaks it, and that nothing is deleted, before
   it offers options.
+
+## 147 — Six galleries were never indexed, and a "Mike" card showed three men (2026-09-14)
+
+Mason opened a "Mike" card holding three different people: the Atlassian
+headshot subject, a family from an Applovin booth, and an Axos Bank banker. He
+had reasonably thought the face split fixed this.
+
+- **The split did run; two events had no face evidence.** Applovin's 4 photos
+  are group booth shots (no solo frame, so no usable face, ever). Axos Bank's 14
+  had 0 faces because the whole 555-photo gallery had never been AI-indexed. By
+  design an event with no evidence joins the largest card, so both did.
+  Changing that default is Mason's call and is held until indexing catches up,
+  because a stall makes every rule look worse (the no-evidence-gets-its-own-card
+  variant split 33 real people, many through unindexed events).
+- **AI indexing had stopped for 5 hours with zero errors.** Six migrated
+  galleries (3,145 photos, 09:52-11:25 UTC) had `ai_indexed_at` null. It took
+  six probes to rule out Modal, a jammed Inngest queue and missing thumbnails.
+  The cause was that nothing had ever ASKED for the work: the ingest runs on the
+  mini, which has no Inngest event key, so its `ai/index.requested` fails, and
+  ingest-loop.sh filters that exact message out of the log on purpose. The only
+  other trigger was a nightly sweep at 09:43 UTC, which ran nine minutes before
+  the first of the six arrived. **An empty queue and a stalled pipeline look
+  identical; the discriminator is whether the work was ever requested.**
+- **A fire-and-forget send in a serverless route can vanish.** The processing
+  route's stall self-heal ran `inngest.send(...)` without awaiting it and
+  returned. The instance can freeze once the response is sent, and a kick I
+  triggered at 15:24 produced no run. Now wrapped in `after()`.
+- **Fix:** the sweep is its own cron, `ai-index-sweep`, every 30 minutes (:07
+  and :37), moved out of the nightly reconciler. The query costs ~0.5s and a
+  redundant nudge is one debounced no-op, so a migrated gallery waits at most
+  ~30 minutes, not most of a day.
+- **Probes that lied along the way:** the ingest log had 0 "settlement" lines
+  because the loop greps them out; `grep` on `git show …lessons.md` stopped at
+  lesson 136 because it read the rest as binary (use `grep -a`); a Vercel log
+  aggregate over 5 hours timed out and returned nothing (scope to a
+  deploymentId). Each looked like an answer.

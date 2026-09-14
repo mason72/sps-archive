@@ -45,8 +45,12 @@ pipeline's fatal sin).
 `ai-index` (2m/event debounce + zero-pending-uploads check + kill switch) →
 `src/lib/ai-index/index-event.ts` batches → Modal → writes AI columns + faces
 (replace-per-image, idempotent; focal_x/y untouched). Completion fires
-`faces/cluster.requested`. Nightly reconciler sweeps events with unindexed
-work (catches SPS imports). Backfill/ops: `scripts/backfill-ai-index.ts`
+`faces/cluster.requested`. The `ai-index-sweep` cron nudges every event with
+unindexed work **every 30 minutes** (:07/:37 UTC). It was a nightly step until
+2026-09-14 (lesson 147), and for Pixieset migrations it is the ONLY trigger:
+the ingest runs on the mini, which has no Inngest event key, so its own send
+fails silently. A migrated gallery therefore waits up to ~30 minutes for
+faces and search, not up to a day. Backfill/ops: `scripts/backfill-ai-index.ts`
 (~1 img/s, T4 ≈ $0.60/hr; the 19.6k archive cost ~$5).
 
 **Face rows insert 50 at a time (`FACE_INSERT_CHUNK`), and the number is

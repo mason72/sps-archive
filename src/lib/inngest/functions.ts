@@ -528,25 +528,44 @@ export const uploadReconciler = inngest.createFunction(
       });
     }
 
-    /**
-     * AI-index backstop: nudge any event holding unindexed displayable images
-     * (catches SPS imports and anything that missed the finalize-time
-     * dispatch). Debounce + the job's own pending-uploads check make this safe
-     * to over-fire; it no-ops entirely while AI_INDEXING_ENABLED is off.
-     *
-     * This used to read `.limit(5000)` rows of `images` with NO ordering and
-     * take the first 25 distinct event ids. Both halves were wrong for a bulk
-     * import: 25 a night is 55 days behind a 1,371-collection Pixieset move,
-     * and — worse — those 5,000 rows can all belong to two or three large
-     * collections, so the same events were nudged every night while the rest
-     * STARVED. Silently, because the job reported success either way. Raising
-     * the cap alone would not have fixed it.
-     *
-     * `events_needing_ai_index` groups in the database and orders by the
-     * oldest pending image, so it is FIFO: the gallery waiting longest goes
-     * first. AI_INDEX_NUDGE_LIMIT tunes the batch without a deploy; the SQL
-     * clamps it to 2,000 whatever is passed.
-     */
+    return stats;
+  }
+);
+
+/**
+ * AI-index backstop: nudge any event holding unindexed displayable images
+ * (catches SPS imports, Pixieset migrations and anything that missed the
+ * finalize-time dispatch). Debounce + the job's own pending-uploads check make
+ * this safe to over-fire; it no-ops entirely while AI_INDEXING_ENABLED is off.
+ *
+ * EVERY 30 MINUTES, not nightly (2026-09-14, lesson 147). It used to be a step
+ * inside the nightly upload reconciler, and for a Pixieset migration that was
+ * the ONLY trigger: the ingest runs on the mini, which has no Inngest event
+ * key, so its own `ai/index.requested` fails and ingest-loop.sh filters the
+ * error out. Six galleries (3,145 photos) imported just after the 09:43 UTC
+ * run sat unindexed for most of a day — no faces, no search, and /people glued
+ * their names onto other people's cards because a no-evidence event joins the
+ * largest card. Nothing errored; the work was simply never requested. The
+ * query is ~0.5s, and a redundant nudge is one debounced no-op.
+ *
+ * This used to read `.limit(5000)` rows of `images` with NO ordering and
+ * take the first 25 distinct event ids. Both halves were wrong for a bulk
+ * import: 25 a night is 55 days behind a 1,371-collection Pixieset move,
+ * and — worse — those 5,000 rows can all belong to two or three large
+ * collections, so the same events were nudged every night while the rest
+ * STARVED. Silently, because the job reported success either way. Raising
+ * the cap alone would not have fixed it.
+ *
+ * `events_needing_ai_index` groups in the database and orders by the
+ * oldest pending image, so it is FIFO: the gallery waiting longest goes
+ * first. AI_INDEX_NUDGE_LIMIT tunes the batch without a deploy; the SQL
+ * clamps it to 2,000 whatever is passed.
+ */
+export const aiIndexSweep = inngest.createFunction(
+  { id: "ai-index-sweep", retries: 1 },
+  // :07 and :37 — off the favorites digest's :00/:30.
+  { cron: "7,37 * * * *" },
+  async ({ step }) => {
     const aiEventIds = await step.run("ai-index-sweep", async () => {
       const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
       if (!isAiIndexingEnabled()) return [] as string[];
@@ -577,8 +596,7 @@ export const uploadReconciler = inngest.createFunction(
         }))
       );
     }
-
-    return stats;
+    return { nudged: aiEventIds.length };
   }
 );
 
@@ -837,7 +855,7 @@ export const coverFocal = inngest.createFunction(
  * upload session fires this once after the dust settles, and the job ALSO
  * verifies zero pending upload rows before touching anything — if uploads are
  * still in flight it exits and waits for the next finalize/reconcile to
- * re-fire it (the nightly reconciler sweep is the backstop). Uploading always
+ * re-fire it (the 30-minute `ai-index-sweep` is the backstop). Uploading always
  * outranks indexing; this job never runs in any upload request path.
  *
  * Kill switch: AI_INDEXING_ENABLED. Unset/false = this function no-ops and
