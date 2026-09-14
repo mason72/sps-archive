@@ -35,7 +35,7 @@ describe("the WEKA gallery, by the wall's label rule", () => {
     expect(wekaKey).toBe("wekaskoeventphotos");
   });
 
-  it("casts no namer vote at all since the agreement rule (lesson 145)", () => {
+  it("casts no namer vote at all since the agreement rule (lesson 148)", () => {
     expect(frameName("WekaSKO27 EventPhotos", "WekaSKO27_EventPhotos-03055.jpg")).toBeNull();
   });
 

@@ -1,6 +1,6 @@
 /**
  * Clear face-cluster names the old filename namer wrote and the current one
- * refuses (lesson 145, approved by Mason 2026-09-14: "Clear the 40 junk").
+ * refuses (lesson 148, approved by Mason 2026-09-14: "Clear the 40 junk").
  *
  * The plan file is ALSO the undo ledger: [personId, eventId, oldName] rows,
  * committed before the first write. It holds the 40 names

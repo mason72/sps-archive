@@ -3487,3 +3487,49 @@ had reasonably thought the face split fixed this.
   lesson 136 because it read the rest as binary (use `grep -a`); a Vercel log
   aggregate over 5 hours timed out and returned nothing (scope to a
   deploymentId). Each looked like an answer.
+
+## 148 — "Single-home it" was the wrong fix: the face namer needed agreement, not a new source (2026-09-14)
+
+**What happened.** The face-cluster namer (`consensusName` in
+`src/lib/faces/cluster-event.ts`) read names from the raw filename's first
+segment (`extractPersonName`), beside the wall's `personNameFromParts`. After
+lesson 142 taught the wall to refuse fused event tags, the namer still wrote
+them: 24 DATADOG clusters were named "Lauren Smith Data Dog Headshots" and
+similar. Those names were live reference centroids, so the suggestion engine
+could offer them as names in other events.
+
+- **The brief's fix measured worse than the bug.** The obvious move was to
+  point the namer at `personNameFromParts`. Replayed over all 28,634 clusters
+  (`scripts/triage/cluster-namer-parity.ts`), that would have named ~237
+  clusters after event sessions ("Guardant Team Spirit Night", "CEMA Recep"),
+  because `parsed_name` reassembles every segment of a multi-part label, while
+  the raw reader stopped at "Guardant" and failed the shape test. Voting on the
+  wall's key with the wall's own `looksLikePersonName` gate did not save it.
+  Two readers with different blind spots are not fixed by picking one.
+- **Agreement is the rule that cannot mint a new name.** `frameName` gives a
+  frame a vote only when both readings produce the same key. It declined 45 of
+  7,587 auto names and named 1 cluster the old namer would not. The price is a
+  few correct names the WALL misreads ("LisaOBrien" parses as "Lisa Brien"),
+  and that is the parser's bug to fix, where it also fixes the wall.
+- **`persons` records no author.** Provenance had to be inferred: a confirmed
+  guest suggestion = human; a name equal to the old namer's consensus = auto.
+  Only auto names were candidates for clearing, and the namer is fill-nulls-only,
+  so the code change alone renames nothing.
+- **Mason approved clearing 40 junk names** (24 DATADOG tags, 4 PG&E
+  "Jim H01" suffixes, 12 labels in the marketing galleries) and keeping the 5
+  correct ones. `scripts/clear-junk-cluster-names.ts` clears only rows still
+  holding the old name, never writes `rejected_names` (a human's memory), and
+  runs the scoped reference refresh per event. The plan file
+  `tasks/clear-junk-cluster-names-2026-09-14.json` was committed BEFORE the
+  write and doubles as the undo (`--undo`). Verified: 0 still named, 0 reference
+  centroids left, `people-index-diff` 0 cards changed.
+- **An empty pre-push probe got a control query, and it was real** (newest
+  upload 4 hours old, 7,972 in 24h). **A refresh that re-inserted 0 references
+  for PG&E was checked, not trusted**: its 4 junk names were its only named
+  clusters.
+- Commits `bfff0da` and `741da46` say "lesson 145": other sessions took 145,
+  146 and 147 while this ran. Their code comments were corrected to 148.
+
+**Rule.** When two readers of one fact disagree, measure what EACH would do on
+its own before declaring one of them the home. If both have blind spots, gate
+on their agreement and fix the disagreement at its source.

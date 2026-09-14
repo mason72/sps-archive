@@ -54,7 +54,7 @@ describe("consensusName", () => {
 });
 
 // Real filenames and stored parsed_name values from production, 2026-09-14.
-describe("frameName (lesson 145)", () => {
+describe("frameName (lesson 148)", () => {
   it("names a dated headshot the way the wall does", () => {
     expect(frameName("Jenna Loeser CollegeBoard", "Jenna Loeser_26-06-04_CollegeBoard_0001.jpg")).toEqual({
       key: "jennaloeser",

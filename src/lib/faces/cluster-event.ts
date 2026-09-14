@@ -83,7 +83,7 @@ export interface FrameName {
  * of the filename. The namer's own raw reading (`extractPersonName`, the first
  * underscore segment) must AGREE with it, and if it does not, the frame casts
  * no vote. Neither reader is safe alone, measured over all 28,634 clusters
- * on 2026-09-14 (lesson 145):
+ * on 2026-09-14 (lesson 148):
  *  - the raw reading alone named 22 DATADOG clusters "Lauren Smith Data Dog
  *    Headshots": a fused event tag the wall deliberately leaves unnamed. Those
  *    became reference identities the suggestion engine could offer elsewhere.

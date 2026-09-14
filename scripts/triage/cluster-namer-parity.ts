@@ -1,5 +1,5 @@
 /**
- * Does the face-cluster namer agree with the wall? Read-only (lesson 145).
+ * Does the face-cluster namer agree with the wall? Read-only (lesson 148).
  *
  * Replays the namer over every event's clusters, through the same event-first
  * face read and the same blocked keys (gallery labels + "Not a person") that
