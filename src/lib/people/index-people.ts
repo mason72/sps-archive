@@ -39,12 +39,19 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
  * filenames parse into venues and clients ("MOSCONE CENTER", "Stripe BTS"),
  * which otherwise dominate the leaderboard — the first draft of this query
  * reported them as the four most-photographed "people" in the archive.
+ *
+ * "Staff Photos" is the team's own bucket, named for the job and the shooter
+ * ("Topo_Justin", "Grammarly Rebrand Launch"), not the sitter. Measured
+ * 2026-09-14 it put 147 cards on the wall and added none of value: ~70 labels,
+ * crew (who have the crew wall, matched by face) and ~20 client sample shots
+ * of 1–5 photos. Excluding it removed exactly those, added nothing (lesson 146).
  */
 export const NON_PERSON_GALLERIES = new Set([
   "TDP Website",
   "TDP Work",
   "Two Dudes Sample Images",
   "Two Dudes Samples",
+  "Staff Photos",
 ]);
 
 /**

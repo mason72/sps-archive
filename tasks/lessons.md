@@ -3415,3 +3415,39 @@ not push; otherwise only when machine-state's origin tip is older than 48h (the
 - Negative-tested: forcing the content match off and the skip detector off fails
   exactly the two tests that guard them; a live dry run with
   `PIXIESET_BACKUP_STALE_HOURS=0` flips the real ledger to UNBACKED.
+
+## 146 — Staff Photos put 147 cards on /people and none of them were guests (2026-09-14)
+
+**What happened.** The "Staff Photos" gallery (1,308 photos, the team's own
+bucket) was not in `NON_PERSON_GALLERIES`. Its files are named for the job and
+the shooter ("Topo_Justin", "Stretch_CoStarGroup_RVA_envr", "Grammarly Rebrand
+Launch"), so the filename reader minted a card per job. Lesson 142 flagged it
+as "its own problem" and left it.
+
+- **Classify the cards before choosing a rule, and check the roster.** The
+  brief framed the trade as "exclude the gallery and lose the real staff
+  cards." Comparing the card names against `crew.display_name` showed the
+  real people in it were almost all CREW (Caroline Sanchez 107, Adara Toop,
+  Vanna Choi, Emil, Enrique, Bridget, Mike Walker, Kate, Libby), who already
+  have the crew wall, matched by face and independent of this index. The cost
+  of excluding collapsed to ~20 client sample shots of 1–5 photos.
+- **The clever rule lost on measurement.** A "crew first name + tag" rule
+  scoped to the gallery removed 71 cards and kept 75, including ~40 labels with
+  no crew word ("Red Oak", "Hobart Holiday", "Test Shot"). It also needs
+  upkeep and fails quietly both ways. The gallery exclusion: 147 removed,
+  0 added, 2 counts changed (Mason Foster 36→19, Erik Olson 17→16).
+- **The one surprise removal was correct and worth tracing.** "Vi Ve" (9 photos
+  in RLDatix // Vive 2026, the conference name) vanished too: it had only
+  existed as the larger half of a face split whose other half was one Staff
+  Photos frame.
+- **A gallery exclusion does not retire the references already built from it.**
+  `refresh_person_reference_centroids` deletes and rebuilds per EVENT, so the
+  7 reference faces from Staff Photos (including junk ones keyed
+  `dougandjustin` and `vannaandcaroline`) would keep matching guest faces until
+  Staff Photos itself was refreshed. After deploy, one scoped refresh of that
+  event with the new list removed them (0 suggestions had been matched to them
+  yet).
+- **Mason was confused by the first card**, which led with the fix ("why are we
+  removing cards?"). A decision card on a rule change must first say what the
+  thing is for and why the input breaks it, and that nothing is deleted, before
+  it offers options.
