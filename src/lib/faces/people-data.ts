@@ -9,6 +9,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import { extractPersonName } from "@/lib/gallery/stacks";
 import { isPersonLike } from "@/lib/sections/auto-plan";
 
+import { loadEventFaces } from "./event-faces";
 import {
   computeSuggestions,
   type MergeSuggestion,
@@ -69,45 +70,52 @@ export async function loadPeopleData(
   // mislabel suggestions; a group photo is never a rename candidate.
   const faceCountByImage = new Map<string, number>();
 
-  for (let page = 0; ; page++) {
-    const { data: rows, error } = await supabase
-      .from("faces")
-      .select(
-        "id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, quality, images!inner(event_id, r2_key, width, height, parsed_name, original_filename)"
-      )
-      .eq("images.event_id", eventId)
-      .order("id", { ascending: true })
-      .range(page * 1000, page * 1000 + 999);
-    if (error) throw error;
-    for (const row of rows ?? []) {
-      const img = row.images as unknown as {
-        r2_key: string;
-        width: number | null;
-        height: number | null;
-        parsed_name: string | null;
-        original_filename: string;
-      };
-      faceCountByImage.set(row.image_id, (faceCountByImage.get(row.image_id) ?? 0) + 1);
-      const ref: FaceRef = {
-        imageId: row.image_id,
-        bbox: { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h },
-        imageWidth: img.width,
-        imageHeight: img.height,
-        r2Key: img.r2_key,
-      };
-      faceById.set(row.id, ref);
-      imageMeta.set(row.image_id, {
-        parsedName: img.parsed_name,
-        originalFilename: img.original_filename,
-      });
-      if (!row.person_id) continue;
-      const set = memberImages.get(row.person_id) ?? new Set();
-      set.add(row.image_id);
-      memberImages.set(row.person_id, set);
-      const key = `${row.person_id}:${row.image_id}`;
-      if (!personImageFace.has(key)) personImageFace.set(key, ref);
+  // Event-first (event-faces.ts): the embedded images!inner filter walked
+  // every face in the archive and timed out the badge (lesson 144).
+  const { faces, imageById } = await loadEventFaces<
+    {
+      id: string;
+      image_id: string;
+      person_id: string | null;
+      bbox_x: number;
+      bbox_y: number;
+      bbox_w: number;
+      bbox_h: number;
+    },
+    {
+      id: string;
+      r2_key: string;
+      width: number | null;
+      height: number | null;
+      parsed_name: string | null;
+      original_filename: string;
     }
-    if (!rows || rows.length < 1000) break;
+  >(supabase, eventId, {
+    faceColumns: "id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h",
+    imageColumns: "id, r2_key, width, height, parsed_name, original_filename",
+  });
+  for (const row of faces) {
+    const img = imageById.get(row.image_id);
+    if (!img) continue;
+    faceCountByImage.set(row.image_id, (faceCountByImage.get(row.image_id) ?? 0) + 1);
+    const ref: FaceRef = {
+      imageId: row.image_id,
+      bbox: { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h },
+      imageWidth: img.width,
+      imageHeight: img.height,
+      r2Key: img.r2_key,
+    };
+    faceById.set(row.id, ref);
+    imageMeta.set(row.image_id, {
+      parsedName: img.parsed_name,
+      originalFilename: img.original_filename,
+    });
+    if (!row.person_id) continue;
+    const set = memberImages.get(row.person_id) ?? new Set();
+    set.add(row.image_id);
+    memberImages.set(row.person_id, set);
+    const key = `${row.person_id}:${row.image_id}`;
+    if (!personImageFace.has(key)) personImageFace.set(key, ref);
   }
 
   // Crew links, loaded HERE so both consumers agree: the people route needs

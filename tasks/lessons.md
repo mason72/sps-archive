@@ -3342,3 +3342,38 @@ this time.
 - **Negative-test new tests on the old code** in a throwaway detached worktree
   with `node_modules` linked in. Here 7 tests failed on HEAD and passed on the
   fix. The "is not a date" cases passed on both, as guards should.
+
+## 144 — The People badge read every face in the archive to count one event's (2026-09-14)
+
+Alert email: `people.suggestions-count` hit `57014 statement timeout` on Grow
+Therapy Headshots. It fired once, for a badge on a page that otherwise loaded.
+
+- **I tested the wrong query first, and it looked fine.** I hand-wrote the read
+  as a plain join and EXPLAIN planned it event-first (687ms cold). PostgREST
+  never sends that. The Supabase postgres log held the real statement:
+  `faces INNER JOIN LATERAL (SELECT … FROM images WHERE event_id = $1 AND id =
+  faces.image_id LIMIT … OFFSET …) ORDER BY faces.id`. With the event filter
+  inside a LATERAL subquery (a subquery run once per outer row), Postgres
+  walks `faces_pkey` across all 372,934 faces in the archive and probes images
+  for each. Page one read 113,870 faces in 4.1s; the last page read all of
+  them. **EXPLAIN the statement from the log, never your rewrite of it.**
+- **The cost scaled with the ARCHIVE, not the event.** Four pages ran ~10s on a
+  quiet database, so a little contention crossed the 8s budget. Every photo the
+  migration adds makes every event slower. `pg_stat_statements` showed it long
+  before the alert: 1,320 calls, max 12.4s, and a sibling in clustering with a
+  14.9s max.
+- **An embedded filter on a child table is a plan hazard, not a convenience.**
+  `.eq("images.event_id", …)` on a `faces` select reads naturally and fails in
+  exactly this way. Fix: `loadEventFaces()` (`src/lib/faces/event-faces.ts`)
+  reads the event's image ids through `idx_images_event_id`, then faces
+  through `idx_faces_image_id` in chunks of 200, paged and bounded to 6 at
+  once, sorted by id so clustering sees the same order.
+- **Proven equal before shipping**, with a read-only parity script
+  (`scripts/triage/event-faces-parity.ts`): identical faces, order and image
+  fields on four events. Grow Therapy 7.8s → 1.3s; Atlassian Expo (31,172
+  faces) 37.6s → 2.9s.
+- **The timeline was in three logs, and each alone misled.** `system_errors`
+  said when; the Vercel runtime log said the page opened 25s before the
+  cancel, with light traffic; the postgres log said which statement and role.
+  My first write-rate probe returned `[]` because a `tr` pipe mangled the
+  JSON, and a control query (newest `updated_at` 14:24) exposed it.

@@ -8,6 +8,7 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 
+import { loadEventFaces } from "@/lib/faces/event-faces";
 import { extractPersonName, personNameFromParts } from "@/lib/gallery/stacks";
 import { loadAliasResolver } from "@/lib/people/aliases";
 import { eventLabelKeys } from "@/lib/people/event-labels";
@@ -39,35 +40,32 @@ export interface ClusterResult {
   unassigned: number;
 }
 
-/** Page through all embedded faces for an event (PostgREST caps at 1000). */
+/** All embedded faces for an event, read event-first (event-faces.ts, lesson 144). */
 async function fetchEventFaces(
   supabase: SupabaseDB,
   eventId: string
 ): Promise<{ faces: FaceVec[]; filenameOf: Map<string, string> }> {
+  const { faces: rows, imageById } = await loadEventFaces<
+    { id: string; image_id: string; embedding: string; quality: number | null; person_id: string | null },
+    { id: string; original_filename: string }
+  >(supabase, eventId, {
+    faceColumns: "id, image_id, embedding, quality, person_id",
+    imageColumns: "id, original_filename",
+    embeddedOnly: true,
+  });
   const faces: FaceVec[] = [];
   const filenameOf = new Map<string, string>();
-  for (let page = 0; ; page++) {
-    const { data, error } = await supabase
-      .from("faces")
-      .select("id, image_id, embedding, quality, person_id, images!inner(event_id, original_filename)")
-      .eq("images.event_id", eventId)
-      .not("embedding", "is", null)
-      .order("id", { ascending: true })
-      .range(page * 1000, page * 1000 + 999);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      faces.push({
-        id: row.id,
-        imageId: row.image_id,
-        // pgvector comes back as its text form, which is valid JSON.
-        embedding: JSON.parse(row.embedding as unknown as string),
-        quality: row.quality ?? 0,
-        personId: row.person_id,
-      });
-      const img = row.images as unknown as { original_filename: string };
-      filenameOf.set(row.image_id, img.original_filename);
-    }
-    if (!data || data.length < 1000) break;
+  for (const row of rows) {
+    faces.push({
+      id: row.id,
+      imageId: row.image_id,
+      // pgvector comes back as its text form, which is valid JSON.
+      embedding: JSON.parse(row.embedding),
+      quality: row.quality ?? 0,
+      personId: row.person_id,
+    });
+    const img = imageById.get(row.image_id);
+    if (img) filenameOf.set(row.image_id, img.original_filename);
   }
   return { faces, filenameOf };
 }
