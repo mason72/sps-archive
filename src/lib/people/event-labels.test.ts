@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   eventLabelKeys,
   looksLikeSingleName,
+  nameHasSessionWord,
   EVENT_LABEL_MIN_COUNT,
   EVENT_LABEL_MIN_SHARE,
 } from "./event-labels";
@@ -93,5 +94,26 @@ describe("looksLikeSingleName", () => {
 
   it("is a single word only — two-word names have their own rule", () => {
     expect(looksLikeSingleName("Brittany Reed")).toBe(false);
+  });
+});
+
+describe("nameHasSessionWord", () => {
+  it("catches the session labels measured on the wall", () => {
+    for (const n of [
+      "Guardant General Session", "Atlassian Breakouts", "Team Shots", "CEMA Recep",
+      "ChampionsDinner Stepandrepeat", "Name Unknown", "Guardant After Party", "Tori Group",
+      "Atlassian impact maker awards highlights",
+    ]) {
+      expect(nameHasSessionWord(n), n).toBe(true);
+    }
+  });
+
+  it("leaves real people alone, including surnames that are also event words", () => {
+    for (const n of [
+      "Brittany Reed", "John Booth", "Dhairya Gala", "Melissa Hall", "Charlie Holiday",
+      "Mitchell Brand", "Austin Lewis", "Christopher San Agustin", "Kelly Bottarini",
+    ]) {
+      expect(nameHasSessionWord(n), n).toBe(false);
+    }
   });
 });

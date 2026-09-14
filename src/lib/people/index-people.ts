@@ -18,6 +18,7 @@ import {
   countByEventKey,
   eventLabelKeys,
   looksLikeSingleName,
+  nameHasSessionWord,
   SINGLE_NAME_MAX_FRAMES_PER_EVENT,
 } from "./event-labels";
 import { displayName, personNameFromParts } from "@/lib/gallery/stacks";
@@ -599,7 +600,8 @@ export async function buildPeopleIndex(
     // exclusion out of every downstream count as well as the display.
     if (excluded.has(key)) continue;
     if (looksLikePersonName(name)) {
-      vouched.add(key);
+      // "Guardant General Session" is person-shaped and a session label.
+      if (!nameHasSessionWord(name)) vouched.add(key);
     } else if (
       // Single-word people — "Nachi", "Sunita" — admitted with guardrails
       // (Mason, 2026-09-02). Shape from event-labels.ts; volume here.

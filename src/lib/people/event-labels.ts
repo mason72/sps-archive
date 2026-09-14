@@ -111,3 +111,37 @@ export function looksLikeSingleName(name: string): boolean {
   if (w === w.toUpperCase()) return false;
   return !SINGLE_NAME_STOP.has(w.toLowerCase());
 }
+
+/**
+ * Words that make a multi-word name a SESSION label, not a person.
+ *
+ * Event coverage is often exported per session: "Guardant General Session"
+ * (83), "Atlassian Breakouts" (92), "Team Shots" (79), "CEMA Recep" (78),
+ * "Name Unknown" (53). Each passes `looksLikePersonName` and sits under the
+ * 100-frame label floor, which cannot come down because a personal sitting is
+ * the same size (Kelly Bottarini: 92 frames, all of her own gallery). The
+ * vocabulary is the signal instead. Measured 2026-09-14 on the live wall: this
+ * list matched 38 cards and every one was a label.
+ *
+ * Only words no one's name contains. "Booth" and "Gala" are real surnames and
+ * are deliberately absent ("Dahairya Gala" may be Dhairya Gala); "Hall",
+ * "Brand", "Holiday" and cities likewise. The single-word stoplist above is
+ * NOT reused: it holds words like "new" and "old" that are harmless alone and
+ * wrong as a veto on a two-word name.
+ */
+const MULTI_WORD_LABEL_WORDS = new Set([
+  "session", "sessions", "breakout", "breakouts", "reception", "recep",
+  "receptions", "keynote", "keynotes", "panel", "panels", "party", "parties",
+  "afterparty", "highlights", "highlight", "candids", "candid", "stepandrepeat",
+  "backdrop", "photobooth", "awards", "bts", "headshots", "group", "groups",
+  "team", "shots", "unknown", "untitled", "welcome", "dinner", "lunch",
+  "luncheon", "ceremony",
+]);
+
+/** A two-plus-word name carrying a session word ("Guardant Welcome Reception"). */
+export function nameHasSessionWord(name: string): boolean {
+  return nameText(name)
+    .toLowerCase()
+    .split(/[^\p{L}\p{M}]+/u)
+    .some((w) => MULTI_WORD_LABEL_WORDS.has(w));
+}

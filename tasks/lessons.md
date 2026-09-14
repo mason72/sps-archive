@@ -3681,3 +3681,33 @@ starve every newer gallery.
 - **Known gap, left open deliberately:** a given-up image still counts against
   `event_readiness.indexed`, so that event's badge never reaches "ready". Real
   count today: 0 images. Revisit if `ai-index.gave-up` ever fires.
+
+## 152 — Session names became people: "Guardant General Session" was an 83-photo card (2026-09-14)
+
+**What happened.** Event coverage exported per session named every file for
+the session: "Guardant General Session" (83), "Atlassian Breakouts" (92),
+"Team Shots" (79), "CEMA Recep" (78), "Name Unknown" (53). Each passes
+`looksLikePersonName` and sits under the event-label floor of 100 frames. The
+live wall carried 38 of them, 1,508 photos, several among its largest cards.
+
+- **The obvious lever was the wrong one.** Lowering `EVENT_LABEL_MIN_COUNT`
+  catches them and also catches personal sittings, which are the same size and
+  shape: Kelly Bottarini is 92 frames and 100% of her own gallery. Volume and
+  share cannot separate a session from a sitting; vocabulary can. Fix:
+  `nameHasSessionWord()` in `event-labels.ts`, checked at the vouch step.
+- **A stoplist must be audited for surnames, not only for labels.** The first
+  draft had "booth" and "gala": John Booth is a person, and "Dahairya Gala" on
+  DAIS is likely Dhairya Gala. Both were removed before measuring. The
+  single-word stoplist was deliberately not reused ("new", "old" veto nothing
+  alone but would veto two-word names).
+- **A before/after diff on a live archive needs a second baseline.** The diff
+  showed the 38 removals plus 110 cards changing by 1–4 photos, which looked
+  like collateral damage. A second build of unchanged main, from a detached
+  checkout, differed from the first by 10 added cards and 105 count changes:
+  the migration had written 4,341 photos and 518 face clusters in two hours.
+  Removals appeared only across the rule; the 10 extra removals against the
+  newer baseline were exactly the 10 people ingested between builds. **Diff
+  base-against-base before attributing any count change to your code.**
+- **A build that times out is a load reading, not a retry signal.** The first
+  build hit `57014`; one `pg_stat_activity` look, and the live R2 snapshot
+  for offline ranking, cost the database nothing.
