@@ -3711,3 +3711,25 @@ live wall carried 38 of them, 1,508 photos, several among its largest cards.
 - **A build that times out is a load reading, not a retry signal.** The first
   build hit `57014`; one `pg_stat_activity` look, and the live R2 snapshot
   for offline ranking, cost the database nothing.
+
+## 153 — Session folders were person-shaped, and the obvious label rule would have taken real people with them (2026-09-14)
+
+**What happened.** Galleries exported one folder per session ("Guardant_Team-Spirit-Night_13.jpg", "CEMA_Recep_0053.jpg", "eBay_HR_6503.jpg") put 26 cards on /people (1,111 photos): Guardant, both Atlassian galleries, CEMA Summit, eBay Staff Photos, "FM Logo". Every one passed `looksLikePersonName`, and `eventLabelKeys` (≥100 photos AND ≥10%) never fired because each session is a small share of its event. Lesson 149 measured ~19 and left it.
+
+**Measured, not guessed.** `scripts/triage/session-label-probe.ts` read the index's inputs once (213,114 rows to a local file) and replayed candidate rules offline against a saved `people-index-diff` build:
+- "the name shares a word with its event": 73 cards, including Kelly Bottarini in her own gallery, Bill/Dinah/Steve, Victor Ochoa Gutierrez and every "Amy Chime". Rejected (lesson 149 had already seen why).
+- "several names in the event start with the same word": 604 cards. Rejected.
+- "undated, first segment is an event word": 24, but took "Jack" (a real one-word sitting in the gallery "Jack") and a stray Kelly.
+- **Shipped:** undated, the first `_`/`-` token is a WHOLE word of the event's name, and that word is not a first name the archive already knows from DATED person files. Exactly the 26. Guardant, Atlassian, CEMA, eBay and FM score 0 as first names; Julia 185, Kelly 223, Bill 67.
+
+**The guard earned its place on a case the archive does not contain yet.** Without it, v1 also removed exactly 26 today, so a today-only diff could not tell them apart. The difference is "Julia_Chambers_01.jpg" in "CoStar Group // Julia & Tom", a shape the archive already has elsewhere (TESSA_CHIME_10811). A test pins the guard by passing an empty known-name set and watching the same file flip to a label.
+
+**Proof, three ways.** `people-index-diff`: 26 removed, all labels. The 18 "added" cards and ±1 counts were the migration landing BIO-TECHNE // AMP 2025 and live clustering, proven by building HEAD again afterwards as a control: against that, the only non-session change was a 2-photo card whose rows were not in the snapshot at all (uploaded mid-session). `flagged` listed every group the shipped function touches (821 groups, 5,564 rows) and a join against the wall's card keys found exactly 26 on a card. `cluster-namer-parity`: 0 names lost, 0 added, the same 36 "stops naming" rows lesson 149 already attributed elsewhere.
+
+**Also: two collapsed names restored by ledger.** "Dee Acquista" and "Sinh An" were what the pre-149 namer wrote from "DeeDeeAcquista_…" and "SinhSinhAn_…". Provenance, with no author column: no suggestion of any status, no rejected names, and the stored name equals the old code's output on that cluster's own files (19 of 20 Dee faces are hers, 1 stray David Hahn). Mason approved by card; `scripts/restore-doubled-cluster-names.ts` wrote 2 rows guarded on the old name, refreshed both events' references, and the reference rows now key `deedeeacquista` / `sinhsinhan`. Plan file = undo (`--undo`).
+
+**Rules.**
+- **A rule with a guard that changes nothing today still needs a test that proves the guard works.** Construct the input the guard exists for, and show it flip when the guard is off.
+- **Build the old code AGAIN after the new build, not only before.** Two builds an hour apart on a live archive differ by whatever landed; a control built at the same time turns "18 added, 125 changed" into "one card, uploaded mid-session".
+- **List what a rule touches, not only what it changes on the wall.** 821 groups flagged against 26 cards removed shows the other 795 were already off the wall, which is what makes the rule safe to share with the next reader.
+- **A lesson number is claimed at commit time, not at start.** Another session took 150 while this ran; check `origin/main` before writing the number into code comments.
