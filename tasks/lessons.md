@@ -3602,3 +3602,28 @@ Ledger `tasks/backfill-camel-split-names-2026-09-14.json`.
   busy** (three times, each beside vitest or tsx). Run it alone.
 - **A backfill's selector reproduces the OLD code, frozen inline**, so it
   touches only rows that code wrote.
+
+## 150 — A gallery with no face is evidence of nothing, and a first name is where strangers collide (2026-09-14)
+
+Follow-up to lesson 147. With every gallery indexed, the "Mike" card still held
+the Applovin booth's 4 photos: booth shots are groups, so no solo face exists to
+compare, and the split rule put an event with no evidence on the largest card.
+
+- **"No evidence" was being read as "same person".** The default was chosen as
+  the safe one when the split shipped, and for full names it is: a full name in
+  two galleries is almost always one person. For a first name it is the least
+  safe assumption available.
+- **Measured before asking, on the fully indexed archive** (people-index-diff):
+  separating no-face galleries for EVERY name adds 31 cards, and 27 of them
+  split real people (Sophia Carazo-Ortiz 68 → 31: her eBay National Interns Day
+  photos have no solo frame, and she is plainly the same intern at all three
+  eBay galleries). Separating for ONE-WORD names only adds exactly 4 cards, all
+  from the Applovin booth (Mike, Ashley, Patrick, Brandon), and moves nothing
+  else. Mason chose one-word names only.
+- **Measure after the pipeline recovers, not during.** The same variant run while
+  six galleries were unindexed split 33 people, because a gallery without faces
+  YET looks exactly like one that will never have them. A stall makes every
+  identity rule look worse.
+- **A human link still wins:** "Same person as…" makes a gallery evidence, so a
+  linked no-face gallery is never separated. `groupEventsByFace` takes the rule
+  as `separateNoEvidence`, and `splitByFaces` passes it for names with no space.

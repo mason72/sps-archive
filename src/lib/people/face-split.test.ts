@@ -63,6 +63,64 @@ describe("groupEventsByFace", () => {
   });
 });
 
+describe("separateNoEvidence — one-word names (lesson 150)", () => {
+  const floor = 0.55;
+
+  it("gives a no-face gallery its own card instead of the largest one", () => {
+    // The Atlassian Mike, the Axos Mike, and an Applovin booth with no solo face.
+    const groups = groupEventsByFace(
+      ["atlassian", "axos", "applovin"],
+      photos({ atlassian: 53, axos: 14, applovin: 4 }),
+      [{ a: "atlassian", b: "axos", sim: 0.04 }],
+      [],
+      floor,
+      true
+    );
+    expect(groups).toEqual([["atlassian"], ["axos"], ["applovin"]]);
+  });
+
+  it("still keeps matching galleries together", () => {
+    const groups = groupEventsByFace(
+      ["a", "b", "booth"],
+      photos({ a: 10, b: 10, booth: 3 }),
+      [{ a: "a", b: "b", sim: 0.9 }],
+      [],
+      floor,
+      true
+    );
+    expect(groups).toEqual([["a", "b"], ["booth"]]);
+  });
+
+  it("separates even when only one gallery has a face", () => {
+    // Before indexing catches up, the unindexed gallery has no evidence either.
+    const groups = groupEventsByFace(
+      ["headshots", "booth"],
+      photos({ headshots: 20, booth: 4 }),
+      [],
+      [],
+      floor,
+      true
+    );
+    expect(groups).toEqual([["headshots"], ["booth"]]);
+  });
+
+  it("lets a human 'same person' link keep a no-face gallery joined", () => {
+    const groups = groupEventsByFace(
+      ["chime", "docusign", "applovin"],
+      photos({ chime: 20, docusign: 12, applovin: 2 }),
+      [{ a: "chime", b: "docusign", sim: 0.02 }],
+      [["applovin", "docusign"]],
+      floor,
+      true
+    );
+    expect(groups).toEqual([["chime"], ["docusign", "applovin"]]);
+  });
+
+  it("leaves a name with a single event alone", () => {
+    expect(groupEventsByFace(["only"], photos({ only: 5 }), [], [], floor, true)).toEqual([["only"]]);
+  });
+});
+
 describe("human 'same person' links", () => {
   const evs = ["chime", "docusign", "stripe"];
   const apart = [

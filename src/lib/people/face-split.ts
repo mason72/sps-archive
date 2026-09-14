@@ -12,7 +12,8 @@
  *
  * The rule: events whose faces match are one person; events whose faces don't
  * are separate cards. An event with no usable face (group shots only) joins
- * the largest card — the old behaviour, and the safe default. A human's word
+ * the largest card for a full name, and gets its own card for a one-word name,
+ * where strangers collide (2026-09-14, lesson 150). A human's word
  * still wins: "Same person as…" between two split cards writes a row in
  * person_split_links (migration 080) — a pair of EVENTS under the name — and
  * that pair is a forced link on every rebuild. It is deliberately not an alias
@@ -76,7 +77,18 @@ export function groupEventsByFace(
   photosByEvent: ReadonlyMap<string, number>,
   sims: { a: string; b: string; sim: number }[],
   links: [string, string][] = [],
-  floor: number = FACE_MATCH_FLOOR
+  floor: number = FACE_MATCH_FLOOR,
+  /**
+   * An event with no face evidence becomes its own card instead of joining
+   * the largest. The caller turns this on for ONE-WORD names only (Mason,
+   * 2026-09-14, lesson 147): a first name is where strangers collide — the
+   * Applovin booth's group shots put four families onto other people's
+   * "Mike", "Ashley", "Patrick" and "Brandon" cards — while a full name in
+   * two galleries is almost always one person. Measured: for one-word names
+   * this adds exactly those 4 cards; for every name it adds 31, and 27 split
+   * real people (Sophia Carazo-Ortiz's eBay interns day has no solo frame).
+   */
+  separateNoEvidence: boolean = false
 ): string[][] {
   const inIdentity = new Set(eventIds);
   const usable = links.filter(([a, b]) => inIdentity.has(a) && inIdentity.has(b));
@@ -88,6 +100,14 @@ export function groupEventsByFace(
   for (const [a, b] of usable) {
     nodes.add(a);
     nodes.add(b);
+  }
+  if (separateNoEvidence) {
+    const loose = eventIds.filter((e) => !nodes.has(e));
+    if (loose.length > 0 && eventIds.length > 1) {
+      const evidenced = eventIds.filter((e) => nodes.has(e));
+      const rest = evidenced.length === 0 ? [] : groupEventsByFace(evidenced, photosByEvent, sims, links, floor, false);
+      return [...rest, ...loose.map((e) => [e])];
+    }
   }
   if (nodes.size < 2) return [eventIds];
 
@@ -248,7 +268,11 @@ export async function splitByFaces(
       p.events.map((e) => e.eventId),
       photos,
       sims,
-      links.get(p.key) ?? []
+      links.get(p.key) ?? [],
+      FACE_MATCH_FLOOR,
+      // A one-word name keeps its no-face galleries apart; a full name lets
+      // them join the largest card (see groupEventsByFace, lesson 150).
+      !/\s/.test(p.name.trim())
     );
     if (groups.length === 1) {
       out.push(p);
