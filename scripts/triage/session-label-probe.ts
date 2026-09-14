@@ -1,6 +1,6 @@
 /**
  * Which /people cards are SESSION labels, and which candidate rule removes
- * only those? Read-only (lesson 151).
+ * only those? Read-only (lesson 153).
  *
  * "Guardant_Team-Spirit-Night_13.jpg" parses to a person-shaped name, and the
  * event-label rule (event-labels.ts) misses it because each session is a

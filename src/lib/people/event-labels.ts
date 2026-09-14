@@ -64,7 +64,13 @@ export function eventLabelKeys(
  * coverage exported one folder per session, "Guardant_Team-Spirit-Night_13.jpg",
  * "CEMA_Recep_0053.jpg", "eBay_HR_6503.jpg". Each parses to a person-shaped
  * name, and each session is a few percent of its event, so `eventLabelKeys`
- * never fires. Measured 2026-09-14: 26 cards, 1,111 photos (lesson 151).
+ * never fires. Measured 2026-09-14: 26 cards, 1,111 photos (lesson 153).
+ *
+ * Complements `nameHasSessionWord` below, not a duplicate: that one reads the
+ * NAME's vocabulary and catches dated labels ("Team Shots"); this one reads the
+ * FILE's shape and catches sessions with no session word ("Guardant NSM GS",
+ * "eBay HR", "Atlassian Braindates"). Together they overlap on 22 cards; this
+ * rule alone adds 4.
  *
  * The file is one when ALL of these hold:
  * - no date anchor proves where a name ends (a dated file names its sitter);

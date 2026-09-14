@@ -1,5 +1,5 @@
 /**
- * Restore two face-cluster names the pre-lesson-149 namer collapsed (lesson 151).
+ * Restore two face-cluster names the pre-lesson-149 namer collapsed (lesson 153).
  *
  * The old `collapseRepeatedWords` ran after the CamelCase split and read a
  * doubled first name as a typo, so "DeeDeeAcquista_26-03-23_…" named its

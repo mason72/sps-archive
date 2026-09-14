@@ -81,7 +81,7 @@ describe("eventLabelKeys", () => {
   });
 });
 
-describe("isSessionLabelFile (lesson 151)", () => {
+describe("isSessionLabelFile (lesson 153)", () => {
   // First names the archive knows from dated files, measured 2026-09-14.
   const known = firstNameKeys(["Julia Chambers", "Kelly Bottarini", "Bill Birdsall", "Tessa Smith"]);
   const session = (file: string, event: string, first: ReadonlySet<string> = known) =>

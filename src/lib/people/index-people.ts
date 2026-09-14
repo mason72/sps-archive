@@ -588,7 +588,7 @@ export async function buildPeopleIndex(
 
   // Session labels — "Guardant_Team-Spirit-Night_13.jpg" — are too small a
   // share for the rule above; see isSessionLabelFile for the shape and why
-  // the archive's known first names guard it (lesson 151).
+  // the archive's known first names guard it (lesson 153).
   const datedNameByRow = new Map<string, string | null>();
   const datedPersonNames: string[] = [];
   for (const row of rows) {
