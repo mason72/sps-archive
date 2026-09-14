@@ -88,20 +88,29 @@ const ADMIN_STRONG = /\b(?:BNI|meeting|sync|stand[- ]?up|1:1|payroll|invoice|rem
 const ADMIN_WEAK = /\b(?:holiday|vacation|unavailab|available|PTO|blocked|out of office|OOO)\b/i;
 const SETUP = /\b(?:set[- ]?up|setup|load[- ]?in|strike|tear[- ]?down|breakdown)\b/i;
 
-/** A crew segment is short, mostly letters, and usually shouty. */
-function looksLikeCrewSegment(seg: string): boolean {
+/**
+ * A crew segment is short, mostly letters, and usually shouty.
+ *
+ * Letters are Unicode (2026-09-14): with `[A-Za-z]` a title "JOSÉ & JOEY //
+ * …" was not crew-shaped at all, so José silently vanished from the gig.
+ * Measured that day, no roster name carried an accent, so this is preventive —
+ * and for plain ASCII every test below answers exactly as it did. NFC first, so
+ * a decomposed "E◌́" counts as one uppercase letter, not a letter and a mark.
+ */
+function looksLikeCrewSegment(raw: string): boolean {
+  const seg = raw.normalize("NFC");
   if (!seg) return false;
   const parts = seg.split(CREW_SPLIT).filter(Boolean);
   if (!parts.length || parts.length > 6) return false;
   // Every part should read like a first name: one or two words, no digits.
-  if (!parts.every((p) => /^[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*)?$/.test(p.trim()))) {
+  if (!parts.every((p) => /^\p{L}[\p{L}\p{M}.'-]*(?:\s+\p{L}[\p{L}\p{M}.'-]*)?$/u.test(p.trim()))) {
     return false;
   }
   // The convention is uppercase. Requiring it is what stops "Stanford Event"
   // (a client) being read as a crew member called Stanford.
-  const letters = seg.replace(/[^A-Za-z]/g, "");
+  const letters = seg.replace(/\P{L}/gu, "");
   if (!letters) return false;
-  const upperRatio = (seg.replace(/[^A-Z]/g, "").length) / letters.length;
+  const upperRatio = (seg.replace(/\P{Lu}/gu, "").length) / letters.length;
   return upperRatio > 0.8;
 }
 
@@ -112,7 +121,7 @@ function looksLikeCitySegment(seg: string): boolean {
   if (words.length > 3) return false;
   if (/\d/.test(seg)) return false;
   // A city segment is Title Case or an uppercase abbreviation (SF, NYC, DC).
-  return /^[A-Z]/.test(seg.trim());
+  return /^\p{Lu}/u.test(seg.normalize("NFC").trim());
 }
 
 /**
@@ -642,6 +651,9 @@ export function BRAND_CASE_LOOKUP(raw: string): string | null {
   return null;
 }
 
+/** One shouted word, bounded like `\b` but seeing accented letters. */
+const SHOUTED_WORD = /(?<![\p{L}\p{M}\p{N}_])\p{Lu}{4,}(?![\p{L}\p{M}\p{N}_])/u;
+
 /**
  * Is this name mostly shouting?
  *
@@ -661,16 +673,21 @@ export function isShoutedName(raw: string): boolean {
    * should not be evidence against that. Strip the tokens whose case is not the
    * author's choice, then measure what is left.
    */
-  const measured = raw
+  const text = raw.normalize("NFC");
+  const measured = text
     .split(/\s+/)
-    .filter((w) => !BRAND_CASE[w.replace(/[^A-Za-z&]/g, "").toLowerCase()])
+    .filter((w) => !BRAND_CASE[w.replace(/[^\p{L}\p{M}&]/gu, "").toLowerCase()])
     .join(" ");
-  const subject = measured.replace(/[^A-Za-z]/g, "") ? measured : raw;
+  const subject = measured.replace(/\P{L}/gu, "") ? measured : text;
 
-  const letters = subject.replace(/[^A-Za-z]/g, "");
+  // Unicode letters, so "CAFÉ NIGHT" is 9 of 9 rather than 8 of 8 with a hole
+  // where the É was. A "shouted word" is bounded by the Unicode analogue of
+  // `\b` — letters, marks, digits and `_` — so "COVID19" stays unshouted
+  // exactly as it was under `\b[A-Z]{4,}\b`.
+  const letters = subject.replace(/\P{L}/gu, "");
   if (letters.length <= 3) return false;
-  const upper = subject.replace(/[^A-Z]/g, "").length;
-  return upper / letters.length >= 0.8 && /\b[A-Z]{4,}\b/.test(subject);
+  const upper = subject.replace(/\P{Lu}/gu, "").length;
+  return upper / letters.length >= 0.8 && SHOUTED_WORD.test(subject);
 }
 
 /**
@@ -682,7 +699,7 @@ export function isShoutedName(raw: string): boolean {
  * acronyms, brand casing and minor words are all handled explicitly.
  */
 export function titleCaseEventName(raw: string): string {
-  const words = raw.trim().split(/\s+/);
+  const words = raw.normalize("NFC").trim().split(/\s+/);
   /**
    * When the name shouts, an existing uppercase word proves nothing. When it is
    * genuinely mixed case, an all-caps word was deliberate and is preserved.
@@ -691,24 +708,28 @@ export function titleCaseEventName(raw: string): string {
 
   return words
     .map((w, i) => {
-      const bare = w.replace(/[^A-Za-z0-9&']/g, "");
+      // Unicode letters: "ÉCOLE" used to come back "école", because the
+      // capitaliser below could only see a–z.
+      const bare = w.replace(/[^\p{L}\p{M}0-9&']/gu, "");
       const brand = BRAND_CASE[bare.toLowerCase()];
       if (brand) return w.replace(bare, brand);
 
       const lower = w.toLowerCase();
-      const bareLower = lower.replace(/[^a-z]/g, "");
+      const bareLower = lower.replace(/[^\p{Ll}\p{M}]/gu, "");
       // Minor words first — "OF" is not an acronym, whatever its case.
       if (i !== 0 && i !== words.length - 1 && MINOR.has(bareLower)) return lower;
 
       if (KNOWN_UPPER.test(bare.toUpperCase())) return w.toUpperCase();
       // Mixed-case input: someone typed those capitals on purpose.
-      if (!allCaps && bare.length > 1 && bare === bare.toUpperCase() && /[A-Z]/.test(bare)) return w;
+      if (!allCaps && bare.length > 1 && bare === bare.toUpperCase() && /\p{Lu}/u.test(bare)) return w;
 
       return lower
-        .replace(/^([a-z])/, (c) => c.toUpperCase())
-        .replace(/([\/(])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+        .replace(/^(\p{Ll})/u, (c) => c.toUpperCase())
+        .replace(/([\/(])(\p{Ll})/gu, (_, p, c) => p + c.toUpperCase());
     })
-    .join(" ");
+    .join(" ")
+    // "İ" lowercases to "i" + a combining dot, so recompose what came back.
+    .normalize("NFC");
 }
 
 /**
@@ -756,7 +777,7 @@ export function suggestEventName(
   }
 ): NameSuggestion {
   const reasons: string[] = [];
-  const current = currentName.trim();
+  const current = currentName.normalize("NFC").trim();
   /**
    * "Mostly shouting" rather than "entirely shouting".
    *
@@ -783,7 +804,7 @@ export function suggestEventName(
   const branded = suggested
     .split(/\s+/)
     .map((w) => {
-      const bare = w.replace(/[^A-Za-z&]/g, "");
+      const bare = w.replace(/[^\p{L}\p{M}&]/gu, "");
       const fix = BRAND_CASE[bare.toLowerCase()];
       return fix && fix !== bare ? w.replace(bare, fix) : w;
     })
@@ -798,7 +819,7 @@ export function suggestEventName(
    * Compares word-by-word so "LAMBARDO" finds "Lombardo" without the rest of
    * the title being replaced.
    */
-  const client = (gig.client ?? "").trim();
+  const client = (gig.client ?? "").normalize("NFC").trim();
   if (client) {
     /**
      * STRICT, because a wrong "correction" silently rewrites a client's name.
@@ -820,8 +841,8 @@ export function suggestEventName(
      * word.
      */
     const clientWords = client.split(/\s+/)
-      .filter((w) => /^[A-Z]/.test(w))
-      .map((w) => w.replace(/[^A-Za-z'-]/g, ""))
+      .filter((w) => /^\p{Lu}/u.test(w))
+      .map((w) => w.replace(/[^\p{L}\p{M}'-]/gu, ""))
       // Strip the possessive from BOTH sides. The comparison below already
       // strips it from the gallery's word; leaving it on the calendar's word
       // made "Lombardo" an edit-distance-2 match for "Lombardo's" and produced
@@ -833,7 +854,7 @@ export function suggestEventName(
       .split(/\s+/)
       .map((w) => {
         // Compare without a possessive: "Lambardo's" must still find "Lombardo".
-        const bare = w.replace(/[^A-Za-z'-]/g, "");
+        const bare = w.replace(/[^\p{L}\p{M}'-]/gu, "");
         const stem = bare.replace(/['’]s$/i, "");
         if (stem.length < 6) return w;
         for (const cw of clientWords) {
@@ -954,7 +975,7 @@ const SHOOT_NOUN = /\b(?:headshots?|portraits?|photos?|photo booth|booth|session
  * shoot with a location suffix, and the suffix is not what it is.
  */
 export function isCompanyShoot(name: string): boolean {
-  const head = name.split(/\s*(?:\/\/|\|)\s*/)[0].trim().replace(/[^A-Za-z0-9&'\s]/g, "").trim();
+  const head = name.split(/\s*(?:\/\/|\|)\s*/)[0].trim().replace(/[^\p{L}\p{M}0-9&'\s]/gu, "").trim();
   if (!head) return false;
   if (EVENT_NOUN.test(head)) return false;
   return SHOOT_NOUN.test(head);

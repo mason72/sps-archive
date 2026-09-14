@@ -41,17 +41,29 @@ export const UNDECOMPOSED_FOLDS: Readonly<Record<string, string>> = {
 const UNDECOMPOSED = new RegExp(`[${Object.keys(UNDECOMPOSED_FOLDS).join("")}]`, "g");
 
 /**
- * Accent-, case- and ligature-folded, everything else kept:
- * "Nájera-Smith" → "najera-smith", "Søren" → "soren". For comparisons that
- * still want word boundaries (search boxes, the face engine's name groups).
- * On plain ASCII it is exactly `toLowerCase()`.
+ * Accent- and ligature-folded with CASE KEPT: "José García" → "Jose Garcia",
+ * "ØRSTED" → "ORSTED", "Ærø" → "AEro". For text a person reads where only
+ * plain letters survive — download filenames and ZIP folders. On plain ASCII
+ * it is the identity.
  */
-export function foldName(s: string): string {
+export function foldAccents(s: string): string {
   return s
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
-    .replace(UNDECOMPOSED, (c) => UNDECOMPOSED_FOLDS[c])
-    .toLowerCase();
+    .replace(UNDECOMPOSED, (c) =>
+      c === c.toLowerCase() ? UNDECOMPOSED_FOLDS[c] : UNDECOMPOSED_FOLDS[c].toUpperCase()
+    );
+}
+
+/**
+ * Accent-, case- and ligature-folded, everything else kept:
+ * "Nájera-Smith" → "najera-smith", "Søren" → "soren". For comparisons that
+ * still want word boundaries (search boxes, the face engine's name groups).
+ * On plain ASCII it is exactly `toLowerCase()`. Byte-identical to the fold
+ * `person_name_key()` performs in SQL, so change neither alone.
+ */
+export function foldName(s: string): string {
+  return foldAccents(s).toLowerCase();
 }
 
 /**

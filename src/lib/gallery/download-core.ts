@@ -6,6 +6,7 @@ import { verifyDownloadToken } from "@/lib/shares/download-token";
 import { checkAuthRateLimit } from "@/lib/security/rate-limit";
 import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
+import { asciiFilePart, uniqueFolderNames } from "@/lib/gallery/file-part";
 
 /**
  * Shared core for gallery ZIP downloads — used by the synchronous streaming
@@ -33,8 +34,8 @@ export const ZIP_JOB_TTL_HOURS = 24;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const safeFolder = (n: string) =>
-  n.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "-").trim() || "Section";
+/** A section name as a ZIP folder. Rules and their history: `file-part.ts`. */
+export const safeFolder = (n: string) => asciiFilePart(n, "Section");
 
 export interface DownloadScope {
   favorites?: boolean;
@@ -321,7 +322,7 @@ export async function selectDownloadImages(
     if (images.length === 0) {
       return { ok: false, status: 404, message: "No matching images" };
     }
-    zipSuffix = `-${scope.name ? safeFolder(scope.name) : "selection"}`;
+    zipSuffix = `-${asciiFilePart(scope.name ?? "", "selection")}`;
     scopedFlat = true;
   }
 
@@ -333,10 +334,10 @@ export async function selectDownloadImages(
     const { data: sectionRows } = await supabase
       .from("sections")
       .select("id, name")
-      .eq("event_id", share.event_id);
-    const sectionName = new Map(
-      (sectionRows ?? []).map((s) => [s.id, s.name as string])
-    );
+      .eq("event_id", share.event_id)
+      .order("sort_order")
+      .order("id");
+    const sectionName = uniqueFolderNames(sectionRows ?? []);
     for (let from = 0; ; from += 1000) {
       const { data: links } = await supabase
         .from("section_images")
@@ -361,9 +362,7 @@ export async function selectDownloadImages(
     .eq("id", share.event_id)
     .single();
 
-  const zipFilename = `${(event?.name || "gallery")
-    .replace(/[^a-zA-Z0-9-_ ]/g, "")
-    .replace(/\s+/g, "-")}${zipSuffix}.zip`;
+  const zipFilename = `${asciiFilePart(event?.name ?? "", "gallery")}${zipSuffix}.zip`;
 
   const totalBytes = images.reduce((sum, img) => sum + (img.file_size || 0), 0);
 

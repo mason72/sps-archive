@@ -23,6 +23,7 @@ import {
 } from "./index-people";
 import {
   asciiLetterRuns,
+  foldAccents,
   foldName,
   ilikeTokens,
   nameText,
@@ -204,6 +205,26 @@ describe("name-text helpers", () => {
 
   it("foldName keeps word boundaries", () => {
     expect(foldName("Nájera-Smith")).toBe("najera-smith");
+  });
+
+  it("foldAccents folds like foldName but keeps case", () => {
+    expect(foldAccents("José García")).toBe("Jose Garcia");
+    expect(foldAccents(nfd("Córdova"))).toBe("Cordova");
+    expect(foldAccents("ØRSTED Łódź ẞ ß Æther")).toBe("ORSTED Lodz SS ss AEther");
+    expect(foldAccents("Twitch™")).toBe("Twitch™");
+  });
+
+  it("foldName is still byte-identical to the fold person_name_key() mirrors", () => {
+    // foldName became foldAccents + toLowerCase on 2026-09-14. The SQL twin
+    // was written against the ORIGINAL body, so pin the two together.
+    const original = (s: string) =>
+      s
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .replace(new RegExp(`[${Object.keys(UNDECOMPOSED_FOLDS).join("")}]`, "g"), (c) => UNDECOMPOSED_FOLDS[c])
+        .toLowerCase();
+    const samples = [...REAL, ...REAL.map(nfd), Object.keys(UNDECOMPOSED_FOLDS).join(" "), "İstanbul ǅ Twitch™ ﬁne"];
+    for (const s of samples) expect(foldName(s)).toBe(original(s));
   });
 });
 

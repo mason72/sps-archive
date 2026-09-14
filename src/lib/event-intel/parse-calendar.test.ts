@@ -616,3 +616,51 @@ describe("named event vs company shoot", () => {
       .toBe("2026");
   });
 });
+
+/**
+ * Accented names (2026-09-14). No roster name carried an accent the day this
+ * was written, so these are invented — but every rule they exercise was
+ * `[A-Za-z]`, and a crew member called José would have silently vanished from
+ * the gig. The ASCII cases above answer exactly as before (checked old-vs-new
+ * over ~24k generated ASCII titles, zero differences).
+ */
+describe("accented names", () => {
+  it("reads an accented crew member as crew", () => {
+    const g = parseGig({ summary: "JOSÉ & JOEY  //  Café Client  //  Ávila" });
+    expect(g.titleCrew).toEqual(["JOSÉ", "JOEY"]);
+    expect(g.client).toBe("Café Client");
+    expect(g.city).toBe("Ávila");
+  });
+
+  it("counts a decomposed accent as one uppercase letter", () => {
+    const g = parseGig({ summary: "JOSÉ & NUÑEZ // Client".normalize("NFD") });
+    expect(g.titleCrew.map((n) => n.normalize("NFC"))).toEqual(["JOSÉ", "NUÑEZ"]);
+  });
+
+  it("still refuses a Title Case client, accented or not", () => {
+    expect(parseGig({ summary: "Café Event // Grace Cathedral" }).titleCrew).toEqual([]);
+  });
+
+  it("title-cases a shouted accented name without losing the first letter", () => {
+    expect(isShoutedName("ÉCOLE PARTY")).toBe(true);
+    expect(titleCaseEventName("ÉCOLE PARTY")).toBe("École Party");
+    expect(titleCaseEventName("CAFÉ NIGHT (ÉTÉ)")).toBe("Café Night (Été)");
+    // İ lowercases to i + a combining dot; the result must still be NFC.
+    const istanbul = titleCaseEventName("İSTANBUL PARTY");
+    expect(istanbul).toBe(istanbul.normalize("NFC"));
+  });
+
+  it("keeps the shouted-word boundary where \\b had it", () => {
+    expect(isShoutedName("COVID19 DAY")).toBe(false);
+    expect(isShoutedName("COVID DAY")).toBe(true);
+  });
+
+  it("rescues an accent from the calendar's spelling of a proper noun", () => {
+    const s = suggestEventName("JOSE GARCIA HEADSHOTS", { client: "José García" });
+    expect(s.suggested).toBe("Jose García Headshots");
+  });
+
+  it("recognises an accented company shoot", () => {
+    expect(isCompanyShoot("Crème Brûlée Co Headshots")).toBe(true);
+  });
+});

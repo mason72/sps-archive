@@ -3139,3 +3139,49 @@ told Mason his connection was broken every time an event simply had no guests.
   a direct SPS call exactly (7,707 both sides), then revoking — returning the
   event to the state it was found in. Choose the fixture that makes the
   destructive half unnecessary.
+
+## 140 — The ASCII rules outside /people: a filename that ate accents, and a character class that was a range (2026-09-14)
+
+Follow-up to lesson 136, which made the /people identity path Unicode-aware and
+deliberately left two ASCII-only rules for later.
+
+- **Guests downloaded "Jos-Garca" and "Caf-Night.zip".** `download-core.ts`
+  built the ZIP name and its folders with `.replace(/[^a-zA-Z0-9-_ ]/g, "")`,
+  which DELETES an accented letter rather than folding it. Now
+  `asciiFilePart()` (`src/lib/gallery/file-part.ts`) folds first through
+  `foldAccents()` — the case-preserving sibling of `foldName()` in
+  `name-text.ts`, NFD like its sibling (NFKD would turn "™" into "TM") — so the
+  output is "Jose-Garcia". Output stays ASCII: entry names inside the ZIP are
+  already UTF-8 flagged by archiver, but unzip tools honour that inconsistently
+  and the sync route sends a plain `filename=`.
+- **The old class was also a range.** Inside `[^a-zA-Z0-9-_ ]`, `9-_` means
+  0x39–0x5F, so `: ; < = > ? @ [ \ ] ^` all survived. "Q&A: Panel" made a
+  folder with a colon, which Windows will not extract. **A hyphen inside a
+  character class is literal only first or last** — read every `-` in a class
+  as a possible range before trusting it.
+- **Folding `foldName` onto `foldAccents` touched the SQL twin's contract.**
+  `person_name_key()` mirrors `foldName` byte for byte, so the refactor is
+  pinned by a test that runs the ORIGINAL body beside the new one. The two are
+  equal because every fold-table value is ASCII, where uppercasing then
+  lowercasing is the identity. Prove equivalence; do not reason it.
+- **`parse-calendar.ts` went Unicode by golden diff, not by reading.** Before
+  editing, the old file was copied aside and both versions were run over ~24k
+  ASCII titles (every literal in the event-intel tests plus generated
+  combinations): 143,478 comparisons, zero differences. A second run on
+  accented inputs confirmed the probe CAN see a difference, since a diff harness
+  that reports zero on everything proves nothing. The one trap: `\b` counts
+  digits and `_` as word characters, so its Unicode stand-in is a lookaround on
+  `[\p{L}\p{M}\p{N}_]`. A letters-only boundary would have made "COVID19"
+  count as a shouted word.
+- **What a José in a crew list would have lost.** `looksLikeCrewSegment` failed
+  "JOSÉ & JOEY", so the whole title fell through to "no crew" with no error, and
+  `titleCaseEventName("ÉCOLE PARTY")` returned "école Party" because the
+  capitaliser matched only `[a-z]`. No roster name has an accent today
+  (measured 2026-09-11), so this is preventive. `crewNameKey` already folded.
+- **Folding makes names meet, so folders are deduped.** A fresh-eyes review
+  caught it: "José" and "Jose" both fold to `Jose`, and a ZIP with two sections
+  in one folder writes duplicate entry paths (unzip asks to overwrite, or keeps
+  one photo). Sections already named identically collided before this change
+  too. `uniqueFolderNames()` hands later sections `-2`, `-3` in display order,
+  compared case-insensitively because macOS and Windows extract `Jose/` and
+  `JOSE/` into one folder.
