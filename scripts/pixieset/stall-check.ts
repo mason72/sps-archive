@@ -34,6 +34,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { ledgerBackupState } from "./ledger-backup";
 
 for (const l of fs.readFileSync(".env.local", "utf8").split("\n")) {
   const m = l.match(/^([A-Z0-9_]+)=(.*)$/);
@@ -61,7 +62,7 @@ const BACKUP_STALE_HOURS = num(process.env.PIXIESET_BACKUP_STALE_HOURS, 48);   /
 type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "STARVED" | "UNBACKED";
 
 /**
- * When did the migration ledger last reach GitHub?
+ * Is the migration ledger's off-machine copy current?
  *
  * `scripts/pixieset/data/` is gitignored, so `queue.json` — the only record of
  * which of 1,371 collections are already safe — has no off-machine copy of its
@@ -70,22 +71,19 @@ type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "STARVED" | "UNBACKED";
  * is a belief. It was worth building on the day it was written: that sync had
  * been silently refusing to push for 26 consecutive nights.
  *
- * The question asked is deliberately "did it reach ORIGIN", not "was it
- * written" or "was it committed" — the whole point is a copy that survives this
- * Mac. A missing repo, an unreadable one, or a commit older than the window are
- * all the same answer: not backed up.
+ * It asks about CONTENT first (does the live ledger equal what is on origin?)
+ * and only then time. Asking "when did the file last change on origin" fired
+ * UNBACKED after every quiet stretch, on a backup that was complete — see
+ * ledger-backup.ts for the rules and the 2026-09-14 false alarm.
  */
-function ledgerBackupAgeHours(): { hours: number | null; note: string } {
-  const repo = process.env.PIXIESET_BACKUP_REPO || path.join(HOME, "machine-state");
-  const file = process.env.PIXIESET_BACKUP_PATH || "ledgers/pixieset-queue.json.gz";
-  if (!fs.existsSync(repo)) return { hours: null, note: `${repo} is not on this machine` };
-  try {
-    const out = execFileSync("/usr/bin/git", ["-C", repo, "log", "-1", "--format=%cI", "origin/main", "--", file], { encoding: "utf8" }).trim();
-    if (!out) return { hours: null, note: `${file} has never reached origin/main` };
-    return { hours: (Date.now() - new Date(out).getTime()) / 3600_000, note: out };
-  } catch (e) {
-    return { hours: null, note: `could not read ${repo}: ${String((e as Error).message).slice(0, 80)}` };
-  }
+function ledgerBackup() {
+  return ledgerBackupState({
+    repo: process.env.PIXIESET_BACKUP_REPO || path.join(HOME, "machine-state"),
+    file: process.env.PIXIESET_BACKUP_PATH || "ledgers/pixieset-queue.json.gz",
+    queue: QUEUE,
+    syncLog: process.env.PIXIESET_BACKUP_LOG || path.join(HOME, "machine-state", ".sync.log"),
+    staleHours: BACKUP_STALE_HOURS,
+  });
 }
 
 /**
@@ -221,7 +219,7 @@ async function main() {
   const agents = agentsRunning();
   const down = agents.filter((a) => !a.up).map((a) => a.label);
   const { passes, idles } = logRate();
-  const backup = ledgerBackupAgeHours();
+  const backup = ledgerBackup();
   const brake = await diskBrake();
   const kept = housekeepingKept();
 
@@ -255,13 +253,11 @@ async function main() {
     headline = kept && kept.collections > 0
       ? `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — and the ingest is KEEPING ${kept.gb} GB across ${kept.collections} collection(s) it cannot prove safe to release. If the disk is under the downloader's 80 GB start floor, that is a deadlock: each half is waiting on the other. Run release-sweep.ts and read why each is kept.`
       : `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
-  } else if (backup.hours === null || backup.hours > BACKUP_STALE_HOURS) {
+  } else if (backup.stale) {
     // Checked LAST on purpose: a pipeline that has stopped matters more than one
     // whose ledger is a day stale, and this must never mask a STARVED or STUCK.
     verdict = "UNBACKED";
-    headline = backup.hours === null
-      ? `the migration ledger has no off-machine copy — ${backup.note}`
-      : `the migration ledger last reached GitHub ${backup.hours.toFixed(0)}h ago`;
+    headline = backup.headline;
   }
 
   const body = [
@@ -274,7 +270,7 @@ async function main() {
     `agents     ${agents.map((a) => `${a.label.split(".").pop()}=${a.up ? "up" : "DOWN"}`).join("  ")}`,
     `staged for ${verified ? stagedHours.toFixed(1) + "h (oldest)" : "n/a"}`,
     `last hour  ${passes} passes, ${idles} idles`,
-    `ledger     ${backup.hours === null ? `NOT BACKED UP — ${backup.note}` : `backed up ${backup.hours.toFixed(1)}h ago`}`,
+    `ledger     ${backup.line}`,
     `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
     `kept       ${kept ? `${kept.gb} GB across ${kept.collections} collection(s) housekeeping will not release` : "n/a (no housekeeping line in the log)"}`,
     verdict === "UNBACKED"

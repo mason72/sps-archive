@@ -3377,3 +3377,41 @@ Therapy Headshots. It fired once, for a badge on a page that otherwise loaded.
   cancel, with light traffic; the postgres log said which statement and role.
   My first write-rate probe returned `[]` because a `tr` pipe mangled the
   JSON, and a control query (newest `updated_at` 14:24) exposed it.
+
+## 145 — UNBACKED measured when the ledger last CHANGED, so a quiet stretch read as a lost backup (2026-09-14)
+
+**What happened.** The stall check emailed `UNBACKED: the migration ledger last
+reached GitHub 51h ago`. The backup was complete. The check asked "when did a
+commit last touch `ledgers/pixieset-queue.json.gz` on origin", and machine-state's
+sync gzips with `-n`, so an unchanged ledger commits nothing. `queue.json` had no
+writes from Sept 11 19:00 to Sept 13 22:00 (the pipeline was stalled), both
+nightly syncs pushed correctly, and the moment work resumed the check saw a
+changing ledger behind a 51h-old commit.
+
+**How it was settled, cheaply.** Byte sizes of the live file vs the backed-up
+copy (820,893 vs 809,500) said "differs"; the sync log said both nights pushed
+and read the same 790 KB; bucketing the ISO timestamps inside `queue.json` by
+hour showed the two-day hole. Three reads, no guessing.
+
+**The fix: content first, then time** (`scripts/pixieset/ledger-backup.ts`).
+Live ledger equals the copy on origin → backed up, however old the commit.
+Differs → UNBACKED at once if the LAST sync run says it skipped the ledger or did
+not push; otherwise only when machine-state's origin tip is older than 48h (the
+26-silent-nights shape). Uncertain readings fall to stale, never to fine.
+
+**Rules.**
+- **An age check on a deduplicated artifact measures activity, not safety.** If
+  the writer skips identical content (gzip -n, content-addressed stores, "no
+  changes to commit"), "last changed" and "last verified" diverge whenever
+  nothing happens. Compare content, and put the time rule on the JOB (last
+  push), not on the file.
+- **When matching a log for failure, match the specific phrases that mean THIS
+  failure.** sync.sh prints `FAIL 3 repo(s) have NO REMOTE` every night; a
+  generic `FAIL` match would have made UNBACKED permanent. There is a test for it.
+- **`scripts/pixieset` is excluded from `npm run typecheck`.** A leftover call to
+  the deleted function passed it; the `--dry` run against live state threw
+  `ReferenceError`. For these scripts the dry run is the verification, and a
+  direct `tsc --noEmit <files>` is the type check.
+- Negative-tested: forcing the content match off and the skip detector off fails
+  exactly the two tests that guard them; a live dry run with
+  `PIXIESET_BACKUP_STALE_HOURS=0` flips the real ledger to UNBACKED.
