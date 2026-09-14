@@ -21,8 +21,21 @@ export interface ParsedFilename {
   extension: string;
 }
 
-/** Camera-generated prefixes that indicate no name is embedded */
-const CAMERA_PREFIXES = /^(IMG|DSC|DSCF|DSCN|P|_MG|_DSC|SAM|GOPR|DJI|R0|DCIM)/i;
+/**
+ * Camera-generated prefixes that indicate no name is embedded.
+ *
+ * Two kinds, because they fail differently:
+ *  - WORD prefixes no name begins with (IMG, DSC, _MG, GOPR, DJI, DCIM) match
+ *    as a whole word, so a tagged export like "IMG_CLASSSY_0005" stays nameless.
+ *  - LETTER prefixes that ARE the start of names (Panasonic/Olympus "P1000123",
+ *    Samsung "SAM_0042", Ricoh "R0012345") must be followed by digits. Bare, `P`
+ *    matched every name starting with p and `SAM` every Samantha: until
+ *    2026-09-14, 5,194 production rows (Patricia, Sameer, Paul…) stored
+ *    parsed_name NULL and only showed a name through the filename fallback
+ *    (backfilled by scripts/backfill-camera-prefix-names.ts, lesson 141).
+ */
+const CAMERA_PREFIXES =
+  /^(?:(?:IMG|DSCF|DSCN|DSC|_MG|_DSC|GOPR|DJI|DCIM)(?![a-z])|(?:P|SAM|R0)[_-]?\d)/i;
 
 /** Common separators used in filenames */
 import { collapseRepeatedWords } from "@/lib/gallery/stacks";

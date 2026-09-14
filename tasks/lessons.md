@@ -3185,3 +3185,57 @@ deliberately left two ASCII-only rules for later.
   too. `uniqueFolderNames()` hands later sections `-2`, `-3` in display order,
   compared case-insensitively because macOS and Windows extract `Jose/` and
   `JOSE/` into one folder.
+
+## 141 — A one-letter camera prefix ate every name starting with P, and SAM ate every Samantha (2026-09-14)
+
+**What happened.** `CAMERA_PREFIXES` was `/^(IMG|DSC|…|P|…|SAM|…|R0|DCIM)/i`,
+a bare prefix. Any filename starting with p or sam counted as a camera frame
+and got `parsed_name` NULL: "Patricia Smith_26-04-14_CollegeBoard_0101.jpg",
+"Sam Derby_…", "sameer mehra_…". Measured on production: **5,194 rows**, and
+before the fix not ONE filename starting with p carried a parsed name. The
+original report counted only the P half (3,975). Grouping the rows by prefix
+turned up SAM as a second instance of the same bug.
+
+**Why it survived.** `personNameFromParts()` falls back to the filename when
+parsed_name is NULL, so cards and stacks still showed the right person. A
+fallback that hides a wrong column makes the bug invisible, not harmless. The
+column was still wrong for search and for anything that reads it directly.
+
+**The fix has two kinds of prefix, because they fail differently.**
+- WORD prefixes no name starts with (IMG, DSC, _MG, GOPR, DJI, DCIM) match as
+  a whole word, `(?![a-z])`. If every prefix had been required to have a digit
+  after it, 951 `IMG_CLASSSY_0005` exports would have become a person named
+  "IMG CLASSSY".
+- LETTER prefixes that start real names (P, SAM, R0) need digits after them:
+  `P1000123` (Panasonic/Olympus), `SAM_0042`, `R0012345`.
+- Both kinds were checked against real production shapes before the test
+  was written: grouping by shape covers every camera frame the old rule caught.
+  The new tests were negative-tested against HEAD's parser (7 fail there, all
+  pass here).
+
+**The backfill guard is identity, not the name.** The backfill wrote only rows
+whose `personKeyForImage` is identical before and after, so /people could not
+move. Aliases, rejections, split links and crew links all key on that value,
+and a changed key detaches them silently. The guard skipped 75 rows: 14 of
+Patrick Strozzo's (a compact `_260603_` date is not an anchor for
+`nameBeforeDate`, so "FMheadshots" joins his key) and 61 non-people. 5,119
+rows were written, with an undo ledger of ids. A re-run finds 0 to write.
+
+**Rules.**
+- **Before shipping a prefix or pattern rule over names, group the real data by
+  the pattern and read the groups.** One query shows both what a rule wrongly
+  catches and what a stricter rule would wrongly release.
+- **When a column is wrong but a fallback covers for it, measure the column,
+  not the page.** "It displays fine" is exactly why this ran for months.
+- **A data backfill guards on the downstream KEY it must not move**, not just
+  on "the new value is better". Offline diff first (both keys for every row),
+  then a dry run that matches the diff, then apply, then a second dry run that
+  finds nothing to do.
+- A non-HOT update is a heavier write: the row gets a new version, so every index
+  on `images` gets a new entry, including the binary HNSW. Here that was because
+  `parsed_name` is indexed. The backfill ran as single-row updates at concurrency
+  4 rather than one big UPDATE.
+
+**Still live, deliberately out of scope:** CamelCase `FirstLast` parses as
+"First, Last" (7,134 rows show that comma; the parser assumes LastFirst), and
+compact `_YYMMDD_` dates are not a date anchor (1,029 named rows).
