@@ -46,18 +46,29 @@ function readinessTooltip(r: {
   uploading: number;
   indexed: number;
   total: number;
+  gaveUp: number;
 }): string {
   const n = r.total.toLocaleString();
   if (r.uploading > 0) {
     return `${r.uploading.toLocaleString()} photo${r.uploading === 1 ? "" : "s"} still uploading. AI processing starts once every upload has landed.`;
   }
-  if (r.indexed === 0) {
+  // Nothing SETTLED yet, not merely nothing indexed: a first batch that failed
+  // outright is progress with a problem, and "nothing is stuck" would be false.
+  if (r.indexed + r.gaveUp === 0) {
     // "Once uploads settle" is true and unhelpfully vague — settle means the
     // per-event debounce, now 2 minutes. Not saying so sends people back to
     // refresh a page that cannot have changed yet.
     return `Queued — ${n} photos waiting. AI processing starts automatically about 2 minutes after the last photo lands, and runs in the background; nothing is stuck. You can share this gallery now, and search, faces and smart sections switch on when it finishes.`;
   }
-  return `${r.indexed.toLocaleString()} of ${n} photos processed. Search, faces and smart sections improve as this fills in.`;
+  const skipped =
+    r.gaveUp > 0 ? ` ${notProcessedSentence(r.gaveUp)}` : "";
+  return `${r.indexed.toLocaleString()} of ${n} photos processed. Search, faces and smart sections improve as this fills in.${skipped}`;
+}
+
+/** One wording for given-up photos, shared by the tooltip and the note. */
+function notProcessedSentence(n: number): string {
+  const photos = `${n.toLocaleString()} photo${n === 1 ? "" : "s"}`;
+  return `${photos} couldn't be AI-processed after several tries, so search, faces and smart sections skip ${n === 1 ? "it" : "them"}. Viewing, sharing and downloads work as normal.`;
 }
 
 /** A ring that fills clockwise — no text, legible at 12px. */
@@ -88,11 +99,19 @@ export function GalleryStatusBadge({ status }: { status: EventStatus | null }) {
   if (!status) return null;
   const { delivery, readiness } = status;
 
-  const pct = readiness.total > 0 ? readiness.indexed / readiness.total : 0;
+  const gaveUp = readiness.gaveUp ?? 0;
+  // Settled, not just indexed: a given-up photo is finished work.
+  const pct =
+    readiness.total > 0
+      ? Math.min(1, (readiness.indexed + gaveUp) / readiness.total)
+      : 0;
   // Readiness shows ONLY while there's something to wait for. A permanent
   // green tick on every finished gallery is decoration, not information.
   const showReadiness =
     readiness.uploading > 0 || (readiness.total > 0 && !readiness.ready);
+  // Once finished, given-up photos still get said out loud — quietly. Treating
+  // them as done without a word would be the badge lying by omission.
+  const showNotProcessed = !showReadiness && gaveUp > 0;
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -129,14 +148,23 @@ export function GalleryStatusBadge({ status }: { status: EventStatus | null }) {
            nobody can interpret just relocates the anxiety. */
         <span
           className="inline-flex cursor-help items-center gap-1.5 text-[11px] text-stone-400"
-          title={readinessTooltip(readiness)}
+          title={readinessTooltip({ ...readiness, gaveUp })}
         >
           <ReadinessPie fraction={pct} />
           {readiness.uploading > 0
             ? "Uploading"
-            : readiness.indexed === 0
+            : readiness.indexed + gaveUp === 0
               ? "Queued"
               : `Processing ${Math.round(pct * 100)}%`}
+        </span>
+      )}
+
+      {showNotProcessed && (
+        <span
+          className="cursor-help text-[11px] text-amber-700"
+          title={notProcessedSentence(gaveUp)}
+        >
+          {gaveUp.toLocaleString()} not processed
         </span>
       )}
     </div>

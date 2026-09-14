@@ -11,6 +11,11 @@ export interface Status {
   uploading: number;
   /** Pending for over 30 minutes — ghosts, not uploads in flight. */
   stalled: number;
+  /**
+   * Settled photos AI indexing gave up on after repeated Modal failures.
+   * Optional: a response from before the field existed omits it.
+   */
+  gaveUp?: number;
   startedAt: string | null;
   perMinute: number | null;
   etaMinutes: number | null;
@@ -141,7 +146,9 @@ export function ProcessingBanner({
         ? Math.min(1, imp.landed / imp.expectedTotal)
         : 0
       : status.total > 0
-        ? status.indexed / status.total
+        ? // Settled, not just indexed: a given-up photo is finished work, so
+          // leaving it out would park the bar short of full for good.
+          Math.min(1, (status.indexed + (status.gaveUp ?? 0)) / status.total)
         : 0;
   const eta = status.etaMinutes;
   const etaLabel =
@@ -199,7 +206,19 @@ export function ProcessingBanner({
                 — AI processing starts once they land
               </span>
             </>
-          ) : status.indexed === 0 ? (
+          ) : status.complete ? (
+            <>
+              {/* Finished, and still up only because stalled rows need clearing.
+                  Without this branch it read "Processing 497 of 500 — less than
+                  a minute left" about work that will never run. */}
+              <span className="font-medium">AI processing finished</span>
+              <span className="text-stone-400">
+                {(status.gaveUp ?? 0) > 0
+                  ? ` — ${status.gaveUp!.toLocaleString()} photo${status.gaveUp === 1 ? "" : "s"} couldn't be processed`
+                  : ` — ${status.indexed.toLocaleString()} photos`}
+              </span>
+            </>
+          ) : status.indexed + (status.gaveUp ?? 0) === 0 ? (
             <>
               <span className="font-medium">Queued for AI processing</span>
               {/* Say when it starts AND roughly how long it runs. "Queued" with
@@ -219,7 +238,13 @@ export function ProcessingBanner({
                 Processing {status.indexed.toLocaleString()} of{" "}
                 {status.total.toLocaleString()}
               </span>
-              <span className="text-stone-400">— {etaLabel}</span>
+              <span className="text-stone-400">
+                {/* Named, never silently deducted from the total: the
+                    photographer handed over `total` photos. */}
+                {(status.gaveUp ?? 0) > 0 &&
+                  ` · ${status.gaveUp!.toLocaleString()} couldn't be processed`}
+                {" "}— {etaLabel}
+              </span>
             </>
           )}
         </p>

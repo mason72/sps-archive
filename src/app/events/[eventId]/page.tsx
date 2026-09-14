@@ -33,6 +33,7 @@ import {
   ProcessingBanner,
   type Status as ProcessingStatus,
 } from "@/components/events/ProcessingBanner";
+import { isAiReady } from "@/lib/events/status";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { PassingPhotos } from "@/components/brand/passing-photos";
 import { useSelection } from "@/hooks/useSelection";
@@ -574,9 +575,14 @@ export default function EventPage({
    * which is the confusion Justin actually hit (2026-08-11).
    */
   const [aiStatus, setAiStatus] = useState<ProcessingStatus | null>(null);
+  // isAiReady is the one rule: a photo AI indexing gave up on counts as settled,
+  // or one unreadable file would keep Smart section disabled forever. Uploads
+  // are deliberately NOT a gate here (uploading: 0): the controls work on the
+  // photos already indexed, and dropping 78 more into a finished gallery must
+  // not grey out Smart section. That is how this check behaved before it
+  // moved onto the shared rule.
   const aiReady =
-    aiStatus === null ||
-    (aiStatus.total > 0 && aiStatus.indexed >= aiStatus.total);
+    aiStatus === null || isAiReady({ ...aiStatus, uploading: 0 });
   const aiWaitLabel = (() => {
     if (aiReady || !aiStatus) return null;
     const mins = aiStatus.etaMinutes ?? aiStatus.forecastMinutes;

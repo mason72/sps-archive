@@ -3695,9 +3695,22 @@ starve every newer gallery.
   errors. The one `ai-index` error in that window, a `faces insert` statement
   timeout, correctly marked nothing: a database error is not a Modal
   per-image failure, and the batch stays unindexed for the retry.
-- **Known gap, left open deliberately:** a given-up image still counts against
-  `event_readiness.indexed`, so that event's badge never reaches "ready". Real
-  count today: 0 images. Revisit if `ai-index.gave-up` ever fires.
+- **Follow-up, closed the same day (migration 083): a given-up photo held its
+  gallery at "processing" forever.** "Ready" was `indexed >= total`, written out
+  THREE times: the archive badge (`status.ts`), the processing banner's
+  `complete`, and the event page's `aiReady`, which gates scene sorting and
+  Smart section. So one unreadable photo would have disabled those controls for
+  good, and the banner's self-heal would have re-kicked an empty lane every 5
+  minutes. The rule now has one home, `isAiReady()`: `indexed + gaveUp >=
+  total`. `event_readiness` returns `gave_up` beside `indexed`, never inside
+  it, and the UI names it ("3 not processed", amber, with a tooltip) instead of
+  quietly calling those photos done. **When a new terminal state appears, grep
+  for every place the old "done" predicate was re-derived**: the migration that
+  created the state was correct and still shipped a permanent stuck badge.
+  Render tests needed `esbuild: { jsx: "automatic" }` in `vitest.config.ts`
+  (Next's tsconfig preserves JSX, so components died on "React is not
+  defined"); fixture page `/dev/status` shows every badge state, since the
+  given-up state had no real example in production to look at.
 
 ## 152 — Session names became people: "Guardant General Session" was an 83-photo card (2026-09-14)
 

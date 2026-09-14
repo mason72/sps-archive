@@ -2127,10 +2127,11 @@ export type Database = {
         }[]
       }
       event_readiness: {
-        Args: { p_event_ids: string[] }
+        Args: { p_event_ids: string[]; p_max_attempts?: number }
         Returns: {
           all_rows: number
           event_id: string
+          gave_up: number
           indexed: number
           stalled: number
           total: number

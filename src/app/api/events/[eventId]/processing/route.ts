@@ -2,6 +2,8 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { inngest } from "@/lib/inngest/client";
+import { AI_INDEX_MAX_ATTEMPTS } from "@/lib/ai-index/failures";
+import { isAiReady } from "@/lib/events/status";
 
 /**
  * Per-instance throttle for the stalled-lane self-heal below — one kick per
@@ -46,7 +48,7 @@ export async function GET(
     if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const staleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const [totalRes, indexedRes, pendingRes, stalledRes, firstRes] = await Promise.all([
+    const [totalRes, indexedRes, pendingRes, stalledRes, firstRes, gaveUpRes] = await Promise.all([
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
@@ -84,12 +86,24 @@ export async function GET(
         .order("ai_indexed_at", { ascending: true })
         .limit(1)
         .maybeSingle(),
+      // Settled photos AI indexing gave up on (the give-up is migration 082).
+      // Same predicate as event_readiness.gave_up (migration 083), so the
+      // banner and the archive badge agree.
+      supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .eq("media_type", "image")
+        .eq("processing_status", "complete")
+        .is("ai_indexed_at", null)
+        .gte("ai_index_attempts", AI_INDEX_MAX_ATTEMPTS),
     ]);
 
     for (const [label, res] of [
       ["total", totalRes],
       ["indexed", indexedRes],
       ["pending", pendingRes],
+      ["gave-up", gaveUpRes],
     ] as const) {
       if (res.error) throw new Error(`${label}: ${res.error.message}`);
     }
@@ -98,6 +112,11 @@ export async function GET(
     const indexed = indexedRes.count ?? 0;
     const uploading = pendingRes.count ?? 0;
     const stalled = stalledRes.count ?? 0;
+    const gaveUp = gaveUpRes.count ?? 0;
+    // Work that will still happen. A given-up photo is not in it: counting it
+    // made the ETA forecast work that never runs, and kept the self-heal below
+    // re-kicking a lane with nothing to do every 5 minutes, forever.
+    const remaining = Math.max(0, total - indexed - gaveUp);
 
     // An SPS import in flight, if there is one.
     //
@@ -174,7 +193,7 @@ export async function GET(
       // prefer the forecast to a wild extrapolation in either direction.
       if ((recentCount ?? 0) >= 10) {
         perMinute = (recentCount ?? 0) / RATE_WINDOW_MIN;
-        etaMinutes = Math.ceil((total - indexed) / perMinute);
+        etaMinutes = Math.ceil(remaining / perMinute);
       }
     }
     // Before the first batch there is no measured rate, and the banner used to
@@ -186,8 +205,8 @@ export async function GET(
     // batch at ~107 GPU-seconds is ~56/min. Explicitly a FORECAST; the measured
     // number replaces it the moment real work exists.
     const forecastMinutes =
-      etaMinutes === null && total > indexed
-        ? Math.max(1, Math.ceil((total - indexed) / INDEX_RATE_PER_MIN))
+      etaMinutes === null && remaining > 0
+        ? Math.max(1, Math.ceil(remaining / INDEX_RATE_PER_MIN))
         : null;
 
     /**
@@ -206,7 +225,7 @@ export async function GET(
      * redundant kick is a no-op; fire-and-forget, because a status read must
      * never fail on a nicety.
      */
-    if (!importing && uploading === 0 && total > indexed && indexed >= 0) {
+    if (!importing && uploading === 0 && remaining > 0) {
       const newestIdx = await supabase
         .from("images")
         .select("ai_indexed_at")
@@ -243,6 +262,8 @@ export async function GET(
       indexed,
       uploading,
       stalled,
+      /** Settled photos AI indexing gave up on; named, never folded into indexed. */
+      gaveUp,
       startedAt,
       perMinute,
       etaMinutes,
@@ -253,8 +274,7 @@ export async function GET(
       // dismissing the banner, not by waiting.
       // An import in flight DOES keep it open: photos are still arriving, so
       // "complete" would be a claim about a set that is still growing.
-      complete:
-        !importing && total > 0 && indexed >= total && uploading === 0,
+      complete: !importing && isAiReady({ total, indexed, uploading, gaveUp }),
     });
   } catch (error) {
     await reportSystemError("events.processing", error, { eventId });

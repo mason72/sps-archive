@@ -104,9 +104,15 @@ Messages pass `redactUrlQueries()` first: httpx errors print the presigned
 thumbnail URL, signature included. **Why retries and not give-up-on-first:**
 all 34 per-image failures in the 30 days before (6 of 2,027 batches) indexed on
 a later pass. They were fetch blips, not bad files. To retry an image after a
-fix: `update images set ai_index_attempts = 0 where …`. Known gap: a given-up
-image still counts against `event_readiness.indexed`, so that event's badge never
-reaches "ready".
+fix: `update images set ai_index_attempts = 0 where …`. **A given-up photo is
+SETTLED, not indexed** (migration 083): `event_readiness` returns `gave_up`
+beside `indexed`, and `isAiReady()` (`src/lib/events/status.ts`) is the one
+"finished" rule, `indexed + gaveUp >= total`, shared by the archive badge, the
+processing banner's `complete` and the event page's AI-dependent controls. The
+UI names the count ("N not processed") rather than hiding it, and the banner's
+ETA and self-heal exclude it. Before 083 each of the three said `indexed >=
+total`, so one unreadable photo would have kept Smart section disabled forever.
+Badge states: `/dev/status`.
 
 ## Search
 

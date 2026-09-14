@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { AI_INDEX_MAX_ATTEMPTS } from "@/lib/ai-index/failures";
+
 /**
  * Gallery status — TWO independent axes, deliberately never merged.
  *
@@ -52,8 +54,34 @@ export interface Readiness {
    * drift, and the wider one is not a machinery number — it is the row count.
    */
   rows: number;
-  /** Every settled photo carries an AI index. */
+  /**
+   * Settled photos AI indexing gave up on after AI_INDEX_MAX_ATTEMPTS Modal
+   * failures (migration 082). Never folded into `indexed`: that count must stay
+   * a true claim, so these are named separately and shown as "not processed".
+   */
+  gaveUp: number;
+  /** Every settled photo is either AI-indexed or given up on. See isAiReady. */
   ready: boolean;
+}
+
+/**
+ * THE rule for "AI processing has finished", shared by the archive card badge,
+ * the event page's processing banner (its `complete`) and the AI-dependent
+ * controls on that page. It was written out three times before, all as
+ * `indexed >= total`, so a single photo Modal could never read kept a gallery
+ * "processing" and its Smart section disabled forever once 082 stopped
+ * retrying it.
+ *
+ * A given-up photo counts as SETTLED, not as indexed. `gaveUp` is optional
+ * only because a client can hold a response from before it existed.
+ */
+export function isAiReady(c: {
+  total: number;
+  indexed: number;
+  uploading: number;
+  gaveUp?: number;
+}): boolean {
+  return c.total > 0 && c.indexed + (c.gaveUp ?? 0) >= c.total && c.uploading === 0;
 }
 
 export interface EventStatus {
@@ -93,7 +121,10 @@ export async function resolveEventStatuses(
     // version fetched every image row and counted in memory, which silently
     // hit PostgREST's 1000-row cap — so a large archive computed every badge
     // from an arbitrary sample, and shipped ~18k rows on each dashboard load.
-    supabase.rpc("event_readiness", { p_event_ids: eventIds }),
+    supabase.rpc("event_readiness", {
+      p_event_ids: eventIds,
+      p_max_attempts: AI_INDEX_MAX_ATTEMPTS,
+    }),
   ]);
 
   // A Supabase error is a RETURN VALUE — `data || []` would turn a 400 into a
@@ -150,10 +181,11 @@ export async function resolveEventStatuses(
     uploading: number;
     stalled: number;
     all_rows: number;
+    gave_up: number;
   };
   const imgAgg = new Map<
     string,
-    { uploading: number; indexed: number; total: number; rows: number }
+    { uploading: number; indexed: number; total: number; rows: number; gaveUp: number }
   >();
   for (const row of (imagesRes.data ?? []) as ReadinessRow[]) {
     imgAgg.set(row.event_id, {
@@ -163,12 +195,14 @@ export async function resolveEventStatuses(
       // must not keep an event reading "Uploading" forever.
       uploading: Number(row.uploading),
       rows: Number(row.all_rows),
+      gaveUp: Number(row.gave_up ?? 0),
     });
   }
 
   for (const eventId of eventIds) {
     const share = shareAgg.get(eventId);
-    const img = imgAgg.get(eventId) ?? { uploading: 0, indexed: 0, total: 0, rows: 0 };
+    const img =
+      imgAgg.get(eventId) ?? { uploading: 0, indexed: 0, total: 0, rows: 0, gaveUp: 0 };
 
     let stage: DeliveryStage = "draft";
     if (share?.live) {
@@ -192,9 +226,10 @@ export async function resolveEventStatuses(
         indexed: img.indexed,
         total: img.total,
         rows: img.rows,
+        gaveUp: img.gaveUp,
         // An event with no settled photos isn't "ready", it's empty — callers
         // show nothing rather than a green tick on an empty gallery.
-        ready: img.total > 0 && img.indexed >= img.total && img.uploading === 0,
+        ready: isAiReady(img),
       },
     });
   }
