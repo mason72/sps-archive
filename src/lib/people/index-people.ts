@@ -148,15 +148,21 @@ export function preferredSpelling(a: string, b: string): string {
   if (aPerson !== bPerson) return aPerson ? a : b;
   if (a.length !== b.length) return b.length > a.length ? b : a;
   if (nonAsciiLetters(a) !== nonAsciiLetters(b)) return nonAsciiLetters(b) > nonAsciiLetters(a) ? b : a;
-  // Same letters, same length: the one with more words typed in mixed case is
-  // the one a person wrote carefully ("Jamilah McMillan" over "JAMILAH
-  // McMillan", "ANDREW McCartney" over "ANDREW mccartney"). Before splitCamel
-  // kept "Mc" on its surname these were not ties (lesson 147).
-  return mixedCaseWords(b) > mixedCaseWords(a) ? b : a;
+  // Same letters, same length, same words: the one with more words typed in
+  // mixed case is the one a person wrote carefully ("Jamilah McMillan" over
+  // "JAMILAH McMillan", "ANDREW McCartney" over "ANDREW mccartney"). Before
+  // splitCamel kept "Mc" on its surname these were not ties (lesson 149).
+  // Only between spellings with the same word count: otherwise a hyphenated
+  // session label loses to its spaced twin, which the face namer then reads as
+  // person-shaped (4 "Atlassian Champions … Day 2" clusters, cluster-namer-parity).
+  const wa = a.trim().split(/\s+/);
+  const wb = b.trim().split(/\s+/);
+  if (wa.length !== wb.length) return a;
+  return mixedCaseWords(wb) > mixedCaseWords(wa) ? b : a;
 }
 
-function mixedCaseWords(s: string): number {
-  return s.split(/\s+/).filter((w) => /\p{Lu}/u.test(w) && /\p{Ll}/u.test(w)).length;
+function mixedCaseWords(words: string[]): number {
+  return words.filter((w) => /\p{Lu}/u.test(w) && /\p{Ll}/u.test(w)).length;
 }
 
 /**

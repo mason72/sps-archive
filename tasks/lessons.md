@@ -3533,3 +3533,72 @@ could offer them as names in other events.
 **Rule.** When two readers of one fact disagree, measure what EACH would do on
 its own before declaring one of them the home. If both have blind spots, gate
 on their agreement and fix the disagreement at its source.
+
+## 149 — The parser's CamelCase branch threw letters away, and the fix nearly threw a whole person away (2026-09-14)
+
+**What happened.** `parseFilename()` split a single fused name by collecting
+`Upper+lower` runs. Anything outside such a run was dropped: "LisaOBrien"
+stored "Lisa Brien" and keyed as a different person, "ShannonD'Arcangelo"
+lost her D'. Past two runs it gave up and left the name fused ("KateyStJohn",
+"WendyYaWenZheng"). Found by lesson 148's parity harness, which showed the
+face namer refusing names the wall itself had wrong.
+
+**The measurement changed the job.** A census over all 213,100 rows, taken
+once to a local file (`name-parse-key-diff.ts rows`) and queried offline, then
+judged against the wall key rather than the parser output:
+- Wrong KEYS from the parser were small: Lisa (16) and Shannon (18) on the
+  wall. Most O'/D' names carry an event tag after the date, so
+  `personNameFromParts` already read them from the dated filename.
+- A different bug was bigger than the reported one: `collapseRepeatedWords`
+  ran after the camel split and ate doubled first names, so DeeDee Acquista
+  and SinhSinh An keyed WITH their event tags (49 photos, 3 junk cards).
+- Most damage was display only: 138 cards read "Mc Farlane", 54 "David
+  JBoyle", 14 fused blobs.
+- Session labels ("Guardant Team Spirit Night") DO reach /people, ~19 cards.
+  The obvious rule (the name shares a word with its event) also hits Kelly
+  Bottarini in her own gallery and every "Amy Chime", so it was left out of a
+  parser change.
+
+**The fix.** `splitPersonWords()` (stacks.ts) is now the one splitter for the
+parser and both filename readers. `splitCamel` keeps Mc/Mac on the surname,
+makes a 1–2 capital initial its own word, and leaves a lone O/D glued (a
+dropped apostrophe). A doubled word typed FUSED at the start of a longer name
+survives the collapse. The parser ends a fused name at a frame counter and
+drops `edited`/`retouched`.
+
+**Three regressions, each caught by a different harness before shipping.**
+- The wall diff: an unbounded capital run split shouted names wrong
+  ("Amanda CHEROM Iah", "VIVIA Nanderson"). Bounded to 1–2 capitals.
+- The backfill dry run: the old run collector dropped DIGITS by accident, so a
+  faithful split stored "Brian Duffy20626", which fails the person test and
+  would have taken his 57-photo card off the wall. The one line that looked
+  like pure improvement was the dangerous one.
+- The namer parity run: a mixed-case tie-break in `preferredSpelling`
+  preferred "Atlassian Champions Breakouts Day 2(20of59)" over its hyphenated
+  twin, so the namer would have named 4 clusters after a session. Now only
+  between spellings with the same word count. A baseline run on origin/main
+  proved the other 35 "stops naming" rows were not mine.
+
+**Shipped.** Code moves 67 row keys on deploy (all fixes). Backfill
+(`scripts/backfill-camel-split-names.ts`, Mason approved by card): 1,510 rows,
+1,028 key-neutral and 482 across 17 key pairs. `moved-keys-check.ts` found no
+exclusion, alias, split link or rejected name on any old key; Lisa's and
+Shannon's NEW keys already had reference centroids (the face engine had them
+right). Re-run finds 0. Wall: +12 cards (Victor Ochoa Gutierrez 82, Sacha M 74,
+eight PG&E people), Lisa and Shannon under their real names, 160 renames.
+Ledger `tasks/backfill-camel-split-names-2026-09-14.json`.
+
+**Rules.**
+- **An accidental behavior of the old code is part of its contract.** Diff the
+  old and new outputs over real data before trusting "the new one is simply
+  more correct". Here the old bug was hiding a second, worse one.
+- **Run every harness the change touches, not the one it was written for.**
+  Key diff, wall diff, backfill dry run and namer parity each caught a
+  regression the other three could not see.
+- **When two builds disagree, build the old code twice before blaming the
+  new.** Two HEAD builds differed on "Mike" and "Alex": live face-split drift,
+  not the change.
+- **The /people build times out acquiring a DB connection when local CPU is
+  busy** (three times, each beside vitest or tsx). Run it alone.
+- **A backfill's selector reproduces the OLD code, frozen inline**, so it
+  touches only rows that code wrote.

@@ -78,7 +78,7 @@ describe("parseFilename", () => {
   });
 
   /**
-   * Real production filenames (lesson 147). The CamelCase branch collected
+   * Real production filenames (lesson 149). The CamelCase branch collected
    * `Upper+lower` runs: it dropped every other letter and gave up past two
    * words, so "LisaOBrien" keyed as "lisabrien" on /people.
    */

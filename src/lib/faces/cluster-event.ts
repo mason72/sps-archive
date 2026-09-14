@@ -90,10 +90,10 @@ export interface FrameName {
  *  - the wall's reading alone would have named ~237 more clusters after event
  *    sessions ("Guardant Team Spirit Night", "CEMA Recep"), because the parser
  *    reassembles every segment of a multi-part label.
- * Agreement costs a few names the wall itself gets wrong ("LisaOBrien" parses
- * as "Lisa Brien"), so the fix for those belongs in the parser, where it also
- * fixes the wall. Spelling prefers the person-shaped reading, so a fused
- * "ChristinaDePinto" shows as "Christina De Pinto".
+ * Agreement costs any name the wall itself gets wrong, so the fix for those
+ * belongs in the parser, where it also fixes the wall ("LisaOBrien" parsed as
+ * "Lisa Brien" until lesson 149). Spelling prefers the person-shaped reading,
+ * so a fused "ChristinaDePinto" shows as "Christina De Pinto".
  */
 export function frameName(parsedName: string | null, originalFilename: string): FrameName | null {
   const key = personKeyForImage(parsedName, originalFilename);

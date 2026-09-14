@@ -7,7 +7,7 @@
  * holds an identity decision keyed by name is checked for both keys:
  * exclusions ("Not a person"), aliases (both sides), split links and
  * dismissals, rejected names on clusters, reference centroids, and identity
- * suggestions. Lesson 143 did this by hand; lesson 147 made it a script.
+ * suggestions. Lesson 143 did this by hand; lesson 149 made it a script.
  *
  *   npx tsx scripts/triage/moved-keys-check.ts <pairs.json>
  *

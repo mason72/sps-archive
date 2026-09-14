@@ -1,5 +1,5 @@
 /**
- * Re-derive parsed names the old CamelCase branch got wrong (lesson 147).
+ * Re-derive parsed names the old CamelCase branch got wrong (lesson 149).
  *
  * Until 2026-09-14 parseFilename() read a single fused part by collecting
  * `Upper+lower` runs. It dropped every other letter ("LisaOBrien" → "Lisa

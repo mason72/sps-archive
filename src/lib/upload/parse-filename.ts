@@ -84,7 +84,7 @@ export function parseFilename(filename: string): ParsedFilename {
       sequence = parseInt(part, 10);
     } else if (!/^(headshot|portrait|photo|final|edit|edited|retouch|retouched|raw|web|print)$/i.test(part)) {
       // "NickLombardo_044_edited.jpg" keyed as "nicklombardoedited" until
-      // 2026-09-14: `edit` was listed and its past tense was not (lesson 147).
+      // 2026-09-14: `edit` was listed and its past tense was not (lesson 149).
       nameParts.push(part);
     }
   }
@@ -104,7 +104,7 @@ export function parseFilename(filename: string): ParsedFilename {
   // This branch used to collect `\p{Lu}[\p{Ll}\p{M}]+` runs, which dropped
   // every letter not in such a run and gave up past two words: "LisaOBrien"
   // stored "Lisa Brien" and keyed as someone else, "ShannonD'Arcangelo" lost
-  // her D', and "ChristinaDePinto" / "KateyStJohn" stayed fused (lesson 147).
+  // her D', and "ChristinaDePinto" / "KateyStJohn" stayed fused (lesson 149).
   //
   // A frame counter fused onto the name ends it, along with anything after it
   // and an all-caps tag right before it: "BrianDuffy20626" → "Brian Duffy",

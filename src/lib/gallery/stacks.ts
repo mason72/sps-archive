@@ -52,7 +52,7 @@ export function extractPersonName(filename: string): string {
  * "DeeDeeAcquista" is Dee Dee Acquista and "SinhSinh An" is Sinh Sinh An. The
  * collapse used to run after the split and read both as repeats, so their
  * tagged files keyed as "deedeeacquistadtexmarch" and "sinhsinhangels" (lesson
- * 147). The collapse still applies where it was meant to: a surname typed
+ * 149). The collapse still applies where it was meant to: a surname typed
  * twice ("Tori Marifian Marifian", "IreneGonzalezGonzalez"), a spaced repeat
  * ("Ann ann Lee"), or a name that is only the doubled word ("LauraLaura").
  */

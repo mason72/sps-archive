@@ -83,7 +83,7 @@ export function nameText(s: string): string {
  * accented letter. Marks riding on the lowercase letter stay with it.
  *
  * Three name shapes a bare case split got wrong (measured on the /people wall
- * 2026-09-14, lesson 147). None of them changes a letter, so no identity key moves:
+ * 2026-09-14, lesson 149). None of them changes a letter, so no identity key moves:
  *  - **Mc / Mac stay on their surname**: "CollinMcFarlane" → "Collin McFarlane",
  *    not "Collin Mc Farlane" (138 cards). Only a boundary this split would
  *    make is kept shut; a space the filename typed is left alone.

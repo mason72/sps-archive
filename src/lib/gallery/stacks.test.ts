@@ -62,7 +62,7 @@ describe("collapseRepeatedWords (2026-08-21)", () => {
   });
 });
 
-describe("splitPersonWords (lesson 147)", () => {
+describe("splitPersonWords (lesson 149)", () => {
   it("keeps a doubled first name typed fused, and drops the tag after the date", () => {
     // Both people used to key with their event tag: the collapse read the
     // doubled first name as a typo, so the date-anchored name no longer

@@ -161,10 +161,14 @@ describe("preferredSpelling", () => {
     expect(preferredSpelling("Rodrigo Bretón", "Rodrigo Breton")).toBe("Rodrigo Bretón");
   });
 
-  it("between same-length spellings, prefers the one typed in mixed case (lesson 147)", () => {
+  it("between same-length spellings, prefers the one typed in mixed case (lesson 149)", () => {
     expect(preferredSpelling("JAMILAH McMillan", "Jamilah McMillan")).toBe("Jamilah McMillan");
     expect(preferredSpelling("Jamilah McMillan", "JAMILAH McMillan")).toBe("Jamilah McMillan");
     expect(preferredSpelling("ANDREW mccartney", "ANDREW McCartney")).toBe("ANDREW McCartney");
+    // A different word count is not that tie: the spaced twin of a hyphenated
+    // session label must not win, or the face namer names clusters after it.
+    const hyphenated = "Atlassian-Champions-Breakouts-Day-2(20of59)";
+    expect(preferredSpelling(hyphenated, "Atlassian Champions Breakouts Day 2(20of59)")).toBe(hyphenated);
   });
 
   it("answers in composed form", () => {
@@ -209,7 +213,7 @@ describe("name-text helpers", () => {
     expect(splitCamel("BrendanO’Gibney")).toBe("Brendan O’Gibney");
   });
 
-  it("splitCamel keeps Mc/Mac on the surname and makes an initial its own word (lesson 147)", () => {
+  it("splitCamel keeps Mc/Mac on the surname and makes an initial its own word (lesson 149)", () => {
     expect(splitCamel("CollinMcFarlane")).toBe("Collin McFarlane");
     expect(splitCamel("ShannonMacQuarrie")).toBe("Shannon MacQuarrie");
     expect(splitCamel("MacKenzie")).toBe("MacKenzie");
