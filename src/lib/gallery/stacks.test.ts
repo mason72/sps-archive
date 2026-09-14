@@ -62,6 +62,35 @@ describe("collapseRepeatedWords (2026-08-21)", () => {
   });
 });
 
+describe("splitPersonWords (lesson 147)", () => {
+  it("keeps a doubled first name typed fused, and drops the tag after the date", () => {
+    // Both people used to key with their event tag: the collapse read the
+    // doubled first name as a typo, so the date-anchored name no longer
+    // matched the parsed one and the tag survived.
+    expect(nameBeforeDate("DeeDeeAcquista_26-03-23_DTEX_March_2026_0213.jpg")).toBe("Dee Dee Acquista");
+    expect(nameBeforeDate("SinhSinh An_26-07-02_gels_0689.jpg")).toBe("Sinh Sinh An");
+    expect(
+      personNameFromParts("DeeDeeAcquista DTEX March", "DeeDeeAcquista_26-03-23_DTEX_March_2026_0213.jpg")
+    ).toBe("Dee Dee Acquista");
+    expect(personNameFromParts("SinhSinh An gels", "SinhSinh An_26-07-02_gels_0689.jpg")).toBe("Sinh Sinh An");
+  });
+
+  it("still collapses the typos the rule exists for", () => {
+    expect(nameBeforeDate("IreneGonzalezGonzalez_26-07-14_Appfolio_061.jpg")).toBe("Irene Gonzalez");
+    expect(nameBeforeDate("LauraLaura_26-07-23_APAC_BLUE_1023.jpg")).toBe("Laura");
+    expect(nameBeforeDate("wahab wahab_26-06-17_DAIS_9348.jpg")).toBe("wahab");
+  });
+
+  it("reads particles and initials as the wall should show them", () => {
+    expect(nameBeforeDate("CarlyMcNeil_251217_CoStarGroup_Arlington_296.jpg")).toBe("Carly McNeil");
+    expect(nameBeforeDate("BrookeQ.McElwee_26-01-27_1.jpg")).toBe("Brooke Q. McElwee");
+    expect(nameBeforeDate("KevinTKing_26-01-27_ALIS2026_2890.jpg")).toBe("Kevin T King");
+    // A lone O or D is a dropped apostrophe, not an initial.
+    expect(nameBeforeDate("RyanONeil_26-02-11_IslandSKO_2002.jpg")).toBe("Ryan ONeil");
+    expect(nameBeforeDate("KevinDSilva_26-01-22_ServiceNowBooth2_7756.jpg")).toBe("Kevin DSilva");
+  });
+});
+
 describe("stackPersonName", () => {
   it("trims event tokens the upload parser absorbed past the date segment", () => {
     expect(

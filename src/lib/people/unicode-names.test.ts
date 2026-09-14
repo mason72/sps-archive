@@ -161,6 +161,12 @@ describe("preferredSpelling", () => {
     expect(preferredSpelling("Rodrigo Bretón", "Rodrigo Breton")).toBe("Rodrigo Bretón");
   });
 
+  it("between same-length spellings, prefers the one typed in mixed case (lesson 147)", () => {
+    expect(preferredSpelling("JAMILAH McMillan", "Jamilah McMillan")).toBe("Jamilah McMillan");
+    expect(preferredSpelling("Jamilah McMillan", "JAMILAH McMillan")).toBe("Jamilah McMillan");
+    expect(preferredSpelling("ANDREW mccartney", "ANDREW McCartney")).toBe("ANDREW McCartney");
+  });
+
   it("answers in composed form", () => {
     expect(preferredSpelling(nfd("Débora Bins"), "debora bins")).toBe("Débora Bins");
   });
@@ -201,6 +207,23 @@ describe("name-text helpers", () => {
     expect(splitCamel("TaísSales")).toBe("Taís Sales");
     expect(splitCamel(nfd("TaísSales"))).toBe(nfd("Taís Sales"));
     expect(splitCamel("BrendanO’Gibney")).toBe("Brendan O’Gibney");
+  });
+
+  it("splitCamel keeps Mc/Mac on the surname and makes an initial its own word (lesson 147)", () => {
+    expect(splitCamel("CollinMcFarlane")).toBe("Collin McFarlane");
+    expect(splitCamel("ShannonMacQuarrie")).toBe("Shannon MacQuarrie");
+    expect(splitCamel("MacKenzie")).toBe("MacKenzie");
+    expect(splitCamel("DavidJBoyle")).toBe("David J Boyle");
+    expect(splitCamel("KarlA.Lerma")).toBe("Karl A. Lerma");
+    expect(splitCamel("JPMorgan")).toBe("JP Morgan");
+    expect(splitCamel("LisaOBrien")).toBe("Lisa OBrien");
+    expect(splitCamel("RohanD’Souza")).toBe("Rohan D’Souza");
+    // A space the filename typed is never touched, and no letter ever moves.
+    expect(splitCamel("Mac Miller")).toBe("Mac Miller");
+    expect(splitCamel("Tomac Jones")).toBe("Tomac Jones");
+    for (const s of ["CollinMcFarlane", "KyleJ.Rose", "BoramKIM", "NadiaO'Dea"]) {
+      expect(splitCamel(s).replace(/ /g, "")).toBe(s);
+    }
   });
 
   it("foldName keeps word boundaries", () => {

@@ -147,7 +147,16 @@ export function preferredSpelling(a: string, b: string): string {
   const bPerson = looksLikePersonName(b) || looksLikeSingleName(b);
   if (aPerson !== bPerson) return aPerson ? a : b;
   if (a.length !== b.length) return b.length > a.length ? b : a;
-  return nonAsciiLetters(b) > nonAsciiLetters(a) ? b : a;
+  if (nonAsciiLetters(a) !== nonAsciiLetters(b)) return nonAsciiLetters(b) > nonAsciiLetters(a) ? b : a;
+  // Same letters, same length: the one with more words typed in mixed case is
+  // the one a person wrote carefully ("Jamilah McMillan" over "JAMILAH
+  // McMillan", "ANDREW McCartney" over "ANDREW mccartney"). Before splitCamel
+  // kept "Mc" on its surname these were not ties (lesson 147).
+  return mixedCaseWords(b) > mixedCaseWords(a) ? b : a;
+}
+
+function mixedCaseWords(s: string): number {
+  return s.split(/\s+/).filter((w) => /\p{Lu}/u.test(w) && /\p{Ll}/u.test(w)).length;
 }
 
 /**

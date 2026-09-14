@@ -77,6 +77,52 @@ describe("parseFilename", () => {
     expect(parseFilename("(AI) IMG_1234.jpg").name).toBeNull();
   });
 
+  /**
+   * Real production filenames (lesson 147). The CamelCase branch collected
+   * `Upper+lower` runs: it dropped every other letter and gave up past two
+   * words, so "LisaOBrien" keyed as "lisabrien" on /people.
+   */
+  describe("a fused name keeps every letter and splits into words", () => {
+    it.each([
+      ["LisaOBrien_26-01-27_3979.jpg", "Lisa OBrien"],
+      ["ShannonD'Arcangelo_26-01-27_2264.jpg", "Shannon D'Arcangelo"],
+      ["ChristinaDePinto_26-01-27_2322.jpg", "Christina De Pinto"],
+      ["KateyStJohn_26-01-27_3511.jpg", "Katey St John"],
+      ["WendyYaWenZheng_26-01-27_2001.jpg", "Wendy Ya Wen Zheng"],
+      ["MikeJ_26-06-09_0311.jpg", "Mike J"],
+      ["CollinMcFarlane_26-05-20_094.jpg", "Collin McFarlane"],
+      ["LucyMacDonald_26-01-21_22.jpg", "Lucy MacDonald"],
+      ["DavidJBoyle_9613.jpg", "David J Boyle"],
+      ["KyleJ.Rose_4709.jpg", "Kyle J. Rose"],
+      ["DeeDeeAcquista_0213.jpg", "Dee Dee Acquista"],
+      ["PatrickKrieger_26-01-27_2079.jpg", "Patrick Krieger"],
+    ])("reads %s as %s", (file, name) => {
+      expect(parseFilename(file).name).toBe(name);
+    });
+
+    it.each([
+      ["BrianDuffy20626.jpg", "Brian Duffy"],
+      ["VanessaCollins28453.jpg", "Vanessa Collins"],
+      ["CaioDicenzoioNYC28565.jpg", "Caio Dicenzoio"],
+      ["AnthroSpring0091notagflipwide.jpg", "Anthro Spring"],
+      ["210804_AshwinRaoccc0247[BW].jpg", "Ashwin Raoccc"],
+    ])("ends a fused name at its frame counter: %s", (file, name) => {
+      expect(parseFilename(file).name).toBe(name);
+    });
+
+    it("still collapses a surname typed twice", () => {
+      expect(parseFilename("IreneGonzalezGonzalez_061.jpg").name).toBe("Irene Gonzalez");
+      expect(parseFilename("LauraLaura_1023.jpg").name).toBe("Laura");
+    });
+
+    it("drops an 'edited' or 'retouched' export suffix", () => {
+      // With the suffix gone the fused name is the only part, so it splits too.
+      expect(parseFilename("NickLombardo_044_edited.jpg").name).toBe("Nick Lombardo");
+      expect(parseFilename("NickLombardo_055_Edited.jpg").name).toBe("Nick Lombardo");
+      expect(parseFilename("SaijaiChaloemtiarana_105_retouched.jpg").name).toBe("Saijai Chaloemtiarana");
+    });
+  });
+
   it("does not strip '(AI)' from the middle of a name", () => {
     // Only the leading marker is SPS's; anything else is the photographer's.
     expect(parseFilename("Team (AI) Lab-3.jpg").name).toContain("AI");

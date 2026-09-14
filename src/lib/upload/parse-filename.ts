@@ -38,7 +38,7 @@ const CAMERA_PREFIXES =
   /^(?:(?:IMG|DSCF|DSCN|DSC|_MG|_DSC|GOPR|DJI|DCIM)(?![a-z])|(?:P|SAM|R0)[_-]?\d)/i;
 
 /** Common separators used in filenames */
-import { collapseRepeatedWords } from "@/lib/gallery/stacks";
+import { collapseRepeatedWords, splitPersonWords } from "@/lib/gallery/stacks";
 import { nameText } from "@/lib/people/name-text";
 
 const SEPARATORS = /[_\- ]+/;
@@ -82,7 +82,9 @@ export function parseFilename(filename: string): ParsedFilename {
   for (const part of parts) {
     if (/^\d+$/.test(part)) {
       sequence = parseInt(part, 10);
-    } else if (!/^(headshot|portrait|photo|final|edit|raw|web|print)$/i.test(part)) {
+    } else if (!/^(headshot|portrait|photo|final|edit|edited|retouch|retouched|raw|web|print)$/i.test(part)) {
+      // "NickLombardo_044_edited.jpg" keyed as "nicklombardoedited" until
+      // 2026-09-14: `edit` was listed and its past tense was not (lesson 147).
       nameParts.push(part);
     }
   }
@@ -97,16 +99,23 @@ export function parseFilename(filename: string): ParsedFilename {
   // used to emit "Last, First" and so labelled 7,134 photos "Patrick, Krieger":
   // measured 2026-09-14, 14 of those names also appear spaced First Last
   // elsewhere in the archive and none reversed (lesson 143).
+  //
+  // The split is `splitPersonWords`, the same one the filename readers use.
+  // This branch used to collect `\p{Lu}[\p{Ll}\p{M}]+` runs, which dropped
+  // every letter not in such a run and gave up past two words: "LisaOBrien"
+  // stored "Lisa Brien" and keyed as someone else, "ShannonD'Arcangelo" lost
+  // her D', and "ChristinaDePinto" / "KateyStJohn" stayed fused (lesson 147).
+  //
+  // A frame counter fused onto the name ends it, along with anything after it
+  // and an all-caps tag right before it: "BrianDuffy20626" → "Brian Duffy",
+  // "CaioDicenzoioNYC28565" → "Caio Dicenzoio", "AnthroSpring0091notag" →
+  // "Anthro Spring". The old run collector dropped digits by accident; a
+  // split that kept them stored "Brian Duffy20626", which fails the person
+  // test and would have taken his whole card off /people (caught in the
+  // backfill dry run, 2026-09-14).
   if (nameParts.length === 1 && /^\p{Lu}[\p{Ll}\p{M}]+\p{Lu}/u.test(nameParts[0])) {
-    const camelParts = nameParts[0].match(/\p{Lu}[\p{Ll}\p{M}]+/gu);
-    if (camelParts && camelParts.length === 2) {
-      return {
-        name: `${camelParts[0]} ${camelParts[1]}`,
-        sequence,
-        stem,
-        extension,
-      };
-    }
+    const fused = nameParts[0].replace(/(?:\p{Lu}{2,})?\d.*$/u, "");
+    return { name: splitPersonWords(fused) || null, sequence, stem, extension };
   }
 
   // Multiple parts: assume "Last_First" or "First_Last". A word repeated

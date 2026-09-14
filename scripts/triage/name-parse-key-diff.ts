@@ -33,16 +33,27 @@ type Snap = Record<
 
 const PAGE = 1000;
 
-async function read(): Promise<Row[]> {
+/**
+ * `NAME_ROWS=<file>` reads rows from a local copy made by the `rows` command
+ * instead of the database, so a before/after pair (and any offline shape
+ * count) compares the SAME rows and costs one read of production, not three.
+ * Without it, only the rows lesson 143's fixes could touch are read.
+ */
+async function read(all = false): Promise<Row[]> {
+  if (!all && process.env.NAME_ROWS) {
+    return JSON.parse(fs.readFileSync(process.env.NAME_ROWS, "utf8")) as Row[];
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing");
   const db = createClient(url, key, { auth: { persistSession: false } });
   const rows = new Map<string, Row>();
-  const filters: [string, string, string][] = [
-    ["parsed_name", "like", "%, %"],
-    ["original_filename", "match", "[0-9]{6}_"],
-  ];
+  const filters: [string, string, string][] = all
+    ? [["original_filename", "neq", ""]]
+    : [
+        ["parsed_name", "like", "%, %"],
+        ["original_filename", "match", "[0-9]{6}_"],
+      ];
   for (const [col, op, val] of filters) {
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await db
@@ -110,9 +121,16 @@ function compare(beforePath: string, afterPath: string) {
 }
 
 const [cmd, a, b] = process.argv.slice(2);
-if (cmd === "dump" && a) dump(a).catch((e) => { console.error(e); process.exit(1); });
+if (cmd === "rows" && a) {
+  read(true)
+    .then((rows) => {
+      fs.writeFileSync(a, JSON.stringify(rows));
+      console.log(`${rows.length} rows → ${a}`);
+    })
+    .catch((e) => { console.error(e); process.exit(1); });
+} else if (cmd === "dump" && a) dump(a).catch((e) => { console.error(e); process.exit(1); });
 else if (cmd === "compare" && a && b) compare(a, b);
 else {
-  console.error("usage: dump <out.json> | compare <before.json> <after.json>");
+  console.error("usage: rows <out.json> | dump <out.json> | compare <before.json> <after.json>");
   process.exit(1);
 }

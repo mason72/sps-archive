@@ -77,13 +77,32 @@ export function nameText(s: string): string {
 }
 
 /**
- * A fused name split at its case boundary: "CassandraCórdova" →
+ * A fused name split at its case boundaries: "CassandraCórdova" →
  * "Cassandra Córdova", "TaísSales" → "Taís Sales". The Unicode twin of the
  * old `([a-z])([A-Z])` split, which could not see the boundary after an
  * accented letter. Marks riding on the lowercase letter stay with it.
+ *
+ * Three name shapes a bare case split got wrong (measured on the /people wall
+ * 2026-09-14, lesson 147). None of them changes a letter, so no identity key moves:
+ *  - **Mc / Mac stay on their surname**: "CollinMcFarlane" → "Collin McFarlane",
+ *    not "Collin Mc Farlane" (138 cards). Only a boundary this split would
+ *    make is kept shut; a space the filename typed is left alone.
+ *  - **An initial is its own word**: "DavidJBoyle" → "David J Boyle",
+ *    "KyleJ.Rose" → "Kyle J. Rose". EXCEPT a lone O or D, which is an
+ *    apostrophe the export dropped ("RyanONeil", "KevinDSilva"): splitting it
+ *    would read "Ryan O Neil", so it stays on the surname.
+ *  - The same rule reads a two-letter initial run ("JRTreto" → "JR Treto").
+ *    Only one or two capitals: a longer run is a shouted word whose boundary
+ *    this cannot see, and splitting it gave "Amanda CHEROM Iah" and
+ *    "VIVIA Nanderson" (caught in the wall diff), so it is left as typed.
  */
 export function splitCamel(s: string): string {
-  return s.replace(/(\p{Ll}\p{M}*)(?=\p{Lu})/gu, "$1 ");
+  return s
+    .replace(/(\p{Ll}\p{M}*)(?=\p{Lu})/gu, (m, _lower: string, offset: number, str: string) =>
+      /(?:^|[^\p{Lu}])Ma?c$/u.test(str.slice(0, offset + m.length)) ? m : `${m} `
+    )
+    .replace(/(^|\s)((?![OD]\p{Lu}\p{Ll})\p{Lu}{1,2})(?=\p{Lu}\p{Ll})/gu, "$1$2 ")
+    .replace(/(^|\s)(\p{Lu}\.)(?=\p{Lu}\p{Ll})/gu, "$1$2 ");
 }
 
 /**

@@ -40,7 +40,29 @@ export function extractPersonName(filename: string): string {
   } else {
     name = base.split("_")[0];
   }
-  return collapseRepeatedWords(splitCamel(name).trim());
+  return splitPersonWords(name);
+}
+
+/**
+ * A name as words: fused CamelCase split (`splitCamel`) and typo repeats
+ * collapsed (`collapseRepeatedWords`) — the ONE home both filename readers
+ * and the upload parser use, so they cannot disagree about a name's words.
+ *
+ * A doubled word FUSED at the start of a longer name is a name, not a typo:
+ * "DeeDeeAcquista" is Dee Dee Acquista and "SinhSinh An" is Sinh Sinh An. The
+ * collapse used to run after the split and read both as repeats, so their
+ * tagged files keyed as "deedeeacquistadtexmarch" and "sinhsinhangels" (lesson
+ * 147). The collapse still applies where it was meant to: a surname typed
+ * twice ("Tori Marifian Marifian", "IreneGonzalezGonzalez"), a spaced repeat
+ * ("Ann ann Lee"), or a name that is only the doubled word ("LauraLaura").
+ */
+export function splitPersonWords(name: string): string {
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  const words = tokens.flatMap((t) => splitCamel(t).split(" "));
+  const lead = tokens.length ? splitCamel(tokens[0]).split(" ") : [];
+  const fusedDouble = lead.length >= 2 && lead[0] === lead[1] && words.length > 2;
+  if (!fusedDouble) return collapseRepeatedWords(words.join(" "));
+  return `${words[0]} ${collapseRepeatedWords(words.slice(1).join(" "))}`;
 }
 
 /**
@@ -72,7 +94,7 @@ export function nameBeforeDate(filename: string): string | null {
   const match = base.match(NAME_THEN_DATE);
   if (!match) return null;
   const name = match[1].replace(/_/g, " ").trim();
-  return collapseRepeatedWords(splitCamel(name).trim()) || null;
+  return splitPersonWords(name) || null;
 }
 
 /**
