@@ -3239,3 +3239,50 @@ rows were written, with an undo ledger of ids. A re-run finds 0 to write.
 **Still live, deliberately out of scope:** CamelCase `FirstLast` parses as
 "First, Last" (7,134 rows show that comma; the parser assumes LastFirst), and
 compact `_YYMMDD_` dates are not a date anchor (1,029 named rows).
+## 142 — The parser's guessed comma kept 197 people off /people, and a digit kept 36 more (2026-09-14)
+
+Auditing accented names, DATADOG HEADSHOTS NYC (2,966 photos) turned out to put
+only 339 photos on the wall. The brief said undated filenames were the cause.
+That was true, and it was the smaller half.
+
+- **The bigger cause was one I was not looking for, found by printing rows.**
+  `parseFilename` turns a two-word CamelCase stem into "Last, First"
+  ("KellyBottarini" → "Kelly, Bottarini"). `looksLikePersonName` allows letters,
+  apostrophes, dots and hyphens in a word, never a comma, and has not since the
+  index was built (bbddb80, 2026-08-10). So every such name failed the shape
+  test, dated or not: 429 identities, 7,051 photos, including all of KELLY
+  BOTTARINI'S HEADSHOTS. No error, and nobody noticed an absence. The comma was
+  never evidence: the parser never reorders, and event exports put the first
+  name first. Fix: `personNameFromParts` drops it when the filename spells the
+  two words fused in that order. Same key either way, so it can only add. It
+  also matters for lesson 141: that backfill wrote "First, Last" parsed names
+  into 5,119 rows that used to fall back to the filename, which is exactly the
+  shape this failed on.
+- **Undated event exports** ("AudreyEasley_DataDogHeadshots_NYC30119") kept a
+  frame-numbered tag in the parsed name, so each photo was a unique non-name.
+  Fix: take the first underscore segment only in the shape every real export
+  had. `extractPersonName` alone would have minted "Meaghan Vella Data Dog
+  Headshots". The first version guarded only against digits and shoot words; a
+  fresh-context review then produced "Group Shot" (`GroupShot_A12`), "(AI) Audrey
+  Easley" (the raw filename keeps SPS's render prefix, which only the parser
+  strips) and "Maria Jose" minus her surname (`Maria Jose_Garcia_B2`). Fixed by
+  requiring a fused segment, a 3+ digit frame counter, and stripping `(AI) `.
+  The final diff kept every real addition. "CollegeBoard_SLC1234" still passes:
+  shape cannot tell a brand from a person, so that stays with the label filter
+  and "Not a person".
+- **Row counts overstate a name rule by 2x; measure the WALL.** 429 rescued
+  identities became 197 cards once the label filter, vouching and face split
+  ran. `scripts/triage/people-index-diff.ts` builds the real index read-only
+  before and after, and lists every added, removed, renamed and regrown card.
+  Final: +233 cards, +4,202 photos, 0 removed, 0 merged, about 22 labels (mostly
+  Staff Photos, which already mints ~70; that gallery is its own problem).
+  DATADOG coverage went from 339 to 2,277.
+- **A rename in a before/after diff is not automatically yours.** Two cards
+  lost their spaces between builds ("Peng Yu Chen" → "PengYuChen"). Their rows
+  had null parsed names, which my code never touches, and `updated_at` showed
+  lesson 141's backfill rewriting them mid-session. Evaluate the function on the
+  exact filename and read the row's timestamp before believing either reading.
+- **An identity rule change that only ADDS is still Mason's call when a guest
+  sees it**: gallery stacks read the same function, so "Smith, John" became
+  "Smith John" there too, and a test pinned the old label. Asked with a card
+  before shipping.

@@ -85,12 +85,63 @@ describe("stackPersonName", () => {
     ).toBe("Aaron Cote");
   });
 
-  it("keeps punctuated parsed names (prefix test fails on the comma)", () => {
+  it("drops the comma the parser guessed into a fused name (lesson 140)", () => {
+    // parse-filename turns "KellyBottarini" into "Kelly, Bottarini"; the comma
+    // failed every person-shape test and kept 7,051 photos off /people.
     expect(
       stackPersonName(
-        img({ parsedName: "Smith, John", originalFilename: "SmithJohn_001.jpg" })
+        img({ parsedName: "Kelly, Bottarini", originalFilename: "KellyBottarini_063.jpg" })
       )
-    ).toBe("Smith, John");
+    ).toBe("Kelly Bottarini");
+    expect(
+      personNameFromParts("Joy, Andrada", "JoyAndrada_26-01-27_2646.jpg")
+    ).toBe("Joy Andrada");
+  });
+
+  it("keeps a comma the filename itself carries", () => {
+    expect(personNameFromParts("Smith, John", "Smith, John.jpg")).toBe("Smith, John");
+  });
+
+  it("names an undated event export from its first segment (DATADOG, lesson 140)", () => {
+    expect(
+      personNameFromParts(
+        "AudreyEasley DataDogHeadshots NYC30119",
+        "AudreyEasley_DataDogHeadshots_NYC30119.jpg"
+      )
+    ).toBe("Audrey Easley");
+    expect(
+      personNameFromParts("VictoriaO’Neill DataDogHeadshots NYC29441", "VictoriaO’Neill_DataDogHeadshots_NYC29441.jpg")
+    ).toBe("Victoria O’Neill");
+  });
+
+  it("leaves an undated export unnamed when the first segment could be the tag", () => {
+    // Fused tag: a wrong name is worse than a missing one.
+    const fused = "JeamarieCastroDataDogHeadshots NYC28839";
+    expect(personNameFromParts(fused, "JeamarieCastroDataDogHeadshots_NYC28839.jpg")).toBe(fused);
+    // One word, or digits, or no name at all.
+    expect(personNameFromParts("YY DataDogHeadshots NYC29991", "YY_DataDogHeadshots_NYC29991.jpg")).toBe(
+      "YY DataDogHeadshots NYC29991"
+    );
+    expect(personNameFromParts("DataDogHeadshots NYC29800", "260127_DataDogHeadshots_NYC29800.jpg")).toBe(
+      "DataDogHeadshots NYC29800"
+    );
+  });
+
+  it("the undated fallback refuses shapes that are not event exports (review, 2026-09-14)", () => {
+    // No frame counter: a group or brand prefix, not a person.
+    expect(personNameFromParts("GroupShot A12", "GroupShot_A12.jpg")).toBe("GroupShot A12");
+    expect(personNameFromParts("TeamLead B2", "TeamLead_B2.jpg")).toBe("TeamLead B2");
+    // A spaced first segment may be missing its surname.
+    expect(personNameFromParts("Maria Jose Garcia B1234", "Maria Jose_Garcia_B1234.jpg")).toBe(
+      "Maria Jose Garcia B1234"
+    );
+    // An SPS AI render names the same person, not "(AI) Audrey Easley".
+    expect(
+      personNameFromParts(
+        "AudreyEasley DataDogHeadshots NYC30119",
+        "(AI) AudreyEasley_DataDogHeadshots_NYC30119.jpg"
+      )
+    ).toBe("Audrey Easley");
   });
 
   it("never shortens via the underscore-fallback path (no date anchor)", () => {

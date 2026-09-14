@@ -70,7 +70,8 @@ export function nameBeforeDate(filename: string): string | null {
  * CollegeBoardSLC"): if the date-anchored filename split yields a strict
  * prefix of parsedName, the shorter split is the person and the tail is
  * event noise. Pure punctuation/spacing differences ("Smith, John" vs
- * "Smith John") are NOT a shorter prefix and keep the parsed form.
+ * "Smith John") are NOT a shorter prefix; the parser's guessed comma is then
+ * dropped when the filename spells the name fused (see personNameFromParts).
  */
 export function stackPersonName(img: GalleryImage): string {
   return personNameFromParts(img.parsedName, img.originalFilename);
@@ -136,8 +137,62 @@ export function personNameFromParts(
     if (datedNorm.length < parsedNorm.length && parsedNorm.startsWith(datedNorm)) {
       return dated;
     }
+  } else if (/\p{N}/u.test(parsed)) {
+    const named = undatedEventExportName(originalFilename);
+    if (named) return named;
   }
-  return parsed;
+  return unfuseParserComma(parsed, originalFilename);
+}
+
+/** Words that describe the SHOOT, never the person — a name carrying one is a
+ *  fused event tag ("JeamarieCastroDataDogHeadshots"), not a name. */
+const SHOOT_WORDS = /^(headshots?|portraits?|photos?|photography|pics?|booth|event|sko)$/i;
+
+/**
+ * The person in an undated event export, "AudreyEasley_DataDogHeadshots_NYC30119.jpg"
+ * → "Audrey Easley", or null. The upload parser keeps every non-numeric part,
+ * so its name ends in the frame-numbered tag ("…NYC30119"), fails every
+ * person-shape test, and is unique per frame — 1,034 of DATADOG HEADSHOTS
+ * NYC's 2,966 photos were off /people for that reason (lesson 140). With no
+ * date to prove where the name ends, the first underscore segment is the only
+ * candidate, so it is accepted only in the shape every real export measured
+ * had: a FUSED segment ("EmmaSayiner", never "Maria Jose", whose surname may be
+ * the next segment) splitting to two+ words with no digits and no shoot word,
+ * in a filename carrying a frame counter (3+ digits — "GroupShot_A12" is not
+ * an export). A fused tag stays unnamed rather than minting "Jeamarie Castro
+ * Data Dog": a wrong name is worse than a missing one. A brand shaped exactly
+ * like a person ("CollegeBoard_SLC1234") can still pass; that is the label
+ * filter's and "Not a person"'s job, as for every other filename.
+ */
+function undatedEventExportName(originalFilename: string): string | null {
+  // The parser strips SPS's "(AI) " render prefix; this path reads the raw
+  // filename, so it must too, or a render keys as a second person.
+  const file = originalFilename.replace(/^\(AI\)\s*/i, "");
+  if (!/\d{3,}/.test(file)) return null;
+  const segment = nameText(file).replace(/\.\w+$/, "").split("_")[0].trim();
+  if (/\s/.test(segment)) return null;
+  const name = extractPersonName(file);
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || /\p{N}/u.test(name)) return null;
+  return words.some((w) => SHOOT_WORDS.test(w)) ? null : name;
+}
+
+/**
+ * "Kelly, Bottarini" → "Kelly Bottarini", when the filename reads
+ * "KellyBottarini". The upload parser turns a two-word CamelCase stem into
+ * "Last, First" (parse-filename.ts), but it never reorders — the comma is a
+ * guess about which word is the surname, and for event exports it is wrong
+ * (first name first). The comma also failed every person-shape test, so 429
+ * such identities — 7,051 photos, KELLY BOTTARINI'S HEADSHOTS entire — were
+ * off /people until 2026-09-14 (lesson 140). The key is unchanged either way
+ * (normalizeNameKey drops punctuation), so this can only ADD photos to an
+ * identity, never merge or split one. A comma the filename itself carries
+ * ("Smith, John.jpg") is left alone.
+ */
+function unfuseParserComma(parsed: string, originalFilename: string): string {
+  const m = parsed.match(/^(\S+), (\S+)$/);
+  if (!m) return parsed;
+  return nameText(originalFilename).includes(m[1] + m[2]) ? `${m[1]} ${m[2]}` : parsed;
 }
 
 /* ─── Corpus-aware event-tag stripping ───
