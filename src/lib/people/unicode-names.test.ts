@@ -230,7 +230,7 @@ describe("name-text helpers", () => {
 
 describe("the other name heuristics", () => {
   it("parseFilename reads accented CamelCase and stores the composed name", () => {
-    expect(parseFilename("CórdovaCassandra_001.jpg").name).toBe("Córdova, Cassandra");
+    expect(parseFilename("CassandraCórdova_001.jpg").name).toBe("Cassandra Córdova");
     expect(parseFilename(nfd("Débora Bins-001.jpg")).name).toBe("Débora Bins");
   });
 

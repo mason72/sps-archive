@@ -24,7 +24,7 @@ describe("parseFilename", () => {
   describe("camera prefixes vs names that share their first letters", () => {
     it.each([
       ["Patricia Smith_26-04-14_CollegeBoard_0101.jpg", "Patricia Smith CollegeBoard"],
-      ["PatriciaSmith_0101.jpg", "Patricia, Smith"],
+      ["PatriciaSmith_0101.jpg", "Patricia Smith"],
       ["pete destefano_26-08-06_HDC_0974.jpg", "pete destefano HDC"],
       ["SamanthaGarcia_26-07-14_Appfolio_1338.jpg", "SamanthaGarcia Appfolio"],
       ["Sam Derby_26-08-07_Island_1507.jpg", "Sam Derby Island"],

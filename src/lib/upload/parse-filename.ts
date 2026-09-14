@@ -2,8 +2,8 @@
  * Parse structured information from image filenames.
  *
  * Handles common photographer naming conventions:
- *   "SmithJohn_001.jpg"       → { name: "Smith, John", sequence: 1 }
- *   "Smith_John_001.jpg"      → { name: "Smith, John", sequence: 1 }
+ *   "JohnSmith_001.jpg"       → { name: "John Smith", sequence: 1 }
+ *   "John_Smith_001.jpg"      → { name: "John Smith", sequence: 1 }
  *   "John Smith-001.jpg"      → { name: "John Smith", sequence: 1 }
  *   "JohnSmith_headshot_3.jpg"→ { name: "John Smith", sequence: 3 }
  *   "IMG_4532.jpg"            → { name: null, sequence: 4532 }
@@ -91,13 +91,17 @@ export function parseFilename(filename: string): ParsedFilename {
     return { name: null, sequence, stem, extension };
   }
 
-  // Try to detect CamelCase: "SmithJohn" → "Smith, John", "CórdovaCassandra"
-  // → "Córdova, Cassandra" (Unicode case classes; marks ride with their letter).
+  // CamelCase is split and kept in the order typed: "PatrickKrieger" →
+  // "Patrick Krieger", "CassandraCórdova" → "Cassandra Córdova" (Unicode case
+  // classes; marks ride with their letter). The studio files FirstLast. This
+  // used to emit "Last, First" and so labelled 7,134 photos "Patrick, Krieger":
+  // measured 2026-09-14, 14 of those names also appear spaced First Last
+  // elsewhere in the archive and none reversed (lesson 143).
   if (nameParts.length === 1 && /^\p{Lu}[\p{Ll}\p{M}]+\p{Lu}/u.test(nameParts[0])) {
     const camelParts = nameParts[0].match(/\p{Lu}[\p{Ll}\p{M}]+/gu);
     if (camelParts && camelParts.length === 2) {
       return {
-        name: `${camelParts[0]}, ${camelParts[1]}`,
+        name: `${camelParts[0]} ${camelParts[1]}`,
         sequence,
         stem,
         extension,

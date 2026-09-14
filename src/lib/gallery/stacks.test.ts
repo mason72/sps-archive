@@ -164,6 +164,38 @@ describe("nameBeforeDate", () => {
     expect(nameBeforeDate("Amber Artis_24-01-30_Booth_527.jpg")).toBe("Amber Artis");
     expect(nameBeforeDate("Smith_John_001.jpg")).toBeNull();
   });
+
+  /** Real production shapes. The compact date was not an anchor until
+   *  2026-09-14, so the event tag after it joined the person's key. */
+  it.each([
+    ["PatrickStrozzo_260603_FMheadshots_0172.jpg", "Patrick Strozzo"],
+    ["BrianRey_251217_CoStarGroup_Arlington_069.jpg", "Brian Rey"],
+    ["JackieWaters_260225_Okta_SKOBooth226605.jpg", "Jackie Waters"],
+    ["Mike_250201_GoldenGateYPO4610.jpg", "Mike"],
+  ])("anchors on a compact _YYMMDD_ date: %s", (file, name) => {
+    expect(nameBeforeDate(file)).toBe(name);
+  });
+
+  it.each([
+    "Name_123456.jpg", // six digits with no closing underscore is a frame number
+    "Jane Doe_261399_Booth_1.jpg", // month 13 is not a date
+    "251209_ChimePhoto25833.jpg", // a leading date has no name before it
+  ])("does not treat %s as a compact date", (file) => {
+    expect(nameBeforeDate(file)).toBeNull();
+  });
+});
+
+describe("stackPersonName — compact dates", () => {
+  it("drops the event tag after a compact date", () => {
+    expect(
+      stackPersonName(
+        img({
+          parsedName: "PatrickStrozzo FMheadshots",
+          originalFilename: "PatrickStrozzo_260603_FMheadshots_0172.jpg",
+        })
+      )
+    ).toBe("Patrick Strozzo");
+  });
 });
 
 describe("buildStacks", () => {

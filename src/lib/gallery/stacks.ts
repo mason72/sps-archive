@@ -7,10 +7,22 @@ import { foldName, nameText, splitCamel } from "@/lib/people/name-text";
  * rotating stack card instead of a wall of near-duplicates.
  *
  * Grouping key: the upload pipeline's `parsedName` when present (e.g.
- * "Smith, John" from SmithJohn_001.jpg), else `extractPersonName` on the raw
+ * "John Smith" from JohnSmith_001.jpg), else `extractPersonName` on the raw
  * filename. Grouping preserves the incoming image order (first appearance),
  * so stacks respect whatever sort the gallery is showing.
  */
+
+/**
+ * The name, then the separator that proves where it ends: a dashed date
+ * ("_26-01-27", "-03-10"), a double dash, or a COMPACT date between
+ * underscores ("_260603_", YYMMDD with a real month and day). The compact
+ * form went unrecognised until 2026-09-14, so "PatrickStrozzo_260603_
+ * FMheadshots_0172.jpg" keyed as "patrickstrozzofmheadshots" and 1,029 named
+ * rows carried their event tag into /people (lesson 143). Both name readers
+ * share this one pattern so they cannot disagree about where a name stops.
+ */
+const NAME_THEN_DATE =
+  /^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2}|_\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])_)/;
 
 /**
  * Derive a person name from a filename (ported from SimplePhotoShare v2).
@@ -21,7 +33,7 @@ export function extractPersonName(filename: string): string {
   // NFC + stray leading symbols dropped, and a Unicode case split
   // ("TaísSales" → "Taís Sales") — see name-text.ts.
   const base = nameText(filename).replace(/\.\w+$/, "");
-  const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
+  const match = base.match(NAME_THEN_DATE);
   let name: string;
   if (match) {
     name = match[1].replace(/_/g, " ").trim();
@@ -57,7 +69,7 @@ export function collapseRepeatedWords(name: string): string {
  */
 export function nameBeforeDate(filename: string): string | null {
   const base = nameText(filename).replace(/\.\w+$/, "");
-  const match = base.match(/^(.+?)(?:_\d{2,4}-|--|-\d{2}-\d{2})/);
+  const match = base.match(NAME_THEN_DATE);
   if (!match) return null;
   const name = match[1].replace(/_/g, " ").trim();
   return collapseRepeatedWords(splitCamel(name).trim()) || null;

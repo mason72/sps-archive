@@ -3236,9 +3236,9 @@ rows were written, with an undo ledger of ids. A re-run finds 0 to write.
   `parsed_name` is indexed. The backfill ran as single-row updates at concurrency
   4 rather than one big UPDATE.
 
-**Still live, deliberately out of scope:** CamelCase `FirstLast` parses as
-"First, Last" (7,134 rows show that comma; the parser assumes LastFirst), and
-compact `_YYMMDD_` dates are not a date anchor (1,029 named rows).
+**Follow-ons, fixed the same day in lesson 143:** CamelCase `FirstLast` parsed
+as "First, Last", and compact `_YYMMDD_` dates were not a date anchor.
+
 ## 142 — The parser's guessed comma kept 197 people off /people, and a digit kept 36 more (2026-09-14)
 
 Auditing accented names, DATADOG HEADSHOTS NYC (2,966 photos) turned out to put
@@ -3286,3 +3286,59 @@ That was true, and it was the smaller half.
   sees it**: gallery stacks read the same function, so "Smith, John" became
   "Smith John" there too, and a test pinned the old label. Asked with a card
   before shipping.
+
+## 143 — The parser read FirstLast backwards, and a compact date let event tags into keys (2026-09-14)
+
+**What happened.** Two name bugs next to lesson 141, both live for months. Lesson 142 (another session, the same morning) already hid the comma at READ time in `personNameFromParts`; this one fixes it at the source, so new uploads and the stored column are right and `unfuseParserComma` becomes a fallback for rows the backfill leaves.
+1. `parseFilename()` split a single CamelCase part as LastFirst and stored
+   "PatrickKrieger_26-01-27_2079.jpg" as "Patrick, Krieger". 7,134 rows had
+   the comma. The key was unaffected (the key drops punctuation), so /people
+   was fine, but every stack label read backwards.
+2. `nameBeforeDate()` / `extractPersonName()` knew `_26-01-27` and `--` as the
+   end of a name, but not `_260603_`. So "BrianRey_251217_CoStarGroup_Arlington"
+   keyed as `brianreycostargrouparlington`, and Brian got one card per event
+   tag.
+
+**How the order was settled: by the archive, then Mason.** Before changing
+anything I asked the data. Of 449 distinct comma names, 14 also appear spaced
+First Last elsewhere and **0** appear reversed. Gallery titles say the same:
+"KELLY BOTTARINI'S HEADSHOTS" holds `KellyBottarini_003.jpg`. Mason confirmed
+FirstLast on a card.
+
+**The impact check that made the key change safe to ship.**
+`scripts/triage/name-parse-key-diff.ts` snapshots every affected row's key on
+the OLD code, then again on the new code, then compares. The date fix moved
+**2,477 keys on deploy, with no backfill involved.** Every old and new key went
+through every table that stores a human identity decision: `excluded_people`,
+`person_aliases` (both sides), `person_split_links`, `person_split_dismissals`,
+`persons.rejected_names`, `person_reference_centroids` and
+`person_identity_suggestions`. No exclusion, alias, split link or dismissal was
+on a moved key. The reference centroids were all on the NEW keys, because the
+cluster namer already used clean names. So the change healed a real
+disagreement: filename identity said `brianreycostargrouparlington` while the
+face engine said `brianrey`.
+
+**The backfill guard has two parts, and each one catches something the other
+misses.** `scripts/backfill-camelcase-name-order.ts` writes a row only when
+(a) the new parser's name is exactly the stored name with `", "` → `" "`, and
+(b) the key is unchanged. The key guard alone would have rewritten nothing
+wrong in this case, since a comma never changes a key. But without (a) the
+script would "fix" names this parser never made: 36 rows such as
+"Rahsaan Ellis, Jr." (a real comma) and `08.jpg` → "Dominique, Hollins" (typed by
+a person). The `.eq("parsed_name", old)` on the write makes a concurrent edit
+win, and the ledger stores `[id, old]` pairs, because the old value is not NULL
+this time.
+
+**Rules.**
+- **A parser change that moves keys is a data migration, even when no row is
+  written.** The key is derived when the page is read, so the deploy IS the
+  migration. Snapshot before, diff after, and check every table that stores a
+  human decision against the moved keys before shipping.
+- **Settle a convention from the archive before guessing it from one example.**
+  A cross-check that looks for BOTH orders elsewhere in the data can come back
+  one-sided (14 to 0), which a single sample never can.
+- **A backfill's selector names the exact transformation the fix caused.**
+  "Any row that looks wrong" also sweeps in values that humans wrote on purpose.
+- **Negative-test new tests on the old code** in a throwaway detached worktree
+  with `node_modules` linked in. Here 7 tests failed on HEAD and passed on the
+  fix. The "is not a date" cases passed on both, as guards should.
