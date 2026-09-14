@@ -12,8 +12,7 @@ for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
 }
 async function main() {
   const { createServiceClient } = await import("../../src/lib/supabase/server");
-  const { consensusName, nameIsRejected } = await import("../../src/lib/faces/cluster-event");
-  const { extractPersonName } = await import("../../src/lib/gallery/stacks");
+  const { consensusName, frameName, nameIsRejected } = await import("../../src/lib/faces/cluster-event");
   const { isPersonLike } = await import("../../src/lib/sections/auto-plan");
   const supabase = createServiceClient();
 
@@ -27,15 +26,16 @@ async function main() {
 
   const { data: faces } = await supabase
     .from("faces")
-    .select("image_id, images!inner(original_filename)")
+    .select("image_id, images!inner(original_filename, parsed_name)")
     .eq("person_id", p.id)
     .order("id")
     .range(0, 999);
-  const filenameOf = new Map<string, string>();
+  const nameOf = new Map<string, ReturnType<typeof frameName>>();
   for (const f of faces ?? []) {
-    filenameOf.set(f.image_id, (f.images as unknown as { original_filename: string }).original_filename);
+    const img = f.images as unknown as { original_filename: string; parsed_name: string | null };
+    nameOf.set(f.image_id, frameName(img.parsed_name, img.original_filename));
   }
-  const consensus = consensusName([...filenameOf.keys()], filenameOf, extractPersonName, isPersonLike);
+  const consensus = consensusName([...nameOf.keys()], nameOf, isPersonLike);
   console.log(`consensus the auto-namer would reach: ${JSON.stringify(consensus)}`);
   const blocked = consensus ? nameIsRejected(consensus, p.rejected_names ?? []) : false;
   console.log(`blocked by rejection: ${blocked}`);

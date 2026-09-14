@@ -1,73 +1,93 @@
 import { describe, expect, it } from "vitest";
 
-import { consensusName, nameIsRejected } from "./cluster-event";
+import { consensusName, frameName, nameIsRejected, type FrameName } from "./cluster-event";
 
-const extract = (filename: string) => {
-  // Toy extractor: "First Last_001.jpg" → "First Last"; camera codes → "".
-  const stem = filename.replace(/\.[^.]+$/, "");
-  const namePart = stem.split("_")[0];
-  return /^[A-Za-z]+ [A-Za-z]+$/.test(namePart) ? namePart : "";
-};
 const personLike = (name: string) => /^[A-Za-z]+ [A-Za-z]+$/.test(name);
 
-function files(entries: Record<string, string>) {
-  return {
-    ids: Object.keys(entries),
-    map: new Map(Object.entries(entries)),
-  };
+/** Toy votes: "Jenna Loeser" → key "jennaloeser"; null = a frame naming nobody. */
+function votes(entries: Record<string, string | null>) {
+  const map = new Map<string, FrameName | null>(
+    Object.entries(entries).map(([id, name]) => [
+      id,
+      name ? { key: name.toLowerCase().replace(/[^a-z]/g, ""), spelling: name } : null,
+    ])
+  );
+  return { ids: Object.keys(entries), map };
 }
 
 describe("consensusName", () => {
   it("names a cluster whose files agree", () => {
-    const { ids, map } = files({
-      a: "Jenna Loeser_001.jpg",
-      b: "Jenna Loeser_002.jpg",
-      c: "Jenna Loeser_003.jpg",
-    });
-    expect(consensusName(ids, map, extract, personLike)).toBe("Jenna Loeser");
+    const { ids, map } = votes({ a: "Jenna Loeser", b: "Jenna Loeser", c: "Jenna Loeser" });
+    expect(consensusName(ids, map, personLike)).toBe("Jenna Loeser");
   });
 
   it("tolerates one mislabeled file at 80% dominance", () => {
-    const { ids, map } = files({
-      a: "Jenna Loeser_001.jpg",
-      b: "Jenna Loeser_002.jpg",
-      c: "Jenna Loeser_003.jpg",
-      d: "Jenna Loeser_004.jpg",
-      e: "Katie Zeff_177.jpg",
+    const { ids, map } = votes({
+      a: "Jenna Loeser",
+      b: "Jenna Loeser",
+      c: "Jenna Loeser",
+      d: "Jenna Loeser",
+      e: "Katie Zeff",
     });
-    expect(consensusName(ids, map, extract, personLike)).toBe("Jenna Loeser");
+    expect(consensusName(ids, map, personLike)).toBe("Jenna Loeser");
   });
 
   it("stays blank when consensus is weak", () => {
-    const { ids, map } = files({
-      a: "Jenna Loeser_001.jpg",
-      b: "Katie Zeff_001.jpg",
-      c: "Avery Romano_001.jpg",
-    });
-    expect(consensusName(ids, map, extract, personLike)).toBeNull();
+    const { ids, map } = votes({ a: "Jenna Loeser", b: "Katie Zeff", c: "Avery Romano" });
+    expect(consensusName(ids, map, personLike)).toBeNull();
   });
 
-  it("stays blank on camera-code filenames", () => {
-    const { ids, map } = files({
-      a: "IMG4021_001.jpg",
-      b: "IMG4022_002.jpg",
-      c: "IMG4023_003.jpg",
-    });
-    expect(consensusName(ids, map, extract, personLike)).toBeNull();
+  it("counts a frame that names nobody against the consensus", () => {
+    const { ids, map } = votes({ a: "Jenna Loeser", b: "Jenna Loeser", c: null });
+    expect(consensusName(ids, map, personLike)).toBeNull();
   });
 
   it("needs at least two supporting files", () => {
-    const { ids, map } = files({ a: "Jenna Loeser_001.jpg" });
-    expect(consensusName(ids, map, extract, personLike)).toBeNull();
+    const { ids, map } = votes({ a: "Jenna Loeser" });
+    expect(consensusName(ids, map, personLike)).toBeNull();
   });
 
   it("rejects a consensus the person-name detector dislikes", () => {
-    const rejectAll = () => false;
-    const { ids, map } = files({
-      a: "Jenna Loeser_001.jpg",
-      b: "Jenna Loeser_002.jpg",
+    const { ids, map } = votes({ a: "Jenna Loeser", b: "Jenna Loeser" });
+    expect(consensusName(ids, map, () => false)).toBeNull();
+  });
+});
+
+// Real filenames and stored parsed_name values from production, 2026-09-14.
+describe("frameName (lesson 145)", () => {
+  it("names a dated headshot the way the wall does", () => {
+    expect(frameName("Jenna Loeser CollegeBoard", "Jenna Loeser_26-06-04_CollegeBoard_0001.jpg")).toEqual({
+      key: "jennaloeser",
+      spelling: "Jenna Loeser",
     });
-    expect(consensusName(ids, map, extract, rejectAll)).toBeNull();
+  });
+
+  it("shows a fused name split, since both readers agree on the key", () => {
+    expect(frameName("ChristinaDePinto", "ChristinaDePinto_26-01-27_2322.jpg")).toEqual({
+      key: "christinadepinto",
+      spelling: "Christina De Pinto",
+    });
+  });
+
+  it("never names a fused event tag the wall leaves unnamed", () => {
+    // The raw reading is "Lauren Smith Data Dog Headshots"; 22 clusters got it.
+    expect(
+      frameName("LaurenSmithDataDogHeadshots NYC28865", "LaurenSmithDataDogHeadshots_NYC28865.jpg")
+    ).toBeNull();
+  });
+
+  it("never names a session label the parser reassembles", () => {
+    // The wall's reading alone is "Guardant Team Spirit Night".
+    expect(frameName("Guardant Team Spirit Night", "Guardant_Team-Spirit-Night_12.jpg")).toBeNull();
+  });
+
+  it("casts no vote on the WEKA gallery filename", () => {
+    expect(frameName("WekaSKO27 EventPhotos", "WekaSKO27_EventPhotos-03055.jpg")).toBeNull();
+  });
+
+  it("stays blank where the wall's parse disagrees, rather than taking a side", () => {
+    // The parser drops the O ("Lisa Brien"): a parser bug, fixed there or nowhere.
+    expect(frameName("Lisa Brien", "LisaOBrien_26-01-27_3979.jpg")).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { consensusName, nameIsRejected } from "@/lib/faces/cluster-event";
+import { consensusName, frameName, nameIsRejected } from "@/lib/faces/cluster-event";
 import { sameNameFamily } from "@/lib/faces/split";
 import { buildStacks, extractPersonName, personNameFromParts } from "@/lib/gallery/stacks";
 import { isPersonLike } from "@/lib/sections/auto-plan";
@@ -250,9 +250,9 @@ describe("the other name heuristics", () => {
       "RodrigoBreton_26-04-30_Stripe_0005.jpg",
       "RodrigoBreton_26-04-30_Stripe_0006.jpg",
     ];
-    const filenameOf = new Map(files.map((f, i) => [`img${i}`, f]));
+    const nameOf = new Map(files.map((f, i) => [`img${i}`, frameName(parseFilename(f).name, f)]));
     // The auto-namer: one consensus of six, not two halves of three.
-    expect(consensusName([...filenameOf.keys()], filenameOf, extractPersonName, isPersonLike)).toBe(
+    expect(consensusName([...nameOf.keys()], nameOf, isPersonLike)).toBe(
       "Rodrigo Bretón"
     );
     // The split engine: one name family, never "might be two people".

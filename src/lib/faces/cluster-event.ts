@@ -15,9 +15,9 @@ import { eventLabelKeys } from "@/lib/people/event-labels";
 import {
   loadExcludedPersonKeys,
   normalizeNameKey,
+  personKeyForImage,
   preferredSpelling,
 } from "@/lib/people/index-people";
-import { foldName } from "@/lib/people/name-text";
 import { isPersonLike } from "@/lib/sections/auto-plan";
 
 import {
@@ -44,17 +44,17 @@ export interface ClusterResult {
 async function fetchEventFaces(
   supabase: SupabaseDB,
   eventId: string
-): Promise<{ faces: FaceVec[]; filenameOf: Map<string, string> }> {
+): Promise<{ faces: FaceVec[]; nameOf: Map<string, FrameName | null> }> {
   const { faces: rows, imageById } = await loadEventFaces<
     { id: string; image_id: string; embedding: string; quality: number | null; person_id: string | null },
-    { id: string; original_filename: string }
+    { id: string; original_filename: string; parsed_name: string | null }
   >(supabase, eventId, {
     faceColumns: "id, image_id, embedding, quality, person_id",
-    imageColumns: "id, original_filename",
+    imageColumns: "id, original_filename, parsed_name",
     embeddedOnly: true,
   });
   const faces: FaceVec[] = [];
-  const filenameOf = new Map<string, string>();
+  const nameOf = new Map<string, FrameName | null>();
   for (const row of rows) {
     faces.push({
       id: row.id,
@@ -65,40 +65,72 @@ async function fetchEventFaces(
       personId: row.person_id,
     });
     const img = imageById.get(row.image_id);
-    if (img) filenameOf.set(row.image_id, img.original_filename);
+    if (img && !nameOf.has(img.id)) nameOf.set(img.id, frameName(img.parsed_name, img.original_filename));
   }
-  return { faces, filenameOf };
+  return { faces, nameOf };
+}
+
+/** One frame's vote in the cluster namer: the wall's identity key, and how to show it. */
+export interface FrameName {
+  key: string;
+  spelling: string;
+}
+
+/**
+ * Who one frame names, or null when it names nobody the namer may use.
+ *
+ * The identity is the wall's (`personKeyForImage`), never a second reading
+ * of the filename. The namer's own raw reading (`extractPersonName`, the first
+ * underscore segment) must AGREE with it, and if it does not, the frame casts
+ * no vote. Neither reader is safe alone, measured over all 28,634 clusters
+ * on 2026-09-14 (lesson 145):
+ *  - the raw reading alone named 22 DATADOG clusters "Lauren Smith Data Dog
+ *    Headshots": a fused event tag the wall deliberately leaves unnamed. Those
+ *    became reference identities the suggestion engine could offer elsewhere.
+ *  - the wall's reading alone would have named ~237 more clusters after event
+ *    sessions ("Guardant Team Spirit Night", "CEMA Recep"), because the parser
+ *    reassembles every segment of a multi-part label.
+ * Agreement costs a few names the wall itself gets wrong ("LisaOBrien" parses
+ * as "Lisa Brien"), so the fix for those belongs in the parser, where it also
+ * fixes the wall. Spelling prefers the person-shaped reading, so a fused
+ * "ChristinaDePinto" shows as "Christina De Pinto".
+ */
+export function frameName(parsedName: string | null, originalFilename: string): FrameName | null {
+  const key = personKeyForImage(parsedName, originalFilename);
+  const raw = extractPersonName(originalFilename).trim();
+  if (!key || !raw || normalizeNameKey(raw) !== key) return null;
+  return {
+    key,
+    spelling: preferredSpelling(raw, personNameFromParts(parsedName, originalFilename).trim()),
+  };
 }
 
 /**
  * Filename-derived name for a person, when the cluster's own files agree.
  * Headshot exports are usually named after the subject — that consensus IS
  * the name (Mason, 2026-08-10: "they are named after the individuals").
- * Requirements: ≥80% of members share one extracted name, ≥2 supporting
- * files, and it must look like a person-name (photobooth/camera-code
+ * Requirements: ≥80% of members vote for one identity key (`frameName`), ≥2
+ * supporting files, and it must look like a person-name (photobooth/camera-code
  * filenames fail and stay blank). Fill-nulls-only — never overwrites.
- * Spellings that differ only by case or accent are one vote ("Rodrigo
- * Bretón" + "Rodrigo Breton" — the archive has both), shown accented.
+ * Spellings of one key are one vote ("Rodrigo Bretón" + "Rodrigo Breton" —
+ * the archive has both), shown accented.
  */
 export function consensusName(
   memberImageIds: string[],
-  filenameOf: Map<string, string>,
-  extractName: (filename: string) => string,
+  nameOf: Map<string, FrameName | null>,
   personLike: (name: string) => boolean
 ): string | null {
   const counts = new Map<string, { count: number; display: string }>();
   let considered = 0;
   for (const imageId of new Set(memberImageIds)) {
-    const filename = filenameOf.get(imageId);
-    if (!filename) continue;
-    const name = extractName(filename).trim();
+    if (!nameOf.has(imageId)) continue;
     considered += 1;
+    const name = nameOf.get(imageId);
     if (!name) continue;
-    const key = foldName(name);
-    const cur = counts.get(key) ?? { count: 0, display: name };
+    const cur = counts.get(name.key) ?? { count: 0, display: name.spelling };
     cur.count += 1;
-    cur.display = preferredSpelling(cur.display, name);
-    counts.set(key, cur);
+    cur.display = preferredSpelling(cur.display, name.spelling);
+    counts.set(name.key, cur);
   }
   if (!considered) return null;
   let best: { count: number; display: string } | null = null;
@@ -144,12 +176,14 @@ export function autoNameFor(
 /**
  * Keys the namer may not use in this event: its gallery labels, judged the way
  * the wall judges them (`eventLabelKeys` — ≥100 frames and ≥10% — over every
- * complete photo, identity via `personNameFromParts`), plus every spelling of
+ * complete photo, identity via `personKeyForImage`), plus every spelling of
  * an identity marked "Not a person". An earlier draft counted only the frames
  * with faces, so a label event with fewer than 100 detected faces would have
- * been a label on the wall and a name to the namer (caught in review).
+ * been a label on the wall and a name to the namer (caught in review). The
+ * namer's raw filename reading needs no key of its own here: `frameName` only
+ * votes when that reading IS the wall's key.
  */
-async function blockedNameKeys(supabase: SupabaseDB, eventId: string): Promise<Set<string>> {
+export async function blockedNameKeys(supabase: SupabaseDB, eventId: string): Promise<Set<string>> {
   const { data: ev, error: evErr } = await supabase
     .from("events")
     .select("user_id")
@@ -171,13 +205,8 @@ async function blockedNameKeys(supabase: SupabaseDB, eventId: string): Promise<S
     if (error) throw error;
     for (const row of data ?? []) {
       total += 1;
-      // The wall's identity for the photo AND the namer's own reading of the
-      // filename, each counted once, so neither derivation slips a label past.
-      const keys = new Set<string>();
-      const wallName = personNameFromParts(row.parsed_name, row.original_filename)?.trim();
-      if (wallName) keys.add(normalizeNameKey(wallName));
-      keys.add(normalizeNameKey(extractPersonName(row.original_filename).trim()));
-      for (const key of keys) if (key) keyByRow.push({ eventId, key });
+      const key = personKeyForImage(row.parsed_name, row.original_filename);
+      if (key) keyByRow.push({ eventId, key });
     }
     if (!data || data.length < 1000) break;
   }
@@ -196,7 +225,7 @@ export async function clusterEventFaces(
   eventId: string,
   options?: ClusterOptions
 ): Promise<ClusterResult> {
-  const { faces, filenameOf } = await fetchEventFaces(supabase, eventId);
+  const { faces, nameOf } = await fetchEventFaces(supabase, eventId);
   if (!faces.length) {
     return { totalFaces: 0, assignedToExisting: 0, personsCreated: 0, personsPruned: 0, personsNamed: 0, unassigned: 0 };
   }
@@ -323,8 +352,7 @@ export async function clusterEventFaces(
       ? null
       : consensusName(
           list.map((m) => imageIdOfFace.get(m.id)!).filter(Boolean),
-          filenameOf,
-          extractPersonName,
+          nameOf,
           isPersonLike
         );
     // …and never re-applies a name a human explicitly cleared. A cleared name

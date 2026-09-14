@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { extractPersonName } from "@/lib/gallery/stacks";
 import { eventLabelKeys } from "@/lib/people/event-labels";
-import { normalizeNameKey } from "@/lib/people/index-people";
+import { personKeyForImage } from "@/lib/people/index-people";
 
-import { autoNameFor } from "./cluster-event";
+import { autoNameFor, frameName } from "./cluster-event";
 
 describe("autoNameFor", () => {
   it("uses a consensus name nobody has blocked", () => {
@@ -30,10 +29,14 @@ describe("the WEKA gallery, by the wall's label rule", () => {
   // Real filename from WEKA SKO27 // Event Photos (200 photos, every one
   // carrying the gallery name) — the namer read it as a person and named all
   // 57 face clusters with it.
-  const wekaKey = normalizeNameKey(extractPersonName("WekaSKO27_EventPhotos-03055.jpg"));
+  const wekaKey = personKeyForImage("WekaSKO27 EventPhotos", "WekaSKO27_EventPhotos-03055.jpg");
 
-  it("reads the filename as the key the exclusion and the label rule use", () => {
-    expect(wekaKey).toBe("wekasko");
+  it("reads the filename as the wall's key, which the exclusion and the label rule use", () => {
+    expect(wekaKey).toBe("wekaskoeventphotos");
+  });
+
+  it("casts no namer vote at all since the agreement rule (lesson 145)", () => {
+    expect(frameName("WekaSKO27 EventPhotos", "WekaSKO27_EventPhotos-03055.jpg")).toBeNull();
   });
 
   it("is a label: ≥100 frames and ≥10% of its event", () => {
