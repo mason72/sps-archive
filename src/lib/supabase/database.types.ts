@@ -828,6 +828,9 @@ export type Database = {
       images: {
         Row: {
           aesthetic_score: number | null
+          ai_index_attempts: number
+          ai_index_error: string | null
+          ai_index_failed_at: string | null
           ai_indexed_at: string | null
           aperture: number | null
           camera_make: string | null
@@ -883,6 +886,9 @@ export type Database = {
         }
         Insert: {
           aesthetic_score?: number | null
+          ai_index_attempts?: number
+          ai_index_error?: string | null
+          ai_index_failed_at?: string | null
           ai_indexed_at?: string | null
           aperture?: number | null
           camera_make?: string | null
@@ -938,6 +944,9 @@ export type Database = {
         }
         Update: {
           aesthetic_score?: number | null
+          ai_index_attempts?: number
+          ai_index_error?: string | null
+          ai_index_failed_at?: string | null
           ai_indexed_at?: string | null
           aperture?: number | null
           camera_make?: string | null
@@ -2129,7 +2138,11 @@ export type Database = {
         }[]
       }
       events_needing_ai_index: {
-        Args: { max_events?: number }
+        Args: {
+          max_attempts?: number
+          max_events?: number
+          retry_after_minutes?: number
+        }
         Returns: {
           event_id: string
           oldest: string
@@ -2198,6 +2211,14 @@ export type Database = {
           crew_id: string
           display_name: string
           similarity: number
+        }[]
+      }
+      person_name_key: { Args: { p: string }; Returns: string }
+      record_ai_index_failures: {
+        Args: { p_errors: string[]; p_ids: string[] }
+        Returns: {
+          attempts: number
+          image_id: string
         }[]
       }
       record_auth_attempt: {

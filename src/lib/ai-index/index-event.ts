@@ -19,6 +19,12 @@
  */
 import type { createServiceClient } from "@/lib/supabase/server";
 
+import {
+  AI_INDEX_MAX_ATTEMPTS,
+  aiIndexEligibleFilter,
+  batchFailures,
+  redactUrlQueries,
+} from "@/lib/ai-index/failures";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { recordUsage, secondsSince } from "@/lib/usage/record";
 
@@ -156,6 +162,10 @@ export async function indexEventBatch(
   supabase: SupabaseDB,
   eventId: string
 ): Promise<{ indexed: number; faces: number; errors: Record<string, string>; remaining: number }> {
+  // Eligible only: never failed, or failed but past the cool-down and under the
+  // attempt cap (failures.ts). Fewest attempts first, so a retry always goes to
+  // the back of the line and a batch of repeat failures can never hide the
+  // fresh images behind it.
   const { data: batch, error: batchErr } = await supabase
     .from("images")
     .select("id, r2_key")
@@ -163,6 +173,8 @@ export async function indexEventBatch(
     .is("ai_indexed_at", null)
     .eq("thumbnail_generated", true)
     .eq("media_type", "image")
+    .or(aiIndexEligibleFilter())
+    .order("ai_index_attempts", { ascending: true })
     .order("id", { ascending: true })
     .limit(AI_INDEX_BATCH);
   if (batchErr) throw dbFail("batch select", batchErr);
@@ -194,7 +206,11 @@ export async function indexEventBatch(
     signal: AbortSignal.timeout(300_000),
   });
   if (!res.ok) {
-    throw new Error(`Modal index_images ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    // Redacted: this lands in system_errors and the admin email, and Modal's
+    // error body can echo a presigned thumbnail URL.
+    throw new Error(
+      `Modal index_images ${res.status}: ${redactUrlQueries((await res.text()).slice(0, 300))}`
+    );
   }
   const out = (await res.json()) as {
     model: string;
@@ -220,7 +236,41 @@ export async function indexEventBatch(
     });
   }
 
-  const indexedIds = Object.keys(out.results);
+  // Record per-image failures BEFORE any other write. The GPU pass is already
+  // metered, so if a faces write throws below, the retry must not re-send these
+  // ids too — that re-billing loop is what migration 082 exists to stop.
+  // Successes keep the old guarantee: ai_indexed_at is still written last.
+  const failed = batchFailures(
+    batch.map((b) => b.id),
+    out
+  );
+  if (failed.ids.length) {
+    const { data: marked, error: failErr } = await supabase.rpc("record_ai_index_failures", {
+      p_ids: failed.ids,
+      p_errors: failed.messages,
+    });
+    if (failErr) throw dbFail("record failures", failErr);
+    const exhausted = (marked ?? []).filter((m) => m.attempts >= AI_INDEX_MAX_ATTEMPTS);
+    if (exhausted.length) {
+      // Leaving an image unindexed for good is a decision a human should hear
+      // about. Reported, never thrown: the rest of the batch is fine.
+      const { reportSystemError } = await import("@/lib/monitoring/report");
+      await reportSystemError(
+        "ai-index.gave-up",
+        new Error(`${exhausted.length} image(s) failed AI indexing ${AI_INDEX_MAX_ATTEMPTS} times`),
+        {
+          eventId,
+          note: "No longer sent to Modal. To retry: set ai_index_attempts = 0 on these rows.",
+          images: exhausted.slice(0, 20).map((m) => ({
+            id: m.image_id,
+            error: failed.messages[failed.ids.indexOf(m.image_id)],
+          })),
+        }
+      );
+    }
+  }
+
+  const indexedIds = Object.keys(out.results).filter((id) => batch.some((b) => b.id === id));
   let faceCount = 0;
 
   // Faces first: replace-per-image, then bulk insert. If the process dies
@@ -265,6 +315,11 @@ export async function indexEventBatch(
         embedding_model: out.model,
         aesthetic_score: r.aestheticScore,
         sharpness_score: r.sharpnessScore,
+        // A success clears any earlier failure, so a later deliberate re-index
+        // (ai_indexed_at nulled) starts with a full set of attempts.
+        ai_index_attempts: 0,
+        ai_index_failed_at: null,
+        ai_index_error: null,
         ai_indexed_at: indexedAt,
       })
       .eq("id", imageId);
@@ -277,7 +332,8 @@ export async function indexEventBatch(
     .eq("event_id", eventId)
     .is("ai_indexed_at", null)
     .eq("thumbnail_generated", true)
-    .eq("media_type", "image");
+    .eq("media_type", "image")
+    .or(aiIndexEligibleFilter());
 
   return {
     indexed: indexedIds.length,

@@ -3627,3 +3627,57 @@ compare, and the split rule put an event with no evidence on the largest card.
 - **A human link still wins:** "Same person as…" makes a gallery evidence, so a
   linked no-face gallery is never separated. `groupEventsByFace` takes the rule
   as `separateNoEvidence`, and `splitByFaces` passes it for names with no space.
+
+## 151 — A failure nothing records is a retry nothing stops: the 30-minute sweep could bill one broken photo forever (2026-09-14)
+
+Found in review of lesson 147's sweep, before it cost anything. Modal returns
+per-image failures in `out.errors`. Those images never got `ai_indexed_at`, and
+nothing else wrote down that they had failed. So their event stayed on
+`events_needing_ai_index` and was nudged every 30 minutes, and `indexEventBatch`
+re-sent the SAME first 100 ids (ordered by id) to paid Modal each pass: ~107
+GPU-seconds, ~1.8¢, ~48 times a day, with no end. A batch of 100 failures also
+hid every image behind it, and the FIFO queue meant 200+ such events would
+starve every newer gallery.
+
+- **Measured first, and the measurement changed the design.** 30 days of
+  `usage_events` (kind `ai_index`): 2,027 batches, 6 with errors, 34 failed
+  images across 2 events, 0 batches that indexed nothing, no stuck event in the
+  queue. Then the question that mattered: did those 34 ever index? **All 34
+  did, on a later pass.** They were thumbnail-fetch blips (5 consecutive
+  batches in one event on 09-03, then clean). "Mark failed, never retry" is the
+  obvious fix, and it would have permanently skipped 34 good photos. The rule
+  became retry with a cool-down (60 minutes), give up after 3, and report the
+  give-up.
+- **A retry loop needs the failure recorded by the thing that retries**, not
+  inferred from the absence of success. `ai_indexed_at IS NULL` meant both
+  "never tried" and "tried and failed", so the queue could not tell them apart.
+  Migration 082 adds `ai_index_attempts` / `ai_index_failed_at` /
+  `ai_index_error` (AI-owned), incremented atomically in SQL
+  (`record_ai_index_failures`, since PostgREST cannot say `n = n + 1`).
+- **Record the failure before the next write that can throw.** The GPU pass is
+  metered on return. If the failure marks came after the faces insert, a faces
+  timeout would lose them and the retry would bill the failed ids again.
+  Success rows keep the old ordering: `ai_indexed_at` last.
+- **Ids that come back in NEITHER map are failures too.** `index_images`
+  silently `continue`s past an item with no id or url. An id that vanishes
+  without a record is the same infinite loop by another door.
+- **Order by attempts, then id**, so a retry goes to the back of the line and
+  can never again sit in front of fresh work.
+- **One definition, passed in.** The batch select, its `remaining` count, the
+  backfill script and the SQL queue all apply the same eligibility rule; the
+  constants live in `src/lib/ai-index/failures.ts` and the sweep passes them to
+  the RPC. If the queue and the select disagree, the sweep either nudges events
+  with no work or never nudges events that have it.
+- **An attempt counter is only as honest as the concurrency around it.**
+  The fresh reviewer caught that `ai-index` was capped at 2 runs overall, not
+  per event, so a continuation and a sweep nudge for one gallery could select
+  the same batch and each count the same blip. Three tries would quietly
+  become two. Fixed with a second concurrency key, 1 per `eventId`.
+- **Redact at the one choke point, then reuse it.** Modal's fetch errors come
+  from httpx, which prints the full presigned URL (X-Amz-Credential,
+  X-Amz-Signature). `redactUrlQueries()` strips the query before the message
+  reaches `images.ai_index_error`, the gave-up alert, or the whole-batch
+  Modal error that `reportSystemError` already mailed.
+- **Known gap, left open deliberately:** a given-up image still counts against
+  `event_readiness.indexed`, so that event's badge never reaches "ready". Real
+  count today: 0 images. Revisit if `ai-index.gave-up` ever fires.

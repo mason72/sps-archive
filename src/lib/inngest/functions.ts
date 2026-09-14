@@ -569,10 +569,19 @@ export const aiIndexSweep = inngest.createFunction(
     const aiEventIds = await step.run("ai-index-sweep", async () => {
       const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
       if (!isAiIndexingEnabled()) return [] as string[];
+      const { AI_INDEX_MAX_ATTEMPTS, AI_INDEX_RETRY_AFTER_MINUTES } = await import(
+        "@/lib/ai-index/failures"
+      );
       const supabase = createServiceClient();
       const limit = Number(process.env.AI_INDEX_NUDGE_LIMIT) || 200;
+      // The retry rules are passed, not left to the SQL defaults, so the queue
+      // and the batch select read one definition (migration 082, lesson 151).
+      // Without them an image Modal keeps failing kept its event on this list
+      // every 30 minutes, billing a GPU pass each time.
       const { data, error } = await supabase.rpc("events_needing_ai_index", {
         max_events: limit,
+        max_attempts: AI_INDEX_MAX_ATTEMPTS,
+        retry_after_minutes: AI_INDEX_RETRY_AFTER_MINUTES,
       });
       // An error here returns null, and `data ?? []` would report "nothing to
       // index" — indistinguishable from a healthy empty queue. Say so instead.
@@ -870,7 +879,14 @@ export const aiIndex = inngest.createFunction(
   {
     id: "ai-index",
     retries: 2,
-    concurrency: { limit: 2 },
+    /**
+     * 2 at a time overall, and ONE per event. Without the per-event key a
+     * continuation and a sweep nudge for the same gallery could run side by
+     * side, select the same batch, and each record a failure for the same
+     * blip — spending two of an image's AI_INDEX_MAX_ATTEMPTS on one event
+     * (and billing the pass twice). Lesson 151.
+     */
+    concurrency: [{ limit: 2 }, { limit: 1, key: "event.data.eventId" }],
     /**
      * 2 MINUTES, not 15 (changed 2026-08-11 after Mason asked why it was so
      * long, and the answer did not survive contact).
@@ -920,8 +936,13 @@ export const aiIndex = inngest.createFunction(
           indexed += r.indexed;
           faces += r.faces;
           remaining = r.remaining;
-          // A batch that indexed nothing means every candidate errored —
-          // stop rather than spin on the same broken images.
+          // A batch that indexed nothing means every candidate errored. Those
+          // failures are now recorded (migration 082), so the next select would
+          // move past them — but an all-failed batch is also what a Modal-wide
+          // breakage looks like, and spinning here would burn attempts across
+          // the whole event in one run. Stop. If an earlier batch in this run
+          // indexed something, the continuation below resumes in ~2 minutes;
+          // otherwise the next sweep does, within 30.
           if (r.remaining === 0 || r.indexed === 0) break;
         }
       } catch (err) {

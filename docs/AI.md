@@ -83,6 +83,31 @@ bills a GPU pass that is then thrown away and redone. That is correct (the GPU
 time was genuinely spent) but it means a write that reliably fails costs real
 money on every retry and every nightly sweep, not just once.
 
+**A per-image Modal failure is recorded, retried with a cool-down, then left
+alone** (migration 082, `src/lib/ai-index/failures.ts`, lesson 151). Before it,
+an image Modal put in `errors` never got `ai_indexed_at` and nothing else noted
+the failure: its event was nudged every 30 minutes and the same first 100 ids
+went back to paid Modal each pass, a batch of 100 failures hid every image
+behind it, and the FIFO queue could starve newer galleries. Now
+`record_ai_index_failures` increments `images.ai_index_attempts` and stamps
+`ai_index_failed_at` / `ai_index_error` (AI-owned columns; ids Modal returned in
+NEITHER map count too), written right after metering and before faces so a later
+throw cannot re-bill them. An image is eligible when it has never failed, or has
+fewer than `AI_INDEX_MAX_ATTEMPTS` (3) and its last failure is over
+`AI_INDEX_RETRY_AFTER_MINUTES` (60) old. The batch select, its `remaining` count,
+the backfill script and `events_needing_ai_index` all apply that rule, with the
+constants passed in from TS. Fewest attempts sort first, so retries go to the
+back. A success resets all three columns. Reaching the cap reports
+`ai-index.gave-up` to `system_errors`. `ai-index` runs at most ONE per event
+(second concurrency key), or two overlapping runs would count one blip twice.
+Messages pass `redactUrlQueries()` first: httpx errors print the presigned
+thumbnail URL, signature included. **Why retries and not give-up-on-first:**
+all 34 per-image failures in the 30 days before (6 of 2,027 batches) indexed on
+a later pass. They were fetch blips, not bad files. To retry an image after a
+fix: `update images set ai_index_attempts = 0 where …`. Known gap: a given-up
+image still counts against `event_readiness.indexed`, so that event's badge never
+reaches "ready".
+
 ## Search
 
 - RPCs (`search_images_by_embedding`, `search_faces_by_embedding`,

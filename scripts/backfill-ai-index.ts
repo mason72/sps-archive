@@ -25,6 +25,7 @@ async function main() {
   const { indexEventBatch, countPendingUploads } = await import(
     "../src/lib/ai-index/index-event"
   );
+  const { aiIndexEligibleFilter } = await import("../src/lib/ai-index/failures");
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -48,6 +49,9 @@ async function main() {
       .is("ai_indexed_at", null)
       .eq("thumbnail_generated", true)
       .eq("media_type", "image")
+      // Same eligibility as the job: images cooling down after a Modal failure,
+      // or given up on, are not work (migration 082).
+      .or(aiIndexEligibleFilter())
       .order("id", { ascending: true })
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
