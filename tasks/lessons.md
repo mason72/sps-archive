@@ -3678,6 +3678,23 @@ starve every newer gallery.
   X-Amz-Signature). `redactUrlQueries()` strips the query before the message
   reaches `images.ai_index_error`, the gave-up alert, or the whole-batch
   Modal error that `reportSystemError` already mailed.
+- **Verifying it in production, three probes were not what they looked like.**
+  The first check after deploy read **0 batches with 4,319 photos queued**,
+  which is the shape of a broken job. It was not: before the deploy, batches
+  only ever ran once the Pixieset ingest went quiet on a gallery, and the
+  queued ones were still receiving photos. (1) Vercel's request log lines for
+  `/api/inngest` never name the Inngest function, so searching them for
+  `ai-index` returns nothing whether or not it ran. (2) The deployment I
+  scoped that search to was not mine: another session had pushed twice since,
+  so production was running a later commit that contained mine. Read
+  `list_deployments` before scoping by deployment id. (3) The pool timeout in
+  that window belonged to `people-index-refresh`, not to this change. **The
+  authoritative record for "did indexing run" is `usage_events` (kind
+  `ai_index`), read after a gallery has had no uploads in flight through a
+  sweep.** At 19:07 it showed 2 BIO-TECHNE batches, 200 photos, 0 per-image
+  errors. The one `ai-index` error in that window, a `faces insert` statement
+  timeout, correctly marked nothing: a database error is not a Modal
+  per-image failure, and the batch stays unindexed for the retry.
 - **Known gap, left open deliberately:** a given-up image still counts against
   `event_readiness.indexed`, so that event's badge never reaches "ready". Real
   count today: 0 images. Revisit if `ai-index.gave-up` ever fires.
