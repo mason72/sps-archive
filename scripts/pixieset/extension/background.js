@@ -66,6 +66,17 @@ const REPAIRS = [
     // for real when it next runs.
     tooBig: { servicenowsko26: 128 },
   },
+  {
+    id: "2026-09-14-requeue-portrait-originals",
+    // Downloaded fine, then failed VERIFICATION as "Web Size renditions": the
+    // guard read 5 frames, and an all-portrait gallery's frames share a width
+    // (2560 / 2432). Both are genuine originals at geometries already accepted
+    // elsewhere (lafayette day one, redoak2016). The guard now reads every frame
+    // (lesson 154) and passed cemasummit2018 on its real archive. Their ZIPs were
+    // cleaned out of quarantine, so the bytes must be fetched again. Pixieset is
+    // the only copy of both (at-risk, pre-2024). 673 photos. Approved by Mason.
+    requeue: ["ffdc2015", "foothillsteamphotos"],
+  },
 ];
 
 const DEFAULTS = {
