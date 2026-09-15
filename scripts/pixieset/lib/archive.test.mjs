@@ -243,6 +243,20 @@ test("a narrow width uniform across EVERY frame is still rejected", async () => 
   assert.match(r.problems.join(" "), /Web Size rendition/);
 });
 
+test("a named acceptance passes only its exact uniform width", async () => {
+  // cemacovers, accepted by Mason 2026-09-15 at 2400. The acceptance is a match,
+  // not a threshold: the same acceptance must not wave a 2048px Web Size copy in.
+  const covers = await makeSizedZip("accepted-1of1.zip", Array.from({ length: 24 }, () => [2400, 3000]));
+  const ok = await verifyArchive([covers], { expectedFiles: 24, acceptedUniformWidth: 2400 });
+  assert.equal(ok.ok, true, ok.problems.join("; "));
+  assert.equal(ok.dimensions.accepted, true);
+
+  const web = await makeSizedZip("accepted-web-1of1.zip", Array.from({ length: 5 }, () => [2048, 3072]));
+  const bad = await verifyArchive([web], { expectedFiles: 5, acceptedUniformWidth: 2400 });
+  assert.equal(bad.ok, false, "accepting 2400 must not accept a 2048 Web Size copy");
+  assert.match(bad.problems.join(" "), /Web Size rendition/);
+});
+
 test("the set picker's count is an equality target, unlike photo_count", async () => {
   const z = await makeSizedZip("short-1of1.zip", [[4800, 3200], [4700, 3100]]);
   const short = await verifyArchive([z], { expectedFiles: 48 });

@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseDownloadName, parseBeacon, beaconError, scanBeacons } from "./watch.mjs";
+import { parseDownloadName, parseBeacon, beaconError, scanBeacons, FIDELITY_ACCEPTED } from "./watch.mjs";
 
 test("parses Pixieset's deterministic download name", () => {
   const p = parseDownloadName("nachisheadshots-photo-download-1of1.zip");
@@ -136,4 +136,14 @@ test("the ledger's error says who retired it and why", () => {
   const e = beaconError({ reason: "no-download", detail: "bulk download is switched off" });
   assert.match(e, /retired by the downloader/);
   assert.match(e, /switched off/);
+});
+
+test("Web Size acceptances are named, exact and signed", () => {
+  // Each entry waives the guard for ONE collection at ONE width. A new entry is
+  // a human decision, so the list is pinned here and cannot grow by accident.
+  assert.deepEqual(Object.keys(FIDELITY_ACCEPTED), ["cemacovers"]);
+  for (const [slug, a] of Object.entries(FIDELITY_ACCEPTED)) {
+    assert.ok(Number.isInteger(a.width) && a.width > 0, `${slug}: an exact width`);
+    assert.ok(a.why && a.approved, `${slug}: the reason and the approval are recorded`);
+  }
 });

@@ -91,6 +91,21 @@ export const RETIRED = join(STAGING, "retired");
 const ORPHAN_LOG = join(STAGING, "orphans.json");
 
 /**
+ * Collections a human looked at and accepted despite the Web Size guard, each at
+ * ONE exact uniform width (`verifyArchive`'s `acceptedUniformWidth`). This is a
+ * list of decisions, not a looser guard: every other collection, and this one at
+ * any other width, gets the full check. Adding an entry is Mason's call, and the
+ * test pins the list so it cannot grow by accident.
+ */
+export const FIDELITY_ACCEPTED = {
+  cemacovers: {
+    width: 2400,
+    approved: "Mason 2026-09-15",
+    why: "24 magazine-cover designs, all 2400x3000: a fixed-size export, not the 2048px Web Size signature. The accepted CEMA 2017 galleries are camera originals in dozens of widths, and Pixieset is the only copy.",
+  },
+};
+
+/**
  * Stop requesting new work below this — the pipeline stages whole collections.
  * Measured on the STAGING volume, not on `/`, since that is where the ZIPs land.
  * Raisable via PIXIESET_MIN_FREE_GB when staging shares a disk with something
@@ -301,6 +316,7 @@ export async function sweep({ dryRun = false } = {}) {
       expectedPhotos: collection.photoCount,
       expectedFiles: collection.expectedFiles ?? null,   // written by apply.mjs from the set picker
       checkFidelity: true,
+      acceptedUniformWidth: FIDELITY_ACCEPTED[slug]?.width ?? null,
     });
 
     if (dryRun) { done.push({ slug, ok: result.ok, files: result.files, problems: result.problems }); continue; }

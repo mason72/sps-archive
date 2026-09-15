@@ -193,8 +193,13 @@ export async function sampleDimensions(zipPath, entries, { sample = Infinity } =
  *
  * `expectedPhotos` is the inventory's photoCount — an UPPER bound, never an
  * equality target. See the note at the top of this file.
+ *
+ * `acceptedUniformWidth` is a human's decision about ONE collection (watch.mjs
+ * `FIDELITY_ACCEPTED`): when every frame is exactly that width, the Web Size
+ * problem is waived and `dimensions.accepted` is set. It is an exact match, not
+ * a threshold, so a different uniform width still fails.
  */
-export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedFiles = null, checkFidelity = true } = {}) {
+export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedFiles = null, checkFidelity = true, acceptedUniformWidth = null } = {}) {
   const problems = [];
   if (!zipPaths.length) return { ok: false, problems: ["no archive files"], files: 0, bytes: 0, sets: {} };
 
@@ -236,7 +241,9 @@ export async function verifyArchive(zipPaths, { expectedPhotos = null, expectedF
   let dimensions = null;
   if (checkFidelity && widest.path) {
     dimensions = await sampleDimensions(widest.path, widest.entries);
-    if (dimensions.isRendition) {
+    if (dimensions.isRendition && acceptedUniformWidth != null && dimensions.uniformWidth === acceptedUniformWidth) {
+      dimensions.accepted = true;
+    } else if (dimensions.isRendition) {
       problems.push(
         `looks like a Web Size rendition, not originals: all ${dimensions.sampled} frames are ${dimensions.uniformWidth}px wide ` +
         `(median long edge ${dimensions.medianLongEdge}). Download size is already Original account-wide, so do not ` +
