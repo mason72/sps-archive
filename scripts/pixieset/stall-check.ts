@@ -34,6 +34,35 @@
  *             STARVED_HOURS. This is not a bug: it means the DOWNLOAD half has
  *             not been run, and that needs Mason's Chrome. It is the exact state
  *             that went unnoticed for four days.
+ *   FAILING — nothing staged, nothing downloading, and the last two or more
+ *             outcomes since the last successful ingest were retirements. The
+ *             downloader is giving collections up one after another (added
+ *             2026-09-15: `failed` rows sat outside every verdict, so a day of
+ *             every download failing verification would have read as quiet).
+ *
+ * REMEDIES (added 2026-09-15, Mason: "is there anything we can do to make
+ * things get unstuck without me needing to fire off a session?"). Each bad
+ * verdict has at most ONE automatic remedy, tried ONCE per episode, and every
+ * one of them is something the pipeline is already designed to survive:
+ *
+ *   STUCK    → SIGTERM the ingest child. The loop's own header says "safe to
+ *              kill and restart at any moment": bytes land before the row, and
+ *              a resume is idempotent by (event, original_filename). The loop
+ *              idles 5 min and retries the same collection. No child running →
+ *              restart the ingest agent instead.
+ *   BROKEN   → `launchctl kickstart -k` the agent that is down (or the watcher,
+ *              when its brake is not answering).
+ *   STARVED  → if Chrome is not running, open it; the extension's alarm
+ *              re-arms on startup. Anything else needs a human: the email now
+ *              carries the extension's own last word (see `extensionStatus`).
+ *   UNBACKED → kickstart machine-state's sync now instead of waiting a night.
+ *   SPINNING, FAILING → none; both are code or data problems.
+ *
+ * If the same verdict persists on the check after a remedy, ONE escalation
+ * email says what was tried and that it did not help. The remedy is recorded
+ * in the state file, so an episode never retries its remedy hourly — a restart
+ * that fixes nothing is not improved by repetition. `--heal <VERDICT>` runs a
+ * remedy by hand regardless of the live verdict, which is how each was tested.
  *
  * The check must never fail QUIETLY — a health check that dies in silence is
  * worse than none, because it converts "broken" into "reassuring". Any throw is
@@ -51,9 +80,19 @@ for (const l of fs.readFileSync(".env.local", "utf8").split("\n")) {
 }
 
 const HOME = process.env.HOME!;
-const QUEUE = path.join("scripts", "pixieset", "data", "queue.json");
+// PIXIESET_QUEUE exists for negative tests: a temp copy with rows edited into
+// the shape under test, so FAILING can be made to fire without touching the ledger.
+const QUEUE = process.env.PIXIESET_QUEUE || path.join("scripts", "pixieset", "data", "queue.json");
 const LOG = path.join(HOME, "pixieset-staging", "logs", "ingest.log");
 const STATE = path.join(HOME, "pixieset-staging", "logs", "stall-state.json");
+/** Written by the watcher from the extension's POSTs — see EXTENSION_STATUS in watch.mjs. */
+const EXT_STATUS = path.join(HOME, "pixieset-staging", "logs", "extension-status.json");
+const AGENT = {
+  watch: "com.twodudes.pixieset.watch",
+  ingest: "com.twodudes.pixieset.ingest",
+  backup: "com.mason.machine-state",
+};
+const EXT_SILENT_HOURS = 2;   // an extension that is `running` reports every tick (20 min); 2h of silence is a dead worker or a dead Chrome
 
 /**
  * `Number(x) || default` silently ignores a deliberate 0, because 0 is falsy —
@@ -75,7 +114,13 @@ const RENOTIFY_HOURS = 24;
 const MAX_PASSES_PER_HOUR = num(process.env.PIXIESET_MAX_PASSES, 40);   // ~12 expected at a 5-minute idle; 40 is generous
 const BACKUP_STALE_HOURS = num(process.env.PIXIESET_BACKUP_STALE_HOURS, 48);   // nightly, so 48h is two missed runs
 
-type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "STARVED" | "UNBACKED";
+type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "FAILING" | "STARVED" | "UNBACKED";
+type Remedy = { name: string; run: () => string } | null;
+type StallState = {
+  verdict: string;
+  at: number;
+  remedy?: { name: string; at: number; note: string; escalated?: boolean };
+};
 
 /**
  * Is the migration ledger's off-machine copy current?
@@ -161,6 +206,90 @@ async function newestRow(): Promise<{ ageHours: number | null; note: string }> {
     return { ageHours: (Date.now() - new Date(at).getTime()) / 3600_000, note: "" };
   } catch (e) {
     return { ageHours: null, note: String((e as Error).message).slice(0, 80) };
+  }
+}
+
+/**
+ * The extension's own last word, as relayed by the watcher.
+ *
+ * `receivedAt` is the watcher's clock, so `ageHours` answers "when did the
+ * extension last say anything", independent of what it claimed. A `running`
+ * extension reports at least every tick (20 min); one that has been silent
+ * for EXT_SILENT_HOURS while claiming to run has lost its worker or its Chrome.
+ * A stopped one reports nothing further — its `stoppedReason` is the answer.
+ */
+function extensionStatus(): {
+  ageHours: number; running: boolean | null; stoppedReason: string | null;
+  inflight: { slug: string; at: string } | null; version: string | null; lastLog: string;
+} | null {
+  try {
+    const s = JSON.parse(fs.readFileSync(EXT_STATUS, "utf8")) as Record<string, unknown>;
+    const at = new Date(String(s.receivedAt)).getTime();
+    if (!Number.isFinite(at)) return null;
+    const log = Array.isArray(s.log) ? (s.log as string[]) : [];
+    return {
+      ageHours: (Date.now() - at) / 3600_000,
+      running: typeof s.running === "boolean" ? s.running : null,
+      stoppedReason: typeof s.stoppedReason === "string" ? s.stoppedReason : null,
+      inflight: s.inflight && typeof s.inflight === "object" ? (s.inflight as { slug: string; at: string }) : null,
+      version: typeof s.version === "string" ? s.version : null,
+      lastLog: log.at(-1) ?? "",
+    };
+  } catch { return null; }
+}
+
+function chromeRunning(): boolean {
+  try { return execFileSync("/usr/bin/pgrep", ["-x", "Google Chrome"], { encoding: "utf8" }).trim().length > 0; }
+  catch { return false; }
+}
+
+/** PIDs of the ingest CHILD (never the loop, never this check). */
+function ingestPids(): number[] {
+  try {
+    return execFileSync("/usr/bin/pgrep", ["-f", "scripts/pixieset-ingest.ts"], { encoding: "utf8" })
+      .split("\n").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0 && n !== process.pid);
+  } catch { return []; }
+}
+
+function kickstart(label: string, kill: boolean): string {
+  const target = `gui/${process.getuid?.() ?? 501}/${label}`;
+  execFileSync("/bin/launchctl", kill ? ["kickstart", "-k", target] : ["kickstart", target], { encoding: "utf8" });
+  return `launchctl kickstart${kill ? " -k" : ""} ${target}`;
+}
+
+/**
+ * What to try for a verdict, given what was seen. Returns null when nothing
+ * automatic is safe. Each `run` returns a one-line note for the email.
+ */
+function remedyFor(verdict: Verdict, seen: { down: string[]; brakeOk: boolean; chrome: boolean; pids: number[] }): Remedy {
+  switch (verdict) {
+    case "BROKEN":
+      if (seen.down.length) return { name: `restart ${seen.down.map((l) => l.split(".").pop()).join(", ")}`, run: () => seen.down.map((l) => kickstart(l, true)).join("; ") };
+      if (!seen.brakeOk) return { name: "restart the watcher (its brake was not answering)", run: () => kickstart(AGENT.watch, true) };
+      return null;
+    case "STUCK":
+      if (seen.pids.length) {
+        return {
+          name: `SIGTERM the ingest child (pid ${seen.pids.join(", ")})`,
+          run: () => {
+            for (const pid of seen.pids) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+            return `sent SIGTERM to ${seen.pids.length} process(es); the loop idles 5 min, then resumes the same collection (idempotent per file)`;
+          },
+        };
+      }
+      return { name: "restart the ingest agent (no ingest child was running)", run: () => kickstart(AGENT.ingest, true) };
+    case "STARVED":
+      if (!seen.chrome) {
+        return {
+          name: "open Google Chrome (it was not running)",
+          run: () => { execFileSync("/usr/bin/open", ["-g", "-a", "Google Chrome"]); return "opened Chrome in the background; the extension's alarm re-arms on startup, first tick in ~1 min"; },
+        };
+      }
+      return null;
+    case "UNBACKED":
+      return { name: "run machine-state's sync now", run: () => kickstart(AGENT.backup, false) };
+    default:
+      return null;
   }
 }
 
@@ -272,6 +401,16 @@ async function main() {
   const stagedHours = oldestStagedAt === Infinity ? 0 : (Date.now() - oldestStagedAt) / 3600_000;
   const hoursSince = lastIngest ? (Date.now() - lastIngest) / 3600_000 : Infinity;
 
+  /** Collections retired AFTER the last successful ingest: the run of failures the pipeline is currently on. */
+  const failedSince = rows
+    .filter((r) => r.state === "failed")
+    .map((r) => {
+      const h = [...(r.history ?? [])].reverse().find((x) => x.state === "failed") as { at: string; error?: string } | undefined;
+      return { slug: (r as { slug?: string }).slug ?? "?", at: h ? new Date(h.at).getTime() : 0, error: h?.error ?? (r as { error?: string }).error ?? "no reason recorded" };
+    })
+    .filter((f) => f.at > lastIngest)
+    .sort((a, b) => b.at - a.at);
+
   const agents = agentsRunning();
   const down = agents.filter((a) => !a.up).map((a) => a.label);
   const { passes, idles } = logRate();
@@ -279,6 +418,18 @@ async function main() {
   const brake = await diskBrake();
   const kept = housekeepingKept();
   const row = await newestRow();
+  const ext = extensionStatus();
+  const chrome = chromeRunning();
+  const pids = ingestPids();
+
+  // The extension's own word, in one line. Used by the STARVED headline and the body.
+  const extLine = !ext
+    ? `never reported (needs extension v1.1.0+ loaded and the watcher restarted)`
+    : ext.running === false
+      ? `STOPPED itself ${ext.ageHours.toFixed(1)}h ago: ${ext.stoppedReason ?? "no reason recorded"}`
+      : ext.ageHours > EXT_SILENT_HOURS
+        ? `SILENT for ${ext.ageHours.toFixed(1)}h while believing it was running — Chrome is ${chrome ? "running, so the extension's worker is dead: Reload it on chrome://extensions" : "NOT running"}`
+        : `running, last heard ${(ext.ageHours * 60).toFixed(0)} min ago${ext.inflight ? `, downloading ${ext.inflight.slug}` : ""}${ext.lastLog ? ` — "${ext.lastLog.slice(0, 120)}"` : ""}`;
 
   /**
    * Hours since the ingest last showed a sign of life: a completed collection
@@ -315,11 +466,19 @@ async function main() {
     // idle, not a stall.
     verdict = "STUCK";
     headline = `${verified} collection(s) staged, the oldest waiting ${stagedHours.toFixed(1)}h, and the ingest has shown no sign of life for ${quietHours.toFixed(1)}h (no collection completed, no image row landed${row.ageHours === null ? " — row probe failed: " + row.note : ""})`;
+  } else if (verified === 0 && !ext?.inflight && failedSince.length >= 2) {
+    // Checked before STARVED: two retirements in a row with nothing staged and
+    // nothing downloading is a specific, earlier signal than 36h of quiet.
+    verdict = "FAILING";
+    headline = `${failedSince.length} collection(s) retired since the last successful ingest (${hoursSince === Infinity ? "never" : hoursSince.toFixed(1) + "h ago"}), nothing staged, nothing downloading:\n` +
+      failedSince.slice(0, 6).map((f) => `  · ${f.slug} — ${String(f.error).slice(0, 140)}`).join("\n") +
+      (failedSince.length > 6 ? `\n  · … and ${failedSince.length - 6} more` : "");
   } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
-    headline = kept && kept.collections > 0
-      ? `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — and the ingest is KEEPING ${kept.gb} GB across ${kept.collections} collection(s) it cannot prove safe to release. If the disk is under the downloader's 80 GB start floor, that is a deadlock: each half is waiting on the other. Run release-sweep.ts and read why each is kept.`
-      : `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the download extension has stopped producing work`;
+    headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the extension ${extLine}` +
+      (kept && kept.collections > 0
+        ? `\n\nAnd the ingest is KEEPING ${kept.gb} GB across ${kept.collections} collection(s) it cannot prove safe to release. If the disk is under the downloader's 80 GB start floor, that is a deadlock: each half is waiting on the other. Run release-sweep.ts and read why each is kept.`
+        : "");
   } else if (backup.stale) {
     // Checked LAST on purpose: a pipeline that has stopped matters more than one
     // whose ledger is a day stale, and this must never mask a STARVED or STUCK.
@@ -341,15 +500,18 @@ async function main() {
     `ledger     ${backup.line}`,
     `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
     `kept       ${kept ? `${kept.gb} GB across ${kept.collections} collection(s) housekeeping will not release` : "n/a (no housekeeping line in the log)"}`,
+    `extension  ${extLine}`,
+    `failed     ${failedSince.length} since the last ingest (${by.failed || 0} total)`,
     verdict === "UNBACKED"
       ? `\nqueue.json is the only record of which of the 1,371 collections are\nalready safe. Losing it does not lose photos — it loses the knowledge of\nwhich ones are done, which is the difference between finishing this\nmigration and re-running a month of it blind.\n\nIt is backed up by machine-state's nightly sync (20:00). Read\n~/machine-state/.sync.log: that job refuses to push when anything tracked\nis unencrypted, and it stayed silently blocked for 26 nights once before.`
       : "",
     verdict === "STARVED"
-      ? `\nNothing has been requested from Pixieset. Since 2026-08-31 that is the\nChrome extension's job, so this is now a POINTER, not a chore: open its\npopup (pin it to the toolbar) and read the last line, which always says\nwhy it stopped. Known causes, in order of how often they have happened:\n\n  · the head of the queue is stuck  — fixed 2026-09-08; a gated collection\n    was re-requested every 20 min forever. If a single slug repeats down\n    the whole log, that is this shape returning.\n  · one slug "request abandoned after 60m" every hour — its drive never\n    answers (servicenowsko26, 128 GB, 2026-09-11 → 13). Fixed 2026-09-13:\n    it now counts as an attempt and retires after three. If it returns,\n    the extension is running old code — Reload it on chrome://extensions.\n  · everything left is password-gated — sign in to galleries.pixieset.com\n    and press Arm passwords.\n  · Cloudflare challenged it three times — it stops deliberately. Do not\n    work around it; tell Mason.\n  · Chrome is not running, or the extension was unloaded.`
+      ? `\nNothing has been requested from Pixieset. Since 2026-08-31 that is the\nChrome extension's job. Its own last word is on the "extension" line above\n(since 2026-09-15 it reports to the watcher, so you no longer need the popup).\nKnown causes, in order of how often they have happened:\n\n  · the head of the queue is stuck  — fixed 2026-09-08; a gated collection\n    was re-requested every 20 min forever. If a single slug repeats down\n    the whole log, that is this shape returning.\n  · one slug "request abandoned after 60m" every hour — its drive never\n    answers (servicenowsko26, 128 GB, 2026-09-11 → 13). Fixed 2026-09-13:\n    it now counts as an attempt and retires after three. If it returns,\n    the extension is running old code — Reload it on chrome://extensions.\n  · everything left is password-gated — sign in to galleries.pixieset.com\n    and press Arm passwords.\n  · Cloudflare challenged it three times — it stops deliberately. Do not\n    work around it; tell Mason.\n  · Chrome is not running, or the extension was unloaded.`
       : "",
   ].filter(Boolean).join("\n");
 
-  return { verdict, headline, body };
+  const seen = { down, brakeOk: brake.ok, chrome, pids };
+  return { verdict, headline, body, remedy: remedyFor(verdict, seen), remedyFor: (v: Verdict) => remedyFor(v, seen) };
 }
 
 async function send(subject: string, body: string) {
@@ -389,21 +551,61 @@ async function send(subject: string, body: string) {
   }
 
   console.log(r.body);
-  if (dry) return;
 
-  // Notify on a CHANGE of verdict, on recovery, and at most daily while bad.
-  let prev: { verdict: string; at: number } | null = null;
+  // `--heal <VERDICT>`: run that verdict's remedy by hand, whatever the live
+  // verdict is. No email, no state. This is how each remedy was proven.
+  const healAt = process.argv.indexOf("--heal");
+  if (healAt !== -1) {
+    const v = process.argv[healAt + 1] as Verdict;
+    const plan = r.remedyFor(v);
+    if (!plan) { console.log(`\n--heal ${v}: no automatic remedy for that verdict in the current state`); return; }
+    console.log(`\n--heal ${v}: ${plan.name}`);
+    if (dry) { console.log("(dry: not run)"); return; }
+    console.log(`  → ${plan.run()}`);
+    return;
+  }
+
+  if (dry) {
+    if (r.verdict !== "OK") console.log(`\nremedy: ${r.remedy ? `would try "${r.remedy.name}" (dry: not run)` : "none automatic"}`);
+    return;
+  }
+
+  // Notify on a CHANGE of verdict, on recovery, at most daily while bad, and
+  // ONCE when a remedy has been tried and the verdict has not moved.
+  let prev: StallState | null = null;
   try { prev = JSON.parse(fs.readFileSync(STATE, "utf8")); } catch { /* first run */ }
   const changed = !prev || prev.verdict !== r.verdict;
   const stale = prev ? (Date.now() - prev.at) / 3600_000 > RENOTIFY_HOURS : true;
 
-  if (force || (r.verdict !== "OK" && (changed || stale))) {
-    await send(`Pixeltrunk migration — ${r.verdict}`, r.body);
-    fs.writeFileSync(STATE, JSON.stringify({ verdict: r.verdict, at: Date.now() }));
+  let remedyRecord = prev && !changed ? prev.remedy : undefined;
+  let remedyLine = "";
+  let escalate = false;
+  if (r.verdict !== "OK" && r.remedy) {
+    if (!remedyRecord) {
+      let note: string;
+      try { note = r.remedy.run(); }
+      catch (e) { note = `REMEDY FAILED: ${String((e as Error).message).slice(0, 200)}`; }
+      remedyRecord = { name: r.remedy.name, at: Date.now(), note };
+      remedyLine = `\n\nAutomatic remedy: ${r.remedy.name}\n  → ${note}\nThe next check, in about an hour, reports whether it worked.`;
+      console.log(remedyLine.trim());
+    } else if (!remedyRecord.escalated) {
+      escalate = true;
+      remedyRecord = { ...remedyRecord, escalated: true };
+      remedyLine = `\n\nAutomatic remedy already tried at ${new Date(remedyRecord.at).toISOString()}: ${remedyRecord.name}\n  → ${remedyRecord.note}\nIt did not help. This one needs a human.`;
+    }
+  } else if (r.verdict !== "OK" && (changed || stale)) {
+    remedyLine = "\n\nNo automatic remedy for this verdict.";
+  }
+
+  const write = (s: StallState) => fs.writeFileSync(STATE, JSON.stringify(s));
+  if (force || (r.verdict !== "OK" && (changed || stale || escalate))) {
+    await send(`Pixeltrunk migration — ${r.verdict}${escalate ? " (remedy did not help)" : ""}`, r.body + remedyLine);
+    write({ verdict: r.verdict, at: Date.now(), ...(remedyRecord ? { remedy: remedyRecord } : {}) });
   } else if (r.verdict === "OK" && prev && prev.verdict !== "OK") {
-    await send("Pixeltrunk migration — recovered", r.body);
-    fs.writeFileSync(STATE, JSON.stringify({ verdict: "OK", at: Date.now() }));
+    const after = prev.remedy ? `\n\nRecovered after the automatic remedy tried at ${new Date(prev.remedy.at).toISOString()}: ${prev.remedy.name}\n  → ${prev.remedy.note}` : "";
+    await send("Pixeltrunk migration — recovered", r.body + after);
+    write({ verdict: "OK", at: Date.now() });
   } else {
-    fs.writeFileSync(STATE, JSON.stringify({ verdict: r.verdict, at: prev?.at ?? Date.now() }));
+    write({ verdict: r.verdict, at: prev?.at ?? Date.now(), ...(remedyRecord ? { remedy: remedyRecord } : {}) });
   }
 })();

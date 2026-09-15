@@ -21,6 +21,15 @@
 
 const STATE = "px.state";
 const ALARM = "px.tick";
+/**
+ * A second alarm that runs whether or not the scheduler is `running` (added
+ * 2026-09-15). The tick alarm is cleared on Stop, so a stopped extension never
+ * woke again — it could not report that it was stopped, and it could not
+ * notice newer code on disk. The heartbeat only announces and checks for a
+ * reload; it never requests anything.
+ */
+const HEARTBEAT = "px.heartbeat";
+const HEARTBEAT_MINUTES = 20;
 
 /**
  * One-shot repairs, applied on load and recorded by id so a reload cannot run
@@ -128,7 +137,56 @@ const DEFAULTS = {
 };
 
 const load = async () => ({ ...DEFAULTS, ...((await chrome.storage.local.get(STATE))[STATE] ?? {}) });
-const save = (s) => chrome.storage.local.set({ [STATE]: s });
+const save = async (s) => {
+  await chrome.storage.local.set({ [STATE]: s });
+  announce(s);
+};
+
+/** The one status shape: what the popup renders, and what the watcher is told. */
+function statusOf(s) {
+  return {
+    running: s.running, total: s.jobs.length, done: s.done.length,
+    // Counted exactly as tick() picks, or the popup reassures you about
+    // work the scheduler will never reach.
+    remaining: s.jobs.filter((j) => !s.done.includes(j) && !s.gated.includes(j)).length,
+    inflight: s.inflight ? { slug: s.inflight.slug, parts: s.inflight.ids.length, at: s.inflight.at } : null,
+    driving: s.driving ? { slug: s.driving.slug, at: s.driving.at } : null,
+    gated: s.gated.length, noDownload: s.noDownload.length, gone: (s.gone || []).length,
+    passwords: Object.keys(s.passwords).length,
+    gapMinutes: s.gapMinutes, lastTickAt: s.lastTickAt,
+    stoppedReason: s.stoppedReason, results: s.results.slice(-5), log: s.log.slice(-12),
+    version: chrome.runtime.getManifest().version,
+  };
+}
+
+/**
+ * Tell the watcher what we are doing (added 2026-09-15).
+ *
+ * Until now the popup was the only place this extension said anything, and a
+ * popup can be read by a human at this Mac and by nothing else — so the stall
+ * check could report STARVED and then only guess why, and every one of those
+ * emails ended in "open the popup". The watcher writes this to a file the
+ * stall check reads, so the email carries the extension's own last word and
+ * the check can tell "stopped itself for passwords" from "Chrome is gone".
+ *
+ * Fire-and-forget on purpose: the watcher being down must never break a
+ * download, and the stall check already reports a dead watcher as BROKEN.
+ * Trailing-edge throttled, so a burst of saves costs one POST and the LAST
+ * state is the one that lands. text/plain keeps it a simple request.
+ */
+const STATUS_URL = "http://127.0.0.1:8788/status";
+let announceTimer = null;
+let announcePending = null;
+function announce(s) {
+  announcePending = statusOf(s);
+  if (announceTimer) return;
+  announceTimer = setTimeout(() => {
+    announceTimer = null;
+    const body = JSON.stringify(announcePending);
+    announcePending = null;
+    fetch(STATUS_URL, { method: "POST", headers: { "content-type": "text/plain" }, body, cache: "no-store" }).catch(() => {});
+  }, 1500);
+}
 
 /** Apply any repair this profile has not seen. Mutates; returns what it did. */
 function applyRepairs(s) {
@@ -391,14 +449,45 @@ const DISK_URL = "http://127.0.0.1:8788/disk";
 const DISK_START_GB = 80;    // don't even begin a collection below this
 const DISK_KEEP_GB = 60;     // what must remain after this archive lands: the ingest's floor
 
-/** Free GB from the watcher, or null if it cannot be reached. */
-async function freeGB() {
+/** The watcher's brake payload, or null if it cannot be reached. */
+async function brake() {
   try {
     const res = await fetch(DISK_URL, { cache: "no-store" });
     if (!res.ok) return null;
-    const body = await res.json();
-    return Number.isFinite(body?.freeGB) ? body.freeGB : null;
+    return await res.json();
   } catch { return null; }
+}
+
+/** Free GB from the watcher, or null if it cannot be reached. */
+async function freeGB() {
+  const body = await brake();
+  return Number.isFinite(body?.freeGB) ? body.freeGB : null;
+}
+
+/**
+ * Reload ourselves when the code on disk is newer (added 2026-09-15).
+ *
+ * This is an unpacked extension, so a code change does nothing until someone
+ * presses Reload on chrome://extensions — a step that has been forgotten
+ * before ("the extension is running old code") and that is, every time, a
+ * session Mason has to start. The watcher reports the on-disk manifest
+ * version; if it differs from the one we were loaded with, we reload. So the
+ * discipline is: bump `version` in manifest.json with every change.
+ *
+ * Never mid-drive: an offscreen page is automating a Pixieset form right then,
+ * and a reload would abandon it (the lock would expire and count as a failed
+ * attempt). A download in flight is fine — Chrome owns the transfer, and
+ * `settleInflight` reads it back from storage after any restart.
+ */
+async function reloadIfStale(s) {
+  const body = await brake();
+  const onDisk = body?.manifestVersion;
+  const loaded = chrome.runtime.getManifest().version;
+  if (!onDisk || onDisk === loaded || s.driving) return false;
+  note(s, `code on disk is ${onDisk}, running ${loaded} — reloading`);
+  await save(s);
+  chrome.runtime.reload();
+  return true;
 }
 
 /**
@@ -559,6 +648,7 @@ async function tick() {
 
   for (const r of applyRepairs(s)) note(s, repairNote(r));
 
+  if (await reloadIfStale(s)) return;
   if (!s.running) { await save(s); return; }
 
   // Prove the last request's bytes landed before asking for more. This also
@@ -814,7 +904,24 @@ async function handleDriveResult(slug, token, r) {
 let turn = Promise.resolve();
 const serial = (fn) => (turn = turn.then(fn, fn));
 
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) serial(tick); });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === ALARM) serial(tick);
+  if (a.name === HEARTBEAT) serial(heartbeat);
+});
+
+/** Say we are alive (and what we are), and pick up newer code. Runs even when stopped. */
+async function heartbeat() {
+  const s = await load();
+  if (await reloadIfStale(s)) return;
+  announce(s);
+}
+
+/** On every load: say which code this is, tell the watcher, and arm the heartbeat. */
+async function onLoaded(s, how) {
+  note(s, `loaded v${chrome.runtime.getManifest().version} (${how})`);
+  await save(s);
+  chrome.alarms.create(HEARTBEAT, { delayInMinutes: 0.5, periodInMinutes: HEARTBEAT_MINUTES });
+}
 
 chrome.runtime.onMessage.addListener((msg, _s, respond) => {
   if (msg?.target !== "background") return;
@@ -826,17 +933,7 @@ chrome.runtime.onMessage.addListener((msg, _s, respond) => {
     const s = await load();
     switch (msg.type) {
       case "status": {
-        respond({
-          running: s.running, total: s.jobs.length, done: s.done.length,
-          // Counted exactly as tick() picks, or the popup reassures you about
-          // work the scheduler will never reach.
-          remaining: s.jobs.filter((j) => !s.done.includes(j) && !s.gated.includes(j)).length,
-          inflight: s.inflight ? { slug: s.inflight.slug, parts: s.inflight.ids.length, at: s.inflight.at } : null,
-          gated: s.gated.length, noDownload: s.noDownload.length, gone: (s.gone || []).length,
-          passwords: Object.keys(s.passwords).length,
-          gapMinutes: s.gapMinutes, lastTickAt: s.lastTickAt,
-          stoppedReason: s.stoppedReason, results: s.results.slice(-5), log: s.log.slice(-12),
-        });
+        respond(statusOf(s));
         break;
       }
       case "setJobs":
@@ -911,19 +1008,15 @@ chrome.runtime.onStartup.addListener(async () => {
   // A Chrome restart or a Mac reboot killed any drive in progress, exactly as a
   // reload does, but only this event fires for it.
   const released = releaseDeadDrive(s, "Chrome restart");
-  if (released) {
-    note(s, released);
-    await save(s);
-  }
+  if (released) note(s, released);
+  await onLoaded(s, "Chrome start");
   if (s.running) chrome.alarms.create(ALARM, { delayInMinutes: 1, periodInMinutes: s.gapMinutes });
 });
 chrome.runtime.onInstalled.addListener(async () => {
   const s = await load();
   const lines = afterReload(s);
-  if (lines.length) {
-    for (const line of lines) note(s, line);
-    await save(s);
-  }
+  for (const line of lines) note(s, line);
+  await onLoaded(s, "install or reload");
   // Seed the queue from the bundled jobs.json the first time, so nobody has to
   // paste 1,269 slugs into a console. `done` is never touched — a reinstall must
   // resume, not restart.

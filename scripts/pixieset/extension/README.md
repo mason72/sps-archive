@@ -53,6 +53,26 @@ Chrome restart by itself.
 | `popup.html/js` | status and controls, and it always says WHY it stopped — including which collection is downloading right now. |
 | `jobs.json` | the queue, newest-first. Seeds itself on install. |
 
+## It reports, and it reloads itself (v1.1.0, 2026-09-15)
+
+- **Every save is announced to the watcher.** The same status object the popup
+  renders is POSTed to `http://127.0.0.1:8788/status` (trailing-edge throttled,
+  fire-and-forget), and the watcher writes it to
+  `~/pixieset-staging/logs/extension-status.json` with its own `receivedAt`.
+  The stall check reads that file, so a STARVED email now carries the
+  extension's own last word — "stopped: N deferred for passwords", "silent for
+  3h while claiming to run", "downloading hlth2025" — instead of "open the
+  popup". A watcher that is down costs nothing here; the stall check reports
+  that separately as BROKEN.
+- **A code change no longer needs a hand on chrome://extensions.** The brake
+  response carries the on-disk `manifest.json` version; when it differs from the
+  version the worker was loaded with, the next tick calls
+  `chrome.runtime.reload()` — never mid-drive, since an offscreen page is
+  automating a form then. **So bump `version` in `manifest.json` with every
+  change you want picked up.** A change without a bump is invisible, full stop: a
+  Chrome restart does NOT re-read unpacked code (measured 2026-09-15), so the
+  bump is the only way in short of the Reload button.
+
 ## Invariants worth not breaking
 
 - **`done` is append-only and never cleared on reinstall.** A restart must

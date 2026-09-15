@@ -147,3 +147,31 @@ test("Web Size acceptances are named, exact and signed", () => {
     assert.ok(a.why && a.approved, `${slug}: the reason and the approval are recorded`);
   }
 });
+
+test("POST /status is written to disk with the watcher's own receipt time; junk is refused", async () => {
+  const { startDiskServer } = await import("./watch.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "px-status-"));
+  const statusFile = join(dir, "logs", "extension-status.json");
+  const server = startDiskServer(0, { statusFile });
+  await new Promise((r) => server.once("listening", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const ok = await fetch(`${base}/status`, { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ running: false, stoppedReason: "queue drained" }) });
+    assert.equal(ok.status, 204);
+    const written = JSON.parse(await (await import("node:fs/promises")).readFile(statusFile, "utf8"));
+    assert.equal(written.stoppedReason, "queue drained");
+    assert.ok(Date.now() - new Date(written.receivedAt).getTime() < 5000, "receivedAt is stamped by the watcher, not the sender");
+
+    const bad = await fetch(`${base}/status`, { method: "POST", headers: { "content-type": "text/plain" }, body: "[1,2]" });
+    assert.equal(bad.status, 400, "an array is not a status");
+    const still = JSON.parse(await (await import("node:fs/promises")).readFile(statusFile, "utf8"));
+    assert.equal(still.stoppedReason, "queue drained", "a refused body must not clobber the last good one");
+
+    const disk = await (await fetch(`${base}/disk`)).json();
+    assert.equal(typeof disk.manifestVersion, "string", "the brake carries the on-disk extension version");
+    const pre = await fetch(`${base}/status`, { method: "OPTIONS" });
+    assert.equal(pre.status, 204);
+  } finally {
+    server.close();
+  }
+});

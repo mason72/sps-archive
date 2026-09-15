@@ -29,7 +29,7 @@ import path from "node:path";
 const SRC = new URL("./background.js", import.meta.url);
 
 /** A chrome stub, plus the levers a test needs to drive it. */
-function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
+function harness(state, { drive, arm, downloads = {}, freeGB = 500, onDisk = "1.1.1", loaded = "1.1.1" } = {}) {
   const store = { "px.state": { ...state } };
   const asked = [];
   const requested = [];
@@ -38,11 +38,18 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
   const revoked = [];
   // The watcher's loopback disk brake. `freeGB: null` stands in for "the watch
   // agent is not running", which must stop downloads rather than be ignored.
-  globalThis.fetch = async (url) => {
+  const announced = [];    // status bodies the watcher would have received
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/status")) {
+      if (freeGB === null) throw new Error("connection refused");
+      announced.push(JSON.parse(init.body));
+      return { ok: true, status: 204 };
+    }
     if (!String(url).includes("/disk")) throw new Error(`unexpected fetch: ${url}`);
     if (freeGB === null) throw new Error("connection refused");
-    return { ok: true, json: async () => ({ freeGB, floorGB: 25, at: new Date().toISOString() }) };
+    return { ok: true, json: async () => ({ freeGB, floorGB: 25, at: new Date().toISOString(), manifestVersion: onDisk }) };
   };
+  const reloads = [];
   let nextId = 100;
   const chrome = {
     storage: { local: {
@@ -73,6 +80,8 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
     alarms: { create() {}, clear: async () => {}, onAlarm: { addListener() {} } },
     offscreen: { createDocument: async () => {} },
     runtime: {
+      getManifest: () => ({ version: loaded }),
+      reload: () => { reloads.push(Date.now()); },
       getContexts: async () => [{}],
       getURL: (p) => p,
       sendMessage: async (msg) => {
@@ -97,12 +106,12 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
     _onStartup: [],        // startup listeners, so a test can fire a Chrome restart
     _pending: [],          // drive answers still on their way back
   };
-  return { chrome, store, asked, requested, cancelled, blobs, revoked, downloads, state: () => store["px.state"] };
+  return { chrome, store, asked, requested, cancelled, blobs, revoked, downloads, announced, reloads, state: () => store["px.state"] };
 }
 
 async function loadBackground(chrome) {
   globalThis.chrome = chrome;
-  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs, afterReload };\n";
+  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs, afterReload, heartbeat };\n";
   const f = path.join(os.tmpdir(), `px-bg-${Math.random().toString(36).slice(2)}.mjs`);
   fs.writeFileSync(f, src);
   let mod;
@@ -114,7 +123,7 @@ async function loadBackground(chrome) {
     await mod.tick();
     while (chrome._pending.length) await chrome._pending.shift();
   };
-  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload };
+  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload, heartbeat: mod.heartbeat };
 }
 
 const base = (over = {}) => ({
@@ -666,4 +675,68 @@ test("MB and KB labels are not read as gigabytes", async () => {
   const { tick } = await loadBackground(h.chrome);
   await tick();
   assert.equal(h.requested.length, 9, "9 x 900 MB is 7.9 GB, which fits in 85 GB with 60 to spare");
+});
+
+test("every save is announced to the watcher, last state wins, and a dead watcher costs nothing", async () => {
+  // The announce is trailing-edge throttled, so a burst of saves lands ONE body
+  // carrying the final state — the popup's shape, plus the code version.
+  const h = harness(base({ jobs: ["a"] }), { drive: () => ({ ok: true, zips: [{ url: "u", size: "1 GB" }], expect: 1 }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  await new Promise((r) => setTimeout(r, 1700));
+  // A tick spans more than one 1.5s window (the drive answers asynchronously),
+  // so several POSTs is normal; what matters is that the LAST one carries the
+  // final state, and that there are far fewer POSTs than saves.
+  assert.ok(h.announced.length >= 1 && h.announced.length <= 4, `throttled: ${h.announced.length} POSTs`);
+  const last = h.announced.at(-1);
+  assert.equal(last.version, "1.1.1");
+  assert.equal(typeof last.running, "boolean");
+  assert.ok(Array.isArray(last.log), "the watcher gets the same log tail the popup shows");
+  assert.equal(last.lastTickAt, h.state().lastTickAt, "and the newest tick time");
+
+  // Watcher down: the download path must be unaffected, and nothing may throw.
+  const dead = harness(base({ jobs: ["a"] }), { freeGB: null });
+  const { tick: deadTick } = await loadBackground(dead.chrome);
+  await deadTick();
+  await new Promise((r) => setTimeout(r, 1700));
+  assert.deepEqual(dead.announced, []);
+});
+
+test("newer code on disk reloads the extension — but never mid-drive", async () => {
+  const h = harness(base({ jobs: ["a"] }), { onDisk: "1.2.0", loaded: "1.1.1" });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.reloads.length, 1, "1.2.0 on disk, 1.1.1 running: reload");
+  assert.deepEqual(h.asked, [], "and nothing is requested on the tick that reloads");
+  assert.match(h.state().log.join("\n"), /code on disk is 1.2.0, running 1.1.1/);
+
+  const busy = harness(base({ jobs: ["a"], driving: { slug: "a", at: new Date().toISOString(), token: "t" } }), { onDisk: "1.2.0", loaded: "1.1.1" });
+  const { tick: busyTick } = await loadBackground(busy.chrome);
+  await busyTick();
+  assert.equal(busy.reloads.length, 0, "a drive is automating a form right now; the reload waits");
+
+  const same = harness(base({ jobs: ["a"] }), { onDisk: "1.1.1", loaded: "1.1.1" });
+  const { tick: sameTick } = await loadBackground(same.chrome);
+  await sameTick();
+  assert.equal(same.reloads.length, 0, "matching versions never reload");
+});
+
+test("a STOPPED extension still reports on its heartbeat, and still picks up newer code", async () => {
+  // The tick alarm is cleared on Stop; before the heartbeat a stopped extension
+  // could neither say it was stopped nor notice code on disk had changed.
+  const h = harness(base({ jobs: ["a"], running: false, stoppedReason: "stopped by hand" }));
+  const { heartbeat } = await loadBackground(h.chrome);
+  await heartbeat();
+  await new Promise((r) => setTimeout(r, 1700));
+  // Earlier tests' trailing announce timers can fire into this harness's fetch
+  // mock, so judge the LAST body, not the count.
+  assert.ok(h.announced.length >= 1);
+  assert.equal(h.announced.at(-1).running, false);
+  assert.equal(h.announced.at(-1).stoppedReason, "stopped by hand");
+  assert.deepEqual(h.asked, [], "a heartbeat never requests anything");
+
+  const stale = harness(base({ jobs: ["a"], running: false }), { onDisk: "1.2.0", loaded: "1.1.1" });
+  const { heartbeat: staleBeat } = await loadBackground(stale.chrome);
+  await staleBeat();
+  assert.equal(stale.reloads.length, 1, "stopped is exactly when a reload is cheapest");
 });

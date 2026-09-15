@@ -510,15 +510,74 @@ export async function sweep({ dryRun = false } = {}) {
  * origin, which is what lets the extension reach it at all (the same property
  * `gates-server.mjs` relies on).
  */
-export function startDiskServer(port = DISK_PORT) {
+/**
+ * Where the extension's last word lands (added 2026-09-15).
+ *
+ * The downloader is a Chrome extension, and until now the only place it said
+ * what it was doing was its popup — readable by a human at this Mac and by
+ * nothing else. So the stall check could say STARVED and then only GUESS why,
+ * and every STARVED email ended in "open the popup and read the last line",
+ * which is a session Mason has to start. The extension now POSTs the same
+ * status object the popup renders to `/status` on every state change, and the
+ * watcher writes it here. A file, not memory, so it survives a watcher restart
+ * and a human can `cat` it. `receivedAt` is stamped by the watcher: the
+ * extension's own clock is not trusted for the liveness question.
+ */
+export const EXTENSION_STATUS = join(homedir(), "pixieset-staging", "logs", "extension-status.json");
+const STATUS_MAX_BYTES = 64 * 1024;
+
+/** The on-disk manifest version, so a running extension can tell it is stale. */
+function manifestVersion() {
+  try {
+    const p = join(new URL(".", import.meta.url).pathname, "extension", "manifest.json");
+    return JSON.parse(readFileSync(p, "utf8")).version ?? null;
+  } catch { return null; }
+}
+
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > max) { reject(new Error(`body over ${max} bytes`)); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATUS } = {}) {
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");   // the caller is an extension origin
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "content-type" }).end();
+      return;
+    }
+    if (req.method === "POST" && req.url?.startsWith("/status")) {
+      try {
+        const parsed = JSON.parse(await readBody(req, STATUS_MAX_BYTES));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("status must be an object");
+        await mkdir(join(statusFile, ".."), { recursive: true });
+        await writeFile(statusFile, JSON.stringify({ ...parsed, receivedAt: new Date().toISOString() }, null, 2));
+        res.writeHead(204).end();
+      } catch (e) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(e?.message ?? e).slice(0, 200) }));
+      }
+      return;
+    }
     if (!req.url?.startsWith("/disk")) { res.writeHead(404).end(); return; }
     try {
       const free = await freeGB();
       const staged = existsSync(VERIFIED) ? (await readdir(VERIFIED)).filter((f) => ZIP.test(f)).length : 0;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ freeGB: free, floorGB: MIN_FREE_GB, stagedZips: staged, at: new Date().toISOString() }));
+      res.end(JSON.stringify({
+        freeGB: free, floorGB: MIN_FREE_GB, stagedZips: staged, at: new Date().toISOString(),
+        // Lets the extension notice its own code is stale and reload itself.
+        manifestVersion: manifestVersion(),
+      }));
     } catch (e) {
       // No answer is better than a wrong one: the caller fails CLOSED on a
       // non-200, which is the safe direction for a guard protecting a disk.

@@ -3898,3 +3898,45 @@ and was mid-run on the next. Nothing was wrong.
 - The tell for next time: **"last done 0.1h ago" in the same email as STUCK.**
   Any alert whose body contradicts its own headline is the check, not the
   system.
+
+## 158 — The migration heals itself before it emails (2026-09-15)
+
+Mason, after the false STUCK of lesson 157: "is there anything we can do to make
+things get unstuck without me needing to fire off a session?" Every alert so far
+had ended in a pointer to a session: kill the hung ingest, restart an agent,
+open the popup and read why the extension stopped, reload the extension.
+
+- **A remedy is only automatable when the system was already built to survive
+  it — read that guarantee before wiring the action.** Each one here rests on a
+  documented invariant, not on hope: `ingest-loop.sh`'s header says "safe to
+  kill and restart at any moment" and the ingest writes bytes BEFORE the row
+  with a resume idempotent per file, so SIGTERM on a STUCK child costs five
+  minutes and re-does the in-flight photos; `kickstart -k` is what a reboot
+  does; the extension re-arms its alarm on `onStartup`, so opening Chrome is
+  enough; the backup sync is a nightly job run a night early. SPINNING and
+  FAILING got none, because a restart does not fix code or data.
+- **One try per episode, then escalate once, and say it all in the email.**
+  A restart that fixes nothing is not improved by hourly repetition, and a
+  remedy nobody is told about is a haunting. The state file records the remedy;
+  the next check with the same verdict sends ONE "did not help" email; the
+  recovery email names the remedy that preceded it.
+- **`--heal <VERDICT>` exists so every remedy is PROVEN, not believed.** Ran
+  each against the live pipeline: STUCK killed a run at 2,400 of 5,388 photos,
+  the loop printed its fail-closed idle line within seconds and resumed the
+  same collection on the next pass; UNBACKED pushed the ledger in 25s. Same
+  rule as the negative-tested verdicts: a remedy that has never run is a
+  comment.
+- **The extension was mute to everything but a human at the keyboard** — its
+  popup was the only place it said what it was doing, so the check could say
+  STARVED and only guess why. It now POSTs the popup's status to the watcher,
+  which files it with its own receipt time; "stopped for passwords", "dead
+  worker, Chrome running" and "downloading X" are now three different lines.
+  **And it reloads itself** when the brake reports a newer `manifest.json` on
+  disk — bump the version with every change. That closes the "it is running old
+  code — Reload it" chore for good — after one last manual Reload, because a
+  Chrome restart does NOT re-read unpacked code (measured: two relaunches, the
+  post-relaunch tick ran the old build both times). Worth knowing before the
+  next time someone restarts Chrome to "pick up" an extension change.
+- **`failed` rows lived outside every verdict.** A day where every download
+  failed verification read as a quiet day. FAILING: nothing staged, nothing in
+  flight, 2+ retirements since the last successful ingest, errors in the email.

@@ -57,8 +57,51 @@ Four verdicts, because they need different reactions:
 | `BROKEN` | a launchd agent is not running, or the disk brake is not answering | restart the agent — the brake lives inside the watcher |
 | `SPINNING` | far more passes per hour than work allows | a guard has failed open |
 | `STUCK` | collections staged > 2h AND no sign of life for 2h: no collection completed, no image row landed | the ingest |
-| `STARVED` | nothing staged, work queued, nothing done in > 36h | the download extension — open its popup |
+| `FAILING` | nothing staged, nothing downloading, and 2+ collections retired since the last successful ingest | a human reads the errors (they are in the email) |
+| `STARVED` | nothing staged, work queued, nothing done in > 36h | the download extension — its own last word is in the email |
 | `UNBACKED` | `queue.json` has not reached GitHub in > 48h | `machine-state`'s nightly sync — read `.sync.log` |
+
+### It heals itself first (2026-09-15)
+
+Mason: *"is there anything we can do to make things get unstuck without me
+needing to fire off a session?"* Each verdict now has at most ONE automatic
+remedy, every one of them an action the pipeline was already designed to
+survive, tried ONCE per episode and recorded in `stall-state.json`:
+
+| Verdict | Remedy | Why it is safe |
+|---|---|---|
+| `STUCK` | `SIGTERM` the ingest child (or restart the ingest agent if none is running) | `ingest-loop.sh`'s own header: safe to kill at any moment. Bytes land before the row; a resume is idempotent by `(event, original_filename)`. The loop idles 5 min and retries the same collection. |
+| `BROKEN` | `launchctl kickstart -k` the agent that is down (or the watcher when its brake is silent) | it is what a reboot does |
+| `STARVED` | open Chrome if it is not running | the extension's alarm re-arms on `onStartup` |
+| `UNBACKED` | `launchctl kickstart` the machine-state sync now | it is the nightly job, a night early |
+| `SPINNING`, `FAILING` | none | code or data problems |
+
+If the same verdict is still there on the check after a remedy, ONE escalation
+email says what was tried and that it did not help; the remedy is never
+repeated within an episode. The recovery email says which remedy preceded it.
+`--heal <VERDICT>` runs a remedy by hand regardless of the live verdict — that is
+how each was proven on 2026-09-15: `--heal STUCK` killed a run at 2,400 of 5,388
+photos, the loop printed its fail-closed idle line within seconds and resumed the
+same collection on the next pass; `--heal UNBACKED` pushed the ledger to GitHub
+within 25s. The Chrome relaunch is the one remedy not exercised through the
+check itself (Chrome was restarted by hand the same day; the extension's alarm
+re-armed and it ticked one minute later, which is the part that remedy relies on).
+
+**The extension now speaks.** Since v1.1.0 it POSTs the popup's status object to
+the watcher's `/status` on every state change, and the watcher writes it to
+`~/pixieset-staging/logs/extension-status.json` with its own `receivedAt`. The
+stall check prints it as the `extension` line and uses it to tell three states
+apart that used to be one `STARVED`: *stopped itself* (with the reason — usually
+"deferred for passwords"), *silent while claiming to run* (dead worker or dead
+Chrome, and it says which), and *running* (with what it is downloading). And
+the extension **reloads itself** when the watcher reports a newer
+`manifest.json` version on disk — so **bump `version` in `manifest.json` with
+every extension change**, and the next tick (never mid-drive) picks it up.
+No more "Reload it on chrome://extensions" — after ONE last one: a Chrome
+restart does **not** re-read unpacked extension code (measured 2026-09-15: two
+relaunches, the post-relaunch tick ran the old build both times), so the first
+build carrying the self-reload has to be loaded by hand. Every change after it
+needs only the version bump.
 
 `UNBACKED` (added 2026-09-08) watches the one file that is not replaceable.
 `scripts/pixieset/data/` is gitignored, so `queue.json` — the only record of
@@ -196,6 +239,12 @@ falls back to the completion clock, so a database blip neither sends a `STUCK`
 nor hides a real hang. Negative-tested the same day: `PIXIESET_STUCK_HOURS=0`
 fires, a dead `NEXT_PUBLIC_SUPABASE_URL` prints `PROBE FAILED` and still fires
 with the threshold at zero.
+
+`FAILING` is negative-tested with a temp copy of the queue (`PIXIESET_QUEUE=`),
+two `queued` rows edited to `failed` with a fresh history entry and every
+`verified` row set back to `queued`. Every remedy has a dry form: a forced
+verdict under `--dry` prints `would try "…" (dry: not run)` and the process it
+named must still be alive afterwards.
 
 Run it by hand any time: `npx tsx scripts/pixieset/stall-check.ts --dry`
 (verdict only, sends nothing) or `--force` (send regardless, to prove delivery).
