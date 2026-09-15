@@ -80,13 +80,21 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
         if (msg.type === "revoke") { revoked.push(msg.url); return { ok: true }; }
         if (msg.type === "arm") return arm ? arm(msg) : { ok: false };
         asked.push(msg.slug);
-        return drive ? drive(msg) : { ok: false, error: "no stub" };
+        // Like offscreen.js: accept at once, answer later with a message of its
+        // own. A drive stub that throws stands in for the offscreen document
+        // refusing the job, so the send itself rejects.
+        const out = drive ? drive(msg) : { ok: false, error: "no stub" };
+        chrome._pending.push(Promise.resolve(out).then((result) =>
+          new Promise((done) => chrome._onMessage[0](
+            { target: "background", type: "driveResult", slug: msg.slug, token: msg.token, result }, null, done))));
+        return { accepted: true };
       },
       onMessage: { addListener: (fn) => chrome._onMessage.push(fn) },
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
     _onMessage: [],
+    _pending: [],          // drive answers still on their way back
   };
   return { chrome, store, asked, requested, cancelled, blobs, revoked, downloads, state: () => store["px.state"] };
 }
@@ -96,7 +104,16 @@ async function loadBackground(chrome) {
   const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs };\n";
   const f = path.join(os.tmpdir(), `px-bg-${Math.random().toString(36).slice(2)}.mjs`);
   fs.writeFileSync(f, src);
-  try { return await import(`file://${f}`); } finally { fs.unlinkSync(f); }
+  let mod;
+  try { mod = await import(`file://${f}`); } finally { fs.unlinkSync(f); }
+  // `tick` also waits for the drive's answer to come back and be handled, which
+  // is what one alarm plus one driveResult message amount to in Chrome.
+  // `tickOnly` returns as the real tick does: once the drive is dispatched.
+  const tick = async () => {
+    await mod.tick();
+    while (chrome._pending.length) await chrome._pending.shift();
+  };
+  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs };
 }
 
 const base = (over = {}) => ({
@@ -370,17 +387,104 @@ test("a slow drive does not let the next alarm start a second one", async () => 
   const h = harness(base({ jobs: ["big", "next"] }), {
     drive: async () => { await gate; return { ok: true, expect: 1, zips: [{ url: "u", name: "big-photo-download-1of1.zip", size: "1 GB" }] }; },
   });
-  const { tick } = await loadBackground(h.chrome);
+  const { tickOnly } = await loadBackground(h.chrome);
 
-  const first = tick();                            // still inside the drive
-  await new Promise((r) => setTimeout(r, 20));
-  await tick();                                    // the 20-minute alarm fires again
+  await tickOnly();                                // dispatched; the drive is still building
+  await tickOnly();                                // the 20-minute alarm fires again
   assert.deepEqual(h.asked, ["big"], "three concurrent drives requested three 46 GB archives");
   assert.match(h.state().log.join("\n"), /still being requested/);
 
   release();
-  await first;
+  await h.chrome._pending.shift();
   assert.equal(h.state().driving, null, "the lock must not outlive the drive");
+});
+
+// ------------------------------------------------------------ answers outlive the worker
+//
+// 2026-09-14/15: guidewireconnectionspwc, money2020au10tix-1, breakthrough2025
+// and docusignignite all retired for "drive never answered". They did answer.
+// The tick awaited the reply, Chrome killed the worker ~5 minutes in, and the
+// reply to a dead channel went nowhere. Only sentinelone got through, at 5m43s.
+
+test("the tick returns before the drive finishes, and the answer still lands", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const zips = [{ url: "u", name: "slow-photo-download-1of1.zip", size: "6 GB" }];
+  const h = harness(base({ jobs: ["slow"] }), { drive: async () => { await gate; return { ok: true, expect: 1, zips }; } });
+  const { tickOnly } = await loadBackground(h.chrome);
+
+  await tickOnly();                                // a worker that dies now has lost nothing
+  assert.equal(h.state().driving.slug, "slow");
+  assert.ok(h.state().driving.token, "the lock carries the token the answer must match");
+  assert.equal(h.state().inflight, null);
+
+  release();                                       // the build finishes, 20 minutes later
+  await h.chrome._pending.shift();
+  assert.equal(h.state().driving, null);
+  assert.equal(h.state().inflight?.slug, "slow", "the answer is acted on by whichever worker is alive");
+  assert.equal(h.requested.length, 1);
+  assert.equal(h.state().attempts.slow ?? 0, 0);
+});
+
+test("an answer that arrives after its lock expired is still used if nothing else started", async () => {
+  const zips = [{ url: "u", name: "late-photo-download-1of1.zip", size: "2 GB" }];
+  const h = harness(base({ jobs: ["late", "next"], attempts: { late: 1 } }));
+  await loadBackground(h.chrome);
+  const listener = h.chrome._onMessage[0];
+  await new Promise((done) => listener({ target: "background", type: "driveResult", slug: "late", token: "old", result: { ok: true, expect: 1, zips } }, null, done));
+  assert.equal(h.state().inflight?.slug, "late", "discarding good links means a whole new build at Pixieset");
+  assert.match(h.state().log.join("\n"), /answered after its lock expired/);
+});
+
+test("a late FAILURE is not counted a second time", async () => {
+  // Its lock already expired and counted an attempt; counting the answer too
+  // would let two slow drives retire a healthy collection.
+  const h = harness(base({ jobs: ["slow"], attempts: { slow: 1 } }));
+  await loadBackground(h.chrome);
+  const listener = h.chrome._onMessage[0];
+  await new Promise((done) => listener({ target: "background", type: "driveResult", slug: "slow", token: "old", result: { ok: false, error: "not ready after 35m of polling" } }, null, done));
+  assert.equal(h.state().attempts.slow, 1);
+  assert.match(h.state().log.join("\n"), /late drive result ignored/);
+});
+
+test("a result whose handling throws is acknowledged and counted once", async () => {
+  const zips = [{ url: "u", name: "x-photo-download-1of1.zip", size: "1 GB" }];
+  const h = harness(base({ jobs: ["x"], driving: { slug: "x", at: new Date().toISOString(), token: "t" } }));
+  h.chrome.downloads.download = async () => { throw new Error("disk said no"); };
+  await loadBackground(h.chrome);
+  const listener = h.chrome._onMessage[0];
+  const ack = await new Promise((done) => listener({ target: "background", type: "driveResult", slug: "x", token: "t", result: { ok: true, expect: 1, zips } }, null, done));
+  assert.equal(ack.ok, true, "an unacknowledged result is re-sent, and a re-run restarts running parts");
+  assert.equal(h.state().driving, null);
+  assert.equal(h.state().attempts.x, 1);
+});
+
+test("a late answer is dropped when another collection has already started", async () => {
+  const zips = [{ url: "u", name: "late-photo-download-1of1.zip", size: "2 GB" }];
+  const h = harness(base({ jobs: ["late", "now"], driving: { slug: "now", at: new Date().toISOString(), token: "new" } }));
+  await loadBackground(h.chrome);
+  const listener = h.chrome._onMessage[0];
+  await new Promise((done) => listener({ target: "background", type: "driveResult", slug: "late", token: "old", result: { ok: true, expect: 1, zips } }, null, done));
+  assert.deepEqual(h.requested, [], "two collections downloading at once is the 09-01 disk accident");
+  assert.equal(h.state().driving.slug, "now", "and the running drive keeps its lock");
+  assert.match(h.state().log.join("\n"), /late drive result ignored — now is being requested/);
+});
+
+test("the 09-15 repair re-queues retired AND mid-attempt collections, and frees their lock", async () => {
+  const hung = { slug: "connect25schmidtfamilyfoundation", at: new Date().toISOString(), token: "t" };
+  const h = harness(base({
+    repairs: ["2026-09-08-requeue-lost-downloads", "2026-09-09-requeue-atlassian", "2026-09-13-set-aside-servicenowsko26", "2026-09-14-requeue-portrait-originals"],
+    done: ["guidewireconnectionspwc", "docusignignite", "keepme"],
+    attempts: { guidewireconnectionspwc: 3, connect25schmidtfamilyfoundation: 2 },
+    driving: hung,
+  }));
+  const { applyRepairs } = await loadBackground(h.chrome);
+  const s = { ...h.state() };
+  const [r] = applyRepairs(s);
+  assert.equal(r.count, 2);
+  assert.deepEqual(s.done, ["keepme"]);
+  assert.deepEqual(s.attempts, {}, "an attempt still counting down would retire it again after two blips");
+  assert.equal(s.driving, null, "a lock from the replaced worker would stall the queue for 50 minutes");
 });
 
 test("a drive that died with the service worker counts as an attempt, and the retry waits a tick", async () => {

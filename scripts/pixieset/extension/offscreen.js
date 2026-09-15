@@ -218,10 +218,13 @@ async function driveOne(slug, password, opts) {
     if (!fileUrl) { out.error = "never reached the file page"; return out; }
 
     // Readiness is discovered by re-fetching: there is no poller on that page.
-    // Small galleries are ready in seconds, a 40 GB one takes many minutes.
+    // Small galleries are ready in seconds, a 5,000-photo one takes well over
+    // five minutes. The budget is TIME, not a try count, so the scheduler's lock
+    // can be sized against it: fast polls first, then one every 15 seconds.
     out.phase = "poll";
     let ready = null;
-    for (let i = 0; i < opts.pollTries; i++) {
+    const pollUntil = Date.now() + (opts.pollMinutes ?? 35) * 60_000;
+    for (let i = 0; Date.now() < pollUntil; i++) {
       const p = await GET(fileUrl);
       if (/ready to download/i.test(p.html)) { ready = parse(p.html); break; }
       if (pathOf(p.url).includes("/download/exist/") || /already generated/i.test(p.html)) {
@@ -231,9 +234,9 @@ async function driveOne(slug, password, opts) {
           if (/ready to download/i.test(e.html)) { ready = parse(e.html); break; }
         }
       }
-      await sleep(i < 20 ? 3000 : 10000);
+      await sleep(i < 20 ? 3000 : 15000);
     }
-    if (!ready) { out.error = `not ready after ${opts.pollTries} polls`; return out; }
+    if (!ready) { out.error = `not ready after ${opts.pollMinutes ?? 35}m of polling`; return out; }
 
     const zips = zipAnchors(ready);
     if (!zips.length) { out.error = "ready page carried no zip links"; return out; }
@@ -293,6 +296,22 @@ function makeBlobUrl(text, type) {
   return URL.createObjectURL(new Blob([text], { type: type || "application/json" }));
 }
 
+/**
+ * Hand a finished drive to the scheduler. Sending wakes the service worker if
+ * Chrome has shut it down; a few retries cover the moment it is starting up.
+ * A result that still cannot be delivered is lost, and the scheduler's lock
+ * expiry counts that as a failed attempt, so nothing loops on it.
+ */
+async function deliver(slug, token, result) {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const ack = await chrome.runtime.sendMessage({ target: "background", type: "driveResult", slug, token, result });
+      if (ack?.ok) return;
+    } catch { /* worker starting up — try again */ }
+    await sleep(5000);
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
   if (msg?.target !== "offscreen") return;
   if (msg.type === "blob") {
@@ -306,8 +325,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
     return true;
   }
   if (msg.type === "drive") {
-    driveOne(msg.slug, msg.password, msg.opts).then(respond);
-    return true;                       // keep the channel open for async
+    /**
+     * Accept at once, answer LATER as a message of our own.
+     *
+     * This used to answer on the request's reply channel, and the service worker
+     * awaited it. Chrome kills a worker that waits on one reply for more than
+     * about five minutes, and a 3,000-6,000 photo build takes longer than that.
+     * So from 2026-09-14 the drives finished here, answered a worker that no
+     * longer existed, and the scheduler saw only its lock expire: "drive never
+     * answered", three times, retired. The one that got through (sentinelone,
+     * 09-15 03:04Z) answered in 5m43s. A fresh message wakes a dead worker; a
+     * reply on a dead channel goes nowhere.
+     */
+    respond({ accepted: true });
+    driveOne(msg.slug, msg.password, msg.opts).then((result) => deliver(msg.slug, msg.token, result));
+    return false;
   }
   if (msg.type === "arm") {
     armPasswords().then((r) => respond({ ok: true, ...r }))

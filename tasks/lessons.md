@@ -3797,3 +3797,38 @@ Resolution") that the same memory had already proven wrong.
 - **Uniform narrow width across every frame still fails, deliberately.** CEMA
   Covers is 24 of 24 at 2,400×3,000: a designed export, not the 2,048px Web Size
   signature, but whether it is an original is a human call.
+
+## 155 — "Drive never answered" was a worker Chrome had killed, and the ingest idled behind it (2026-09-15)
+
+**What happened.** Mason asked how the migration was going now that the network
+was faster. The ingest had been idle 6.5 hours (`nothing staged; idling 300s`),
+and the download extension had spent the night retiring collections of
+4,300–15,100 photos as "drive never answered": guidewireconnectionspwc,
+money2020au10tix-1, breakthrough2025, docusignignite. The tick `await`ed its
+`sendMessage` to the offscreen document, whose reply comes when Pixieset
+finishes building the ZIPs. Chrome kills an MV3 service worker that waits ~5
+minutes on one reply, so every slower build answered a dead channel. The only
+success, sentinelone, answered in 5m43s.
+
+- **The missing log line was the evidence.** The tick had its own 40-minute
+  "no answer" timeout. It never once printed; only the storage lock's 60-minute
+  expiry did. A timer that never fires means the thing holding it is gone.
+- **The previous fix (lesson-era 09-13, "a drive that never answers counts")
+  was correct and made this worse in one way:** counting expiries turned a
+  silent livelock into three-strike retirements of collections that were fine.
+  It also misclassified the cause as a hanging drive. After a second failure
+  shape with the same symptom, re-classify, don't widen (workflow rule).
+- **Fix: request and answer are separate events.** Offscreen accepts at once,
+  then sends `driveResult`, which wakes a dead worker. A token ties it to the
+  lock; a late answer is used when nothing else started (throwing away good
+  links costs a whole new build). Ticks and results run `serial`, or a tick's
+  stale save drops the result's `inflight`. Polling is a 35-minute time budget
+  inside a 50-minute lock.
+- **The real throughput number was a download-side number.** 09-08→09-15 moved
+  ~54 GB/day while the Ethernet link carries ~130 GB/day. Before forecasting,
+  check whether the uploader is WAITING, not just how fast it goes when busy.
+- **The node harness cannot reproduce worker eviction.** The tests pin the new
+  shape (tick returns before the answer; late and stale answers) but the proof
+  of the bug fix is live: the first 3,000+ photo collection landing after the
+  Reload, and repair `2026-09-15-requeue-lost-drive-answers` (33,384 photos)
+  draining.

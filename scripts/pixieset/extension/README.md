@@ -85,8 +85,17 @@ Chrome restart by itself.
   photos, 17 parts, 46 GB). Its ticks overlapped, three drives ran at once for
   the same collection, and each would have requested its own 46 GB archive
   against 113 GB of free disk. The lock lives in storage, not a variable,
-  because the worker is evicted between wake-ups; it expires after 45 minutes so
+  because the worker is evicted between wake-ups; it expires after 50 minutes so
   a drive that died with the worker cannot block the queue forever.
+- **The tick never waits for a drive to finish.** It dispatches, and the
+  offscreen document answers with a `driveResult` message of its own, matched
+  to the lock by a token. Chrome kills a service worker that waits ~5 minutes on
+  one reply, and a 3,000+ photo build takes longer, so on 2026-09-14/15 every
+  such drive finished into a dead channel and four collections were retired as
+  "drive never answered" (the one that got through answered in 5m43s). A new
+  message wakes a dead worker; a reply on a dead channel does not. Polling is a
+  35-minute time budget, inside the 50-minute lock. Ticks and results run one at
+  a time (`serial`), or a tick's stale save would drop a result's `inflight`.
 - **A retry fetches only the parts that are missing.** Pixieset regenerates the
   whole archive per request, so a retry hands back 17 fresh links even when 16
   of those parts are on disk. `alreadyHave()` skips any part Chrome has already

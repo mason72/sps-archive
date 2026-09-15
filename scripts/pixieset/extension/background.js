@@ -57,7 +57,7 @@ const REPAIRS = [
   {
     id: "2026-09-13-set-aside-servicenowsko26",
     // Its drive never answered, every hour for ~44 hours from 2026-09-11 20:31Z,
-    // and nothing counted it (see DRIVE_ANSWER_MS). Counting alone would still
+    // and nothing counted it (see DRIVE_TIMEOUT_MIN). Counting alone would still
     // spend three more hours — three more requests for a ~128 GB build — to
     // retire it. It cannot fit beside the ingest's 60 GB floor on either disk
     // today, so it is SET ASIDE instead: not retired, no beacon, and the tooBig
@@ -76,6 +76,21 @@ const REPAIRS = [
     // cleaned out of quarantine, so the bytes must be fetched again. Pixieset is
     // the only copy of both (at-risk, pre-2024). 673 photos. Approved by Mason.
     requeue: ["ffdc2015", "foothillsteamphotos"],
+  },
+  {
+    id: "2026-09-15-requeue-lost-drive-answers",
+    // Retired (or on their last attempt) for "drive never answered", when the
+    // drives were answering: Chrome killed the service worker ~5 minutes into
+    // waiting for each reply, so every 3,000-15,000 photo build finished into a
+    // dead channel. Drives now answer with a message of their own. Pixieset keeps
+    // finished builds, so these should be quick. 33,384 photos.
+    requeue: [
+      "guidewireconnectionspwc",
+      "money2020au10tix-1",
+      "breakthrough2025",
+      "docusignignite",
+      "connect25schmidtfamilyfoundation",
+    ],
   },
 ];
 
@@ -111,9 +126,15 @@ function applyRepairs(s) {
   const applied = [];
   for (const r of REPAIRS) {
     if (s.repairs.includes(r.id)) continue;
-    const back = (r.requeue || []).filter((slug) => s.done.includes(slug));
-    s.done = s.done.filter((slug) => !(r.requeue || []).includes(slug));
-    for (const slug of back) if (s.attempts) delete s.attempts[slug];
+    const requeue = r.requeue || [];
+    const back = requeue.filter((slug) => s.done.includes(slug));
+    s.done = s.done.filter((slug) => !requeue.includes(slug));
+    // A named collection gets a clean slate whether or not it was retired yet,
+    // and a lock held for one belongs to a worker this reload has replaced.
+    for (const slug of requeue) {
+      if (s.attempts) delete s.attempts[slug];
+      if (s.driving?.slug === slug) s.driving = null;
+    }
     // Set aside: skipped until the disk can hold it, never retired. A drive
     // still holding the lock for it would block the queue, so release that too.
     const aside = Object.entries(r.tooBig || {});
@@ -268,24 +289,27 @@ async function downloadAll(zips) {
 const INFLIGHT_TIMEOUT_MIN = 360;
 
 /**
- * How long a single drive may hold the lock below.
+ * How long the offscreen document polls a build before giving up, and how long
+ * a drive may hold the lock below.
  *
  * A drive is a conversation with Pixieset: request the archive, then poll while
  * it builds. Measured on atlassian-team26expo (8,518 photos, 46 GB) it took 19
- * MINUTES — against a 20-minute alarm. That is the margin this constant exists
- * to cover, and 45 gives a very large collection room without letting a dead
- * drive block the queue for an hour.
+ * MINUTES. The lock must outlast the poll budget plus the requests before it,
+ * or a drive that is about to succeed gets counted as a hang.
+ *
+ * The tick does NOT wait for the drive. It used to, and Chrome kills a service
+ * worker that waits ~5 minutes on one reply, so every build slower than that
+ * "never answered" (2026-09-14/15, four retirements). The offscreen document
+ * now answers with a `driveResult` message, which wakes the worker, and the
+ * lock's expiry is the counted failure for a drive that truly never answers
+ * (Service Now SKO26, 34,274 photos, re-requested hourly for 44 hours before
+ * expiry counted).
  */
-const DRIVE_TIMEOUT_MIN = 45;
+const DRIVE_POLL_MIN = 35;
+const DRIVE_TIMEOUT_MIN = 50;
 
-/**
- * How long a tick waits for the drive to ANSWER. Shorter than the lock, so a
- * drive that hangs is caught as a counted failure instead of expiring silently
- * under the lock. Service Now SKO26 (34,274 photos, ~128 GB) was re-requested
- * every hour from 2026-09-11 20:31Z to 09-13 with zero attempts recorded,
- * because neither this wait nor the lock's expiry counted as a failure.
- */
-const DRIVE_ANSWER_MS = (DRIVE_TIMEOUT_MIN - 5) * 60_000;
+/** How long to wait for the offscreen document to ACCEPT a drive (not finish it). */
+const DRIVE_ACCEPT_MS = 30_000;
 
 /**
  * The disk brake.
@@ -581,33 +605,56 @@ async function tick() {
     return;
   }
   note(s, `→ ${slug}`);
-  s.driving = { slug, at: new Date().toISOString() };
+  const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  s.driving = { slug, at: new Date().toISOString(), token };
   await save(s);                                   // record intent BEFORE the work
 
-  let r;
+  let accepted;
   try {
-    r = await ask({ type: "drive", slug, password: s.passwords[slug], opts: { email: s.email, pollTries: 120 } }, DRIVE_ANSWER_MS);
+    accepted = await ask({ type: "drive", slug, token, password: s.passwords[slug], opts: { email: s.email, pollMinutes: DRIVE_POLL_MIN } }, DRIVE_ACCEPT_MS);
   } catch (e) {
-    // Includes DRIVE_ANSWER_MS running out. A non-answer is a failed attempt,
-    // or a drive that always hangs holds the head of the queue forever.
-    const sErr = await load();
-    sErr.driving = null; sErr.log = s.log;
-    failedAttempt(sErr, slug, `offscreen failed — ${String(e?.message ?? e).slice(0, 80)}`);
-    await saveAndAnnounce(sErr);
-    return;                                        // try again next tick
+    accepted = { error: e };
   }
-  if (!r) {
-    const sNone = await load();
-    sNone.driving = null; sNone.log = s.log;
-    failedAttempt(sNone, slug, "no result from offscreen");
-    await saveAndAnnounce(sNone);
+  if (!accepted?.accepted) {
+    // The offscreen document could not even take the job. A non-answer is a
+    // failed attempt, or a drive that always fails holds the head forever.
+    const sErr = await load();
+    if (sErr.driving?.token === token) sErr.driving = null;
+    sErr.log = s.log;
+    const why = accepted?.error ? String(accepted.error?.message ?? accepted.error).slice(0, 80) : "drive not accepted";
+    failedAttempt(sErr, slug, `offscreen failed — ${why}`);
+    await saveAndAnnounce(sErr);
+  }
+  // The answer arrives later as a `driveResult` message → handleDriveResult.
+}
+
+/**
+ * Act on a finished drive. Runs in whatever worker is alive when the answer
+ * arrives, which is usually NOT the one that asked.
+ *
+ * A result belongs to the current lock (matching token). A late one is still
+ * used if nothing else has started since (no lock, nothing in flight, not
+ * retired): its ZIP links are good, and throwing them away means asking
+ * Pixieset to build the whole archive again. Otherwise it is dropped and said so.
+ */
+async function handleDriveResult(slug, token, r) {
+  const s2 = await load();                          // fresh: the asking worker is long gone
+  const current = s2.driving?.token === token;
+  // Only a late SUCCESS is worth using. A late failure was already counted when
+  // its lock expired; letting it through would count the same drive twice.
+  const lateButFree = !!r?.ok && !s2.driving && !s2.inflight && !s2.done.includes(slug);
+  if (!current && !lateButFree) {
+    note(s2, `${slug}: late drive result ignored — ${s2.driving ? `${s2.driving.slug} is being requested` : s2.inflight ? `${s2.inflight.slug} is downloading` : "already settled"}`);
+    await save(s2);
     return;
   }
-
-  const s2 = await load();                          // re-read: a popup may have written
-  s2.lastTickAt = s.lastTickAt;
-  s2.log = s.log;
+  if (!current) note(s2, `${slug}: drive answered after its lock expired — using it`);
   s2.driving = null;                                // the conversation is over, whatever it said
+  if (!r) {
+    failedAttempt(s2, slug, "no result from offscreen");
+    await saveAndAnnounce(s2);
+    return;
+  }
 
   if (r.phase === "challenged") {
     s2.challenges = (s2.challenges || 0) + 1;
@@ -703,11 +750,24 @@ async function tick() {
   await saveAndAnnounce(s2);
 }
 
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) tick(); });
+/**
+ * Ticks and drive results both load, mutate and save the whole state, so they
+ * take turns. Interleaved, a tick that loaded before a result landed would save
+ * its stale copy over it — restoring the lock and dropping the new `inflight`,
+ * so a set of downloads nobody is watching.
+ */
+let turn = Promise.resolve();
+const serial = (fn) => (turn = turn.then(fn, fn));
+
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) serial(tick); });
 
 chrome.runtime.onMessage.addListener((msg, _s, respond) => {
   if (msg?.target !== "background") return;
-  (async () => {
+  // Every handler loads, mutates and saves the whole state, so all of them take
+  // turns with ticks and drive results. "arm" holds its copy across a network
+  // sweep; saving it over a result that landed meanwhile restores the lock and
+  // drops `inflight`.
+  serial(async () => {
     const s = await load();
     switch (msg.type) {
       case "status": {
@@ -766,9 +826,26 @@ chrome.runtime.onMessage.addListener((msg, _s, respond) => {
         }
         break;
       }
+      case "driveResult":
+        /**
+         * Always acknowledge. An unacknowledged result is re-sent by offscreen,
+         * and a re-run after a throw part-way through downloadAll would start the
+         * still-running parts again under " (1)" names. A throw is counted once
+         * here and the lock released, instead.
+         */
+        try {
+          await handleDriveResult(msg.slug, msg.token, msg.result);
+        } catch (e) {
+          const sx = await load();
+          if (sx.driving?.token === msg.token) sx.driving = null;
+          failedAttempt(sx, msg.slug, `handling the drive result failed — ${String(e?.message ?? e).slice(0, 60)}`);
+          await saveAndAnnounce(sx);
+        }
+        respond({ ok: true });
+        break;
       default: respond({ ok: false, error: "unknown message" });
     }
-  })();
+  });
   return true;
 });
 
