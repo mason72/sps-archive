@@ -90,10 +90,11 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
         return { accepted: true };
       },
       onMessage: { addListener: (fn) => chrome._onMessage.push(fn) },
-      onStartup: { addListener() {} },
+      onStartup: { addListener: (fn) => chrome._onStartup.push(fn) },
       onInstalled: { addListener() {} },
     },
     _onMessage: [],
+    _onStartup: [],        // startup listeners, so a test can fire a Chrome restart
     _pending: [],          // drive answers still on their way back
   };
   return { chrome, store, asked, requested, cancelled, blobs, revoked, downloads, state: () => store["px.state"] };
@@ -101,7 +102,7 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500 } = {}) {
 
 async function loadBackground(chrome) {
   globalThis.chrome = chrome;
-  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs };\n";
+  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs, afterReload };\n";
   const f = path.join(os.tmpdir(), `px-bg-${Math.random().toString(36).slice(2)}.mjs`);
   fs.writeFileSync(f, src);
   let mod;
@@ -113,7 +114,7 @@ async function loadBackground(chrome) {
     await mod.tick();
     while (chrome._pending.length) await chrome._pending.shift();
   };
-  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs };
+  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload };
 }
 
 const base = (over = {}) => ({
@@ -250,6 +251,67 @@ test("a repair puts lost collections back exactly once", async () => {
   const second = applyRepairs(s);
   assert.deepEqual(second, [], "a reload must not undo real work a second time");
   assert.ok(s.done.includes("mcapsseattle2026"));
+});
+
+test("a repair moves named collections to the head of the queue, and never adds one it cannot find", async () => {
+  // ffdc2015 and foothillsteamphotos were downloaded before the extension ran,
+  // so the 09-14 requeue had nothing to undo: they sat 1,132nd and 1,133rd of
+  // 1,136 remaining, months away, with Pixieset their only copy.
+  const h = harness(base({ jobs: ["x", "foothillsteamphotos", "y", "ffdc2015", "z"], done: ["x"], repairs: [] }));
+  const { applyRepairs } = await loadBackground(h.chrome);
+  const s = { ...h.state() };
+  const r = applyRepairs(s).find((a) => a.id === "2026-09-15-front-portrait-originals");
+  assert.deepEqual(s.jobs, ["ffdc2015", "foothillsteamphotos", "x", "y", "z"], "named order at the head, the rest untouched");
+  assert.equal(r.front, 2);
+  assert.deepEqual(r.missing, []);
+
+  const h2 = harness(base({ jobs: ["x", "ffdc2015"], repairs: [] }));
+  const { applyRepairs: apply2 } = await loadBackground(h2.chrome);
+  const s2 = { ...h2.state() };
+  const r2 = apply2(s2).find((a) => a.id === "2026-09-15-front-portrait-originals");
+  assert.deepEqual(s2.jobs, ["ffdc2015", "x"], "a name missing from jobs is reported, never added");
+  assert.deepEqual(r2.missing, ["foothillsteamphotos"]);
+});
+
+test("a reload releases the lock of the drive it killed, and counts no attempt", async () => {
+  // A reload kills the offscreen document mid-build, but the lock survives in
+  // storage. Found 2026-09-15 before a reload would have stranded docusignignite.
+  // The slug here is named by NO repair: a repair that requeues a slug also
+  // releases its lock, which would make the control below pass for that reason
+  // instead (the first version used docusignignite and did exactly that).
+  const killed = { slug: "slowbuild", at: new Date(Date.now() - 60_000).toISOString(), token: "old" };
+  const drive = () => ({ ok: true, zips: [{ url: "u", size: "1 GB" }], expect: 1 });
+
+  // Control: with nothing releasing it, a fresh dead lock blocks every request.
+  const stuck = harness(base({ jobs: ["slowbuild", "next"], driving: killed }), { drive });
+  const { tick: stuckTick } = await loadBackground(stuck.chrome);
+  await stuckTick();
+  assert.deepEqual(stuck.asked, [], "the dead lock holds the queue");
+
+  const h = harness(base({ jobs: ["slowbuild", "next"], driving: killed }), { drive });
+  const { tick, afterReload } = await loadBackground(h.chrome);
+  const lines = afterReload(h.state());
+  assert.equal(h.state().driving, null, "the reload releases the lock");
+  assert.match(lines.join("\n"), /slowbuild: its drive died with the reload/);
+  await tick();
+  assert.deepEqual(h.asked, ["slowbuild"], "asked again straight away");
+  assert.equal(h.state().attempts.slowbuild ?? 0, 0, "and no attempt is counted");
+});
+
+test("a Chrome restart releases the dead drive lock too, not only a reload", async () => {
+  // A restart or a Mac reboot kills the drive exactly as a reload does, but only
+  // onStartup fires for it. Fires the REAL registered listener, not the helper.
+  const killed = { slug: "slowbuild", at: new Date(Date.now() - 60_000).toISOString(), token: "old" };
+  const drive = () => ({ ok: true, zips: [{ url: "u", size: "1 GB" }], expect: 1 });
+  const h = harness(base({ jobs: ["slowbuild", "next"], driving: killed }), { drive });
+  const { tick } = await loadBackground(h.chrome);
+  assert.equal(h.chrome._onStartup.length, 1, "the startup listener is registered");
+  await h.chrome._onStartup[0]();
+  assert.equal(h.state().driving, null, "the restart releases the lock");
+  assert.match(h.state().log.join("\n"), /slowbuild: its drive died with the Chrome restart/);
+  await tick();
+  assert.deepEqual(h.asked, ["slowbuild"], "asked again straight away");
+  assert.equal(h.state().attempts.slowbuild ?? 0, 0, "and no attempt is counted");
 });
 
 test("a repair can set a collection aside without retiring it, and the queue moves at once", async () => {

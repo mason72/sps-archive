@@ -3832,3 +3832,36 @@ success, sentinelone, answered in 5m43s.
   of the bug fix is live: the first 3,000+ photo collection landing after the
   Reload, and repair `2026-09-15-requeue-lost-drive-answers` (33,384 photos)
   draining.
+
+## 156 — A repair that re-queued nothing, and a Reload that would have stranded a drive (2026-09-15)
+
+**What happened.** The 09-14 repair to re-download ffdc2015 and
+foothillsteamphotos logged "0 collection(s) back in the queue" after Mason's
+Reload. `requeue` only un-dones slugs in the extension's own `done`, and both
+had been downloaded before the extension ran the migration, so they were never
+in it. They were already in `jobs`, at 1,132 and 1,133 of 1,136 remaining:
+three to four months away while Pixieset is their only copy.
+
+- **Read the thing's own record before writing a repair for it.** One read of
+  `px.state` (named fields only; the blob holds client passwords) would have
+  shown "in jobs, not done" before the first Reload. The ledger said `failed`,
+  which is the watcher's view, not the downloader's.
+- **Fix: a `front` option on a repair** moves named slugs already in `jobs` to
+  the head, in the order named, and reports a missing slug rather than adding it
+  (a typo must not start requesting a collection nobody queued).
+- **A Reload kills the running drive but not its lock.** Caught by the other
+  session before the second Reload: docusignignite's build was 50 minutes from
+  counting a failed attempt for a drive that was never wrong.
+  `releaseDeadDrive()` now frees any `driving` lock with no attempt counted,
+  from `onInstalled` (then repairs apply) AND `onStartup`: a Chrome restart or
+  Mac reboot kills the drive the same way but fires only `onStartup`, which the
+  other session caught on review. `inflight` is left alone.
+- **A test's control can pass for someone else's reason.** The first reload
+  test put the dead lock on docusignignite, which the other session's repair
+  names, and a requeue releases a lock held for a slug it names. So "nothing
+  releases it" was false. Use a slug no repair names. Mutation checks
+  (remove the release, remove the reorder) each failed on the assertion naming
+  the bug only after that change.
+- **Two sessions on one extension: announce before editing, and read the peer's
+  uncommitted diff before pushing into it.** Chrome loads the extension from the
+  main checkout, so an uncommitted edit there is live on the next Reload.

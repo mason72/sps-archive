@@ -92,6 +92,16 @@ const REPAIRS = [
       "connect25schmidtfamilyfoundation",
     ],
   },
+  {
+    id: "2026-09-15-front-portrait-originals",
+    // The 09-14 requeue above put 0 back: both were downloaded before the
+    // extension ran, so neither was ever in `done`. They were waiting in `jobs`,
+    // at 1,132 and 1,133 of 1,136 remaining — three to four months away at the
+    // current pace, while Pixieset is their only copy. `front` moves them to the
+    // head of the queue; it never adds a slug that is not already in `jobs`.
+    requeue: ["ffdc2015", "foothillsteamphotos"],
+    front: ["ffdc2015", "foothillsteamphotos"],
+  },
 ];
 
 const DEFAULTS = {
@@ -142,10 +152,55 @@ function applyRepairs(s) {
       s.tooBig = { ...(s.tooBig || {}), [slug]: gb };
       if (s.driving?.slug === slug) s.driving = null;
     }
+    // To the front: named collections already in the queue go to its head, in
+    // the order named. A name that is not in `jobs` is reported, never added,
+    // so a typo cannot start requesting a collection nobody queued.
+    const front = (r.front || []).filter((slug) => s.jobs.includes(slug));
+    const missing = (r.front || []).filter((slug) => !s.jobs.includes(slug));
+    if (front.length) s.jobs = [...front, ...s.jobs.filter((j) => !front.includes(j))];
     s.repairs.push(r.id);
-    applied.push({ id: r.id, count: back.length, setAside: aside.length });
+    applied.push({ id: r.id, count: back.length, setAside: aside.length, front: front.length, missing });
   }
   return applied;
+}
+
+/** One line per applied repair, for the extension log. */
+function repairNote(r) {
+  return `repair ${r.id}: ${r.count} collection(s) back in the queue` +
+    (r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : "") +
+    (r.front ? `, ${r.front} moved to the front` : "") +
+    (r.missing?.length ? ` — NOT IN THE QUEUE, nothing moved: ${r.missing.join(", ")}` : "");
+}
+
+/**
+ * Release a drive lock whose worker cannot still be running.
+ *
+ * A reload, a Chrome restart and a Mac reboot all kill the offscreen document,
+ * so any drive in progress dies, but its `driving` lock survives in storage.
+ * Left alone, the queue would sit "still being requested" until the lock
+ * expired and then count a failed attempt for a drive that was never wrong.
+ * Seen 2026-09-15, when a reload to ship a repair would have stranded
+ * docusignignite 50 minutes into its build; the mini also reboots (it did after
+ * the 09-02 disk-full). The lock is released and NO attempt is counted: nothing
+ * about the collection failed. Downloads already handed to Chrome (`inflight`)
+ * are left alone — they have their own settle rules.
+ *
+ * Returns the log line, or null when there was no lock.
+ */
+function releaseDeadDrive(s, why) {
+  if (!s.driving) return null;
+  const line = `${s.driving.slug}: its drive died with the ${why} — lock released, no attempt counted`;
+  s.driving = null;
+  return line;
+}
+
+/** What a reload (or an install or Chrome update) must do before anything else. */
+function afterReload(s) {
+  const lines = [];
+  const released = releaseDeadDrive(s, "reload");
+  if (released) lines.push(released);
+  for (const r of applyRepairs(s)) lines.push(repairNote(r));
+  return lines;
 }
 
 function note(s, line) {
@@ -502,7 +557,7 @@ async function tick() {
   const s = await load();
   s.lastTickAt = new Date().toISOString();
 
-  for (const r of applyRepairs(s)) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue${r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : ""}`);
+  for (const r of applyRepairs(s)) note(s, repairNote(r));
 
   if (!s.running) { await save(s); return; }
 
@@ -853,13 +908,20 @@ chrome.runtime.onMessage.addListener((msg, _s, respond) => {
 // the ONLY thing keeping this alive, and it does not survive on its own.
 chrome.runtime.onStartup.addListener(async () => {
   const s = await load();
+  // A Chrome restart or a Mac reboot killed any drive in progress, exactly as a
+  // reload does, but only this event fires for it.
+  const released = releaseDeadDrive(s, "Chrome restart");
+  if (released) {
+    note(s, released);
+    await save(s);
+  }
   if (s.running) chrome.alarms.create(ALARM, { delayInMinutes: 1, periodInMinutes: s.gapMinutes });
 });
 chrome.runtime.onInstalled.addListener(async () => {
   const s = await load();
-  const repaired = applyRepairs(s);
-  if (repaired.length) {
-    for (const r of repaired) note(s, `repair ${r.id}: ${r.count} collection(s) back in the queue${r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : ""}`);
+  const lines = afterReload(s);
+  if (lines.length) {
+    for (const line of lines) note(s, line);
     await save(s);
   }
   // Seed the queue from the bundled jobs.json the first time, so nobody has to
