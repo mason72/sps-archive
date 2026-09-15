@@ -56,7 +56,7 @@ Four verdicts, because they need different reactions:
 |---|---|---|
 | `BROKEN` | a launchd agent is not running, or the disk brake is not answering | restart the agent — the brake lives inside the watcher |
 | `SPINNING` | far more passes per hour than work allows | a guard has failed open |
-| `STUCK` | collections staged, oldest waiting > 4h, nothing completing | the ingest |
+| `STUCK` | collections staged > 2h AND no sign of life for 2h: no collection completed, no image row landed | the ingest |
 | `STARVED` | nothing staged, work queued, nothing done in > 36h | the download extension — open its popup |
 | `UNBACKED` | `queue.json` has not reached GitHub in > 48h | `machine-state`'s nightly sync — read `.sync.log` |
 
@@ -182,6 +182,20 @@ which would have made the check quietly useless:
 * passes were counted inside a one-hour window while idles were counted across
   the whole file, so `idles === 0` was never true and the spin detector — the
   one that exists to catch the 34-hour busy loop — could never fire.
+
+A third surfaced on 2026-09-15, in production: `STUCK` fired on the staged clock
+alone while the ingest had completed four collections in the previous four hours
+(the last one eight minutes before the check). The headline said "nothing
+completing"; the code never checked. Once the downloader outran the ingest, a
+healthy backlog of 15–20 GB collections (~90 min each to push to R2) was
+indistinguishable from a hang. The check now reads the **images table** — the
+one record that moves DURING a run, since the ingest log is silent by design
+until a run exits (lesson 131) — and `STUCK` needs both clocks: work staged for
+the window AND no row landed in it. A probe failure is printed in the body and
+falls back to the completion clock, so a database blip neither sends a `STUCK`
+nor hides a real hang. Negative-tested the same day: `PIXIESET_STUCK_HOURS=0`
+fires, a dead `NEXT_PUBLIC_SUPABASE_URL` prints `PROBE FAILED` and still fires
+with the threshold at zero.
 
 Run it by hand any time: `npx tsx scripts/pixieset/stall-check.ts --dry`
 (verdict only, sends nothing) or `--force` (send regardless, to prove delivery).

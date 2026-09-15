@@ -3865,3 +3865,36 @@ three to four months away while Pixieset is their only copy.
 - **Two sessions on one extension: announce before editing, and read the peer's
   uncommitted diff before pushing into it.** Chrome loads the extension from the
   main checkout, so an uncommitted edit there is live on the next Reload.
+
+## 157 — The stall check's STUCK measured a backlog and called it a hang (2026-09-15)
+
+Mason: "got another STUCK notification over email." The email said five
+collections staged, the oldest waiting 4.4h, "with nothing completing". The
+ingest had completed four collections in the previous four hours (21.6 GB,
+20.1 GB, 2.7 GB, 10.9 GB), the last one eight minutes before the check ran,
+and was mid-run on the next. Nothing was wrong.
+
+- **The headline claimed a condition the code never checked.** `STUCK` was
+  `verified > 0 && stagedHours > 4`; "nothing completing" was prose. The two
+  earlier STUCKs (the dedupe storm, lesson 101; the R2 hang, lesson 131) were
+  real because in both nothing WAS completing — the staged clock happened to
+  agree with the truth. It stopped agreeing the day the downloader outran the
+  ingest: four 15–20 GB collections at ~90 minutes each is a six-hour backlog,
+  and the oldest staged waits past any threshold while the ingest is healthy.
+  **A headline must be computed from the same predicate that fires the
+  verdict.** If the sentence names two conditions, the code tests two.
+- **Ask the record that moves DURING the run.** The queue changes only at the
+  end of a collection and the log is silent until the run exits (lesson 131),
+  so neither can tell a two-hour healthy run from a two-hour hang. The images
+  table can: a healthy run lands a row every few seconds. The check now reads
+  newest `images.created_at` (125–564 ms, measured) and `STUCK` needs both
+  clocks — work staged for the window AND no sign of life (no completion, no
+  row) in it. With that signal the threshold dropped 4h → 2h, because the
+  largest healthy gap is the couple of minutes of housekeeping between passes.
+- **A probe that cannot answer must say so in the body and fall back, never
+  decide.** A dead database URL prints `PROBE FAILED — …` and the verdict uses
+  the completion clock alone: a blip does not send STUCK, and a real hang is
+  still named, just later. Negative-tested both directions before shipping.
+- The tell for next time: **"last done 0.1h ago" in the same email as STUCK.**
+  Any alert whose body contradicts its own headline is the check, not the
+  system.

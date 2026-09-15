@@ -20,8 +20,16 @@
  *             2026-08-18 signature: a wording guard failed open and respawned
  *             `npx tsx` every ~4s for 34 hours. `idles` is the cheapest probe
  *             there is, so it is checked explicitly rather than inferred.
- *   STUCK   — collections ARE staged and waiting, but nothing has completed in
- *             STUCK_HOURS. Something is wrong with the ingest.
+ *   STUCK   — collections ARE staged and waiting, and the ingest has shown no
+ *             sign of life in STUCK_HOURS: no collection completed AND no image
+ *             row landed. Something is wrong with the ingest.
+ *             Until 2026-09-15 this fired on the staged clock alone, and the
+ *             headline claimed "nothing completing" without checking. Once the
+ *             downloader outran the ingest (four 15–20 GB collections staged,
+ *             ~90 minutes each to push to R2), a healthy backlog read as STUCK
+ *             eight minutes after a collection had finished. The images table
+ *             is the durable record here (lesson 131: the log is silent by
+ *             design during a run), so the check now reads it.
  *   STARVED — nothing staged, work still queued, and nothing has completed in
  *             STARVED_HOURS. This is not a bug: it means the DOWNLOAD half has
  *             not been run, and that needs Mason's Chrome. It is the exact state
@@ -34,6 +42,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createClient } from "@supabase/supabase-js";
 import { ledgerBackupState } from "./ledger-backup";
 
 for (const l of fs.readFileSync(".env.local", "utf8").split("\n")) {
@@ -53,7 +62,14 @@ const STATE = path.join(HOME, "pixieset-staging", "logs", "stall-state.json");
  */
 const num = (v: string | undefined, fallback: number) =>
   v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : fallback;
-const STUCK_HOURS = num(process.env.PIXIESET_STUCK_HOURS, 4);
+/**
+ * 4h while the only signal was the staged clock. Now that "no sign of life"
+ * means no image row in the window, 2h is unambiguous: a healthy run lands a
+ * row every few seconds, and the largest gap in normal operation (housekeeping
+ * between passes) is a couple of minutes. The R2 hang of lesson 131 would have
+ * been named at ~2h instead of riding the staged clock to 4.2h.
+ */
+const STUCK_HOURS = num(process.env.PIXIESET_STUCK_HOURS, 2);
 const STARVED_HOURS = num(process.env.PIXIESET_STARVED_HOURS, 36);
 const RENOTIFY_HOURS = 24;
 const MAX_PASSES_PER_HOUR = num(process.env.PIXIESET_MAX_PASSES, 40);   // ~12 expected at a 5-minute idle; 40 is generous
@@ -105,6 +121,46 @@ async function diskBrake(): Promise<{ ok: boolean; freeGB: number | null; note: 
     return { ok: true, freeGB: body.freeGB!, note: "" };
   } catch (e) {
     return { ok: false, freeGB: null, note: String((e as Error).message).slice(0, 80) };
+  }
+}
+
+/**
+ * When did the ingest last land a row?
+ *
+ * The images table is the one record that moves DURING a run: `ingest-loop.sh`
+ * captures a run's output and prints it only on exit, so the log says nothing
+ * for the whole of a two-hour collection, and the queue only changes at the
+ * end. Newest `created_at` across the archive, measured at 125–564 ms.
+ *
+ * It is archive-wide, not scoped to the collection in flight, because the
+ * queue does not know the event id until the run finishes. An upload through
+ * the app during a hang would mask it for one check; that is a one-hour delay
+ * on a rare coincidence, accepted.
+ *
+ * Failure is reported, not hidden: a probe that cannot answer returns null and
+ * the verdict falls back to the coarse clock (last completed collection), with
+ * the body saying so. It must not turn a DB blip into a STUCK email, and it
+ * must not turn a real hang into OK.
+ */
+async function newestRow(): Promise<{ ageHours: number | null; note: string }> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return { ageHours: null, note: "no Supabase credentials in .env.local" };
+  try {
+    const sb = createClient(url, key, {
+      global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15_000) }) },
+    });
+    const { data, error } = await sb
+      .from("images")
+      .select("created_at")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) return { ageHours: null, note: error.message.slice(0, 80) };
+    const at = data?.[0]?.created_at;
+    if (!at) return { ageHours: null, note: "images table is empty" };
+    return { ageHours: (Date.now() - new Date(at).getTime()) / 3600_000, note: "" };
+  } catch (e) {
+    return { ageHours: null, note: String((e as Error).message).slice(0, 80) };
   }
 }
 
@@ -222,6 +278,14 @@ async function main() {
   const backup = ledgerBackup();
   const brake = await diskBrake();
   const kept = housekeepingKept();
+  const row = await newestRow();
+
+  /**
+   * Hours since the ingest last showed a sign of life: a completed collection
+   * OR a landed row, whichever is more recent. When the row probe cannot
+   * answer, the completion clock stands alone — coarser, but it still fires.
+   */
+  const quietHours = row.ageHours === null ? hoursSince : Math.min(hoursSince, row.ageHours);
 
   const verified = by.verified || 0;
   const queued = by.queued || 0;
@@ -245,9 +309,12 @@ async function main() {
     // accompany it.
     verdict = "SPINNING";
     headline = `${passes} ingest passes in the last hour (${idles} idles) — the loop is respawning faster than it can work`;
-  } else if (verified > 0 && stagedHours > STUCK_HOURS) {
+  } else if (verified > 0 && stagedHours > STUCK_HOURS && quietHours > STUCK_HOURS) {
+    // Both clocks: work has been available for the whole window (staged), and
+    // the ingest produced nothing in it (quiet). Either alone is a backlog or an
+    // idle, not a stall.
     verdict = "STUCK";
-    headline = `${verified} collection(s) staged, the oldest waiting ${stagedHours.toFixed(1)}h with nothing completing`;
+    headline = `${verified} collection(s) staged, the oldest waiting ${stagedHours.toFixed(1)}h, and the ingest has shown no sign of life for ${quietHours.toFixed(1)}h (no collection completed, no image row landed${row.ageHours === null ? " — row probe failed: " + row.note : ""})`;
   } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
     headline = kept && kept.collections > 0
@@ -269,6 +336,7 @@ async function main() {
     `last done  ${lastIngest ? new Date(lastIngest).toISOString() : "never"} (${hoursSince === Infinity ? "n/a" : hoursSince.toFixed(1) + "h ago"})`,
     `agents     ${agents.map((a) => `${a.label.split(".").pop()}=${a.up ? "up" : "DOWN"}`).join("  ")}`,
     `staged for ${verified ? stagedHours.toFixed(1) + "h (oldest)" : "n/a"}`,
+    `newest row ${row.ageHours === null ? `PROBE FAILED — ${row.note} (falling back to the completion clock)` : `${(row.ageHours * 60).toFixed(0)} min ago`}`,
     `last hour  ${passes} passes, ${idles} idles`,
     `ledger     ${backup.line}`,
     `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
