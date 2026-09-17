@@ -39,6 +39,22 @@ import path from "node:path";
 const APPLY = process.argv.includes("--apply");
 const STAGING = process.env.PIXIESET_STAGING || path.join(os.homedir(), "pixieset-staging");
 const VERIFIED = path.join(STAGING, "verified");
+/**
+ * Where the ingest PARKS an archive when its end-of-run landing check says "not
+ * yet" (`archive KEPT in …/ingested`). Until 2026-09-17 nothing ever looked here
+ * again: this sweep scanned `verified/` only, so 73 GB across six collections sat
+ * pinned, every one of them with all photos present and published and short by
+ * 1–7 THUMBNAILS. The stall check read this sweep's "kept 0 GB" line and was
+ * blind to it, the downloader parked under its 80 GB floor, and the ingest fell
+ * under its own 60. Same leak as the 2026-09-02 one in the header above, through
+ * a second door.
+ *
+ * The proof here is per FILE (px-filecheck: every ZIP entry matches a row's
+ * original filename), which is the rule for releasing an archive. A missing
+ * thumbnail is not a reason to keep the ZIP: bytes land in R2 before the row
+ * exists, so the thumbnail is rebuilt from the original, never from the archive.
+ */
+const INGESTED = path.join(STAGING, "ingested");
 const QUEUE = path.join("scripts", "pixieset", "data", "queue.json");
 
 interface Col { id: string; slug: string; state: string; eventId?: string | null }
@@ -97,18 +113,21 @@ function sha(p: string, limit: number): string {
 
 function main() {
   const dupFreed = reclaimDuplicateDownloads(APPLY);
-  if (!fs.existsSync(VERIFIED)) { console.log("no verified/ directory — nothing staged."); return; }
+  if (!fs.existsSync(VERIFIED) && !fs.existsSync(INGESTED)) { console.log("no verified/ or ingested/ directory — nothing staged."); return; }
   const queue = JSON.parse(fs.readFileSync(QUEUE, "utf8")) as { collections: Record<string, Col> };
   const bySlug = new Map<string, Col>();
   for (const c of Object.values(queue.collections)) bySlug.set(c.slug, c);
 
   const zipsBySlug = new Map<string, string[]>();
-  for (const f of fs.readdirSync(VERIFIED)) {
-    if (!f.includes("-photo-download-")) continue;
-    const slug = f.split("-photo-download-")[0];
-    zipsBySlug.set(slug, [...(zipsBySlug.get(slug) ?? []), path.join(VERIFIED, f)]);
+  for (const dir of [VERIFIED, INGESTED]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.includes("-photo-download-")) continue;
+      const slug = f.split("-photo-download-")[0];
+      zipsBySlug.set(slug, [...(zipsBySlug.get(slug) ?? []), path.join(dir, f)]);
+    }
   }
-  if (!zipsBySlug.size) { console.log("verified/ holds no archives — nothing to release."); return; }
+  if (!zipsBySlug.size) { console.log("verified/ and ingested/ hold no archives — nothing to release."); return; }
 
   let freed = 0, kept = 0, kb = 0;
   for (const [slug, zips] of zipsBySlug) {

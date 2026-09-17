@@ -158,15 +158,35 @@ function ledgerBackup() {
  */
 async function diskBrake(): Promise<{ ok: boolean; freeGB: number | null; note: string }> {
   const url = process.env.PIXIESET_DISK_URL || "http://127.0.0.1:8788/disk";
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return { ok: false, freeGB: null, note: `HTTP ${res.status}` };
-    const body = (await res.json()) as { freeGB?: number };
-    if (!Number.isFinite(body?.freeGB)) return { ok: false, freeGB: null, note: "no freeGB in the response" };
-    return { ok: true, freeGB: body.freeGB!, note: "" };
-  } catch (e) {
-    return { ok: false, freeGB: null, note: String((e as Error).message).slice(0, 80) };
+  // Two tries, the second patient. On 2026-09-17 the mini was at load 30 after a
+  // macOS upgrade (Spotlight reindex + Time Machine) and ONE 4s timeout on a
+  // healthy brake became a BROKEN email, a watcher restart and an escalation.
+  // A brake that is really down fails both; a starved box passes the second.
+  let last = { ok: false, freeGB: null as number | null, note: "not tried" };
+  for (const ms of [4000, 15000]) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
+      if (!res.ok) { last = { ok: false, freeGB: null, note: `HTTP ${res.status}` }; continue; }
+      const body = (await res.json()) as { freeGB?: number };
+      if (!Number.isFinite(body?.freeGB)) { last = { ok: false, freeGB: null, note: "no freeGB in the response" }; continue; }
+      return { ok: true, freeGB: body.freeGB!, note: ms > 4000 ? "slow: answered only on the patient retry" : "" };
+    } catch (e) {
+      last = { ok: false, freeGB: null, note: String((e as Error).message).slice(0, 80) };
+    }
   }
+  return last;
+}
+
+/**
+ * Bytes the ingest PARKED in `ingested/` (its end-of-run landing check said "not
+ * yet"). The release sweep covers this folder since 2026-09-17, so it should sit
+ * near zero; a number that grows here is the 73 GB leak of that day returning.
+ */
+function parkedGB(): number {
+  const dir = path.join(HOME, "pixieset-staging", "ingested");
+  try {
+    return fs.readdirSync(dir).reduce((n, f) => n + fs.statSync(path.join(dir, f)).size, 0) / 1073741824;
+  } catch { return 0; }
 }
 
 /**
@@ -498,8 +518,9 @@ async function main() {
     `newest row ${row.ageHours === null ? `PROBE FAILED — ${row.note} (falling back to the completion clock)` : `${(row.ageHours * 60).toFixed(0)} min ago`}`,
     `last hour  ${passes} passes, ${idles} idles`,
     `ledger     ${backup.line}`,
-    `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering` : `BRAKE DOWN — ${brake.note}`}`,
+    `disk       ${brake.ok ? `${brake.freeGB} GB free, brake answering${brake.note ? ` (${brake.note})` : ""}` : `BRAKE DOWN — ${brake.note}`}`,
     `kept       ${kept ? `${kept.gb} GB across ${kept.collections} collection(s) housekeeping will not release` : "n/a (no housekeeping line in the log)"}`,
+    `parked     ${parkedGB().toFixed(1)} GB in ingested/ (archives whose landing check said "not yet"; the release sweep frees them once every file is proven)`,
     `extension  ${extLine}`,
     `failed     ${failedSince.length} since the last ingest (${by.failed || 0} total)`,
     verdict === "UNBACKED"

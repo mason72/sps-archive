@@ -3940,3 +3940,43 @@ open the popup and read why the extension stopped, reload the extension.
 - **`failed` rows lived outside every verdict.** A day where every download
   failed verification read as a quiet day. FAILING: nothing staged, nothing in
   flight, 2+ retirements since the last successful ingest, errors in the email.
+
+## 159 — A BROKEN that was a starved Mac, hiding a 73 GB leak nothing was watching (2026-09-17)
+
+The stall check emailed BROKEN: the disk brake timed out (4s, loopback) and the
+Supabase row probe timed out (15s) in the same run; the watcher-restart remedy
+did not help and it escalated. A laptop session could not reach the mini and
+asked this one to look.
+
+- **Two unrelated probes timing out in ONE run is the machine, not either
+  service.** The mini had upgraded to macOS 27 at 08:38 and rebooted: load
+  average ~30 with 56% CPU idle (Spotlight reindex, suggestd, fileproviderd,
+  Time Machine, photoanalysisd). Memory fine, staging volume answering in 4 ms,
+  Supabase answering in ~100 ms from the same box, the brake answering in 0.43s
+  by the time anyone looked. `sw_vers` + `uptime` + `softwareupdate --history`
+  named it in one command. The brake probe now retries once with a patient
+  timeout: a brake that is down fails both, a starved box passes the second.
+  The remedy that fired (restart the watcher) was harmless and useless, which
+  is the right way for a wrong remedy to fail.
+- **The real finding was in a line of the email nobody was alarmed by: "47 GB
+  free, below the 80 GB start floor".** `~/pixieset-staging/ingested/` held
+  73 GB across six collections. The ingest PARKS an archive there when its
+  end-of-run landing check says "not yet", and nothing ever looked again:
+  `release-sweep.ts` scanned `verified/` only, so its "kept 0 GB" line — the one
+  the stall check quotes — was blind by construction. Every parked archive had
+  all photos present and published and was short by 1–7 thumbnails at the time;
+  all had since been healed. **A holding area with a writer and no reader is a
+  leak with a delay.** This is the 2026-09-02 disk-full shape through a second
+  door, which that sweep's own header describes.
+- **The proof for releasing an archive is per FILE, and a thumbnail is not part
+  of it.** Bytes land in R2 before the row exists, so a missing thumbnail is
+  rebuilt from the original (`repair-stranded-images.ts`), never from the ZIP.
+  The sweep now covers `ingested/`: 19,255 files checked, 0 missing, 72.5 GB
+  released. Checked before releasing, in the asymmetric direction: the six
+  events showed 0 stranded rows, so every frame had bytes AND a thumbnail.
+- **Deleting did not free a byte until the snapshot was thinned** (46 GB before
+  and after the release, 131 GB after `tmutil thinlocalsnapshots`). The loop
+  already does release-then-thin in that order for this reason; anyone freeing
+  space by hand on this Mac has to do both.
+- The stall check now prints `parked` (GB in `ingested/`), so this number has
+  a reader.

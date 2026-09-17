@@ -103,6 +103,18 @@ relaunches, the post-relaunch tick ran the old build both times), so the first
 build carrying the self-reload has to be loaded by hand. Every change after it
 needs only the version bump.
 
+**Reading a BROKEN (2026-09-17).** If the brake AND the row probe both timed
+out in one run, suspect the Mac before either service: `uptime` (load), `sw_vers`
+and `softwareupdate --history` (a macOS upgrade reindexes Spotlight for hours and
+took load to ~30), then `curl -m 20 http://127.0.0.1:8788/disk`. The brake probe
+retries once with a patient timeout for exactly this. And read the `parked` and
+`disk` lines: `~/pixieset-staging/ingested/` is where the ingest parks an archive
+whose end-of-run landing check said "not yet". The release sweep covers that
+folder since 2026-09-17 (it did not before, and 73 GB sat there unseen), so
+`parked` should stay near zero. Freeing space by hand takes TWO steps on this
+Mac: release, then `tmutil thinlocalsnapshots / 53687091200 4` — a local
+snapshot pins deleted blocks, and df does not move until it is thinned.
+
 `UNBACKED` (added 2026-09-08) watches the one file that is not replaceable.
 `scripts/pixieset/data/` is gitignored, so `queue.json` — the only record of
 which of the 1,371 collections are already safe — has no off-machine copy of its
