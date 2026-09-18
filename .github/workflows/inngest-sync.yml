@@ -1,0 +1,49 @@
+# Re-register Inngest functions after every production deploy.
+#
+# Why (lesson 160, 2026-09-18): the deploy that added `sps-pull-watchdog` went
+# Ready on Vercel, but Inngest never learned the function existed. It had no
+# runs and raised no error for 10 minutes, until a manual
+# `PUT /api/inngest` answered {"modified":true}. A new function that is not
+# registered fails in total silence, and existing functions hide the gap
+# because they were registered long ago. Inngest's Vercel integration is
+# supposed to do this and did not; this makes it deterministic.
+#
+# The PUT is idempotent: the app's serve handler tells Inngest Cloud which
+# functions it has, signed with INNGEST_SIGNING_KEY on the server side. No
+# secret is needed here. The job FAILS unless the app answers "Successfully
+# registered", so a broken sync shows up as a red run, not as silence.
+name: Inngest sync
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: PUT /api/inngest on the production domain
+        run: |
+          url="https://app.pixeltrunk.com/api/inngest"
+          # The alias can trail the "success" status by a few seconds, so
+          # retry; each attempt is harmless.
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -sS --max-time 30 -X PUT "$url" -w $'\n%{http_code}' || true)
+            code=${body##*$'\n'}
+            json=${body%$'\n'*}
+            echo "attempt $attempt: HTTP $code $json"
+            if [ "$code" = "200" ] && printf '%s' "$json" | grep -q '"Successfully registered"'; then
+              printf '%s' "$json" | grep -q '"modified":true' \
+                && echo "Inngest registration updated (functions or the registered URL changed)." \
+                || echo "Inngest registration already current."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Inngest sync failed after 5 attempts. New or changed Inngest functions will NOT run. Fix, then re-run this workflow."
+          exit 1
