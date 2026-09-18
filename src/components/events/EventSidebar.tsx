@@ -47,6 +47,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import type { EventSettings, SharingSettings } from "@/types/event-settings";
 import {
   DEFAULT_SHARING_SETTINGS,
+  generateDownloadPin,
   normalizeCoverSettings,
   selfieSearchEnabled,
 } from "@/types/event-settings";
@@ -1037,7 +1038,7 @@ function DetailsPanel({
     ? { ...DEFAULT_SHARING_SETTINGS, ...settings.sharing }
     : DEFAULT_SHARING_SETTINGS;
 
-  const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
+  const generatePin = generateDownloadPin;
 
   /* ─── Gallery password ─── */
   // Held locally and committed on blur/Enter, NOT per keystroke: every save

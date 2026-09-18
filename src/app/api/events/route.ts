@@ -5,6 +5,7 @@ import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveEventStatuses } from "@/lib/events/status";
 import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
+import { withNewGalleryDefaults } from "@/types/event-settings";
 import type { CrewAssignment } from "@/lib/event-intel/apply-gig";
 
 /**
@@ -322,7 +323,9 @@ export async function POST(request: NextRequest) {
         description: description || null,
         event_date: eventDate || null,
         event_type: eventType || null,
-        settings: (settings || {}) as Json,
+        // New galleries start with "Download All" behind a PIN (2026-09-18);
+        // anything the creator sent for sharing still wins.
+        settings: withNewGalleryDefaults(settings) as Json,
         user_id: user!.id,
       })
       .select()

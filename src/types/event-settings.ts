@@ -145,6 +145,43 @@ export function resolveSharePins(args: {
   };
 }
 
+/** A 4-digit download PIN. The one generator — the sidebar's "Generate new
+ *  PIN" and every new gallery's default both call it. */
+export function generateDownloadPin(): string {
+  const n = new Uint32Array(1);
+  crypto.getRandomValues(n);
+  return String(1000 + (n[0] % 9000));
+}
+
+/**
+ * The download-PIN posture a NEWLY CREATED gallery starts with (Mason,
+ * 2026-09-18): "Download All" gated behind a fresh PIN, single downloads open.
+ *
+ * Applied at CREATION only, never as a read-time default. The read-time
+ * default (DEFAULT_SHARING_SETTINGS) stays off, because flipping it would wall
+ * off "Download All" on every live gallery whose guests were never given a
+ * PIN. It is also a real PIN, never just the flag: a gate with no secret
+ * behind it fails closed and locks out everyone (normalizeDownloadPins).
+ * Clients receive it because the delivery email prints the share's PIN by
+ * default (`includePin`), and every new share inherits it (resolveSharePins).
+ *
+ * Callers merge it UNDER any sharing settings they were given, so an explicit
+ * choice still wins.
+ */
+export function newGalleryPinDefaults(): Pick<
+  SharingSettings,
+  "requirePinBulk" | "requirePinIndividual" | "downloadPin"
+> {
+  return { requirePinBulk: true, requirePinIndividual: false, downloadPin: generateDownloadPin() };
+}
+
+/** Merge the new-gallery PIN posture under whatever settings a creator sent. */
+export function withNewGalleryDefaults(settings: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const base = settings ?? {};
+  const sharing = (base.sharing ?? {}) as Partial<SharingSettings>;
+  return { ...base, sharing: { ...newGalleryPinDefaults(), ...sharing } };
+}
+
 export type CoverType = "image" | "mosaic" | "solid" | "crossfade";
 
 /** Normalized crop anchor, 0–1 in both axes. {0.5, 0.5} = center. */

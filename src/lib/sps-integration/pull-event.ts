@@ -43,6 +43,8 @@ import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { spsEventLinkPatch } from "./event-link";
+import { withNewGalleryDefaults } from "@/types/event-settings";
+import type { Json } from "@/lib/supabase/database.types";
 import { getSpsToken, markSpsPullActivity } from "./connection";
 import {
   confirmPulled,
@@ -250,12 +252,16 @@ export async function startSpsPull(
       event_date: spsEvent.date ? spsEvent.date.slice(0, 10) : null,
       // One key, one home — see event-link.ts. A pulled event arrives already
       // linked, which is the whole reason name matching never has to happen.
-      settings: spsEventLinkPatch({
-        eventId: spsEvent.id,
-        eventName: spsEvent.name,
-        linkedAt: new Date().toISOString(),
-        source: "sps-import",
-      }),
+      // A pulled event is a new gallery like any other, so it gets the same
+      // "Download All behind a PIN" start (2026-09-18).
+      settings: withNewGalleryDefaults(
+        spsEventLinkPatch({
+          eventId: spsEvent.id,
+          eventName: spsEvent.name,
+          linkedAt: new Date().toISOString(),
+          source: "sps-import",
+        })
+      ) as Json,
     })
     .select("id")
     .single();

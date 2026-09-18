@@ -8,6 +8,9 @@ import {
   normalizeDownloadPins,
   resolveSharePins,
   selfieSearchEnabled,
+  generateDownloadPin,
+  withNewGalleryDefaults,
+  DEFAULT_SHARING_SETTINGS,
 } from "./event-settings";
 
 const EVENT = "11111111-2222-3333-4444-555555555555";
@@ -344,5 +347,44 @@ describe("normalizeCoverSettings — defaults chosen 2026-09-02", () => {
     expect(normalizeCoverSettings({ mosaic: { logoScale: 0 } }).mosaic!.logoScale).toBe(0.25);
     expect(normalizeCoverSettings({ mosaic: { logoScale: 7 } }).mosaic!.logoScale).toBe(1);
     expect(normalizeCoverSettings({ mosaic: { logoScale: "big" } }).mosaic!.logoScale).toBe(1);
+  });
+});
+
+describe("new-gallery PIN default (2026-09-18)", () => {
+  it("gates Download All behind a real 4-digit PIN, singles open", () => {
+    const s = withNewGalleryDefaults(undefined).sharing as Record<string, unknown>;
+    expect(s.requirePinBulk).toBe(true);
+    expect(s.requirePinIndividual).toBe(false);
+    expect(s.downloadPin).toMatch(/^[1-9]\d{3}$/);
+  });
+
+  it("survives normalization and reaches a new share (never a gate with no secret)", () => {
+    const sharing = withNewGalleryDefaults({}).sharing as Record<string, unknown>;
+    const pins = resolveSharePins({ event: sharing });
+    expect(pins.requirePinBulk).toBe(true);
+    expect(pins.requirePinIndividual).toBe(false);
+    expect(pins.downloadPin).toBe(sharing.downloadPin);
+  });
+
+  it("keeps the creator's explicit sharing choices and other settings", () => {
+    const out = withNewGalleryDefaults({
+      spsEventId: "abc",
+      sharing: { requirePinBulk: false, password: "pw" },
+    });
+    expect(out.spsEventId).toBe("abc");
+    const s = out.sharing as Record<string, unknown>;
+    expect(s.requirePinBulk).toBe(false);
+    expect(s.password).toBe("pw");
+  });
+
+  it("does NOT change the read-time default, so existing galleries stay ungated", () => {
+    expect(DEFAULT_SHARING_SETTINGS.requirePinBulk).toBe(false);
+    expect(resolveSharePins({ event: {} }).requirePinBulk).toBe(false);
+  });
+
+  it("generates varied PINs in range", () => {
+    const pins = new Set(Array.from({ length: 200 }, generateDownloadPin));
+    expect(pins.size).toBeGreaterThan(100);
+    for (const p of pins) expect(Number(p)).toBeGreaterThanOrEqual(1000);
   });
 });
