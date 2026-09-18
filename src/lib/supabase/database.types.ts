@@ -1631,6 +1631,10 @@ export type Database = {
           status: string
           updated_at: string
           user_id: string
+          watchdog_alerted_at: string | null
+          watchdog_at: string | null
+          watchdog_mark: number | null
+          watchdog_restarts: number
         }
         Insert: {
           bytes_copied?: number
@@ -1652,6 +1656,10 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id: string
+          watchdog_alerted_at?: string | null
+          watchdog_at?: string | null
+          watchdog_mark?: number | null
+          watchdog_restarts?: number
         }
         Update: {
           bytes_copied?: number
@@ -1673,6 +1681,10 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+          watchdog_alerted_at?: string | null
+          watchdog_at?: string | null
+          watchdog_mark?: number | null
+          watchdog_restarts?: number
         }
         Relationships: [
           {

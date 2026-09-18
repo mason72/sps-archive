@@ -1,6 +1,6 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/lib/inngest/client";
-import { spsPull } from "@/lib/inngest/sps-pull";
+import { spsPull, spsPullWatchdog } from "@/lib/inngest/sps-pull";
 import {
   processUploadedImage,
   processUploadedVideo,
@@ -32,6 +32,7 @@ export const { GET, POST, PUT } = serve({
     processUploadedImage,
     processUploadedVideo,
     spsPull,
+    spsPullWatchdog,
     favoritesDigest,
     zipBuild,
     zipCleanup,

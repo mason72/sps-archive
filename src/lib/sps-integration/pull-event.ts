@@ -199,6 +199,12 @@ export async function startSpsPull(
         error: null,
         finished_at: null,
         updated_at: new Date().toISOString(),
+        // A resume is a fresh attempt: without this, a job the watchdog had
+        // already alerted on reads as "handed off" and a new stall goes silent.
+        watchdog_restarts: 0,
+        watchdog_mark: null,
+        watchdog_at: null,
+        watchdog_alerted_at: null,
       })
       .eq("id", resumable.id);
     if (resumeErr) throw resumeErr;

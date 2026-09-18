@@ -3980,3 +3980,26 @@ asked this one to look.
   space by hand on this Mac has to do both.
 - The stall check now prints `parked` (GB in `ingested/`), so this number has
   a reader.
+
+## 160 — An import froze for 4h20m on a run that only Inngest believed in (2026-09-18)
+
+**What happened.** Autodesk University 2026 (6,110 photos) stopped at 4,088. Run 1 of `sps-pull` did its 40 slices and handed off (`status: continued`, nextOffset 4000) exactly as designed. Run 2 imported one slice (16:57→17:10 UTC) and then sat in Inngest as `Running` with nothing executing it. No `system_errors` row, no Vercel error, and the job row still read `running`. Mason found it by watching a number not move.
+
+**Why nothing could recover it.** `sps-pull` runs one run per job (`concurrency: {limit: 1, key: jobId}`), so the zombie held the only slot. A plain re-send would have queued behind it forever.
+
+**The durable record was Inngest's run list, not our row.** `GET /v1/events?name=sps%2Fpull.requested&received_after=…` → `/v1/events/{id}/runs` showed both runs in one call. The fix by hand was `DELETE /v1/runs/{id}`, confirm it reads `Cancelled`, then re-send. The first new photo landed about 5 minutes later.
+
+**Root cause: unproven.** The one slice took ~13 min, close to the 800s `maxDuration`, while `ai-index` faces inserts on the same event were timing out (HNSW write load). The likely story is that Vercel killed the step and Inngest never recorded it. Not verified.
+
+**The fix is structural: `spsPullWatchdog` (src/lib/inngest/sps-pull.ts, migration 084).** Every 15 min it looks for a queued or running job whose row has been quiet for 30 min. The row is written every 5 photos, so 30 minutes of silence is never a slow batch. It cancels that job's STARTED runs, re-sends, does this at most twice, then sends one `sps.pull-stalled` alert and hands the job to a human. Rules live in `decideWatchdog()`; the REST plumbing lives in `src/lib/inngest/rest.ts`. Manual trigger: event `sps/pull-watchdog.run`.
+
+**What review caught before it shipped (each would have defeated the point):**
+- **Counting `images_skipped` as progress meant the alert could never fire.** A restart re-walks the half-drained page, and every photo already there is re-counted as skipped. That read as recovery, so the budget reset every time. Progress is `images_done` only.
+- **The resume path kept the old job's watchdog memory**, so an alerted job that got resumed read as "handed off" and went silent. `startSpsPull`'s resume now clears the four columns.
+- **A run waiting for the slot is not a zombie.** Only runs with `run_started_at` get cancelled. If a waiting run exists, nothing is re-sent, because it will pick the job up. (Evidence that the field means the real start: the continuation event arrived 16:50:08 and its run started 16:57:46.)
+- The verdict is memoized, so the row is re-read before cancelling. The watchdog runs one at a time. A failed cancel no longer stops the rest.
+
+**Rules.**
+- **A "Running" status is a claim by the orchestrator, not evidence of work.** Check the thing the work produces (here, `max(images.created_at)` and `updated_at`).
+- **Any lane with `concurrency: {limit: 1}` can be wedged by one zombie**, and retries cannot help because they queue behind it. It needs a watchdog that works from OUTSIDE the lane.
+- **Recovery signals must be ones the remedy itself cannot produce.** A restart generates skips, so skips cannot mean it worked.

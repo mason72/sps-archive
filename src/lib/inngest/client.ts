@@ -33,6 +33,13 @@ type Events = {
       jobId: string;
     };
   };
+  /**
+   * Manual trigger for the pull watchdog (it also runs on a 15-minute cron).
+   * Lets a real run be verified on demand instead of waiting for a stall.
+   */
+  "sps/pull-watchdog.run": {
+    data: Record<string, never>;
+  };
   "event/processing.complete": {
     data: {
       eventId: string;
