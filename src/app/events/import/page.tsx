@@ -1112,7 +1112,8 @@ export default function ImportFromSpsPage() {
                   <div className="flex items-baseline justify-between mb-3">
                     <span className="font-editorial text-[32px] text-stone-900">
                       {job.landed.toLocaleString()}
-                      {job.expected_total ? (
+                      {job.expected_total &&
+                      job.landed <= job.expected_total ? (
                         <span className="text-stone-300 text-[20px]">
                           {" "}
                           / {job.expected_total.toLocaleString()}
@@ -1136,6 +1137,21 @@ export default function ImportFromSpsPage() {
                       }}
                     />
                   </div>
+
+                  {/* The total is counted once, when the job starts. SPS
+                      keeps taking photos during a live event, so the walk can
+                      land more than were counted (Autodesk: 6,112 against
+                      6,110). Name the difference rather than print an
+                      impossible "6,112 / 6,110". */}
+                  {!!job.expected_total &&
+                    job.landed > job.expected_total && (
+                      <p className="mt-3 text-[12px] text-stone-400">
+                        {(job.landed - job.expected_total).toLocaleString()} more
+                        than the {job.expected_total.toLocaleString()} counted
+                        when the import started, usually photos added in
+                        SimplePhotoShare along the way.
+                      </p>
+                    )}
 
                   {pollStale && (
                     <p className="mt-3 text-[12px] text-stone-400">
@@ -1244,7 +1260,7 @@ export default function ImportFromSpsPage() {
 
                 {job.status === "cancelled" && (
                   <p className="mt-6 text-[13px] text-stone-500 leading-[1.7] max-w-lg">
-                    Stopped. The {job.images_done.toLocaleString()} photos
+                    Stopped. The {job.landed.toLocaleString()} photos
                     already copied are in the event and stay there — starting
                     again picks up where this left off.
                   </p>

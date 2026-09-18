@@ -2316,6 +2316,18 @@ export type Database = {
         Args: { p_image_id: string; p_stack_id: string }
         Returns: undefined
       }
+      sps_pull_add_progress: {
+        Args: {
+          p_bytes: number
+          p_confirmed: number
+          p_done: number
+          p_failed: number
+          p_job_id: string
+          p_next_offset?: number
+          p_skipped: number
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

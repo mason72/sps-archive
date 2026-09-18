@@ -309,6 +309,66 @@ export async function startSpsPull(
   return { ok: true, eventId: event.id, jobId: job.id, resumed: false };
 }
 
+/** The counters a progress flush carries. */
+export interface ProgressCounters {
+  imported: number;
+  failed: number;
+  skipped: number;
+  bytes: number;
+}
+
+/**
+ * Turn running totals into deltas for the job row, safely under overlap.
+ *
+ * `flush(totals)` sends whatever the row has not been given yet. Two things
+ * make it correct with six workers flushing at once:
+ *
+ * - The delta is CLAIMED before the write is awaited, so a flush that starts
+ *   while another is in flight sends only what is newer, never the same photos
+ *   twice. (The overlap is also why the fold itself must be atomic — see
+ *   applySliceResult and lesson 161.)
+ * - A failed write hands its delta BACK, so the next flush carries it. It used
+ *   to be claimed and dropped, which removed those photos from the count for
+ *   good. The give-back SUBTRACTS rather than restoring a snapshot, which stays
+ *   correct when another flush claimed more in the meantime.
+ *
+ * Never throws: this is a progress readout, and losing a tick must not cost
+ * the photos in flight. Only the slice-end flush has no successor to retry it.
+ * One honest limit: a write that COMMITTED but lost its response looks like a
+ * failure, so its delta is re-sent and the count can run over by one flush.
+ * That is the better error of the two; the old drop only ever ran short, and
+ * the screen's headline is the row count either way.
+ */
+export function createProgressFlusher(
+  write: (delta: ProgressCounters) => Promise<void>
+) {
+  const sent: ProgressCounters = { imported: 0, failed: 0, skipped: 0, bytes: 0 };
+  return {
+    async flush(totals: ProgressCounters): Promise<void> {
+      const delta: ProgressCounters = {
+        imported: totals.imported - sent.imported,
+        failed: totals.failed - sent.failed,
+        skipped: totals.skipped - sent.skipped,
+        bytes: totals.bytes - sent.bytes,
+      };
+      if (!delta.imported && !delta.failed && !delta.skipped) return;
+      sent.imported += delta.imported;
+      sent.failed += delta.failed;
+      sent.skipped += delta.skipped;
+      sent.bytes += delta.bytes;
+      try {
+        await write(delta);
+      } catch (err) {
+        sent.imported -= delta.imported;
+        sent.failed -= delta.failed;
+        sent.skipped -= delta.skipped;
+        sent.bytes -= delta.bytes;
+        console.error("SPS pull progress flush failed:", err);
+      }
+    },
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The worker
 // ─────────────────────────────────────────────────────────────────────────────
@@ -504,34 +564,25 @@ export async function importSlice(
 
   const failures: { spsImageId: string; filename: string; reason: string }[] = [];
 
-  // Counters already folded into the job row, so each flush writes only the
-  // DELTA since the last one. applySliceResult adds to what it reads, so
+  // Each flush writes only the DELTA since the last one: the fold ADDS, so
   // flushing totals would multiply them.
-  const flushed = { imported: 0, failed: 0, skipped: 0, bytes: 0 };
   let sinceFlush = 0;
+  const flusher = createProgressFlusher((delta) =>
+    applySliceResult(
+      supabase,
+      job.id,
+      {
+        ...delta,
+        confirmed: 0, // confirmation is its own step, after the whole slice
+        pageSize: result.pageSize,
+        nextOffset: result.nextOffset,
+      },
+      null
+    )
+  );
   const flushProgress = async () => {
-    const delta: SliceResult = {
-      imported: result.imported - flushed.imported,
-      failed: result.failed - flushed.failed,
-      skipped: result.skipped - flushed.skipped,
-      bytes: result.bytes - flushed.bytes,
-      confirmed: 0, // confirmation is its own step, after the whole slice
-      pageSize: result.pageSize,
-      nextOffset: result.nextOffset,
-    };
-    if (!delta.imported && !delta.failed && !delta.skipped) return;
-    flushed.imported = result.imported;
-    flushed.failed = result.failed;
-    flushed.skipped = result.skipped;
-    flushed.bytes = result.bytes;
     sinceFlush = 0;
-    // Never fatal: this is a progress readout, and losing one tick must not
-    // cost the photos in flight.
-    try {
-      await applySliceResult(supabase, job.id, delta, null);
-    } catch (err) {
-      console.error("SPS pull progress flush failed:", err);
-    }
+    await flusher.flush(result);
   };
 
   // Bounded parallelism: each worker holds one full original in memory.
@@ -887,13 +938,16 @@ export async function markJobRunning(
 }
 
 /**
- * Fold a slice's counters into the job row.
+ * Fold a slice's counters into the job row — ONE atomic increment
+ * (`sps_pull_add_progress`, migration 085).
  *
- * Re-reads the row rather than adding to a caller's snapshot: the Inngest run
- * loads the job once and then runs many slices, so folding into that first
- * snapshot would write `first + latest` every time and lose everything in
- * between. (The read-modify-write is safe because a job runs with Inngest
- * concurrency keyed to its own id — one worker per job, by construction.)
+ * This used to re-read the row, add in JavaScript and write the sum back, on
+ * the theory that a job only ever has one worker. That holds across Inngest
+ * runs and fails inside a slice: `importSlice` runs IMPORT_CONCURRENCY
+ * downloads and flushes every PROGRESS_FLUSH_EVERY photos, so two flushes
+ * overlap, read the same row, and the later write erases the earlier one. It
+ * cost Everpure 10 of 1,090 on 2026-09-18 (lesson 161). The increment happens
+ * in the UPDATE, under the row lock, so there is no window to lose.
  */
 export async function applySliceResult(
   supabase: SupabaseDB,
@@ -901,24 +955,19 @@ export async function applySliceResult(
   slice: SliceResult,
   nextOffset: number | null
 ): Promise<void> {
-  const current = await loadPullJob(supabase, jobId);
-  if (!current) throw new Error(`Pull job ${jobId} vanished mid-import`);
-
-  const { error } = await supabase
-    .from("sps_pull_jobs")
-    .update({
-      images_done: current.images_done + slice.imported,
-      images_failed: current.images_failed + slice.failed,
-      images_skipped: current.images_skipped + slice.skipped,
-      bytes_copied: current.bytes_copied + slice.bytes,
-      confirmed: current.confirmed + slice.confirmed,
-      // Only advances when a page is fully drained, so a resumed run re-walks
-      // at most one page and skips what it already has.
-      ...(nextOffset !== null ? { next_offset: nextOffset } : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
+  const { data, error } = await supabase.rpc("sps_pull_add_progress", {
+    p_job_id: jobId,
+    p_done: slice.imported,
+    p_failed: slice.failed,
+    p_skipped: slice.skipped,
+    p_bytes: slice.bytes,
+    p_confirmed: slice.confirmed,
+    // Only advances when a page is fully drained, so a resumed run re-walks
+    // at most one page and skips what it already has.
+    ...(nextOffset !== null ? { p_next_offset: nextOffset } : {}),
+  });
   if (error) throw error;
+  if (!data) throw new Error(`Pull job ${jobId} vanished mid-import`);
 }
 
 export async function finishJob(
