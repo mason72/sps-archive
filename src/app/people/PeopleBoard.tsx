@@ -455,6 +455,10 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
           cardKey={open.detailEvents ? open.key : undefined}
           label={open.label}
           onClose={() => setOpenKey(null)}
+          onNotAPerson={() => {
+            setOpenKey(null);
+            notAPerson.exclude(open.name);
+          }}
           onPrev={
             openAt > 0 ? () => setOpenKey(filtered[openAt - 1].key) : undefined
           }
@@ -539,19 +543,6 @@ function PodiumCard({
 }) {
   return (
     <div className="group relative">
-      {onNotAPerson && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onNotAPerson(); }}
-          title="Not a person — hide this from the index"
-          /* Visible by default on touch, revealed on hover at desktop widths.
-             Hover must never be the ONLY way to reach a control — there is no
-             hover on a phone, and this would simply not exist there. */
-          className="absolute right-2 top-2 z-10 rounded-full border border-stone-300 bg-white/90 px-2 py-1 text-[11px] text-stone-600 backdrop-blur transition-opacity duration-200 hover:border-stone-800 hover:text-stone-900 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
-        >
-          Not a person
-        </button>
-      )}
       <button
         onClick={onOpen}
         className="relative block aspect-[4/5] w-full overflow-hidden bg-stone-100"
@@ -588,6 +579,23 @@ function PodiumCard({
       <p className="mt-1 text-[12px] text-stone-400">
         {person.eventCount} events · {person.imageCount.toLocaleString()} photos
         {person.label && ` · ${person.label}`}
+        {/* Always visible on the podium, never a hover reveal: three cards can
+            afford it, and a label at #1 is exactly when it is needed. It hid
+            behind hover until "Team Photo" took #1 and the control could not
+            be found (lesson 162). The dense tiles below keep the hover chip. */}
+        {onNotAPerson && (
+          <>
+            {" · "}
+            <button
+              type="button"
+              onClick={onNotAPerson}
+              className="text-stone-300 transition-colors hover:text-stone-600"
+              title="Hide this from the index — undo appears at the bottom"
+            >
+              Not a person
+            </button>
+          </>
+        )}
       </p>
       <EventChips person={person} />
     </div>

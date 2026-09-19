@@ -146,9 +146,13 @@ export function PersonSpotlight({
   eventIds,
   cardKey,
   label,
+  onNotAPerson,
 }: {
   name: string;
   onClose: () => void;
+  /** Hide this identity from the index. Offered here as well as on the card,
+   *  because this is where you look closely enough to know it is a label. */
+  onNotAPerson?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
   /** Everyone else on the wall — what "same person as…" can pick from. */
@@ -413,6 +417,15 @@ export function PersonSpotlight({
                 title="Two cards for one human? Fold this one into the other."
               >
                 Same person as…
+              </button>
+            )}
+            {onNotAPerson && (
+              <button
+                onClick={onNotAPerson}
+                className="text-[11px] text-stone-300 transition-colors hover:text-stone-600"
+                title="Not a person — hide this from the index (undo from the wall)"
+              >
+                Not a person
               </button>
             )}
             <button

@@ -4025,3 +4025,19 @@ asked this one to look.
 - **A comment claiming "one writer" is a claim to grep, not an invariant.** Count the concurrent callers of the write, including the ones inside one invocation (`Promise.all` workers), not only the ones the orchestrator schedules.
 - **An accumulator that more than one path can write is an atomic SQL increment, never read-add-write in the app.** It costs one small function, and the app-side version fails silently and always low.
 - **A race probe must run the broken shape as its control.** One clean run of a race is not evidence. The probe exits non-zero if the control fails to lose updates.
+
+## 162 — "Teamphoto" took #1 on the wall, and the button to remove it was invisible (2026-09-19)
+
+**What happened.** Mason found "Team Photo" at #1 on the /people wall of fame (4 events, 41 photos) and no way to say it was not a person.
+
+**Why the filters missed it.** The filenames are `Teamphoto_25-12-02_AxosBank_574.jpg`, so the name before the date is ONE fused word. The session-word veto (lesson 152) splits on spaces, so it would have blocked "Team Photo" and never saw "team" inside "teamphoto". The single-word stoplist checks whole words only. So "Teamphoto" was admitted as a one-word person, like "Nachi". The pretty "Team Photo" label came from 10 face clusters named "Team Photo", which fold to the same key and win the display spelling.
+
+**Fix.** `isLabelCompound()` (event-labels.ts) flags a word that breaks down COMPLETELY into two or more label pieces (session words plus photo/shot/pic nouns). Both the single-name shape check and the multi-word veto use it. Measured offline over all 29,192 distinct name tokens of 6+ letters (parsed names, filename prefixes, cluster names): exactly 7 hits (awardsdinner, teamphoto, teamphotos, teamshots, groupphoto, groupshot, teamshot) and no real person. The complete-breakdown requirement is what keeps Shotwell, Partyka and Grouper safe.
+
+**The button.** "Not a person" existed on every card, but on desktop it was `opacity-0` until hover. Mason's pointer was over card 2, so card 1's control never appeared. The podium now shows it as quiet text in the always-visible meta line, and the spotlight's header offers it too. The dense tiles keep the hover chip, because a control on every face of a 6-column grid is noise.
+
+**Measurement note.** `people-index-diff.ts save` failed twice with PostgREST's "Timed out acquiring connection from connection pool" while the migration ingest and AI indexing were loading production. Two failures was the stop signal. For a rule that only REMOVES, the offline token scan is a stronger test anyway: it lists every name the rule can possibly touch, rather than the cards that happen to be on today's wall.
+
+**Rules.**
+- **Any vocabulary check on names must also see words typed without a space.** Filenames fuse words (lessons 142, 149, 153), so a veto that splits on spaces has a fused twin that passes.
+- **A destructive control can be quiet, never invisible.** Hover-reveal is fine on a dense grid only if the same action is reachable somewhere always visible (the spotlight here). Discoverability is part of "does the control exist".

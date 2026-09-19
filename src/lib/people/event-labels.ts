@@ -180,6 +180,7 @@ export function looksLikeSingleName(name: string): boolean {
   if (w.length < 3 || /\s/.test(w)) return false;
   if (!/^\p{Script=Latin}[\p{Script=Latin}\p{M}'’-]*[\p{Script=Latin}\p{M}]$/u.test(w)) return false;
   if (w === w.toUpperCase()) return false;
+  if (isLabelCompound(w)) return false;
   return !SINGLE_NAME_STOP.has(w.toLowerCase());
 }
 
@@ -214,5 +215,43 @@ export function nameHasSessionWord(name: string): boolean {
   return nameText(name)
     .toLowerCase()
     .split(/[^\p{L}\p{M}]+/u)
-    .some((w) => MULTI_WORD_LABEL_WORDS.has(w));
+    .some((w) => MULTI_WORD_LABEL_WORDS.has(w) || isLabelCompound(w));
+}
+
+/**
+ * Pieces a FUSED label is built from: the session words above plus the nouns
+ * for "a photo". Only ever used in combination (see isLabelCompound), so
+ * "Photo" or "Shot" alone is not vetoed by this list.
+ */
+const LABEL_COMPOUND_PARTS = new Set([
+  ...MULTI_WORD_LABEL_WORDS,
+  "photo", "photos", "pic", "pics", "picture", "pictures", "shot", "portrait",
+  "portraits", "headshot", "staff", "crew",
+]);
+
+/**
+ * A single word that is two or more label words typed without a space:
+ * "Teamphoto", "Groupshots", "TeamPhotos" (lesson 162). The vocabulary rules
+ * split on spaces, so "Team Photo" was vetoed while "Teamphoto" passed as a
+ * one-word person and put a group shot at #1 on the wall of fame.
+ *
+ * The word must break down COMPLETELY into label pieces, which is what keeps
+ * surnames safe: Shotwell, Partyka and Grouper each leave a remainder, and a
+ * lone "Booth" is never a compound.
+ */
+export function isLabelCompound(word: string): boolean {
+  const w = nameText(word).toLowerCase();
+  if (w.length < 6 || !/^\p{L}+$/u.test(w)) return false;
+  // parts[i] = fewest pieces covering w[0..i), or Infinity.
+  const parts = new Array<number>(w.length + 1).fill(Infinity);
+  parts[0] = 0;
+  for (let end = 1; end <= w.length; end++) {
+    for (let start = 0; start < end; start++) {
+      if (parts[start] === Infinity) continue;
+      if (LABEL_COMPOUND_PARTS.has(w.slice(start, end))) {
+        parts[end] = Math.min(parts[end], parts[start] + 1);
+      }
+    }
+  }
+  return parts[w.length] >= 2 && parts[w.length] !== Infinity;
 }

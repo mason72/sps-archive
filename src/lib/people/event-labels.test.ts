@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   eventLabelKeys,
   firstNameKeys,
+  isLabelCompound,
   isSessionLabelFile,
   looksLikeSingleName,
   nameHasSessionWord,
@@ -160,5 +161,32 @@ describe("nameHasSessionWord", () => {
     ]) {
       expect(nameHasSessionWord(n), n).toBe(false);
     }
+  });
+});
+
+describe("isLabelCompound (lesson 162)", () => {
+  it("catches labels typed as one word — every compound measured in the archive", () => {
+    for (const w of [
+      "Teamphoto", "teamphotos", "Teamshots", "teamshot", "Groupphoto", "Groupshot",
+      "Awardsdinner",
+    ]) {
+      expect(isLabelCompound(w), w).toBe(true);
+    }
+  });
+
+  it("needs a COMPLETE breakdown into two or more pieces, so surnames survive", () => {
+    for (const w of [
+      "Shotwell", "Partyka", "Grouper", "Booth", "Teamer", "Photon", "Team", "Photo",
+      "Brittany", "Paneloff",
+    ]) {
+      expect(isLabelCompound(w), w).toBe(false);
+    }
+  });
+
+  it("closes both doors: the one-word person and the multi-word veto", () => {
+    expect(looksLikeSingleName("Teamphoto")).toBe(false);
+    expect(nameHasSessionWord("Sidecar Teamphoto")).toBe(true);
+    // and still admits a real one-word person
+    expect(looksLikeSingleName("Nachi")).toBe(true);
   });
 });
