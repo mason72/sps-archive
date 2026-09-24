@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Loader2, FolderTree, Users, LayoutGrid, Layers, GalleryVerticalEnd, Sparkles } from "lucide-react";
+import { X, Loader2, FolderTree, Users, LayoutGrid, Layers, GalleryVerticalEnd, Sparkles, Star } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -11,6 +11,12 @@ import {
   type PlanMode,
   type DetectionSummary,
 } from "@/lib/sections/auto-plan";
+import {
+  HIGHLIGHTS_STEP,
+  MAX_HIGHLIGHTS,
+  MIN_HIGHLIGHTS,
+  suggestedHighlightCount,
+} from "@/lib/highlights/limits";
 
 interface SectionLite {
   id: string;
@@ -60,6 +66,8 @@ export interface SortParams {
   target: number;
   stacks: boolean;
   taxonomy?: string | null;
+  /** Ask for a Highlights section of this many picks, filled once AI settles. */
+  highlights?: number | null;
 }
 
 /** The modal's modes: the pure name-based planners + the AI scene planner. */
@@ -100,6 +108,10 @@ export function SortSectionsModal({
   const [mode, setMode] = useState<UiMode>("letter");
   const [target, setTarget] = useState(300);
   const [stacks, setStacks] = useState(false);
+  // "Include a Highlights section": on by default, because a first-name split
+  // with no best-of up front is the case this exists for (Mason, 2026-09-24).
+  const [withHighlights, setWithHighlights] = useState(true);
+  const [highlightCount, setHighlightCount] = useState<number | null>(null);
   const [applying, setApplying] = useState(false);
   // Scene mode: server-computed preview (embeddings live in the DB, the
   // taxonomy is embedded per request — nothing runs client-side).
@@ -269,6 +281,13 @@ export function SortSectionsModal({
 
   const tooMany = mode !== "scenes" && planned.length > 60;
 
+  // Default the count from the event's size, using the generator's own rule.
+  // It counts PHOTOS here (the review counts moments, which needs capture
+  // times), so it can suggest a little higher than the review would.
+  const effectiveHighlightCount =
+    highlightCount ?? suggestedHighlightCount(Math.max(images.length, 1));
+  const highlightsParam = withHighlights ? effectiveHighlightCount : null;
+
   const apply = useCallback(async () => {
     if (tooMany) return;
     setApplying(true);
@@ -278,24 +297,30 @@ export function SortSectionsModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "scenes"
-            ? { mode, taxonomy: sceneTaxonomy }
-            : { mode, target, stacks: countPeople }
+            ? { mode, taxonomy: sceneTaxonomy, highlights: highlightsParam }
+            : { mode, target, stacks: countPeople, highlights: highlightsParam }
         ),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || "Failed to create sections");
       }
-      const data = (await res.json()) as { sections: SectionLite[]; created: number };
+      const data = (await res.json()) as {
+        sections: SectionLite[];
+        created: number;
+        highlights?: { status: "waiting" | "kept" | "failed"; count?: number } | null;
+      };
       onApplied(data.sections);
-      toast.success(`Created ${data.created} section${data.created === 1 ? "" : "s"}`);
+      toast.success(`Created ${data.created} section${data.created === 1 ? "" : "s"}`, {
+        description: highlightsToastLine(data.highlights),
+      });
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create sections");
     } finally {
       setApplying(false);
     }
-  }, [eventId, mode, target, countPeople, sceneTaxonomy, tooMany, onApplied, onClose]);
+  }, [eventId, mode, target, countPeople, sceneTaxonomy, highlightsParam, tooMany, onApplied, onClose]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -469,6 +494,59 @@ export function SortSectionsModal({
                 </div>
               )}
 
+              {/* Highlights up front — filled by the generator once AI settles */}
+              <div className="mt-5 rounded-lg border border-stone-200">
+                <button
+                  onClick={() => setWithHighlights((v) => !v)}
+                  aria-pressed={withHighlights}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left"
+                >
+                  <Star size={15} className={withHighlights ? "text-emerald-600" : "text-stone-400"} />
+                  <span className="flex-1">
+                    <span className="block text-[12px] font-medium text-stone-800">
+                      Include a Highlights section
+                    </span>
+                    <span className="block text-[10px] text-stone-400">
+                      The best picks, first in line. Chosen automatically once AI
+                      finishes reading the photos.
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                      withHighlights ? "bg-emerald-500" : "bg-stone-200"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all",
+                        withHighlights ? "left-4" : "left-0.5"
+                      )}
+                    />
+                  </span>
+                </button>
+                {withHighlights && (
+                  <div className="border-t border-stone-100 px-3 pb-3 pt-2.5">
+                    <label className="mb-1.5 block text-[12px] font-medium text-stone-700">
+                      {effectiveHighlightCount} highlights
+                    </label>
+                    <input
+                      type="range"
+                      min={MIN_HIGHLIGHTS}
+                      max={MAX_HIGHLIGHTS}
+                      step={HIGHLIGHTS_STEP}
+                      value={effectiveHighlightCount}
+                      onChange={(e) => setHighlightCount(Number(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                    <p className="mt-1 text-[10px] leading-snug text-stone-400">
+                      Photos stay in their own sections too. Open Highlights any time
+                      to review and swap picks.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Live preview of the resulting sections */}
               <div className="mt-5">
                 <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-400">
@@ -492,6 +570,14 @@ export function SortSectionsModal({
                   </p>
                 ) : (
                   <div className="max-h-52 space-y-1 overflow-y-auto">
+                    {withHighlights && (
+                      <div className="flex items-center justify-between rounded-md bg-stone-50 px-3 py-2 text-[12px]">
+                        <span className="font-medium text-stone-800">Highlights</span>
+                        <span className="text-stone-400">
+                          {effectiveHighlightCount} picks · after AI
+                        </span>
+                      </div>
+                    )}
                     {previewSections.map((s, i) => (
                       <div
                         key={`${s.name}-${i}`}
@@ -518,8 +604,8 @@ export function SortSectionsModal({
             {/* Footer */}
             <div className="flex items-center justify-between border-t border-stone-100 px-6 py-4">
               <p className="max-w-[55%] text-[11px] leading-tight text-stone-400">
-                Creates these sections and clears out Unsorted. Highlights and your
-                own sections stay put.
+                Creates these sections and clears out Unsorted. Hand-picked
+                Highlights and your own sections stay put.
               </p>
               <div className="flex items-center gap-3">
                 <button
@@ -535,8 +621,8 @@ export function SortSectionsModal({
                       ? () => {
                           onSchedule(
                             mode === "scenes"
-                              ? { mode, target, stacks: countPeople, taxonomy: sceneTaxonomy }
-                              : { mode, target, stacks: countPeople }
+                              ? { mode, target, stacks: countPeople, taxonomy: sceneTaxonomy, highlights: highlightsParam }
+                              : { mode, target, stacks: countPeople, highlights: highlightsParam }
                           );
                           onClose();
                         }
@@ -568,4 +654,14 @@ export function SortSectionsModal({
     </div>,
     document.body
   );
+}
+
+/** The toast's second line: what happened to Highlights, in plain words. */
+function highlightsToastLine(
+  h: { status: "waiting" | "kept" | "failed"; count?: number } | null | undefined
+): string | undefined {
+  if (!h) return undefined;
+  if (h.status === "kept") return "Your existing Highlights were kept and moved to the front.";
+  if (h.status === "failed") return "Highlights couldn't be set up. Add it from the sidebar instead.";
+  return `Highlights (${h.count} picks) fills itself once AI finishes reading the photos.`;
 }

@@ -4104,3 +4104,16 @@ asked this one to look.
 **Rules.**
 - **A folder is safe to delete wholesale only when every reader pins its keys to that owner.** Pin first, delete second.
 - **Copying a settings blob copies every pointer in it.** When a JSONB bag holds keys, tokens or PII, a duplicate path must list what it drops.
+
+## 167 — The taste learner scaled with the archive, and learned from dumps (2026-09-24)
+**What happened.** Building the "Include a Highlights section" toggle, the first live fill died on a statement timeout inside `trainHighlightDirection`. The learner was designed and validated on 13 events / 782 picks. The Pixieset migration had taken it to **288 sections / 46,095 picks**, and every fit read all of them, about a gigabyte of embeddings. So the *manual* Highlights generator was broken the same way, unnoticed. Two more things hid inside that loop:
+- **56 of 73 native Highlights sections held more than half their gallery** (median 100%), left over from the "upload dump lands in Highlights" era. A 100% dump was eventually skipped (no negatives), but only after paging every embedding in the gallery to find that out.
+- My first fix made it **slower** (79s → 131s): I sized each gallery with a count on `images`, which is 5.3 s per call under load (the lesson-51 hot-table trap), and ran 20 at once.
+
+**Fix.** Judge a dump from the unpicked page the learner reads anyway (picked share > 25% stops it, measured keep rates top out at 18%) *before* reading any pick embeddings. Take the 20 newest sets, 100 picks + 200 unpicked each: about 6,000 embeddings, the validated scale. Fit 3 at a time, and skip a set whose read fails instead of failing the fit. Result under full migration load: **66 s, 1,231 picks** (it had been a timeout). Order the unpicked page by `(created_at, id)`, which is indexed; `order("id")` alone cost 7 s on a 19k gallery.
+
+**Rules.**
+- **A learner that reads "all past examples" has a cost that grows with the archive.** Cap it at the scale it was validated on, and write the cap next to that number.
+- **Time each query before parallelising.** The instrumented run (one line per query) found the 5 s count in a minute. Two rounds of guessing had made it worse.
+- **A training set is only as clean as the definition of "a pick".** Filter on what the photographer could plausibly have chosen (share of the gallery), not on the section's name.
+- Machine-filled Highlights (migration 086) are excluded from training by `highlights_auto_count`. The fail-able test put a set on the NEWEST gallery (so it is inside the 20-set window): machine-owned left the count unchanged, hand-picked moved it.

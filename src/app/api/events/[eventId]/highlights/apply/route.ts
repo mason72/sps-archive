@@ -107,6 +107,15 @@ export async function POST(
     const { error: insErr } = await supabase.from("section_images").insert(rows);
     if (insErr) throw insErr;
 
+    // A human accepted this set: the section is theirs now. Clearing the
+    // auto-fill marker (migration 086) makes these picks training data and
+    // stops the auto-fill job from ever touching the section again.
+    const { error: ownErr2 } = await supabase
+      .from("sections")
+      .update({ highlights_auto_count: null, highlights_auto_filled_at: null })
+      .eq("id", section.id);
+    if (ownErr2) throw ownErr2;
+
     invalidateDirectionCache(user.id);
 
     return NextResponse.json({ applied: rows.length, sectionId: section.id });

@@ -105,6 +105,10 @@ interface SectionData {
   jobMeta?: unknown;
   sortMode?: GallerySortMode | null;
   sortSeed?: number | null;
+  /** Highlights auto-fill (migration 086): requested picks while the machine owns it. */
+  highlightsAutoCount?: number | null;
+  /** When the machine filled it; null with a count = still waiting on AI. */
+  highlightsAutoFilledAt?: string | null;
 }
 
 /** Most frequent non-null value, or null. Used for job-form prefills. */
@@ -651,8 +655,17 @@ export default function EventPage({
     activeSectionData?.name === "Highlights" &&
     (activeSectionData.imageIds?.length ?? 0) > 0;
   /** Show the generator: empty section, or an explicit re-run. */
+  /** Highlights asked for by "Sort into sections", waiting for AI to settle. */
+  const isHighlightsWaiting =
+    isHighlightsEmpty &&
+    activeSectionData?.highlightsAutoCount != null &&
+    !activeSectionData?.highlightsAutoFilledAt;
+  /** Filled by the machine and not yet reviewed by a person. */
+  const isHighlightsUnreviewed =
+    isHighlightsPopulated && activeSectionData?.highlightsAutoCount != null;
   const showHighlightsPanel =
-    isHighlightsEmpty || (isHighlightsPopulated && highlightsRerun);
+    (isHighlightsEmpty && (!isHighlightsWaiting || highlightsRerun)) ||
+    (isHighlightsPopulated && highlightsRerun);
   const activeScene = activeSectionData?.siteSceneKey
     ? sceneForKey(activeSectionData.siteSceneKey)
     : undefined;
@@ -789,6 +802,14 @@ export default function EventPage({
       setIsLoading(false);
     }
   }, [eventId]);
+
+  // The fill lands from a background job, so a page left open on the waiting
+  // state would never see it. Re-read the event once a minute until it does.
+  useEffect(() => {
+    if (!isHighlightsWaiting) return;
+    const t = setInterval(() => fetchEvent(), 60_000);
+    return () => clearInterval(t);
+  }, [isHighlightsWaiting, fetchEvent]);
 
   useEffect(() => {
     fetchEvent();
@@ -1258,11 +1279,12 @@ export default function EventPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             params.mode === "scenes"
-              ? { mode: params.mode, taxonomy: params.taxonomy }
+              ? { mode: params.mode, taxonomy: params.taxonomy, highlights: params.highlights ?? null }
               : {
                   mode: params.mode,
                   target: params.target,
                   stacks: params.stacks,
+                  highlights: params.highlights ?? null,
                 }
           ),
         });
@@ -2096,7 +2118,16 @@ export default function EventPage({
                     onClick={() => setHighlightsRerun(true)}
                     className="text-[12px] text-stone-400 transition-colors hover:text-stone-700"
                   >
-                    Re-run highlights
+                    {isHighlightsUnreviewed ? (
+                      <>
+                        Auto-picked <span className="text-stone-300">·</span>{" "}
+                        <span className="text-stone-600 underline decoration-stone-300 underline-offset-2">
+                          Review
+                        </span>
+                      </>
+                    ) : (
+                      "Re-run highlights"
+                    )}
                   </button>
                 )}
                 {/* Focal sweep — set focal points for the whole section, no
@@ -2596,7 +2627,28 @@ export default function EventPage({
                       guaranteed to exist wherever the output lands. Only when
                       it is genuinely empty and not being searched: once it has
                       photos it is an ordinary section again. */}
-                  {showHighlightsPanel ? (
+                  {isHighlightsWaiting && !highlightsRerun ? (
+                    <div className="mx-auto max-w-[420px] py-16 text-center">
+                      <p className="font-editorial text-[22px] text-stone-800">
+                        Highlights is on its way
+                      </p>
+                      <p className="mt-2 text-[13px] leading-relaxed text-stone-500">
+                        {activeSectionData?.highlightsAutoCount} picks will land here
+                        by themselves once AI finishes reading this gallery
+                        {aiStatus && !aiReady
+                          ? ` (${aiStatus.indexed.toLocaleString()} of ${aiStatus.total.toLocaleString()} read so far)`
+                          : ""}
+                        . Guests won&apos;t see an empty tab in the meantime.
+                      </p>
+                      <button
+                        onClick={() => setHighlightsRerun(true)}
+                        disabled={!aiReady}
+                        className="mt-5 text-[12px] text-stone-400 transition-colors hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Pick them myself instead
+                      </button>
+                    </div>
+                  ) : showHighlightsPanel ? (
                     <HighlightsPanel
                       eventId={eventId}
                       columnCount={gridSettings?.columns}

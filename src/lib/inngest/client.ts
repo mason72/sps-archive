@@ -99,6 +99,19 @@ type Events = {
    * (Re)cluster an event's faces into persons. Fired when ai-index finishes
    * an event; incremental and name-preserving, so safe to over-fire.
    */
+  /**
+   * Fill an event's waiting Highlights section (the "Sort into sections"
+   * toggle, migration 086). Safe to over-fire: it no-ops unless a section is
+   * waiting and AI has settled. Sent by the sort, the face-cluster job, and
+   * the 30-minute sweep's safety net.
+   */
+  "highlights/auto-fill.requested": {
+    data: {
+      eventId: string;
+      /** Set by the face-cluster job, which IS the settle signal. */
+      afterClustering?: boolean;
+    };
+  };
   "faces/cluster.requested": {
     data: {
       eventId: string;

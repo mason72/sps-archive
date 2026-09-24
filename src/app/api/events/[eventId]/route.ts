@@ -258,7 +258,7 @@ export async function GET(
     // 5. Fetch sections with image counts
     const { data: rawSections, error: sectionsError } = await supabase
       .from("sections")
-      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta, sort_mode, sort_seed")
+      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta, sort_mode, sort_seed, highlights_auto_count, highlights_auto_filled_at")
       .eq("event_id", eventId)
       // created_at is a stable tiebreaker so equal sort_orders never shuffle
       // between reloads.
@@ -289,6 +289,9 @@ export async function GET(
       // Per-section photo order (null = inherit the event default).
       sortMode: section.sort_mode ?? null,
       sortSeed: section.sort_seed ?? null,
+      // Highlights auto-fill state (migration 086).
+      highlightsAutoCount: section.highlights_auto_count ?? null,
+      highlightsAutoFilledAt: section.highlights_auto_filled_at ?? null,
       imageCount: sectionCounts.get(section.id) ?? 0,
       // Members in manual (sort_order) order — drives the "Manual" sort.
       imageIds: orderedImageIdsBySection.get(section.id) ?? [],

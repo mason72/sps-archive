@@ -596,6 +596,30 @@ export const aiIndexSweep = inngest.createFunction(
       }
       return (data ?? []).map((r: { event_id: string }) => r.event_id);
     });
+    // Safety net for the Highlights toggle (migration 086): a waiting section
+    // whose fill request was lost still fills within 30 minutes of settling.
+    const highlightEventIds = await step.run("highlights-pending", async () => {
+      try {
+        // The generator needs embeddings; with indexing off nothing can fill.
+        const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
+        if (!isAiIndexingEnabled()) return [] as string[];
+        const { eventsWithPendingHighlights } = await import("@/lib/highlights/auto-fill");
+        return await eventsWithPendingHighlights(createServiceClient());
+      } catch (err) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("inngest.highlights-pending", err, {});
+        return [] as string[];
+      }
+    });
+    if (highlightEventIds.length) {
+      await step.sendEvent(
+        "highlights-auto-fill-nudges",
+        highlightEventIds.map((eventId) => ({
+          name: "highlights/auto-fill.requested" as const,
+          data: { eventId },
+        }))
+      );
+    }
     if (aiEventIds.length) {
       await step.sendEvent(
         "ai-index-nudges",
@@ -605,7 +629,7 @@ export const aiIndexSweep = inngest.createFunction(
         }))
       );
     }
-    return { nudged: aiEventIds.length };
+    return { nudged: aiEventIds.length, highlightsNudged: highlightEventIds.length };
   }
 );
 
@@ -973,6 +997,37 @@ export const aiIndex = inngest.createFunction(
 );
 
 /**
+ * Fill a waiting Highlights section (the "Sort into sections" toggle,
+ * migration 086; logic in src/lib/highlights/auto-fill.ts). One run per event
+ * at a time, debounced so the sort, the cluster job and the sweep collapse into
+ * a single fill. Works with AI indexing switched off too: it simply waits,
+ * because the generator needs embeddings.
+ */
+export const highlightsAutoFill = inngest.createFunction(
+  {
+    id: "highlights-auto-fill",
+    retries: 2,
+    concurrency: [{ limit: 2 }, { limit: 1, key: "event.data.eventId" }],
+    debounce: { key: "event.data.eventId", period: "1m", timeout: "10m" },
+  },
+  { event: "highlights/auto-fill.requested" },
+  async ({ event, step }) => {
+    return await step.run("fill", async () => {
+      const { fillPendingHighlights } = await import("@/lib/highlights/auto-fill");
+      try {
+        return await fillPendingHighlights(createServiceClient(), event.data.eventId, {
+          skipSettle: !!event.data.afterClustering,
+        });
+      } catch (err) {
+        const { reportSystemError } = await import("@/lib/monitoring/report");
+        await reportSystemError("highlights-auto-fill", err, { eventId: event.data.eventId });
+        throw err;
+      }
+    });
+  }
+);
+
+/**
  * Face clustering v2 — groups an event's face embeddings into persons
  * (src/lib/faces/cluster-event.ts: incremental, never deletes a named
  * person). Fired by ai-index on completion; debounced so re-index bursts
@@ -1007,6 +1062,12 @@ export const faceCluster = inngest.createFunction(
       await step.sendEvent("scan-identities", {
         name: "people/identity-scan.requested",
         data: { eventId: event.data.eventId },
+      });
+      // Clusters are what the Highlights generator spreads its picks across,
+      // so this is the moment a waiting Highlights section can be filled.
+      await step.sendEvent("highlights-auto-fill", {
+        name: "highlights/auto-fill.requested",
+        data: { eventId: event.data.eventId, afterClustering: true },
       });
     }
     return result;

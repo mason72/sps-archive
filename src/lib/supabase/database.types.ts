@@ -1429,6 +1429,8 @@ export type Database = {
           description: string | null
           event_id: string
           filter_query: string | null
+          highlights_auto_count: number | null
+          highlights_auto_filled_at: string | null
           id: string
           is_auto: boolean
           job_meta: Json | null
@@ -1444,6 +1446,8 @@ export type Database = {
           description?: string | null
           event_id: string
           filter_query?: string | null
+          highlights_auto_count?: number | null
+          highlights_auto_filled_at?: string | null
           id?: string
           is_auto?: boolean
           job_meta?: Json | null
@@ -1459,6 +1463,8 @@ export type Database = {
           description?: string | null
           event_id?: string
           filter_query?: string | null
+          highlights_auto_count?: number | null
+          highlights_auto_filled_at?: string | null
           id?: string
           is_auto?: boolean
           job_meta?: Json | null
@@ -2090,6 +2096,8 @@ export type Database = {
           description: string | null
           event_id: string
           filter_query: string | null
+          highlights_auto_count: number | null
+          highlights_auto_filled_at: string | null
           id: string
           is_auto: boolean
           job_meta: Json | null

@@ -6,7 +6,8 @@ import {
   type PlanMode,
   type PlanImage,
 } from "@/lib/sections/auto-plan";
-import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
+import { CURATED_SECTION_NAME, INTAKE_SECTION_NAME } from "@/lib/sections/intake";
+import { clampHighlightCount } from "@/lib/highlights/auto-fill";
 
 export const runtime = "nodejs";
 // Scene mode embeds the taxonomy via Modal (cold start can take ~20s) and
@@ -21,12 +22,18 @@ const MAX_SECTIONS = 60;
  * POST /api/events/[eventId]/auto-sections
  *
  * Materialize name-based "smart sections" for a big upload. Body:
- *   { mode: "letter" | "per-person" | "even", target: number, stacks?: boolean }
+ *   { mode: "letter" | "per-person" | "even", target: number, stacks?: boolean,
+ *     highlights?: number }
  *
  * Wipes the event's existing AUTO sections (is_auto=true) and rebuilds them
  * from the deterministic plan; manual sections (Highlights, anything the
  * photographer made) are never touched. Additive: images join the new
  * sections, keeping any existing membership. Returns the updated section list.
+ *
+ * `highlights: N` also puts a Highlights section FIRST and asks for it to be
+ * filled with N picks once AI indexing settles (src/lib/highlights/auto-fill.ts).
+ * A Highlights section that already holds hand-picked photos is moved to the
+ * front and otherwise left alone.
  */
 export async function POST(
   request: NextRequest,
@@ -55,6 +62,7 @@ export async function POST(
       target?: number;
       stacks?: boolean;
       taxonomy?: string;
+      highlights?: number | null;
     };
     const mode = body.mode ?? "letter";
     if (mode !== "scenes" && !MODES.includes(mode)) {
@@ -190,6 +198,31 @@ export async function POST(
       .eq("event_id", eventId)
       .ilike("name", INTAKE_SECTION_NAME);
 
+    // Highlights, first in line (the toggle). Runs after the plan so a failure
+    // above never leaves a half-configured Highlights behind.
+    const highlightsCount = clampHighlightCount(body.highlights);
+    let highlights: { status: "waiting" | "kept" | "failed"; count?: number } | null = null;
+    if (highlightsCount) {
+      // The sort above is already committed. A Highlights problem is reported
+      // in the response, never as a failed sort.
+      try {
+        highlights = await ensureHighlights(supabase, eventId, highlightsCount);
+      } catch (err) {
+        await reportSystemError("sections.highlights-toggle", err, { eventId });
+        highlights = { status: "failed" };
+      }
+      if (highlights.status === "waiting") {
+        // Best effort: if AI is already done this fills within minutes; if the
+        // send fails (or AI is still running) the 30-minute sweep picks it up.
+        try {
+          const { inngest } = await import("@/lib/inngest/client");
+          await inngest.send({ name: "highlights/auto-fill.requested", data: { eventId } });
+        } catch (err) {
+          await reportSystemError("sections.highlights-auto-fill.send", err, { eventId });
+        }
+      }
+    }
+
     // Return the updated section list with counts.
     const { data: sections, error: listErr } = await supabase
       .from("sections")
@@ -208,10 +241,71 @@ export async function POST(
       })
     );
 
-    return NextResponse.json({ sections: enriched, created: plan.length });
+    return NextResponse.json({ sections: enriched, created: plan.length, highlights });
   } catch (error) {
     console.error("Auto-sections error:", error);
     await reportSystemError("sections.auto-generate", error, { eventId: eventIdForReport });
     return NextResponse.json({ error: "Failed to generate sections" }, { status: 500 });
   }
+}
+
+/**
+ * Put Highlights first and, when nobody has curated it, ask for it to be
+ * filled with `count` picks. Only an EMPTY Highlights is (re)armed: a filled
+ * one, whether the machine or a person filled it, is kept and moved to the
+ * front, because a person may have edited the machine's picks since and a
+ * sort must never discard curation. Re-picking is the Review button's job.
+ */
+async function ensureHighlights(
+  supabase: Awaited<ReturnType<typeof getAuthUser>>["supabase"],
+  eventId: string,
+  count: number
+): Promise<{ status: "waiting" | "kept"; count?: number }> {
+  const { data: first, error: firstErr } = await supabase
+    .from("sections")
+    .select("sort_order")
+    .eq("event_id", eventId)
+    .order("sort_order", { ascending: true })
+    .limit(1);
+  if (firstErr) throw firstErr;
+  const frontOrder = (first?.[0]?.sort_order ?? 0) - 1;
+
+  // Names are unique case-insensitively (migration 048): an exact match would
+  // miss a migrated "HIGHLIGHTS" and then collide with it on insert.
+  const { data: existing, error: exErr } = await supabase
+    .from("sections")
+    .select("id, locked")
+    .eq("event_id", eventId)
+    .ilike("name", CURATED_SECTION_NAME)
+    .maybeSingle();
+  if (exErr) throw exErr;
+
+  if (!existing) {
+    const { error } = await supabase.from("sections").insert({
+      event_id: eventId,
+      name: CURATED_SECTION_NAME,
+      sort_order: frontOrder,
+      is_auto: false,
+      highlights_auto_count: count,
+    });
+    if (error) throw error;
+    return { status: "waiting", count };
+  }
+
+  const { count: members, error: mErr } = await supabase
+    .from("section_images")
+    .select("image_id", { count: "exact", head: true })
+    .eq("section_id", existing.id);
+  if (mErr) throw mErr;
+  const arm = !existing.locked && (members ?? 0) === 0;
+  const { error } = await supabase
+    .from("sections")
+    .update(
+      arm
+        ? { sort_order: frontOrder, highlights_auto_count: count, highlights_auto_filled_at: null }
+        : { sort_order: frontOrder }
+    )
+    .eq("id", existing.id);
+  if (error) throw error;
+  return arm ? { status: "waiting", count } : { status: "kept" };
 }

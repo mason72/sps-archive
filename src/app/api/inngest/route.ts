@@ -14,6 +14,7 @@ import {
   autoFocal,
   aiIndex,
   faceCluster,
+  highlightsAutoFill,
   identityScan,
 } from "@/lib/inngest/functions";
 import {
@@ -43,6 +44,7 @@ export const { GET, POST, PUT } = serve({
     autoFocal,
     aiIndex,
     faceCluster,
+    highlightsAutoFill,
     identityScan,
     peopleIndexRefresh,
     usageAnomalyDaily,

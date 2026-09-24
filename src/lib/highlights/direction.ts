@@ -30,7 +30,92 @@ export const EMBEDDING_DIM = 1152;
 export const MIN_PICKS_TO_TRAIN = 30;
 
 /** Unpicked images sampled per training event — the mean converges fast. */
-const NEG_SAMPLE_PER_EVENT = 400;
+const NEG_SAMPLE_PER_EVENT = 200;
+
+/**
+ * Which past Highlights sections are worth learning from (2026-09-24).
+ *
+ * The learner was built on 13 events / 782 picks. The Pixieset migration took
+ * it to 288 sections / 46,095 picks, and a fit then read ~a gigabyte of
+ * embeddings and died on the statement timeout — the manual generator and the
+ * auto-fill alike. Worse, 56 of the 73 native sections held MORE THAN HALF their
+ * gallery (the old "the upload dump lands in Highlights" behaviour): not picks.
+ *
+ *   MAX_KEEP_SHARE      a section holding more of its event than this is a dump,
+ *                       judged from the first page of the gallery and skipped
+ *                       before its picks' embeddings are read. Real keep rates
+ *                       measured 2.4%–17.9% (limits.ts OBSERVED_KEEP_RANGE).
+ *   MAX_TRAIN_SECTIONS  most recent qualifying sets only — the method was
+ *                       validated on 13, and recent taste is the taste.
+ *   MAX_PICKS_PER_SECTION  one big gallery must not outvote the rest.
+ *
+ * The sizes (20 sets x 100 picks + 200 unpicked) keep a fit at ~6,000
+ * embeddings, the scale it was validated at. 40 x (200 + 400) was ~24,000 and
+ * took 5 minutes under load: the disk, not the CPU, is what a fit costs.
+ */
+export const MAX_KEEP_SHARE = 0.25;
+export const MAX_TRAIN_SECTIONS = 20;
+export const MAX_PICKS_PER_SECTION = 100;
+
+interface TrainableSection {
+  id: string;
+  eventId: string;
+  /** Picks in the section (uncapped). */
+  picks: number;
+}
+
+/**
+ * The newest past Highlights sets worth reading, by PICK COUNT only. Whether a
+ * set is a dump (picks > MAX_KEEP_SHARE of its gallery) is decided during
+ * training from the unpicked sample it reads anyway: counting a gallery's
+ * photos is a count on the hot `images` table (5s each under migration load,
+ * measured 2026-09-24), which is exactly what timed the learner out.
+ */
+async function candidateSections(
+  supabase: SupabaseClient,
+  ownerUserId: string,
+  excludeEventId: string,
+  limit: number
+): Promise<TrainableSection[]> {
+  // Owner-scoped: sections carries no user_id, so the join is the filter.
+  const { data: secs, error } = await supabase
+    .from("sections")
+    .select("id, event_id, events!inner(user_id, created_at)")
+    .ilike("name", "%highlight%")
+    // Machine-filled sections (migration 086) are the generator's own output;
+    // learning from them would teach it to agree with itself.
+    .is("highlights_auto_count", null)
+    .eq("events.user_id", ownerUserId)
+    .neq("event_id", excludeEventId);
+  if (error) throw error;
+
+  const ordered = (secs ?? [])
+    .map((r) => ({
+      id: r.id as string,
+      eventId: r.event_id as string,
+      at: (r.events as unknown as { created_at: string }).created_at,
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
+
+  const out: TrainableSection[] = [];
+  for (let i = 0; i < ordered.length && out.length < limit; i += 20) {
+    const counted = await Promise.all(
+      ordered.slice(i, i + 20).map(async (c) => {
+        const { count, error: cErr } = await supabase
+          .from("section_images")
+          .select("image_id", { count: "exact", head: true })
+          .eq("section_id", c.id);
+        if (cErr) throw cErr;
+        return { id: c.id, eventId: c.eventId, picks: count ?? 0 };
+      })
+    );
+    for (const c of counted) if (c.picks >= 5 && out.length < limit) out.push(c);
+  }
+  return out;
+}
+
+/** Pages of unpicked images read per set before judging it (200 rows each). */
+const MAX_NEG_PAGES = 2;
 
 type Vec = Float32Array;
 
@@ -96,79 +181,144 @@ export async function trainHighlightDirection(
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 
-  // Owner-scoped: sections carries no user_id, so the join is the filter.
-  const { data: secs, error: secErr } = await supabase
-    .from("sections")
-    .select("id, event_id, events!inner(user_id)")
-    .ilike("name", "%highlight%")
-    .eq("events.user_id", ownerUserId);
-  if (secErr) throw secErr;
+  // Twice the target, because dumps are only recognised while reading.
+  const secs = await candidateSections(
+    supabase,
+    ownerUserId,
+    excludeEventId,
+    MAX_TRAIN_SECTIONS * 2
+  );
 
   const dirs: Vec[] = [];
   let picksUsed = 0;
 
-  for (const sec of secs ?? []) {
-    const eventId = (sec as { event_id: string }).event_id;
-    if (eventId === excludeEventId) continue;
+  // One past set -> its direction, or null when it is not worth learning from.
+  const fitOne = async (sec: TrainableSection): Promise<{ dir: Vec; picks: number } | null> => {
+      const eventId = sec.eventId;
 
-    const { data: members, error: mErr } = await supabase
-      .from("section_images")
-      .select("image_id")
-      .eq("section_id", (sec as { id: string }).id)
-      .limit(2000);
-    if (mErr) throw mErr;
-    const pickedIds = (members ?? []).map((m) => m.image_id as string);
-    if (pickedIds.length < 5) continue;
+      const { data: members, error: mErr } = await supabase
+        .from("section_images")
+        .select("image_id")
+        .eq("section_id", sec.id)
+        .order("image_id")
+        .limit(MAX_PICKS_PER_SECTION);
+      if (mErr) throw mErr;
+      const pickedIds = (members ?? []).map((m) => m.image_id as string);
+      if (pickedIds.length < 5) return null;
 
-    const pos: Vec[] = [];
-    for (let i = 0; i < pickedIds.length; i += 100) {
-      const { data, error } = await supabase
-        .from("images")
-        .select("id, siglip_embedding")
-        .in("id", pickedIds.slice(i, i + 100))
-        .not("ai_indexed_at", "is", null);
-      if (error) throw error;
-      for (const r of data ?? []) {
-        const v = parseEmbedding((r as { siglip_embedding: unknown }).siglip_embedding);
-        if (v) pos.push(v);
+      // Membership of the WHOLE set (ids only, cheap) — the embeddings above
+      // were capped, but judging "is this picked" needs every pick.
+      const pickedSet = new Set(pickedIds);
+      if (sec.picks > pickedIds.length) {
+        for (let from = 0; from < sec.picks; from += 1000) {
+          const { data, error } = await supabase
+            .from("section_images")
+            .select("image_id")
+            .eq("section_id", sec.id)
+            .order("image_id")
+            .range(from, from + 999);
+          if (error) throw error;
+          for (const r of data ?? []) pickedSet.add(r.image_id as string);
+          if (!data || data.length < 1000) break;
+        }
       }
-    }
-    if (pos.length < 5) continue;
-
-    const pickedSet = new Set(pickedIds);
-    const neg: Vec[] = [];
-    for (let from = 0; neg.length < NEG_SAMPLE_PER_EVENT; from += 200) {
-      const { data, error } = await supabase
-        .from("images")
-        .select("id, siglip_embedding")
-        .eq("event_id", eventId)
-        .not("ai_indexed_at", "is", null)
-        .range(from, from + 199);
-      if (error) throw error;
-      if (!data?.length) break;
-      for (const r of data) {
-        if (pickedSet.has(r.id as string)) continue;
-        const v = parseEmbedding((r as { siglip_embedding: unknown }).siglip_embedding);
-        if (v) neg.push(v);
-        if (neg.length >= NEG_SAMPLE_PER_EVENT) break;
+      const neg: Vec[] = [];
+      let scanned = 0;
+      let scannedPicked = 0;
+      for (let page = 0; page < MAX_NEG_PAGES && neg.length < NEG_SAMPLE_PER_EVENT; page++) {
+        const { data, error } = await supabase
+          .from("images")
+          .select("id, siglip_embedding")
+          .eq("event_id", eventId)
+          .not("ai_indexed_at", "is", null)
+          // (event_id, created_at) is indexed; ordering by id alone forced a
+          // whole-gallery sort, 7s on a 19k gallery. Upload order can cluster
+          // picks early, which only ever makes a real set look like a dump:
+          // a skipped set, never a learned dump.
+          .order("created_at")
+          .order("id")
+          .range(page * 200, page * 200 + 199);
+        if (error) throw error;
+        if (!data?.length) break;
+        for (const r of data) {
+          scanned++;
+          if (pickedSet.has(r.id as string)) {
+            scannedPicked++;
+            continue;
+          }
+          if (neg.length >= NEG_SAMPLE_PER_EVENT) continue;
+          const v = parseEmbedding((r as { siglip_embedding: unknown }).siglip_embedding);
+          if (v) neg.push(v);
+        }
+        // A dump announces itself on the first page; stop paying for it.
+        if (scanned && scannedPicked / scanned > MAX_KEEP_SHARE) break;
+        if (data.length < 200) break;
       }
-      if (data.length < 200) break;
-    }
-    if (neg.length < 20) continue;
+      if (!scanned || scannedPicked / scanned > MAX_KEEP_SHARE) return null;
+      if (neg.length < 20) return null;
 
-    // Center on THIS event's mean, then difference. See the header note.
-    const mu = mean([...pos, ...neg]);
-    const centre = (v: Vec) => {
-      const o = new Float32Array(EMBEDDING_DIM);
-      for (let i = 0; i < EMBEDDING_DIM; i++) o[i] = v[i] - mu[i];
-      return o;
-    };
-    const mp = mean(pos.map(centre));
-    const mn = mean(neg.map(centre));
-    const d = new Float32Array(EMBEDDING_DIM);
-    for (let i = 0; i < EMBEDDING_DIM; i++) d[i] = mp[i] - mn[i];
-    dirs.push(normalized(d));
-    picksUsed += pos.length;
+      // Only now, with the set judged a real one, read the picks' embeddings.
+      const pos: Vec[] = [];
+      for (let i = 0; i < pickedIds.length; i += 100) {
+        const { data, error } = await supabase
+          .from("images")
+          .select("id, siglip_embedding")
+          .in("id", pickedIds.slice(i, i + 100))
+          .not("ai_indexed_at", "is", null);
+        if (error) throw error;
+        for (const r of data ?? []) {
+          const v = parseEmbedding((r as { siglip_embedding: unknown }).siglip_embedding);
+          if (v) pos.push(v);
+        }
+      }
+      if (pos.length < 5) return null;
+
+      // Center on THIS event's mean, then difference. See the header note.
+      const mu = mean([...pos, ...neg]);
+      const centre = (v: Vec) => {
+        const o = new Float32Array(EMBEDDING_DIM);
+        for (let i = 0; i < EMBEDDING_DIM; i++) o[i] = v[i] - mu[i];
+        return o;
+      };
+      const mp = mean(pos.map(centre));
+      const mn = mean(neg.map(centre));
+      const d = new Float32Array(EMBEDDING_DIM);
+      for (let i = 0; i < EMBEDDING_DIM; i++) d[i] = mp[i] - mn[i];
+      return { dir: normalized(d), picks: pos.length };
+  };
+
+  // Three sets at a time, newest first, until enough real sets are fitted.
+  // One at a time took 5.5 minutes under migration load (2026-09-24); six at a
+  // time pushed single reads past the 15s statement timeout. A set whose read
+  // fails is skipped — one lost example must not sink the whole fit — and the
+  // fit only fails when every set did.
+  let failed = 0;
+  let attempted = 0;
+  let firstError: unknown = null;
+  for (let i = 0; i < secs.length && dirs.length < MAX_TRAIN_SECTIONS; i += 3) {
+    const fitted = await Promise.allSettled(secs.slice(i, i + 3).map(fitOne));
+    attempted += fitted.length;
+    for (const f of fitted) {
+      if (f.status === "rejected") {
+        failed++;
+        firstError ??= f.reason;
+        continue;
+      }
+      if (!f.value || dirs.length >= MAX_TRAIN_SECTIONS) continue;
+      dirs.push(f.value.dir);
+      picksUsed += f.value.picks;
+    }
+  }
+  // Fail only when EVERY set failed. Sets declined as dumps are not failures:
+  // they fall through to "no direction", which propose reports as unranked.
+  if (failed && failed === attempted) throw firstError;
+  if (failed) {
+    const { reportSystemError } = await import("@/lib/monitoring/report");
+    await reportSystemError("highlights.direction.partial", firstError, {
+      ownerUserId,
+      failedSets: failed,
+      fittedSets: dirs.length,
+    });
   }
 
   const value =
@@ -197,24 +347,11 @@ export async function countTrainablePicks(
   ownerUserId: string,
   excludeEventId: string
 ): Promise<number> {
-  const { data: secs, error } = await supabase
-    .from("sections")
-    .select("id, event_id, events!inner(user_id)")
-    .ilike("name", "%highlight%")
-    .eq("events.user_id", ownerUserId);
-  if (error) throw error;
-
-  let total = 0;
-  for (const sec of secs ?? []) {
-    if ((sec as { event_id: string }).event_id === excludeEventId) continue;
-    const { count, error: cErr } = await supabase
-      .from("section_images")
-      .select("image_id", { count: "exact", head: true })
-      .eq("section_id", (sec as { id: string }).id);
-    if (cErr) throw cErr;
-    total += count ?? 0;
-  }
-  return total;
+  // An upper bound: dumps are only recognised while training (see
+  // candidateSections), so this can promise a direction that training then
+  // declines. proposeHighlights handles that as "unranked", never as an error.
+  const secs = await candidateSections(supabase, ownerUserId, excludeEventId, MAX_TRAIN_SECTIONS);
+  return secs.reduce((sum, s) => sum + Math.min(s.picks, MAX_PICKS_PER_SECTION), 0);
 }
 
 /** Drop cached directions for a user — call after a set is accepted. */
