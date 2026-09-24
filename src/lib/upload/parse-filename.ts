@@ -37,10 +37,11 @@ export interface ParsedFilename {
 const CAMERA_PREFIXES =
   /^(?:(?:IMG|DSCF|DSCN|DSC|_MG|_DSC|GOPR|DJI|DCIM)(?![a-z])|(?:P|SAM|R0)[_-]?\d)/i;
 
-/** Common separators used in filenames */
+import { captureInstant, legacyCaptureInstants } from "./capture-time";
 import { collapseRepeatedWords, splitPersonWords } from "@/lib/gallery/stacks";
 import { nameText } from "@/lib/people/name-text";
 
+/** Common separators used in filenames */
 const SEPARATORS = /[_\- ]+/;
 
 /**
@@ -189,7 +190,6 @@ export async function extractExif(buffer: ArrayBuffer) {
   try {
     const data = await exifr.parse(buffer, {
       pick: [
-        "DateTimeOriginal",
         "Make",
         "Model",
         "LensModel",
@@ -209,28 +209,38 @@ export async function extractExif(buffer: ArrayBuffer) {
         "ExifImageHeight",
       ],
     });
+    // Dates in their OWN pass, raw. Revived, DateTimeOriginal becomes a Date
+    // read in the RUNTIME's zone, so Vercel, the mini and a browser each stored
+    // a different instant for one file (capture-time.ts). Raw is scoped to this
+    // pass because revival also unwraps array-valued ExifImageWidth/Height
+    // (exifr #36), and an array width strands the upload row as a ghost tile.
+    const dates = await exifr.parse(buffer, {
+      pick: ["DateTimeOriginal", "OffsetTimeOriginal"],
+      reviveValues: false,
+    });
 
-    if (!data) return null;
+    if (!data && !dates) return null;
 
     return {
-      takenAt: data.DateTimeOriginal
-        ? new Date(data.DateTimeOriginal).toISOString()
+      takenAt: captureInstant(dates?.DateTimeOriginal, dates?.OffsetTimeOriginal),
+      // What the pre-2026-09-24 reader could have stored for this frame, for
+      // capture-second matching against rows that were never backfilled.
+      legacyTakenAt: legacyCaptureInstants(dates?.DateTimeOriginal),
+      cameraMake: data?.Make || null,
+      cameraModel: data?.Model || null,
+      lens: data?.LensModel || null,
+      focalLength: data?.FocalLength || null,
+      aperture: data?.FNumber || null,
+      shutterSpeed: data?.ExposureTime
+        ? data?.ExposureTime < 1
+          ? `1/${Math.round(1 / data?.ExposureTime)}`
+          : `${data?.ExposureTime}`
         : null,
-      cameraMake: data.Make || null,
-      cameraModel: data.Model || null,
-      lens: data.LensModel || null,
-      focalLength: data.FocalLength || null,
-      aperture: data.FNumber || null,
-      shutterSpeed: data.ExposureTime
-        ? data.ExposureTime < 1
-          ? `1/${Math.round(1 / data.ExposureTime)}`
-          : `${data.ExposureTime}`
-        : null,
-      iso: data.ISO || null,
-      gpsLat: toDecimalDegrees(data.GPSLatitude, data.GPSLatitudeRef, 90),
-      gpsLng: toDecimalDegrees(data.GPSLongitude, data.GPSLongitudeRef, 180),
-      width: data.ExifImageWidth || data.ImageWidth || null,
-      height: data.ExifImageHeight || data.ImageHeight || null,
+      iso: data?.ISO || null,
+      gpsLat: toDecimalDegrees(data?.GPSLatitude, data?.GPSLatitudeRef, 90),
+      gpsLng: toDecimalDegrees(data?.GPSLongitude, data?.GPSLongitudeRef, 180),
+      width: data?.ExifImageWidth || data?.ImageWidth || null,
+      height: data?.ExifImageHeight || data?.ImageHeight || null,
     };
   } catch {
     return null;

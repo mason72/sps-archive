@@ -15,6 +15,8 @@
  * venue, and orientation is what keeps a portrait shot upright.
  */
 
+import { captureInstant } from "@/lib/upload/capture-time";
+
 export interface PreparedImage {
   /** 2048px long edge, JPEG. */
   full: Blob;
@@ -52,15 +54,21 @@ async function readExif(file: File): Promise<{ takenAt: string | null; gps: { la
   try {
     const exifr = await import("exifr");
     const data = (await exifr.parse(file, {
-      pick: ["DateTimeOriginal", "CreateDate", "GPSLatitude", "GPSLongitude", "GPSLatitudeRef", "GPSLongitudeRef"],
+      pick: ["GPSLatitude", "GPSLongitude", "GPSLatitudeRef", "GPSLongitudeRef"],
       // `gps: true` reads the GPS block; exifr then derives decimal
       // `latitude`/`longitude` from the DMS tuples (which is what we read).
       gps: true,
     })) as Record<string, unknown> | undefined;
-    const when = (data?.DateTimeOriginal ?? data?.CreateDate) as Date | string | undefined;
-    let takenAt: string | null = null;
-    if (when instanceof Date && Number.isFinite(when.getTime())) takenAt = when.toISOString();
-    else if (typeof when === "string" && Number.isFinite(Date.parse(when))) takenAt = new Date(when).toISOString();
+    // Dates are read RAW in their own pass: revived, exifr reads the wall clock
+    // in the browser's zone (see capture-time.ts). The GPS pass above keeps
+    // revival, which is what derives `latitude`/`longitude`.
+    const dates = (await exifr.parse(file, {
+      pick: ["DateTimeOriginal", "OffsetTimeOriginal", "CreateDate", "OffsetTimeDigitized"],
+      reviveValues: false,
+    })) as Record<string, unknown> | undefined;
+    const takenAt =
+      captureInstant(dates?.DateTimeOriginal, dates?.OffsetTimeOriginal) ??
+      captureInstant(dates?.CreateDate, dates?.OffsetTimeDigitized);
 
     let gps: { lat: number; lng: number } | null = null;
     const lat = data?.latitude as number | undefined;

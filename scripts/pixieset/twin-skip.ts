@@ -21,6 +21,15 @@
  *
  * It never skips on a guess: a sample match under MIN_SAMPLE_SHARE means
  * "not a duplicate" and the ingest proceeds untouched.
+ *
+ * A frame carries SEVERAL candidate keys (2026-09-24). The capture-time reader
+ * was fixed to honour EXIF OffsetTimeOriginal (src/lib/upload/capture-time.ts),
+ * but existing rows were not backfilled: they hold the instant the OLD reader
+ * produced, read in UTC (SPS pull) or Pacific (the mini, browser uploads). So a
+ * frame matches on its corrected instant OR either legacy one. Without this the
+ * guard would go quietly blind the day the fix shipped, on exactly the
+ * collections it exists to catch. Bytes stay exact, so a wider time set cannot
+ * pair two different photos.
  */
 import type { createServiceClient } from "../../src/lib/supabase/server";
 
@@ -29,6 +38,20 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
 /** A frame's fingerprint: capture second + exact bytes. */
 const twinKey = (takenAt: string | Date, bytes: number) =>
   `${new Date(takenAt).toISOString()}|${bytes}`;
+
+/** What `extractExif` hands back that this module reads. */
+export type TwinExif = { takenAt?: string | Date | null; legacyTakenAt?: string[] | null } | null;
+
+/**
+ * Every key a frame could be stored under: the corrected instant plus the
+ * instants the pre-fix reader wrote. Empty when the frame has no capture time.
+ */
+export function frameKeys(exif: TwinExif, bytes: number): string[] {
+  const times = [exif?.takenAt, ...(exif?.legacyTakenAt ?? [])].filter(
+    (t): t is string | Date => t != null && Number.isFinite(new Date(t).getTime())
+  );
+  return [...new Set(times.map((t) => twinKey(t, bytes)))];
+}
 
 /** Frames sampled before deciding whether a full check is worth it. */
 const SAMPLE = 40;
@@ -56,16 +79,17 @@ export interface TwinScanResult {
 
 async function keysFor(
   entries: TwinScanEntry[],
-  extractExif: (buffer: ArrayBuffer) => Promise<{ takenAt?: string | Date | null } | null>
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+  extractExif: (buffer: ArrayBuffer) => Promise<TwinExif>
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
   for (const e of entries) {
     try {
       const buf = await e.read();
       const exif = await extractExif(
         buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
       );
-      if (exif?.takenAt) out.set(e.base, twinKey(exif.takenAt, buf.byteLength));
+      const keys = frameKeys(exif, buf.byteLength);
+      if (keys.length) out.set(e.base, keys);
     } catch {
       // A frame we cannot read here is a frame we do not skip. The import path
       // will report it properly if it is genuinely broken.
@@ -90,7 +114,7 @@ export async function findTwinsToSkip({
   userId: string;
   excludeEventId: string | null;
   entries: TwinScanEntry[];
-  extractExif: (buffer: ArrayBuffer) => Promise<{ takenAt?: string | Date | null } | null>;
+  extractExif: (buffer: ArrayBuffer) => Promise<TwinExif>;
   log?: (line: string) => void;
 }): Promise<TwinScanResult> {
   const empty: TwinScanResult = {
@@ -113,7 +137,13 @@ export async function findTwinsToSkip({
     return { ...empty, sampled: sample.length, withoutCaptureTime: sample.length };
   }
 
-  const times = [...new Set([...sampleKeys.values()].map((k) => k.split("|")[0]))];
+  // key → the sampled frames it could be. One row hits one FRAME, however many
+  // of that frame's candidate keys exist, so hits count frames, not keys.
+  const framesByKey = new Map<string, string[]>();
+  for (const [base, keys] of sampleKeys) {
+    for (const k of keys) framesByKey.set(k, [...(framesByKey.get(k) ?? []), base]);
+  }
+  const times = [...new Set([...framesByKey.keys()].map((k) => k.split("|")[0]))];
   const { data: hits, error } = await supabase
     .from("images")
     // `images` and `events` are related TWICE (event_id up, cover_image_id
@@ -125,18 +155,20 @@ export async function findTwinsToSkip({
     .limit(2000);
   if (error) throw error;
 
-  const wanted = new Set(sampleKeys.values());
-  const byEvent = new Map<string, { name: string; hits: number }>();
+  const byEvent = new Map<string, { name: string; frames: Set<string> }>();
   for (const row of hits ?? []) {
     if (!row.taken_at || row.file_size == null) continue;
     if (excludeEventId && row.event_id === excludeEventId) continue;
-    if (!wanted.has(twinKey(row.taken_at, row.file_size))) continue;
+    const frames = framesByKey.get(twinKey(row.taken_at, row.file_size));
+    if (!frames) continue;
     const ev = row.events as unknown as { name: string };
-    const cur = byEvent.get(row.event_id) ?? { name: ev.name, hits: 0 };
-    cur.hits += 1;
+    const cur = byEvent.get(row.event_id) ?? { name: ev.name, frames: new Set<string>() };
+    for (const f of frames) cur.frames.add(f);
     byEvent.set(row.event_id, cur);
   }
-  const best = [...byEvent.entries()].sort((a, b) => b[1].hits - a[1].hits)[0];
+  const best = [...byEvent.entries()]
+    .map(([id, v]) => [id, { name: v.name, hits: v.frames.size }] as const)
+    .sort((a, b) => b[1].hits - a[1].hits)[0];
   const share = best ? best[1].hits / sampleKeys.size : 0;
   if (!best || share < MIN_SAMPLE_SHARE) {
     log(
@@ -171,7 +203,7 @@ export async function findTwinsToSkip({
   for (const [base, key] of await keysFor(rest, extractExif)) allKeys.set(base, key);
 
   const skip = new Set<string>();
-  for (const [base, key] of allKeys) if (existing.has(key)) skip.add(base);
+  for (const [base, keys] of allKeys) if (keys.some((k) => existing.has(k))) skip.add(base);
   const withoutCaptureTime = entries.length - allKeys.size;
 
   return {

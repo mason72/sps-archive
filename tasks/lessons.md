@@ -4072,3 +4072,21 @@ asked this one to look.
 - **Work after the response goes in `after()`**, with a `maxDuration` that covers it. `void promise` in a route is work the platform may never finish.
 - **A best-effort helper that swallows errors must return what failed**, or every caller's failure count reads zero.
 - **An R2 folder name is not ownership.** Before deleting by prefix, ask whether any row outside the owner points into it.
+
+## 165 — One EXIF reader stored three different capture times, and the offset tag lies when the zone was never set (2026-09-24)
+
+**What happened.** The AU2026 merge found the SPS pull and the direct upload storing `taken_at` 7 hours apart for the same file. It looked like two bugs. It was one: `extractExif()` let exifr revive `DateTimeOriginal` (a wall clock with no zone) with `new Date(...)`, which reads it in the zone of **whatever process runs it**. Vercel is UTC; the mini and the browser are Pacific; a browser upload from a travelling laptop is whatever that hotel was (two upload galleries came out 4h and 5h off). `OffsetTimeOriginal` was never read.
+
+**Measured (read-only, one frame per event over 353 events, `scripts/triage/taken-at-offset-probe.ts`).** 62% of events carry the offset tag, from −04:00 to +00:00. Offsets extrapolated to whole events: ~300k of ~500k rows would move under the corrected reader. Not backfilled.
+
+**Fix.** `src/lib/upload/capture-time.ts` is the one home: raw string (`reviveValues: false`), offset wins, no usable offset → `America/Los_Angeles` DST-aware (Mason's pick: it is what the mini and laptop already stored for untagged files, so they do not move). Intel notes' client reader goes through it too. `twin-skip.ts` now matches a frame on its corrected instant **or** either legacy instant, or it would have gone blind on existing rows the day this shipped.
+
+**The premise was wrong, and the histogram said so.** The brief called 09:27:35Z (tag −08:00) the "true" AU time. AU was at the Venetian; the R3's raw clock runs 19:00–06:00, so believing the tag puts a booth open 8pm–7am. That clock was ~11h fast. A zone rule cannot fix a wrong clock; what the fix buys AU is that both paths now agree.
+
+**`+00:00` is treated as no tag.** The bodies that wrote it also wrote `2000:01:01` and 2023 clocks, and Kinexions (Las Vegas) reads 9am–4pm as Pacific but 2am–9am if `+00:00` is believed. Tags ARE right on configured bodies: Hotel Data (Dallas, −05:00) lands at 8am–4pm local, PG&E (SF, a body left on Eastern) at 10am–4pm instead of 1pm–7pm.
+
+**Rules.**
+- **A date parsed without a zone is parsed in the runtime's zone.** Any code that turns a zoneless string into an instant must name the zone, or the same file gets a different answer on every machine. Test under `TZ=UTC` and another zone.
+- **Check a "true value" against the shape of the whole set before building on it.** One sample time looked authoritative; an hour histogram of the event showed it was a 3am booth.
+- **Metadata that defaults silently is not evidence.** A tag written by a camera that was never configured (`+00:00`, year 2000) carries no information and must not outrank the fallback.
+- **Fixing a key's reader breaks every matcher keyed on the old values.** Before shipping, list the matchers (`twin-skip`, `consolidate-duplicates`) and teach them the legacy keys, or backfill first.
