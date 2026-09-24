@@ -295,11 +295,15 @@ export async function deleteFromR2(key: string): Promise<void> {
  * Deleting only the original was a storage leak — the 3 derivatives lived on
  * forever (deleted events/images left ~18GB of orphans). Callers on the delete
  * path use this instead of a bare deleteFromR2(original).
+ *
+ * Returns the keys that FAILED (empty on success). It never rejects, so a
+ * caller counting `Promise.allSettled` rejections always reads zero; read the
+ * returned list instead when the failure count matters.
  */
 export async function deleteImageAssets(
   r2Key: string,
   mediaType?: string | null
-): Promise<void> {
+): Promise<string[]> {
   const keys = [
     r2Key,
     getThumbnailKey(r2Key, "thumb-sm"),
@@ -310,13 +314,16 @@ export async function deleteImageAssets(
     const displayKey = getVideoDisplayKey(r2Key);
     if (displayKey !== r2Key) keys.push(displayKey);
   }
+  const failed: string[] = [];
   await Promise.all(
     keys.map((k) =>
-      deleteFromR2(k).catch((err) =>
-        console.error("R2 delete failed for", k, err)
-      )
+      deleteFromR2(k).catch((err) => {
+        failed.push(k);
+        console.error("R2 delete failed for", k, err);
+      })
     )
   );
+  return failed;
 }
 
 /** Build the R2 key path for an image */

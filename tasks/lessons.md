@@ -4059,3 +4059,16 @@ asked this one to look.
 - **A timeout that is FLAT across inputs spanning 100x in size is wrong for one end of the range.** Scale it by the size you know before you start waiting (the photo count from the set picker).
 - **A capacity gate must ask about the bytes still to come, not the whole job.** Otherwise the resume path, the one that saves the most, is the one the gate refuses.
 - **Absence of a row is data.** An id gap in an append-only log (Chrome's `downloads`) located every lost part exactly, with no probe.
+
+## 164 — Deleting an event leaked 45 GB, and the failure counter could never count (2026-09-24)
+
+**What happened.** `DELETE /api/events/[eventId]` listed image keys with `.range()` paging and no `.order()` (lesson 88: pages can skip rows, and a skipped row's file is never collected). Then it ran R2 cleanup as `void Promise.all(...)` *after* returning, so Vercel could freeze the function partway through a large event. A dry-run sweep (`scripts/triage/event-orphan-sweep.ts`) found **9 dead `events/<id>/` folders holding 58,597 orphaned objects (45.29 GB)**, 14,650 of them originals. The sweep deleted nothing.
+
+**Two traps found while fixing it.**
+- **`deleteImageAssets` never rejected.** It caught each per-key failure and logged it. `merge-au2026.ts` counted `Promise.allSettled` rejections to get `r2DeleteFailures`, so that count was always 0 and could never catch a failure. The function now returns the list of keys that failed.
+- **A prefix delete would have destroyed live photos.** Consolidation moves ROWS into the kept event and leaves their FILES under the deleted event's folder. The dead DAIS copy (`26ca7bed…`) still holds 1,584 objects (396 frames) that live **GOOGLE CLOUD // DAIS 2026** rows point at. Cleanup is key by key, and it skips any key that a remaining row still references (`src/lib/events/purge-assets.ts`).
+
+**Rules.**
+- **Work after the response goes in `after()`**, with a `maxDuration` that covers it. `void promise` in a route is work the platform may never finish.
+- **A best-effort helper that swallows errors must return what failed**, or every caller's failure count reads zero.
+- **An R2 folder name is not ownership.** Before deleting by prefix, ask whether any row outside the owner points into it.
