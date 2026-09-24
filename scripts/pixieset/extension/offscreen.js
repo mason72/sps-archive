@@ -130,6 +130,19 @@ async function unlock(slug, password) {
   return !isGated(r.url);
 }
 
+/**
+ * Minutes to wait for a build: scaled by photo count, clamped to the floor and
+ * the ceiling the scheduler's lock was sized for. An unknown count gets the
+ * floor, which is what every collection got before 2026-09-24.
+ */
+function pollBudget(expect, opts) {
+  const floor = opts.pollMinutes ?? 35;
+  const ceil = opts.pollMaxMinutes ?? floor;
+  const perK = opts.pollMinutesPerK ?? 0;
+  const scaled = Number.isFinite(expect) ? Math.ceil((expect / 1000) * perK) : 0;
+  return Math.min(ceil, Math.max(floor, scaled));
+}
+
 /** Drive one collection to a set of zip URLs. Returns data only — no downloads. */
 async function driveOne(slug, password, opts) {
   const t0 = Date.now();
@@ -219,11 +232,19 @@ async function driveOne(slug, password, opts) {
 
     // Readiness is discovered by re-fetching: there is no poller on that page.
     // Small galleries are ready in seconds, a 5,000-photo one takes well over
-    // five minutes. The budget is TIME, not a try count, so the scheduler's lock
-    // can be sized against it: fast polls first, then one every 15 seconds.
+    // five minutes, and a 34,000-photo one about forty. The budget is TIME, not
+    // a try count, so the scheduler's lock can be sized against it, and it
+    // scales with the photo count known from the set picker (see
+    // DRIVE_POLL_MIN_PER_K in background.js). The pace slows as the wait grows:
+    // every 3s for the first minute, every 15s to ten minutes, then every 60s.
+    // A 90-minute wait is ~136 requests; the old flat 15s cadence spent ~156 on
+    // 35 minutes, at a host whose protection we are careful not to provoke.
     out.phase = "poll";
     let ready = null;
-    const pollUntil = Date.now() + (opts.pollMinutes ?? 35) * 60_000;
+    const pollMinutes = pollBudget(out.expect, opts);
+    notes.push(`poll budget ${pollMinutes}m`);
+    const pollStart = Date.now();
+    const pollUntil = pollStart + pollMinutes * 60_000;
     for (let i = 0; Date.now() < pollUntil; i++) {
       const p = await GET(fileUrl);
       if (/ready to download/i.test(p.html)) { ready = parse(p.html); break; }
@@ -234,9 +255,9 @@ async function driveOne(slug, password, opts) {
           if (/ready to download/i.test(e.html)) { ready = parse(e.html); break; }
         }
       }
-      await sleep(i < 20 ? 3000 : 15000);
+      await sleep(i < 20 ? 3000 : Date.now() - pollStart < 10 * 60_000 ? 15000 : 60000);
     }
-    if (!ready) { out.error = `not ready after ${opts.pollMinutes ?? 35}m of polling`; return out; }
+    if (!ready) { out.error = `not ready after ${pollMinutes}m of polling`; return out; }
 
     const zips = zipAnchors(ready);
     if (!zips.length) { out.error = "ready page carried no zip links"; return out; }

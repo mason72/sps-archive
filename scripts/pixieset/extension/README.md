@@ -105,21 +105,47 @@ Chrome restart by itself.
   photos, 17 parts, 46 GB). Its ticks overlapped, three drives ran at once for
   the same collection, and each would have requested its own 46 GB archive
   against 113 GB of free disk. The lock lives in storage, not a variable,
-  because the worker is evicted between wake-ups; it expires after 50 minutes so
-  a drive that died with the worker cannot block the queue forever.
+  because the worker is evicted between wake-ups; it expires after 110 minutes
+  (50 before 2026-09-24) so a drive that died with the worker cannot block the
+  queue forever.
 - **The tick never waits for a drive to finish.** It dispatches, and the
   offscreen document answers with a `driveResult` message of its own, matched
   to the lock by a token. Chrome kills a service worker that waits ~5 minutes on
   one reply, and a 3,000+ photo build takes longer, so on 2026-09-14/15 every
   such drive finished into a dead channel and four collections were retired as
   "drive never answered" (the one that got through answered in 5m43s). A new
-  message wakes a dead worker; a reply on a dead channel does not. Polling is a
-  35-minute time budget, inside the 50-minute lock. Ticks and results run one at
-  a time (`serial`), or a tick's stale save would drop a result's `inflight`.
-- **A retry fetches only the parts that are missing.** Pixieset regenerates the
-  whole archive per request, so a retry hands back 17 fresh links even when 16
-  of those parts are on disk. `alreadyHave()` skips any part Chrome has already
-  completed and still has. Mixing generations is checked rather than assumed:
+  message wakes a dead worker; a reply on a dead channel does not. Ticks and
+  results run one at a time (`serial`), or a tick's stale save would drop a
+  result's `inflight`.
+- **The build wait scales with the collection (v1.2.0, 2026-09-24).** 2.5 minutes
+  per 1,000 photos, never under 35 or over 90, inside the 110-minute lock. A
+  flat 35 minutes retired servicenowsko26 (34,274 photos, ~100 GB): its build
+  took ~40, so attempt 1 gave up just before it finished and attempt 3's fresh
+  build timed out the same way. Measured basis: atlassian-team26expo, 8,518
+  photos / 46 GB, built in 19 minutes. The poll slows as it waits (3s for a
+  minute, 15s to ten minutes, then 60s), so a 90-minute wait sends ~136 requests,
+  fewer than the old 35-minute one (~156).
+- **At most six parts download at once (v1.2.0, 2026-09-24).** The rest wait in
+  `inflight.queued` and start as earlier parts finish: `downloads.onChanged` is
+  the fast path, every tick's `settleInflight` is the backstop, and a set with
+  anything still queued is never retired. Starting every part at once lost parts
+  in proportion to the count: 1 of 21 (hiltonsummit), 4 of 20
+  (servicenowsko2025), 14 of 31 (servicenowsko26), none in any set of 8 or
+  fewer. The doomed parts are visible from their first second: Chrome never
+  gives them a filename, so they sit as `Unconfirmed NNNN.crdownload` (often 0
+  bytes) until they die as NETWORK_FAILED, and they never get a row in Chrome's
+  History database. Whether Chrome or `downloads.pixieset.com` drops them was
+  not provable offline. The cap costs nothing: the Studio's link tops out near
+  100 MB/s and 4-5 parts already reach it.
+- **A retry fetches only the parts that are missing, and the disk gate asks
+  only about those.** Pixieset regenerates the whole archive per request, so a
+  retry hands back 17 fresh links even when 16 of those parts are on disk.
+  `alreadyHave()` skips any part Chrome has already completed and still has
+  (proven on hiltonsummit and servicenowsko2025, both verified). It runs before
+  the disk gate, which used to count the whole archive and would have set
+  servicenowsko26 aside as needing ~100 GB with 55 GB of it already on disk.
+  So **never move or rename landed parts of an incomplete set** out of
+  `~/Downloads`: `exists: true` goes false and the retry fetches them again. Mixing generations is checked rather than assumed:
   `verifyArchive` quarantines a set whose file count or dimensions disagree.
 - **One failed part does not discard a set that is still landing.** The first
   version gave up the moment any download reported interrupted, which threw away
@@ -158,13 +184,26 @@ Chrome restart by itself.
 - **Passwords are Mason's clients' passwords.** They live in
   `chrome.storage.local` and must never be logged, printed, or sent anywhere.
 
+## Diagnosing lost downloads offline
+
+The popup and `extension-status.json` keep only the last 12 log lines, and
+`watch.log` has no timestamps. **Chrome's own History database is the durable
+record**: copy `~/Library/Application Support/Google/Chrome/Default/History`
+(Chrome holds a lock) and query the `downloads` table (start/end time, bytes,
+`interrupt_reason`) and `downloads_url_chains`. **A gap in the `id` sequence
+inside one collection's run is a lost part**: an unconfirmed download never gets
+a row. Match it to `Unconfirmed *.crdownload` birth times in `~/Downloads`
+(`stat -f %SB`). Never print a `url_chains` URL whole: `filestart?fid&filekey`
+is a live download credential; print the host and parameter names only. Those
+orphaned `.crdownload` files are Chrome-forgotten and safe to move to the Trash.
+
 ## Tests
 
 ```bash
 node --test scripts/pixieset/extension/background.test.mjs
 ```
 
-Nine tests over the scheduler, loaded against a stub `chrome`. Both bugs they
+Forty-eight tests over the scheduler, loaded against a stub `chrome`. Both bugs they
 guard were live and both were silent, so the interesting ones are the negative
 cases: a deferred collection must leave the head, a download Chrome has
 forgotten must count as a failure, and a repair must not run twice.

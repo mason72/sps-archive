@@ -111,6 +111,18 @@ const REPAIRS = [
     requeue: ["ffdc2015", "foothillsteamphotos"],
     front: ["ffdc2015", "foothillsteamphotos"],
   },
+  {
+    id: "2026-09-24-requeue-servicenowsko26",
+    // Retired 2026-09-23 after three attempts, for two reasons now fixed: 31
+    // parts started at once and 14 never landed (MAX_PARALLEL), and its ~40
+    // minute build outran the flat 35-minute poll (DRIVE_POLL_MIN_PER_K). Its 17
+    // landed parts (55 GB) are still in ~/Downloads and complete in Chrome's
+    // history, so alreadyHave() skips them and the disk gate now counts only the
+    // ~45 GB still missing. 34,274 photos, not yet in the ledger. Approved by
+    // Mason 2026-09-24.
+    requeue: ["servicenowsko26"],
+    front: ["servicenowsko26"],
+  },
 ];
 
 const DEFAULTS = {
@@ -149,7 +161,9 @@ function statusOf(s) {
     // Counted exactly as tick() picks, or the popup reassures you about
     // work the scheduler will never reach.
     remaining: s.jobs.filter((j) => !s.done.includes(j) && !s.gated.includes(j)).length,
-    inflight: s.inflight ? { slug: s.inflight.slug, parts: s.inflight.ids.length, at: s.inflight.at } : null,
+    inflight: s.inflight
+      ? { slug: s.inflight.slug, parts: s.inflight.ids.length + (s.inflight.queued?.length ?? 0), waiting: s.inflight.queued?.length ?? 0, at: s.inflight.at }
+      : null,
     driving: s.driving ? { slug: s.driving.slug, at: s.driving.at } : null,
     gated: s.gated.length, noDownload: s.noDownload.length, gone: (s.gone || []).length,
     passwords: Object.keys(s.passwords).length,
@@ -202,6 +216,10 @@ function applyRepairs(s) {
     for (const slug of requeue) {
       if (s.attempts) delete s.attempts[slug];
       if (s.driving?.slug === slug) s.driving = null;
+      // A stale set-aside size would skip it at the head of the queue forever:
+      // the only place that clears one is a drive, and a set-aside slug never
+      // drives. Its real size is measured again when it next runs.
+      if (s.tooBig) delete s.tooBig[slug];
     }
     // Set aside: skipped until the disk can hold it, never retired. A drive
     // still holding the lock for it would block the queue, so release that too.
@@ -365,32 +383,76 @@ async function alreadyHave(name) {
   } catch { return null; }
 }
 
-async function downloadAll(zips) {
-  const ids = [];
-  let skipped = 0;
+/**
+ * Split a ready archive into the parts already on disk and the parts to fetch.
+ *
+ * A retry must not re-fetch the parts that already landed. Pixieset regenerates
+ * the whole archive per request, so a retry hands back seventeen fresh links
+ * even when sixteen of those parts are sitting on disk. Re-downloading them cost
+ * 46 GB to recover one 1.3 GB part, and on a staging volume with 113 GB free
+ * that is how the disk fills — which is the accident that started all of this.
+ *
+ * It runs BEFORE the disk gate, because the gate must ask about the bytes still
+ * to come, not the whole archive. Counting the whole archive set servicenowsko26
+ * aside on 2026-09-24 as needing ~100 GB when 55 GB of it was already on disk.
+ *
+ * Mixing generations is safe HERE because it is checked downstream, not assumed:
+ * Pixieset splits deterministically and the driver forces High Resolution, and
+ * if the two halves disagree anyway then `verifyArchive`'s file count and
+ * dimension sampling quarantine the set rather than staging it. A wrong mix
+ * fails loudly; it does not pass silently. (Proven twice on 2026-09-23/24:
+ * hiltonsummit and servicenowsko2025 both recovered this way and verified.)
+ */
+async function planDownloads(zips) {
+  const haveIds = [];
+  const missing = [];
   for (const z of zips) {
-    /**
-     * A retry must not re-fetch the parts that already landed.
-     *
-     * Pixieset regenerates the whole archive per request, so a retry hands back
-     * seventeen fresh links even when sixteen of those parts are sitting on
-     * disk. Re-downloading them cost 46 GB to recover one 1.3 GB part, and on a
-     * staging volume with 113 GB free that is how the disk fills — which is the
-     * accident that started all of this.
-     *
-     * Mixing generations is safe HERE because it is checked downstream, not
-     * assumed: Pixieset splits deterministically and the driver forces High
-     * Resolution, and if the two halves disagree anyway then `verifyArchive`'s
-     * file count and dimension sampling quarantine the set rather than staging
-     * it. A wrong mix fails loudly; it does not pass silently.
-     */
     const have = await alreadyHave(z.name);
-    if (have) { ids.push(have.id); skipped++; continue; }
+    if (have) haveIds.push(have.id);
+    else missing.push({ url: z.url, name: z.name ?? null, size: z.size ?? null });
+  }
+  return { haveIds, missing };
+}
+
+/**
+ * At most this many parts are handed to Chrome at once; the rest wait in
+ * `inflight.queued` and start as earlier ones finish.
+ *
+ * Every part used to start within a minute of the others. On 2026-09-23 the
+ * Studio started all 31 parts of servicenowsko26 at once: 17 landed, and 14
+ * never even received a filename from Chrome ("Unconfirmed *.crdownload"), ten
+ * of them with zero bytes, until they died as NETWORK_FAILED. The loss scaled
+ * with the count: 1 of 21 (hiltonsummit), 4 of 20 (servicenowsko2025), 14 of
+ * 31, and none in any set of 8 parts or fewer. Whether Chrome or Pixieset's
+ * download host drops the extra streams was not provable offline.
+ *
+ * Parallelism bought nothing: the Studio's wired link tops out at ~100 MB/s,
+ * and 4-5 parts already reach 101-107 MB/s (kinexions2025, msftaccelerate,
+ * alis2025). So the cap costs no speed and removes the failure's precondition.
+ */
+const MAX_PARALLEL = 6;
+
+/**
+ * Start queued parts until MAX_PARALLEL are in flight. Mutates `f`; returns how
+ * many it started. `running` is the number of this set's parts Chrome still
+ * reports in progress.
+ */
+async function topUp(f, running) {
+  let started = 0;
+  while (f.queued?.length && running + started < MAX_PARALLEL) {
+    const z = f.queued[0];
+    // A part that landed since the plan was made (a manual retry, say) is
+    // adopted rather than fetched twice.
+    const have = await alreadyHave(z.name);
+    if (have) { f.ids.push(have.id); f.queued.shift(); continue; }
+    // Removed from the queue only once Chrome has it: a throw leaves it waiting.
     const id = await chrome.downloads.download({ url: z.url, conflictAction: "uniquify" });
-    ids.push(id);
+    f.queued.shift();
+    f.ids.push(id);
+    started++;
     await new Promise((r) => setTimeout(r, 1500));   // stagger: simultaneous starts can drop one
   }
-  return { ids, skipped };
+  return started;
 }
 
 /**
@@ -418,8 +480,26 @@ const INFLIGHT_TIMEOUT_MIN = 360;
  * (Service Now SKO26, 34,274 photos, re-requested hourly for 44 hours before
  * expiry counted).
  */
+/**
+ * The poll budget scales with the collection (changed 2026-09-24). A flat 35
+ * minutes retired servicenowsko26 (34,274 photos, ~100 GB, 31 parts): its build
+ * took ~40 minutes, so attempt 1 gave up just before it finished, attempt 2
+ * picked the finished build up, and attempt 3's fresh build timed out again.
+ * The offscreen document knows the photo count before it polls, so it waits
+ * DRIVE_POLL_MIN_PER_K minutes per 1,000 photos, never below DRIVE_POLL_MIN and
+ * never above DRIVE_POLL_MAX_MIN (34,274 photos → ~86 min). The poll also slows
+ * down as it goes, so a 90-minute budget sends fewer requests than the old
+ * 35-minute one did. Measured basis: atlassian-team26expo, 8,518 photos /
+ * 46 GB, built in 19 min.
+ *
+ * The lock must outlast the LONGEST budget plus the requests around it, because
+ * it is taken before the photo count is known. The cost: a drive that truly
+ * hangs now holds the queue 110 minutes, not 50, before it counts.
+ */
 const DRIVE_POLL_MIN = 35;
-const DRIVE_TIMEOUT_MIN = 50;
+const DRIVE_POLL_MAX_MIN = 90;
+const DRIVE_POLL_MIN_PER_K = 2.5;
+const DRIVE_TIMEOUT_MIN = 110;
 
 /** How long to wait for the offscreen document to ACCEPT a drive (not finish it). */
 const DRIVE_ACCEPT_MS = 30_000;
@@ -532,22 +612,49 @@ async function settleInflight(s) {
   const f = s.inflight;
   if (!f) return true;
 
+  const read = async () => (await Promise.all(f.ids.map((id) => chrome.downloads.search({ id })))).flat();
   let items = [];
   try {
-    const found = await Promise.all(f.ids.map((id) => chrome.downloads.search({ id })));
-    items = found.flat();
+    items = await read();
   } catch (e) {
     note(s, `${f.slug}: could not read download state — ${String(e?.message ?? e).slice(0, 60)}`);
     return false;                                  // unknown is not finished; look again next tick
   }
+  const ageMin = (Date.now() - new Date(f.at).getTime()) / 60000;
 
+  // Parts still waiting their turn start here too — onChanged is the fast path,
+  // this is the backstop for a worker that missed the event. A queued part means
+  // the set is not finished, whatever the started ones say.
+  if (f.queued?.length && ageMin < INFLIGHT_TIMEOUT_MIN) {
+    const before = f.ids.length;
+    let started = 0;
+    try {
+      started = await topUp(f, items.filter((i) => i.state === "in_progress").length);
+    } catch (e) {
+      // Chrome refused a URL. The part stays counted as waiting, so the set
+      // cannot pass as complete; the 6h timeout turns it into a counted failure.
+      note(s, `${f.slug}: could not start a queued part — ${String(e?.message ?? e).slice(0, 60)}`);
+    }
+    // Something just started, so the set is in flight by definition. Reading a
+    // brand-new id straight back is not something to judge a set on.
+    if (started) {
+      note(s, `${f.slug}: started ${started} more part(s), ${f.queued.length} still waiting (${Math.round(ageMin)}m)`);
+      return false;
+    }
+    // Re-read whenever the set changed: a part ADOPTED from disk adds an id
+    // without starting anything, and counting against the old reading would
+    // call a finished set a failure.
+    if (f.ids.length !== before) {
+      try { items = await read(); } catch { return false; }
+    }
+  }
+  const waiting = f.queued?.length ?? 0;
   const complete = items.filter((i) => i.state === "complete").length;
   const interrupted = items.filter((i) => i.state === "interrupted");
   const running = items.filter((i) => i.state === "in_progress").length;
   const forgotten = f.ids.length - items.length;   // Chrome no longer has the record
-  const ageMin = (Date.now() - new Date(f.at).getTime()) / 60000;
 
-  if (complete === f.ids.length) {
+  if (complete === f.ids.length && !waiting) {
     s.inflight = null;
     if (s.attempts) delete s.attempts[f.slug];
     s.done.push(f.slug);
@@ -570,8 +677,13 @@ async function settleInflight(s) {
    */
   if (running && ageMin < INFLIGHT_TIMEOUT_MIN) {
     const hurt = interrupted.length ? `, ${interrupted.length} failed` : "";
-    note(s, `${f.slug}: ${complete}/${f.ids.length} landed, ${running} still downloading${hurt} (${Math.round(ageMin)}m)`);
+    const queuedNote = waiting ? `, ${waiting} waiting their turn` : "";
+    note(s, `${f.slug}: ${complete}/${f.ids.length + waiting} landed, ${running} still downloading${queuedNote}${hurt} (${Math.round(ageMin)}m)`);
     return false;                                  // one collection at a time — do not stack another
+  }
+  if (waiting && ageMin < INFLIGHT_TIMEOUT_MIN) {
+    note(s, `${f.slug}: ${waiting} part(s) could not start yet — trying again next tick`);
+    return false;
   }
 
   // Only the TIMEOUT path can still have live transfers, and abandoning one
@@ -588,7 +700,7 @@ async function settleInflight(s) {
     ? `${interrupted.length} download(s) interrupted (${interrupted[0].error ?? "unknown"})`
     : forgotten
       ? `${forgotten} download(s) missing from Chrome's history`
-      : `timed out after ${Math.round(ageMin)}m with ${complete}/${f.ids.length} landed`;
+      : `timed out after ${Math.round(ageMin)}m with ${complete}/${f.ids.length + waiting} landed`;
   s.inflight = null;
   failedAttempt(s, f.slug, why);
   return false;
@@ -756,7 +868,7 @@ async function tick() {
 
   let accepted;
   try {
-    accepted = await ask({ type: "drive", slug, token, password: s.passwords[slug], opts: { email: s.email, pollMinutes: DRIVE_POLL_MIN } }, DRIVE_ACCEPT_MS);
+    accepted = await ask({ type: "drive", slug, token, password: s.passwords[slug], opts: { email: s.email, pollMinutes: DRIVE_POLL_MIN, pollMaxMinutes: DRIVE_POLL_MAX_MIN, pollMinutesPerK: DRIVE_POLL_MIN_PER_K } }, DRIVE_ACCEPT_MS);
   } catch (e) {
     accepted = { error: e };
   }
@@ -847,7 +959,8 @@ async function handleDriveResult(slug, token, r) {
      * QUEUED — this is not a failure, it is a collection that does not fit
      * today, and it must not burn an attempt or be retired for it.
      */
-    const need = r.zips.reduce((sum, z) => sum + sizeToGB(z.size), 0);
+    const { haveIds, missing } = await planDownloads(r.zips);
+    const need = missing.reduce((sum, z) => sum + sizeToGB(z.size), 0);
     const freeNow = await freeGB();
     if (freeNow === null || freeNow - need < DISK_KEEP_GB) {
       if (freeNow !== null) s2.tooBig = { ...(s2.tooBig || {}), [slug]: Math.round(need * 10) / 10 };
@@ -858,17 +971,29 @@ async function handleDriveResult(slug, token, r) {
       return;
     }
     if (s2.tooBig && slug in s2.tooBig) delete s2.tooBig[slug];
-    const { ids, skipped } = await downloadAll(r.zips);
+    const skipped = haveIds.length;
     // NOT done yet — `settleInflight` retires it once every byte has landed.
     s2.inflight = {
       slug,
-      ids,
+      ids: [...haveIds],
+      queued: missing,                             // not handed to Chrome yet; see MAX_PARALLEL
       expect: r.expect,
       sizes: r.zips.map((z) => z.size).join("+"),
       unlocked: r.unlocked,
       at: new Date().toISOString(),
     };
-    note(s2, `${slug}: requested ${r.zips.length - skipped} of ${r.zips.length} zip(s)${skipped ? `, ${skipped} already on disk` : ""} · ${r.zips.map((z) => z.size).join("+")}${r.unlocked ? " (unlocked)" : ""}`);
+    // A refused start must not throw past here: the catch in the message handler
+    // reloads state without this `inflight`, orphaning the parts already started.
+    // The part stays queued and the tick's backstop tries it again.
+    let started = 0;
+    try {
+      started = await topUp(s2.inflight, 0);
+    } catch (e) {
+      started = s2.inflight.ids.length - skipped;
+      note(s2, `${slug}: could not start a part — ${String(e?.message ?? e).slice(0, 60)}; the next tick retries it`);
+    }
+    const later = s2.inflight.queued.length;
+    note(s2, `${slug}: requested ${started} of ${r.zips.length} zip(s)${skipped ? `, ${skipped} already on disk` : ""}${later ? `, ${later} to follow ${MAX_PARALLEL} at a time` : ""} · ${r.zips.map((z) => z.size).join("+")}${r.unlocked ? " (unlocked)" : ""}`);
   } else {
     /**
      * A failure leaves the collection QUEUED so a transient R2 or network error
@@ -908,6 +1033,36 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === ALARM) serial(tick);
   if (a.name === HEARTBEAT) serial(heartbeat);
 });
+
+/**
+ * When one of this set's parts stops moving, start the next queued one now.
+ *
+ * Waiting for the 20-minute tick would idle the link: six parts at ~100 MB/s
+ * finish in about four minutes. A download event wakes a dead worker, so this
+ * is the fast path; `settleInflight` repeats it on every tick as the backstop.
+ * Only the set's OWN ids count, so a beacon or a stray download does nothing.
+ */
+async function onPartChanged(delta) {
+  const to = delta?.state?.current;
+  if (to !== "complete" && to !== "interrupted") return;
+  const s = await load();
+  const f = s.inflight;
+  if (!f?.queued?.length || !f.ids.includes(delta.id)) return;
+  let running = 0;
+  for (const id of f.ids) {
+    const [item] = await chrome.downloads.search({ id });
+    if (item?.state === "in_progress") running++;
+  }
+  try {
+    const started = await topUp(f, running);
+    if (started) note(s, `${f.slug}: started ${started} more part(s), ${f.queued.length} still waiting`);
+  } catch (e) {
+    note(s, `${f.slug}: could not start a queued part — ${String(e?.message ?? e).slice(0, 60)}`);
+  }
+  await save(s);
+}
+
+chrome.downloads.onChanged?.addListener((delta) => { serial(() => onPartChanged(delta)); });
 
 /** Say we are alive (and what we are), and pick up newer code. Runs even when stopped. */
 async function heartbeat() {

@@ -65,6 +65,8 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500, onDisk = "1.
         return id;
       },
       cancel: async (id) => { cancelled.push(id); },
+      // The fast path that starts queued parts as earlier ones finish.
+      onChanged: { addListener: (fn) => chrome._onChanged.push(fn) },
       // The real API returns an empty array for an unknown id — it does not throw.
       // filenameRegex is how downloadAll asks "do I already have this part?".
       search: async ({ id, filenameRegex, state }) => {
@@ -103,6 +105,7 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500, onDisk = "1.
       onInstalled: { addListener() {} },
     },
     _onMessage: [],
+    _onChanged: [],        // downloads.onChanged listeners, so a test can fire a part finishing
     _onStartup: [],        // startup listeners, so a test can fire a Chrome restart
     _pending: [],          // drive answers still on their way back
   };
@@ -111,7 +114,7 @@ function harness(state, { drive, arm, downloads = {}, freeGB = 500, onDisk = "1.
 
 async function loadBackground(chrome) {
   globalThis.chrome = chrome;
-  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs, afterReload, heartbeat };\n";
+  const src = fs.readFileSync(SRC, "utf8") + "\nexport { tick, applyRepairs, afterReload, heartbeat, onPartChanged };\n";
   const f = path.join(os.tmpdir(), `px-bg-${Math.random().toString(36).slice(2)}.mjs`);
   fs.writeFileSync(f, src);
   let mod;
@@ -123,7 +126,7 @@ async function loadBackground(chrome) {
     await mod.tick();
     while (chrome._pending.length) await chrome._pending.shift();
   };
-  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload, heartbeat: mod.heartbeat };
+  return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload, heartbeat: mod.heartbeat, onPartChanged: mod.onPartChanged };
 }
 
 const base = (over = {}) => ({
@@ -327,7 +330,9 @@ test("a repair can set a collection aside without retiring it, and the queue mov
   // The reload that ships the never-answers fix must unblock the queue right
   // away, not spend three more hours of 128 GB build requests retiring it.
   const hung = { slug: "servicenowsko26", at: new Date(Date.now() - 20 * 60_000).toISOString() };
-  const h = harness(base({ jobs: ["servicenowsko26", "next"], driving: hung }), { freeGB: 158, drive: () => ({ phase: "nodl" }) });
+  // The 09-24 repair later requeues it and clears that set-aside; mark it applied
+  // so this tests the 09-13 set-aside on its own.
+  const h = harness(base({ jobs: ["servicenowsko26", "next"], driving: hung, repairs: ["2026-09-08-requeue-lost-downloads", "2026-09-24-requeue-servicenowsko26"] }), { freeGB: 158, drive: () => ({ phase: "nodl" }) });
   const { tick } = await loadBackground(h.chrome);
   await tick();
   assert.deepEqual(h.asked, ["next"]);
@@ -519,9 +524,10 @@ test("a late FAILURE is not counted a second time", async () => {
 });
 
 test("a result whose handling throws is acknowledged and counted once", async () => {
-  const zips = [{ url: "u", name: "x-photo-download-1of1.zip", size: "1 GB" }];
+  // A refused download is now handled in place (the part stays queued), so the
+  // throw comes from reading the result itself.
+  const zips = [{ url: "u", name: "x-photo-download-1of1.zip", get size() { throw new Error("malformed result"); } }];
   const h = harness(base({ jobs: ["x"], driving: { slug: "x", at: new Date().toISOString(), token: "t" } }));
-  h.chrome.downloads.download = async () => { throw new Error("disk said no"); };
   await loadBackground(h.chrome);
   const listener = h.chrome._onMessage[0];
   const ack = await new Promise((done) => listener({ target: "background", type: "driveResult", slug: "x", token: "t", result: { ok: true, expect: 1, zips } }, null, done));
@@ -555,11 +561,12 @@ test("the 09-15 repair re-queues retired AND mid-attempt collections, and frees 
   assert.equal(r.count, 2);
   assert.deepEqual(s.done, ["keepme"]);
   assert.deepEqual(s.attempts, {}, "an attempt still counting down would retire it again after two blips");
-  assert.equal(s.driving, null, "a lock from the replaced worker would stall the queue for 50 minutes");
+  assert.equal(s.driving, null, "a lock from the replaced worker would stall the queue for 110 minutes");
 });
 
 test("a drive that died with the service worker counts as an attempt, and the retry waits a tick", async () => {
-  const stale = new Date(Date.now() - 60 * 60_000).toISOString();
+  // Past the 110-minute lock (it was 50 before the poll budget started scaling).
+  const stale = new Date(Date.now() - 120 * 60_000).toISOString();
   const h = harness(base({ jobs: ["big"], driving: { slug: "big", at: stale } }), {
     drive: () => ({ phase: "nodl" }),
   });
@@ -576,7 +583,7 @@ test("a drive that died with the service worker counts as an attempt, and the re
 test("a drive that never answers three times is retired, and the queue moves on", async () => {
   // servicenowsko26, 2026-09-11 → 09-13: 34,274 photos, re-requested every hour
   // for 44 hours, because an expired lock was never counted as a failure.
-  const stale = new Date(Date.now() - 60 * 60_000).toISOString();
+  const stale = new Date(Date.now() - 120 * 60_000).toISOString();
   const h = harness(base({ jobs: ["hangs", "after"], attempts: { hangs: 2 }, driving: { slug: "hangs", at: stale } }), {
     drive: () => ({ phase: "nodl" }),
   });
@@ -674,7 +681,9 @@ test("MB and KB labels are not read as gigabytes", async () => {
   const h = harness(base({ jobs: ["small-parts"] }), { freeGB: 85, drive: () => ({ ok: true, expect: 9, zips }) });
   const { tick } = await loadBackground(h.chrome);
   await tick();
-  assert.equal(h.requested.length, 9, "9 x 900 MB is 7.9 GB, which fits in 85 GB with 60 to spare");
+  // All nine are accepted; six start now and three wait their turn (MAX_PARALLEL).
+  assert.equal(h.requested.length, 6, "9 x 900 MB is 7.9 GB, which fits in 85 GB with 60 to spare");
+  assert.equal(h.state().inflight.queued.length, 3);
 });
 
 test("every save is announced to the watcher, last state wins, and a dead watcher costs nothing", async () => {
@@ -739,4 +748,162 @@ test("a STOPPED extension still reports on its heartbeat, and still picks up new
   const { heartbeat: staleBeat } = await loadBackground(stale.chrome);
   await staleBeat();
   assert.equal(stale.reloads.length, 1, "stopped is exactly when a reload is cheapest");
+});
+
+// ------------------------------------------------------------ parts, a few at a time
+//
+// servicenowsko26, 2026-09-23 on the Studio: all 31 parts started within a
+// minute, 17 landed and 14 never got a filename from Chrome, ten with zero
+// bytes. Losses scaled with the count (1 of 21, 4 of 20, 14 of 31, none at 8 or
+// fewer), and 4-5 parts already saturate the link, so the cap costs no speed.
+
+const parts = (slug, n, size = "3 GB") =>
+  Array.from({ length: n }, (_, i) => ({ url: `u${i + 1}`, name: `${slug}-photo-download-${i + 1}of${n}.zip`, size }));
+
+test("a big set starts at most six parts, and the rest follow as parts finish", async () => {
+  const zips = parts("big", 8);
+  const h = harness(base({ jobs: ["big"] }), { drive: () => ({ ok: true, expect: 8, zips }) });
+  const { tick, onPartChanged } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.requested.length, 6, "31 at once is how 14 parts were lost");
+  assert.equal(h.state().inflight.queued.length, 2);
+  assert.equal(h.chrome._onChanged.length, 1, "the fast path is registered");
+
+  const [first, second] = h.state().inflight.ids;
+  for (const id of h.state().inflight.ids) h.downloads[id] = { state: "in_progress" };
+  h.downloads[first] = { state: "complete", filename: zips[0].name };
+  await onPartChanged({ id: first, state: { current: "complete" } });
+  assert.equal(h.requested.length, 7, "one finished, one more starts at once");
+  assert.equal(h.state().inflight.queued.length, 1);
+
+  // An event about a download that is not this set's does nothing.
+  await onPartChanged({ id: 9999, state: { current: "complete" } });
+  assert.equal(h.requested.length, 7);
+
+  // An interrupted part frees its slot too; the verdict still waits for the set.
+  h.downloads[second] = { state: "interrupted", error: "NETWORK_FAILED" };
+  await onPartChanged({ id: second, state: { current: "interrupted" } });
+  assert.equal(h.requested.length, 8);
+  assert.equal(h.state().inflight.queued.length, 0);
+});
+
+test("a set with parts still waiting is never retired, and a tick starts them if the event was missed", async () => {
+  const zips = parts("big", 8);
+  const h = harness(base({ jobs: ["big"] }), { drive: () => ({ ok: true, expect: 8, zips }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  // Every started part lands, but no onChanged event ever arrives.
+  h.state().inflight.ids.forEach((id, i) => { h.downloads[id] = { state: "complete", filename: zips[i].name }; });
+  await tick();
+  assert.equal(h.state().done.length, 0, "six of eight landed is not the set");
+  assert.equal(h.requested.length, 8, "the tick is the backstop that starts the rest");
+  assert.equal(h.state().attempts.big ?? 0, 0, "waiting parts are not a failure");
+
+  h.state().inflight.ids.forEach((id, i) => { h.downloads[id] = { state: "complete", filename: zips[i].name }; });
+  await tick();
+  assert.deepEqual(h.state().done, ["big"]);
+});
+
+test("the disk gate counts only the parts still missing", async () => {
+  // 3 x 40 GB with two already on disk: the whole archive (120 GB) would not
+  // fit in 110 GB free, but the 40 GB still to come leaves 70 for the ingest.
+  const zips = parts("huge", 3, "40 GB");
+  const h = harness(base({ jobs: ["huge"] }), {
+    freeGB: 110,
+    drive: () => ({ ok: true, expect: 3, zips }),
+    downloads: {
+      1: { state: "complete", filename: zips[0].name },
+      2: { state: "complete", filename: zips[1].name },
+    },
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.state().tooBig?.huge, undefined, "55 GB already on disk set servicenowsko26 aside as needing 100");
+  assert.deepEqual(h.requested.map((r) => r.url), ["u3"]);
+  assert.match(h.state().log.join("\n"), /2 already on disk/);
+});
+
+test("the 09-24 repair puts servicenowsko26 back at the head of the queue", async () => {
+  // With the set-aside size it may still carry: a requeue that leaves it would
+  // skip the slug at the head forever, since only a drive clears one.
+  const h = harness(base({ jobs: ["a", "servicenowsko26", "b"], done: ["a", "servicenowsko26"], attempts: { servicenowsko26: 3 }, tooBig: { servicenowsko26: 100 }, repairs: [] }));
+  const { applyRepairs } = await loadBackground(h.chrome);
+  const s = { ...h.state() };
+  const r = applyRepairs(s).find((x) => x.id === "2026-09-24-requeue-servicenowsko26");
+  assert.equal(r.count, 1);
+  assert.equal(r.front, 1);
+  assert.deepEqual(s.jobs.slice(0, 1), ["servicenowsko26"]);
+  assert.ok(!s.done.includes("servicenowsko26"));
+  assert.equal(s.attempts.servicenowsko26, undefined, "a clean slate, not one attempt from retirement");
+  assert.equal(s.tooBig.servicenowsko26, undefined, "a stale set-aside size would hold it out of the queue");
+});
+
+test("a drive is told to scale its wait by photo count, within the lock", async () => {
+  let opts;
+  const h = harness(base({ jobs: ["x"] }), { drive: (msg) => { opts = msg.opts; return { phase: "nodl" }; } });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(opts.pollMinutes, 35);
+  assert.equal(opts.pollMaxMinutes, 90);
+  assert.ok(opts.pollMinutesPerK > 0);
+});
+
+test("the poll budget scales with photos and stays inside the floor and ceiling", async () => {
+  // offscreen.js is a page script; load it against a stub chrome to reach pollBudget.
+  globalThis.chrome = { runtime: { onMessage: { addListener() {} } } };
+  const src = fs.readFileSync(new URL("./offscreen.js", import.meta.url), "utf8") + "\nexport { pollBudget };\n";
+  const f = path.join(os.tmpdir(), `px-off-${Math.random().toString(36).slice(2)}.mjs`);
+  fs.writeFileSync(f, src);
+  let pollBudget;
+  try { ({ pollBudget } = await import(`file://${f}`)); } finally { fs.unlinkSync(f); }
+  const opts = { pollMinutes: 35, pollMaxMinutes: 90, pollMinutesPerK: 2.5 };
+  assert.equal(pollBudget(34274, opts), 86, "servicenowsko26: its ~40 minute build fits");
+  assert.equal(pollBudget(8518, opts), 35, "atlassian-team26expo built in 19 minutes; the floor covers it");
+  assert.equal(pollBudget(200000, opts), 90, "never past what the 110-minute lock was sized for");
+  assert.equal(pollBudget(null, opts), 35, "an unknown count gets the old floor");
+  assert.equal(pollBudget(5000, {}), 35, "an old scheduler sending no options still gets 35");
+});
+
+test("a last queued part that is already on disk completes the set, not fails it", async () => {
+  // Found in review: adopting a part adds an id without starting anything, and
+  // counting against the reading taken before the adoption called this failed.
+  const zips = parts("big", 2);
+  const h = harness(base({
+    jobs: ["big"],
+    inflight: { slug: "big", ids: [1], queued: [{ url: "u2", name: zips[1].name, size: "3 GB" }], sizes: "3 GB+3 GB", at: new Date().toISOString() },
+  }), {
+    downloads: {
+      1: { state: "complete", filename: zips[0].name },
+      7: { state: "complete", filename: zips[1].name },   // landed by some other route
+    },
+  });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.state().done, ["big"]);
+  assert.equal(h.state().attempts.big ?? 0, 0, "a finished set is not a failed attempt");
+  assert.deepEqual(h.requested, [], "and the adopted part is not fetched again");
+});
+
+test("a part Chrome refuses to start stays queued, and the parts already started stay tracked", async () => {
+  const zips = parts("big", 8);
+  const h = harness(base({ jobs: ["big"] }), { drive: () => ({ ok: true, expect: 8, zips }) });
+  const real = h.chrome.downloads.download;
+  let calls = 0;
+  h.chrome.downloads.download = async (o) => {
+    if (!o.filename && ++calls === 4) throw new Error("Invalid URL");
+    return real(o);
+  };
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  const f = h.state().inflight;
+  assert.equal(f?.slug, "big", "an orphaned set nobody watches is the old downloadAll bug");
+  assert.equal(f.ids.length, 3, "the three that started are still tracked");
+  assert.equal(f.queued.length, 5, "the refused part is still waiting, not dropped");
+  assert.equal(f.queued[0].url, "u4");
+  assert.equal(h.state().attempts.big ?? 0, 0);
+
+  // Chrome accepts it next time, and the backstop starts it.
+  f.ids.forEach((id) => { h.downloads[id] = { state: "in_progress" }; });
+  await tick();
+  assert.equal(h.state().inflight.queued.length, 2, "topped back up to six in flight");
 });

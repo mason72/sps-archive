@@ -4041,3 +4041,21 @@ asked this one to look.
 **Rules.**
 - **Any vocabulary check on names must also see words typed without a space.** Filenames fuse words (lessons 142, 149, 153), so a veto that splits on spaces has a fused twin that passes.
 - **A destructive control can be quiet, never invisible.** Hover-reveal is fine on a dense grid only if the same action is reachable somewhere always visible (the spotlight here). Discoverability is part of "does the control exist".
+
+## 163 — 31 parts at once, 14 never landed, and a build that outran its wait (2026-09-24)
+
+**What happened.** The first run on the Mac Studio retired servicenowsko26 (34,274 photos, ~100 GB, 31 parts) after three attempts. Attempt 1 gave up polling at 35 minutes. Attempt 2 got links, started all 31 parts within a minute, and 17 landed (55 GB) while 14 died as NETWORK_FAILED. Attempt 3's fresh build timed out at 35 minutes again.
+
+**What the records showed (all offline, zero Pixieset traffic).** Chrome's History database was the durable record, because the status file keeps only 12 log lines and `watch.log` has no timestamps.
+- **The links were not expiring.** The final URL has no expiry parameter, Pixieset links last 7 days (`lib/store.mjs`), and ten parts died with zero bytes seconds after starting.
+- **"At the same moment" was the tick, not the failure.** 14:32 UTC is when the scheduler noticed. The doomed parts were marked from their first second: Chrome never gave them a filename (`Unconfirmed NNNN.crdownload`), and they never got a History row, so they show up as **gaps in the `id` sequence**.
+- **Loss scaled with parallelism:** 1 of 21 (hiltonsummit), 4 of 20 (servicenowsko2025), 14 of 31, none in any set of 8 or fewer. And parallelism bought nothing, because the wired link tops out near 100 MB/s and 4-5 parts already reach it.
+- **The build took ~40 minutes.** Attempt 2 got ready links about a minute in, which reads as it picking up attempt 1's finished build (an inference). That matches atlassian-team26expo's rate (46 GB in 19 min).
+
+**Fix (extension v1.2.0).** At most 6 parts in flight, the rest started by `downloads.onChanged` with each tick as the backstop. The build wait scales at 2.5 min per 1,000 photos (35 to 90), with a slower poll so a longer wait sends fewer requests. The drive lock goes from 50 to 110 minutes. The disk gate counts only the parts still missing: it would have needed 160 GB free for a retry whose real need was ~45 GB. A named repair requeues servicenowsko26 at the front, and its 17 landed parts are reused by `alreadyHave()`.
+
+**Rules.**
+- **Parallelism past the link's saturation point is pure risk.** Measure MB/s per part-count from History before choosing a concurrency. Here it was 4-5.
+- **A timeout that is FLAT across inputs spanning 100x in size is wrong for one end of the range.** Scale it by the size you know before you start waiting (the photo count from the set picker).
+- **A capacity gate must ask about the bytes still to come, not the whole job.** Otherwise the resume path, the one that saves the most, is the one the gate refuses.
+- **Absence of a row is data.** An id gap in an append-only log (Chrome's `downloads`) located every lost part exactly, with no probe.
