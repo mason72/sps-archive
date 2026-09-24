@@ -1,0 +1,103 @@
+{
+ "at": "2026-09-24T15:48:27.574Z",
+ "dead": [
+  "26ca7bed-9ebb-4c09-b6b3-1f1f4021db75",
+  "3aa8c2ee-4b99-4df2-a2e5-3803bec154d1",
+  "6996b883-8020-4d5d-92d8-07cc5b1a75c2",
+  "708f74ff-ea63-464b-9532-ac4b64e2b860",
+  "79eaeca3-8dd6-467b-a2da-81a3fdc7e6fc",
+  "8e5c8948-caef-43c3-8c72-ee558b6bbeaf",
+  "c614b42f-b673-440f-bdd0-4beaaae4d0b4",
+  "e05c656c-a975-4b88-b12f-1cf7414ac10e",
+  "f2d09c58-9de2-402a-9f8f-70c8d9d9d19a"
+ ],
+ "report": [
+  {
+   "eventId": "26ca7bed-9ebb-4c09-b6b3-1f1f4021db75",
+   "objects": 34083,
+   "bytes": 17862476283,
+   "keptObjects": 1584,
+   "byKind": {
+    "originals": 8525,
+    "thumbnails": 25558
+   }
+  },
+  {
+   "eventId": "e05c656c-a975-4b88-b12f-1cf7414ac10e",
+   "objects": 7031,
+   "bytes": 11691220421,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 1757,
+    "thumbnails": 5274
+   }
+  },
+  {
+   "eventId": "f2d09c58-9de2-402a-9f8f-70c8d9d9d19a",
+   "objects": 14225,
+   "bytes": 10917664173,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 3556,
+    "thumbnails": 10669
+   }
+  },
+  {
+   "eventId": "79eaeca3-8dd6-467b-a2da-81a3fdc7e6fc",
+   "objects": 2587,
+   "bytes": 4498480461,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 646,
+    "thumbnails": 1941
+   }
+  },
+  {
+   "eventId": "3aa8c2ee-4b99-4df2-a2e5-3803bec154d1",
+   "objects": 368,
+   "bytes": 284897638,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 91,
+    "thumbnails": 277
+   }
+  },
+  {
+   "eventId": "8e5c8948-caef-43c3-8c72-ee558b6bbeaf",
+   "objects": 27,
+   "bytes": 33040605,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 6,
+    "thumbnails": 21
+   }
+  },
+  {
+   "eventId": "6996b883-8020-4d5d-92d8-07cc5b1a75c2",
+   "objects": 180,
+   "bytes": 3419463,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 45,
+    "thumbnails": 135
+   }
+  },
+  {
+   "eventId": "c614b42f-b673-440f-bdd0-4beaaae4d0b4",
+   "objects": 96,
+   "bytes": 79896,
+   "keptObjects": 0,
+   "byKind": {
+    "originals": 24,
+    "thumbnails": 72
+   }
+  },
+  {
+   "eventId": "708f74ff-ea63-464b-9532-ac4b64e2b860",
+   "objects": 0,
+   "bytes": 0,
+   "keptObjects": 32,
+   "byKind": {}
+  }
+ ]
+}

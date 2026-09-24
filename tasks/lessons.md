@@ -4062,7 +4062,7 @@ asked this one to look.
 
 ## 164 — Deleting an event leaked 45 GB, and the failure counter could never count (2026-09-24)
 
-**What happened.** `DELETE /api/events/[eventId]` listed image keys with `.range()` paging and no `.order()` (lesson 88: pages can skip rows, and a skipped row's file is never collected). Then it ran R2 cleanup as `void Promise.all(...)` *after* returning, so Vercel could freeze the function partway through a large event. A dry-run sweep (`scripts/triage/event-orphan-sweep.ts`) found **9 dead `events/<id>/` folders holding 58,597 orphaned objects (45.29 GB)**, 14,650 of them originals. The sweep deleted nothing.
+**What happened.** `DELETE /api/events/[eventId]` listed image keys with `.range()` paging and no `.order()` (lesson 88: pages can skip rows, and a skipped row's file is never collected). Then it ran R2 cleanup as `void Promise.all(...)` *after* returning, so Vercel could freeze the function partway through a large event. A sweep (`scripts/triage/event-orphan-sweep.ts`) found **9 dead `events/<id>/` folders holding 58,597 orphaned objects (45.29 GB)**, 14,650 of them originals. After Mason approved, `--delete` removed all 58,597 (0 failed), and a fresh listing then showed 0 orphans with all 1,616 still-referenced files present.
 
 **Two traps found while fixing it.**
 - **`deleteImageAssets` never rejected.** It caught each per-key failure and logged it. `merge-au2026.ts` counted `Promise.allSettled` rejections to get `r2DeleteFailures`, so that count was always 0 and could never catch a failure. The function now returns the list of keys that failed.

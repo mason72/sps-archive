@@ -1,19 +1,21 @@
 /**
- * DRY RUN ONLY. Finds R2 folders `events/<id>/` whose event row no longer
+ * DRY RUN by default. Finds R2 folders `events/<id>/` whose event row no longer
  * exists: the files a deleted event's cleanup never reached (unordered paging
  * skipped rows, or the fire-and-forget cleanup was frozen after the response).
- * It deletes nothing and has no flag that would.
+ * With `--delete` it removes the orphans it just listed (re-listed fresh on
+ * every run, never from a saved report), then re-checks that every kept file
+ * still exists.
  *
  * A dead folder is not automatically all garbage: a merge moves a row into the
  * kept event and leaves its FILE under the deleted event's folder
  * (scripts/merge-au2026.ts). So every original in a dead folder is checked
  * against images.r2_key, and a referenced original keeps its whole footprint.
  *
- *   npx tsx scripts/triage/event-orphan-sweep.ts [out.json]
+ *   npx tsx scripts/triage/event-orphan-sweep.ts [out.json] [--delete]
  */
 import fs from "node:fs";
 for (const l of fs.readFileSync(".env.local","utf8").split("\n")) { const m=l.match(/^([A-Z0-9_]+)=(.*)$/); if(m&&process.env[m[1]]===undefined) process.env[m[1]]=m[2]; }
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -54,6 +56,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   console.log(`folders=${folders.length} live-events=${live.size} dead-folders=${dead.length} non-uuid-folders=${nonUuid.length}${nonUuid.length ? " " + JSON.stringify(nonUuid.slice(0, 10)) : ""}`);
 
   // 3. Inventory each dead folder, keeping anything a live row still needs.
+  const doomedKeys: string[] = [];
+  const keptKeys: string[] = [];
   const report: { eventId: string; objects: number; bytes: number; keptObjects: number; byKind: Record<string, number> }[] = [];
   let totObjects = 0, totBytes = 0, totKept = 0;
   const kinds: Record<string, { objects: number; bytes: number }> = {};
@@ -77,7 +81,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     const byKind: Record<string, number> = {};
     let bytes = 0, kept = 0;
     for (const o of objs) {
-      if (keep.has(o.key)) { kept++; continue; }
+      if (keep.has(o.key)) { kept++; keptKeys.push(o.key); continue; }
+      doomedKeys.push(o.key);
       const kind = o.key.split("/")[2] ?? "(root)";
       byKind[kind] = (byKind[kind] ?? 0) + 1;
       kinds[kind] = { objects: (kinds[kind]?.objects ?? 0) + 1, bytes: (kinds[kind]?.bytes ?? 0) + o.size };
@@ -93,6 +98,26 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   report.sort((a, b) => b.bytes - a.bytes);
   console.log("largest dead folders:");
   for (const r of report.slice(0, 8)) console.log(`  ${r.eventId}  ${r.objects} objects  ${gb(r.bytes)}  kept=${r.keptObjects}  ${JSON.stringify(r.byKind)}`);
-  const out = process.argv[2];
+  const out = process.argv.slice(2).find((a) => !a.startsWith("--"));
   if (out) { fs.writeFileSync(out, JSON.stringify({ at: new Date().toISOString(), dead, report }, null, 1)); console.log("wrote", out); }
+
+  if (!process.argv.includes("--delete")) return;
+  // Every doomed key must sit inside a dead folder. A guard, not a formality:
+  // a bug upstream must not be able to aim this at a live event.
+  const deadSet = new Set(dead);
+  if (doomedKeys.some((k) => !deadSet.has(k.split("/")[1]) || live.has(k.split("/")[1]))) throw new Error("doomed key outside a dead folder — refusing");
+  let deleted = 0, failed = 0;
+  for (let i = 0; i < doomedKeys.length; i += 1000) {
+    const r = await s3.send(new DeleteObjectsCommand({ Bucket, Delete: { Objects: doomedKeys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+    failed += r.Errors?.length ?? 0;
+    for (const e of (r.Errors ?? []).slice(0, 5)) console.log("  delete error", e.Key, e.Code, e.Message);
+    deleted += Math.min(1000, doomedKeys.length - i) - (r.Errors?.length ?? 0);
+  }
+  console.log(`DELETED ${deleted} objects, failed ${failed}`);
+  let keptMissing = 0;
+  for (const k of keptKeys) {
+    try { await s3.send(new HeadObjectCommand({ Bucket, Key: k })); } catch { keptMissing++; }
+  }
+  console.log(`kept files still present: ${keptKeys.length - keptMissing}/${keptKeys.length}`);
+  if (failed || keptMissing) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });
