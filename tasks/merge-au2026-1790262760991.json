@@ -1,0 +1,153 @@
+{
+  "at": "2026-09-24T15:12:40.990Z",
+  "plan": {
+    "keep": "Autodesk University 2026 (6112)",
+    "copy": "AU2026 (6199)",
+    "move": [
+      "Alexalee Gonzalez_26-09-17_AU2026_9760.jpg → A–B",
+      "Kat Diaz_26-09-15_AU2026_093.jpg → J–K",
+      "Megan Kennedy_26-09-15_AU2026_1332.jpg → L–M",
+      "Megan Kennedy_26-09-15_AU2026_1329.jpg → L–M",
+      "Megan Kennedy_26-09-15_AU2026_1327.jpg → L–M",
+      "Megan Kennedy_26-09-15_AU2026_1326.jpg → L–M",
+      "Megan Kennedy_26-09-15_AU2026_1333.jpg → L–M",
+      "Robert Foto_26-09-15_AU2026_1544.jpg → N–R"
+    ],
+    "katRename": 9,
+    "katSection": "Misc → J–K",
+    "deleteCopyRows": 6191,
+    "keepAfter": 6120
+  },
+  "katFixes": [
+    {
+      "id": "0935474b-e2bd-4452-8d50-a18109f5157f",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_095.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_095.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "37db55df-0d58-413c-81e7-9a49b0698952",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_085.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_085.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "39ce23a8-9a9d-4089-8be1-5ca0a32251e2",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_087.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_087.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "68624c9d-1b68-4b32-beea-2bc0069ac9c5",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_091.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_091.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "8a9fd226-5dff-4400-a1ff-a7054ef07956",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_089.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_089.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "9ba8d423-abda-4486-9f2f-fc3eef90dff2",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_083.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_083.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "ab53c876-6833-4681-a4e1-1b8e284a4584",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_086.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_086.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "b8b336e0-2a90-4583-b988-ad9f515e5f47",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_075.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_075.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    },
+    {
+      "id": "f2d1f71e-0b19-4729-aa49-f8fd11123256",
+      "from": "Kat Diaz.jpg4kVert 4.jpg4kVert 6.jpg4kVert 7.jp…_26-09-15_AU2026_079.jpg",
+      "to": "Kat Diaz_26-09-15_AU2026_079.jpg",
+      "parsed_name": "Kat Diaz AU2026"
+    }
+  ],
+  "moved": [
+    "1699caf5-d51f-4ab3-b08c-c6051d1e6544",
+    "ae0bf867-07ec-4da5-b044-79317e2498e6",
+    "46a39628-e381-46ad-aa7f-93dabadb16ae",
+    "57e7b238-d5c3-4ad4-9672-2f59ca51915d",
+    "94194e0a-ac59-43b4-9178-dee211e2b423",
+    "cb5f389b-f2bf-41ea-b4bf-8cc25fbaf7b2",
+    "f7c8c1a1-b938-4c35-8471-8ab80f1e6a83",
+    "1aed2659-69ec-4c61-92a0-1e7d99da6a02"
+  ],
+  "miscRemoved": "15ceac18-0f08-46f1-8107-4f1ed4f51043",
+  "copyRowsDeleted": 6191,
+  "r2DeleteFailures": 0,
+  "keepAfter": 6120,
+  "copyEventGone": true,
+  "movedFileStays": true,
+  "deletedFileGone": true,
+  "sectionCounts": [
+    {
+      "name": "A–B",
+      "section_images": [
+        {
+          "count": 1087
+        }
+      ]
+    },
+    {
+      "name": "C–E",
+      "section_images": [
+        {
+          "count": 1015
+        }
+      ]
+    },
+    {
+      "name": "F–I",
+      "section_images": [
+        {
+          "count": 427
+        }
+      ]
+    },
+    {
+      "name": "J–K",
+      "section_images": [
+        {
+          "count": 933
+        }
+      ]
+    },
+    {
+      "name": "L–M",
+      "section_images": [
+        {
+          "count": 890
+        }
+      ]
+    },
+    {
+      "name": "N–R",
+      "section_images": [
+        {
+          "count": 911
+        }
+      ]
+    },
+    {
+      "name": "S–Z",
+      "section_images": [
+        {
+          "count": 857
+        }
+      ]
+    }
+  ],
+  "ok": true
+}
