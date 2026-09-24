@@ -140,7 +140,7 @@ export async function PATCH(
 
     const settings = ((event as { settings: Record<string, unknown> | null }).settings ??
       {}) as Record<string, unknown>;
-    const meta = readGuestList(settings);
+    const meta = readGuestList(settings, eventId);
     if (!meta) {
       return NextResponse.json({ error: "No guest list attached" }, { status: 404 });
     }
@@ -222,7 +222,7 @@ export async function GET(
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const settings = (event as { settings: unknown }).settings;
-  const meta = readGuestList(settings);
+  const meta = readGuestList(settings, eventId);
   return NextResponse.json({
     attached: !!meta,
     filename: meta?.filename ?? null,

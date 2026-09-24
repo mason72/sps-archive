@@ -28,6 +28,13 @@ export async function POST(
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // The guest list is NOT copied: it is PII that belongs to the one client
+    // the original's publish email went to, and its key lives in the
+    // original's folder, so the copy would carry a pointer into another
+    // event (readGuestList ignores such a key anyway, lesson 166).
+    const { guestList: _guestList, ...settings } = (original.settings ?? {}) as Record<string, unknown>;
+    void _guestList;
+
     // Create duplicate with new slug
     const newSlug = nanoid(10);
     const { data: newEvent, error: createError } = await supabase
@@ -39,7 +46,7 @@ export async function POST(
         event_type: original.event_type,
         event_date: original.event_date,
         description: original.description,
-        settings: original.settings || {},
+        settings: settings as typeof original.settings,
       })
       .select()
       .single();

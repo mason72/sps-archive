@@ -8,7 +8,7 @@
  * a key another event's row still points at is kept.
  */
 import type { createServiceClient } from "@/lib/supabase/server";
-import { deleteImageAssets } from "@/lib/r2/client";
+import { deleteImageAssets, deleteR2Prefix } from "@/lib/r2/client";
 
 type Db = ReturnType<typeof createServiceClient>;
 
@@ -81,4 +81,25 @@ export async function purgeEventAssets(db: Db, assets: EventAssets): Promise<Pur
     for (const f of results) failedKeys.push(...f);
   }
   return { deleted: doomed.length, kept: referenced.size, failedKeys };
+}
+
+/**
+ * The folders an event owns outright, never shared with another event:
+ * `branding/` (logo keys are pinned per event by `pinnedCoverLogoKey`),
+ * `covers/` (the raster key is derived from the event id, never stored) and
+ * `attachments/` (the guest list, PII; pinned by `readGuestList`). Because
+ * every reader ignores a key outside its own event's folder, deleting these
+ * wholesale cannot break another event. Images are NOT in this list.
+ */
+export const EVENT_OWNED_FOLDERS = ["branding", "covers", "attachments"] as const;
+
+export async function purgeEventOwnedFiles(eventId: string): Promise<{ deleted: number; failedKeys: string[] }> {
+  let deleted = 0;
+  const failedKeys: string[] = [];
+  for (const folder of EVENT_OWNED_FOLDERS) {
+    const r = await deleteR2Prefix(`events/${eventId}/${folder}/`);
+    deleted += r.deleted;
+    failedKeys.push(...r.failedKeys);
+  }
+  return { deleted, failedKeys };
 }

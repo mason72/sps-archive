@@ -4090,3 +4090,17 @@ asked this one to look.
 - **Check a "true value" against the shape of the whole set before building on it.** One sample time looked authoritative; an hour histogram of the event showed it was a 3am booth.
 - **Metadata that defaults silently is not evidence.** A tag written by a camera that was never configured (`+00:00`, year 2000) carries no information and must not outrank the fallback.
 - **Fixing a key's reader breaks every matcher keyed on the old values.** Before shipping, list the matchers (`twin-skip`, `consolidate-duplicates`) and teach them the legacy keys, or backfill first.
+
+## 166 — A deleted event kept its guest list, and a duplicated one borrowed it (2026-09-24)
+
+**What happened.** Event delete removed image files only. Each event's `branding/` (logo), `covers/` (cover raster) and `attachments/` (the SPS guest list, which is PII) stayed in R2 forever. Before deleting those folders wholesale, I checked whether another event could point into them. One path could: `POST /api/events/[id]/duplicate` copied `settings` verbatim, including `settings.guestList`. That gave the copy a pointer into the ORIGINAL event's folder, plus the same token hash, and the token lookup returned whichever event it hit first. The live data was clean (6 guest lists, all in their own folders, no shared hashes), so this was latent.
+
+**Fix.**
+- `readGuestList(settings, eventId)` ignores a key outside that event's own `attachments/` folder. This is the same pin `pinnedCoverLogoKey` gives logos.
+- Duplicating an event drops `guestList`.
+- Delete then clears the three owned folders (`purgeEventOwnedFiles`). It runs independently of the image purge, so a failure in one cannot strand the other.
+- `deleteR2Prefix` refuses anything but `events/<id>/<folder>/`.
+
+**Rules.**
+- **A folder is safe to delete wholesale only when every reader pins its keys to that owner.** Pin first, delete second.
+- **Copying a settings blob copies every pointer in it.** When a JSONB bag holds keys, tokens or PII, a duplicate path must list what it drops.

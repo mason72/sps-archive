@@ -55,9 +55,17 @@ export function mintToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export function readGuestList(settings: unknown): GuestListMeta | null {
+/**
+ * The event's guest list, or null. The key is PINNED to this event's own
+ * attachments folder, like `pinnedCoverLogoKey`: settings is owner-writable
+ * JSONB and was once copied verbatim by event duplication, so a key pointing
+ * into another event's folder is ignored rather than served. That pin is also
+ * what makes deleting an event's `attachments/` folder safe.
+ */
+export function readGuestList(settings: unknown, eventId: string): GuestListMeta | null {
   const gl = (settings as { guestList?: GuestListMeta } | null)?.guestList;
   if (!gl?.key || !gl.tokenHash) return null;
+  if (!eventId || !gl.key.startsWith(`events/${eventId}/attachments/`)) return null;
   return gl;
 }
 
@@ -85,7 +93,7 @@ export async function findEventByGuestListToken(
     user_id: string | null;
     settings: unknown;
   }[]) {
-    const meta = readGuestList(row.settings);
+    const meta = readGuestList(row.settings, row.id);
     if (meta && meta.tokenHash === wanted) {
       return { eventId: row.id, userId: row.user_id, meta };
     }

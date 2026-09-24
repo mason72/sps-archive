@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const deleteImageAssets = vi.fn<(key: string, mediaType?: string | null) => Promise<string[]>>();
-vi.mock("@/lib/r2/client", () => ({ deleteImageAssets: (k: string, m?: string | null) => deleteImageAssets(k, m) }));
+const deleteR2Prefix = vi.fn<(prefix: string) => Promise<{ deleted: number; failedKeys: string[] }>>();
+vi.mock("@/lib/r2/client", () => ({
+  deleteImageAssets: (k: string, m?: string | null) => deleteImageAssets(k, m),
+  deleteR2Prefix: (p: string) => deleteR2Prefix(p),
+}));
 
-import { collectEventAssets, purgeEventAssets } from "./purge-assets";
+import { collectEventAssets, purgeEventAssets, purgeEventOwnedFiles } from "./purge-assets";
 
 /** Minimal PostgREST stand-in: `images` rows, recording each call's shape. */
 function fakeDb(rows: { event_id: string; r2_key: string; media_type: string | null; id: string }[]) {
@@ -62,5 +66,16 @@ describe("purgeEventAssets", () => {
     expect(res.deleted).toBe(2);
     expect(res.failedKeys).toEqual(["events/g/originals/b.jpg", "events/g/originals/b.jpg-thumb"]);
     expect(deleteImageAssets).toHaveBeenCalledWith("events/g/originals/b.jpg", "video");
+  });
+});
+
+describe("purgeEventOwnedFiles", () => {
+  it("clears exactly the three owned folders, never the event root or images", async () => {
+    deleteR2Prefix.mockReset().mockImplementation(async (p) => ({ deleted: 1, failedKeys: p.includes("covers") ? [`${p}cover-raster.jpg`] : [] }));
+    const res = await purgeEventOwnedFiles("e1");
+    expect(deleteR2Prefix.mock.calls.map((c) => c[0])).toEqual([
+      "events/e1/branding/", "events/e1/covers/", "events/e1/attachments/",
+    ]);
+    expect(res).toEqual({ deleted: 3, failedKeys: ["events/e1/covers/cover-raster.jpg"] });
   });
 });

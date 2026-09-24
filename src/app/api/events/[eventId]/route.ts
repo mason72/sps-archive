@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
-import { collectEventAssets, purgeEventAssets } from "@/lib/events/purge-assets";
+import { collectEventAssets, purgeEventAssets, purgeEventOwnedFiles } from "@/lib/events/purge-assets";
 import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
 import { inngest } from "@/lib/inngest/client";
 import { ensureWebsiteSections } from "@/lib/site/gallery";
@@ -461,21 +461,27 @@ export async function DELETE(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Clean up R2 for every image (original + thumbnails + video rendition)
-    // after the response, inside after() so Vercel keeps the function alive
+    // Clean up R2 for every image (original + thumbnails + video rendition),
+    // then the event's own logo, cover raster and guest list (PII), after the
+    // response, inside after() so Vercel keeps the function alive
     // until it finishes. A bare `void Promise.all` could be frozen partway.
+    // Two independent steps: a failure in the image purge must not strand
+    // the guest list, which is the file that matters most to delete.
     after(async () => {
-      try {
-        const { deleted, kept, failedKeys } = await purgeEventAssets(supabase, assets);
-        if (failedKeys.length > 0) {
+      const [images, owned] = await Promise.allSettled([
+        purgeEventAssets(supabase, assets),
+        purgeEventOwnedFiles(eventId),
+      ]);
+      for (const [step, r] of [["images", images], ["owned", owned]] as const) {
+        if (r.status === "rejected") {
+          await reportSystemError(`events.delete.r2-cleanup.${step}`, r.reason, { eventId, files: assets.size });
+        } else if (r.value.failedKeys.length > 0) {
           await reportSystemError(
-            "events.delete.r2-cleanup",
-            new Error(`${failedKeys.length} R2 objects failed to delete`),
-            { eventId, deleted, kept, failedCount: failedKeys.length, failedSample: failedKeys.slice(0, 20) }
+            `events.delete.r2-cleanup.${step}`,
+            new Error(`${r.value.failedKeys.length} R2 objects failed to delete`),
+            { eventId, deleted: r.value.deleted, failedCount: r.value.failedKeys.length, failedSample: r.value.failedKeys.slice(0, 20) }
           );
         }
-      } catch (err) {
-        await reportSystemError("events.delete.r2-cleanup", err, { eventId, files: assets.size });
       }
     });
 

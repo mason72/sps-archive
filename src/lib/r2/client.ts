@@ -4,6 +4,8 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -285,6 +287,31 @@ export async function deleteFromR2(key: string): Promise<void> {
       Key: key,
     })
   );
+}
+
+/**
+ * Delete every object under `prefix`, 1,000 per request. Returns the keys
+ * that failed. Only for folders ONE owner provably owns (an event's
+ * branding/covers/attachments): never for `events/<id>/` as a whole, because
+ * a merge leaves live rows' files under a deleted event's folder (lesson 164).
+ */
+export async function deleteR2Prefix(prefix: string): Promise<{ deleted: number; failedKeys: string[] }> {
+  if (!/^events\/[^/]+\/[^/]+\/$/.test(prefix)) throw new Error(`refusing to delete prefix ${prefix}`);
+  let deleted = 0;
+  const failedKeys: string[] = [];
+  let token: string | undefined;
+  do {
+    const page = await R2.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: token }));
+    const keys = (page.Contents ?? []).map((o) => o.Key!).filter(Boolean);
+    if (keys.length > 0) {
+      const res = await R2.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } }));
+      const errs = (res.Errors ?? []).map((e) => e.Key ?? "?");
+      failedKeys.push(...errs);
+      deleted += keys.length - errs.length;
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return { deleted, failedKeys };
 }
 
 /**

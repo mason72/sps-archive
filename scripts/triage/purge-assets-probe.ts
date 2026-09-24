@@ -13,7 +13,8 @@ for (const l of fs.readFileSync(".env.local","utf8").split("\n")) { const m=l.ma
 (async () => {
   const { createServiceClient } = await import("../../src/lib/supabase/server");
   const { uploadToR2, objectExistsInR2, getThumbnailKey } = await import("../../src/lib/r2/client");
-  const { keysStillReferenced, purgeEventAssets } = await import("../../src/lib/events/purge-assets");
+  const { keysStillReferenced, purgeEventAssets, purgeEventOwnedFiles } = await import("../../src/lib/events/purge-assets");
+  const { deleteR2Prefix } = await import("../../src/lib/r2/client");
   const db = createServiceClient();
 
   const dir = `events/purge-probe-${Math.random().toString(36).slice(2, 10)}/originals`;
@@ -36,5 +37,21 @@ for (const l of fs.readFileSync(".env.local","utf8").split("\n")) { const m=l.ma
   console.log(`purge: ${purgeOk ? "PASS" : "FAIL"} deleted=${res.deleted} kept=${res.kept} failed=${res.failedKeys.length}, objects left=${after}`);
   const realStill = await objectExistsInR2(real.r2_key);
   console.log(`real file untouched: ${realStill ? "PASS" : "FAIL"}`);
-  process.exit(refOk && purgeOk && realStill && before === all.length ? 0 : 1);
+
+  // Event-owned folders: branding/covers/attachments go, an image original stays.
+  const ev = `purge-probe-${Math.random().toString(36).slice(2, 10)}`;
+  const owned = [`events/${ev}/branding/cover-logo.png`, `events/${ev}/covers/cover-raster.jpg`, `events/${ev}/attachments/guest-list.xlsx`];
+  const bystander = `events/${ev}/originals/keep.jpg`;
+  for (const k of [...owned, bystander]) await uploadToR2(k, Buffer.from("probe"), "application/octet-stream");
+  const ownedRes = await purgeEventOwnedFiles(ev);
+  const ownedLeft = (await Promise.all(owned.map(objectExistsInR2))).filter(Boolean).length;
+  const bystanderStays = await objectExistsInR2(bystander);
+  let refused = false;
+  try { await deleteR2Prefix(`events/${ev}/`); } catch { refused = true; }
+  const bystanderStill = await objectExistsInR2(bystander);
+  const ownedOk = ownedRes.deleted === 3 && ownedRes.failedKeys.length === 0 && ownedLeft === 0 && bystanderStays && refused && bystanderStill;
+  console.log(`owned folders: ${ownedOk ? "PASS" : "FAIL"} deleted=${ownedRes.deleted} left=${ownedLeft} original-kept=${bystanderStays} whole-folder-refused=${refused}`);
+  await purgeEventAssets(db, new Map([[bystander, null]]));
+
+  process.exit(refOk && purgeOk && realStill && ownedOk && before === all.length ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

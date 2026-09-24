@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       // and only alongside a verified share — the download route requires a
       // live share anyway, so a link sent without one is dead on arrival.
       if (guestListToken && verifiedGalleryUrl) {
-        const meta = readGuestList((event as { settings?: unknown })?.settings);
+        const meta = readGuestList((event as { settings?: unknown })?.settings, eventId ?? "");
         if (meta && constantTimeEquals(hashToken(guestListToken), meta.tokenHash)) {
           guestListUrl = `${new URL(verifiedGalleryUrl).origin}/api/guest-list/${encodeURIComponent(
             guestListToken
