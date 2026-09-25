@@ -904,13 +904,18 @@ export const aiIndex = inngest.createFunction(
     id: "ai-index",
     retries: 2,
     /**
-     * 2 at a time overall, and ONE per event. Without the per-event key a
-     * continuation and a sweep nudge for the same gallery could run side by
-     * side, select the same batch, and each record a failure for the same
-     * blip — spending two of an image's AI_INDEX_MAX_ATTEMPTS on one event
-     * (and billing the pass twice). Lesson 151.
+     * ONE at a time overall (Mason, 2026-09-25; was 2). Indexing shares the
+     * database disk with every page load, and two runs writing faces into the
+     * HNSW index made a 100ms photo count take 5.3s, so event pages failed to
+     * load on galleries that were long finished (lesson 168). He chose a slower
+     * backlog over slow pages. Raise it only after the Pixieset migration.
+     *
+     * The per-event key stays: without it a continuation and a sweep nudge for
+     * the same gallery could run side by side, select the same batch, and each
+     * record a failure for the same blip (lesson 151). Redundant at a global
+     * limit of 1, and kept so raising the global limit stays safe.
      */
-    concurrency: [{ limit: 2 }, { limit: 1, key: "event.data.eventId" }],
+    concurrency: [{ limit: 1 }, { limit: 1, key: "event.data.eventId" }],
     /**
      * 2 MINUTES, not 15 (changed 2026-08-11 after Mason asked why it was so
      * long, and the answer did not survive contact).

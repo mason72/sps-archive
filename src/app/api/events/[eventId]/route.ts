@@ -25,11 +25,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
+  let eventIdForReport: string | undefined;
   try {
     const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
     const { eventId } = await params;
+    eventIdForReport = eventId;
 
     // 1. Fetch event — OWNERSHIP-SCOPED. getAuthUser's service client bypasses
     // RLS, so without the user_id filter this returned any tenant's full
@@ -313,7 +315,9 @@ export async function GET(
       sections,
     });
   } catch (error) {
-    console.error("Get event error:", error);
+    // Reported, not just logged: on 2026-09-24 this page failed under database
+    // load and left no trace anywhere but a screenshot (lesson 168).
+    await reportSystemError("events.detail", error, { eventId: eventIdForReport });
     return NextResponse.json(
       { error: "Failed to load event" },
       { status: 500 }

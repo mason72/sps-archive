@@ -4117,3 +4117,13 @@ asked this one to look.
 - **Time each query before parallelising.** The instrumented run (one line per query) found the 5 s count in a minute. Two rounds of guessing had made it worse.
 - **A training set is only as clean as the definition of "a pick".** Filter on what the photographer could plausibly have chosen (share of the gallery), not on the section's name.
 - Machine-filled Highlights (migration 086) are excluded from training by `highlights_auto_count`. The fail-able test put a set on the NEWEST gallery (so it is inside the 20-set window): machine-owned left the count unchanged, hand-picked moved it.
+
+## 168 — Background indexing took down pages for finished galleries, and the page left no trace (2026-09-24)
+**What happened.** Mason's event page showed "Failed to load event" on Autodesk University, a gallery whose AI processing finished days ago. He reasonably asked why background work could break a finished gallery. The page reads the same tables the indexer writes to (`images`, `faces`), on the same disk. With about 32,000 migrated photos waiting and two indexing runs writing faces into the HNSW index, the page's own reads slowed down enough to fail. The same count on the same gallery measured **5,254 ms under load and 96–143 ms once the database was quiet**, identical data. Nothing recorded the failure: the event GET's catch was a bare `console.error`, so the only evidence was his screenshot.
+
+**Fix.** The event GET now reports `events.detail` through `reportSystemError`. `ai-index` runs **one at a time** (was 2). Mason chose a slower backlog over slow pages, and the note says to raise it only after the migration.
+
+**Rules.**
+- **"Finished" is a property of the data, not of the load.** A read of completed rows still queues behind every write on the same disk. When a page fails during a backfill, time the same query loaded and quiet before blaming the page.
+- **Every route that can show a user an error must leave a `system_errors` row.** A failure a human sees and the system does not is the worst kind to debug later.
+- **Check the theory against the code before reporting it.** I suspected the page was downloading every photo's AI fingerprint (98.9 MB vs 9.6 MB for this gallery). The route already selects lean columns, so the measurement was real but irrelevant.
