@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Check, Download, Heart } from "lucide-react";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import { distributeBalanced, useResponsiveColumns } from "@/lib/gallery/grid-layout";
-import { buildStacks, type GalleryStack } from "@/lib/gallery/stacks";
+import { buildDisplayStacks, type GalleryStack } from "@/lib/gallery/stacks";
 import { GalleryStackCard } from "@/components/gallery/GalleryStackCard";
 import type { GalleryImage } from "@/types/gallery";
 
@@ -89,11 +89,13 @@ export function GalleryGrid({
   const isUniform = gridStyle === "uniform";
 
   // With smart stacks on, the layout unit is a stack (singles are stacks of
-  // one and render as plain cards). Off, every image is its own item.
+  // one and render as plain cards). Off, every image is its own item. A view
+  // that would be ONE stack (a photo booth tab) lays out flat — see
+  // buildDisplayStacks.
   const items: GalleryStack[] = useMemo(
     () =>
       smartStacks
-        ? buildStacks(images)
+        ? buildDisplayStacks(images)
         : images.map((img) => ({
             key: img.id,
             personName: img.parsedName || img.originalFilename,

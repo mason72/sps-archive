@@ -308,6 +308,17 @@ hover-offer "⬇ N" (single ZIP via `?images=`), clicking a stack opens a full-s
 gallery (`StackModal`), and the lightbox shows a member filmstrip with navigation
 constrained to the stack. Preview mirrors all of it with downloads stubbed.
 
+**Grouping vs. display (2026-09-27).** `buildStacks()` answers "who is in these files"
+and is what `detectStackable()`, the mosaic cover and the single-person share title read.
+Every grid that RENDERS stacks (guest `GalleryGrid`, the lightbox order in
+`GalleryExperience`, the editor grid) goes through `buildDisplayStacks()` instead, which
+adds one rule: **a view that would fold into ONE tile is laid out flat.** That is what lets
+a photo booth section (every file named for the job, so one 98-photo tile) sit beside a
+stacked headshot section with no per-section switch: Mason, when asked, said "one but
+not all" is rare and he did not want to toggle sections. It also flattens a per-person
+section and a one-name search. Known gap: a booth section with two or three camera
+prefixes still stacks into a few tiles; add a per-section override only if that bites.
+
 Email templates, analytics, stats, search, SPS, stacks, Inngest:
 - `/api/emails/send`, `/api/emails/templates`, `/api/templates`
 - `/api/analytics/overview`, `/api/analytics/engagement`, `/api/stats`

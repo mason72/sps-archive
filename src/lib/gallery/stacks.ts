@@ -376,3 +376,32 @@ export function buildStacks<
   });
   return Array.from(groups.values());
 }
+
+/**
+ * The stacks a grid should RENDER for the set it is showing: `buildStacks`,
+ * except that a set which would fold into ONE tile is laid out flat.
+ *
+ * One tile holding everything on screen is never a stack — it is a mystery
+ * thumbnail with every photo hidden behind a click. It happens whenever a view
+ * is one name: a photo booth section whose every file is
+ * "260924_RCG_MiniCon_Photobooth_NNNN" (98 photos, one tile, 2026-09-27), a
+ * per-person section, a search for one guest. The event's stack switch stays
+ * the one control; this is why a booth section beside a headshot section needs
+ * no switch of its own. The single-person share title (GalleryExperience)
+ * answers the same question for a whole gallery.
+ *
+ * Grouping is untouched — `detectStackable` and the mosaic still read
+ * `buildStacks`, because "does this event stack" is about its filenames, not
+ * about which slice of it is on screen.
+ */
+export function buildDisplayStacks<
+  T extends { id: string; parsedName: string | null; originalFilename: string }
+>(images: T[]): PersonStack<T>[] {
+  const groups = buildStacks(images);
+  if (groups.length !== 1 || images.length < 2) return groups;
+  return images.map((img) => ({
+    key: img.id,
+    personName: groups[0].personName,
+    images: [img],
+  }));
+}

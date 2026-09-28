@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   collapseRepeatedWords,
+  buildDisplayStacks,
   buildNameCleaner,
   buildStacks,
   displayName,
@@ -372,5 +373,57 @@ describe("stack display casing", () => {
     for (const n of ["Pete DeStefano", "Petre Trpkovski", "Anne de Vries"]) {
       expect(displayName(n)).toBe(n);
     }
+  });
+});
+
+describe("buildDisplayStacks — a view that is one stack lays out flat (2026-09-27)", () => {
+  // The real shape: eBay RCG MiniCon's photo booth section, where every file is
+  // the job's name and so the whole tab collapsed into one 98-photo tile.
+  const booth = Array.from({ length: 98 }, (_, i) =>
+    img({
+      id: `pb${i}`,
+      parsedName: "RCG MiniCon Photobooth",
+      originalFilename: `260924_RCG_MiniCon_Photobooth_${String(i).padStart(4, "0")}.jpg`,
+    })
+  );
+
+  it("flattens a set that would fold into a single tile, in the order given", () => {
+    const out = buildDisplayStacks(booth);
+    expect(out).toHaveLength(98);
+    expect(out.every((s) => s.images.length === 1)).toBe(true);
+    expect(out.map((s) => s.images[0].id)).toEqual(booth.map((b) => b.id));
+    // Keys are the image ids: unique, and stable across a re-sort.
+    expect(new Set(out.map((s) => s.key)).size).toBe(98);
+    expect(out[5].key).toBe("pb5");
+  });
+
+  it("flattens one person's photos too (a per-person section, a one-name search)", () => {
+    const one = [
+      img({ id: "a", parsedName: "Cindy" }),
+      img({ id: "b", parsedName: "Cindy" }),
+    ];
+    expect(buildDisplayStacks(one).map((s) => s.images.length)).toEqual([1, 1]);
+  });
+
+  it("leaves a view with two or more people exactly as buildStacks groups it", () => {
+    const headshots = [
+      img({ id: "a1", parsedName: "Ankush Bansal" }),
+      img({ id: "b1", parsedName: "David Amedeka" }),
+      img({ id: "a2", parsedName: "Ankush Bansal" }),
+      img({ id: "c1", parsedName: "Cindy" }),
+    ];
+    expect(buildDisplayStacks(headshots)).toEqual(buildStacks(headshots));
+  });
+
+  it("does not flatten a booth sitting beside other people in a mixed view", () => {
+    // "All Images" mixes sections; only a view that is ONE stack goes flat.
+    const mixed = [...booth.slice(0, 3), img({ id: "x", parsedName: "Cindy" }), img({ id: "y", parsedName: "Cindy" })];
+    expect(buildDisplayStacks(mixed).map((s) => s.images.length)).toEqual([3, 2]);
+  });
+
+  it("passes empty and single-image sets through untouched", () => {
+    expect(buildDisplayStacks([])).toEqual([]);
+    const solo = [img({ id: "s", parsedName: "Solo Person" })];
+    expect(buildDisplayStacks(solo)).toEqual(buildStacks(solo));
   });
 });

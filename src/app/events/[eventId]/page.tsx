@@ -52,7 +52,7 @@ import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import type { ImageData, StackData } from "@/types/image";
 import { PREVIEW_SETTINGS_MESSAGE, previewNeedsReload } from "@/lib/cover/gallery-fields";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
-import { buildStacks } from "@/lib/gallery/stacks";
+import { buildDisplayStacks } from "@/lib/gallery/stacks";
 import {
   looksLikePersonName,
   normalizeNameKey,
@@ -1370,7 +1370,7 @@ export default function EventPage({
   // in section views and drag as a single block; ImageGrid expands a dropped
   // stack into its member ids so the manual order stays one row per image.
   // Grouping is the SAME filename derivation the public gallery uses
-  // (buildStacks), so the editor shows exactly the stacks a guest would see.
+  // (buildDisplayStacks), so the editor shows exactly the stacks a guest would see.
   // Groups of one fall back to standalone tiles.
   const { gridStacks, gridStandalone } = useMemo<{
     gridStacks: StackData[];
@@ -1384,7 +1384,8 @@ export default function EventPage({
     }
     const stacks: StackData[] = [];
     const loose: ImageData[] = [];
-    for (const group of buildStacks(sortedImages)) {
+    // A view that would be ONE stack (a photo booth section) lays out flat.
+    for (const group of buildDisplayStacks(sortedImages)) {
       if (group.images.length > 1) {
         stacks.push({
           id: `name:${group.key}`,

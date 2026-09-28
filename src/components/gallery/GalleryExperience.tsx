@@ -7,7 +7,7 @@ import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
 import { ShareLinkDialog } from "@/components/gallery/ShareLinkDialog";
-import { buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
+import { buildDisplayStacks, buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
 import { stripMediaExtension } from "@/lib/upload/media";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { CoverSection } from "@/components/gallery/CoverSection";
@@ -515,8 +515,10 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     } else {
       list = gallery?.images ?? [];
     }
-    if (gallery?.settings?.smartStacks) {
-      list = buildStacks(list).flatMap((stack) => stack.images);
+    // The selfie grid never stacks (smartStacks={false} below), so its arrows
+    // must not walk a person-grouped order the guest cannot see.
+    if (gallery?.settings?.smartStacks && !(selfieMatches && !searchQuery.trim())) {
+      list = buildDisplayStacks(list).flatMap((stack) => stack.images);
     }
     return list;
   }, [gallery, searchQuery, filteredImages, selfieMatches, selfieImages, sectionVisibleImages]);
