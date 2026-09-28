@@ -489,52 +489,71 @@ export async function buildPeopleIndex(
     original_filename: string;
     aesthetic_score: number | null;
   };
-  // Count first, then pull every page CONCURRENTLY. Sequential paging meant
-  // ~18 round-trips before a single face could render, each waiting on the
-  // last for no reason — the dominant cost of loading /people.
+  // Every photo in the archive, read by KEYSET over sixteen id ranges, four at
+  // a time. Never OFFSET, and never one request per page all at once.
   //
-  // ⚠️ Every page MUST carry `.order("id")`. `range()` is OFFSET/LIMIT, and
-  // Postgres gives no row order without an ORDER BY — its synchronized
-  // sequential scans deliberately start a new scan wherever a concurrent one
-  // already is, so 39 parallel pages can each see the table differently.
-  // Pages then overlap and leave gaps: measured 2026-08-15, two runs in five
-  // fetched one page twice (and 7,521 rows twice in the worst case), which is
-  // how Jenna Loeser's tile read 64 photos for a 35-photo shoot while Steven
-  // Hughes lost one to a gap. Dedupe below is the belt to this braces —
-  // over-counting is the lie a human sees.
-  const { count: rowCount, error: countError } = await supabase
-    .from("images")
-    .select("id", { count: "exact", head: true })
-    .in("event_id", [...eventById.keys()])
-    .eq("media_type", "image")
-    .eq("processing_status", "complete");
-  if (countError) throw countError;
-
-  const rows: Row[] = [];
-  const pages = await Promise.all(
-    Array.from({ length: Math.ceil((rowCount ?? 0) / PAGE) }, (_, i) =>
-      supabase
+  // The old read counted the archive and fired one OFFSET page per 1,000 rows,
+  // all concurrently. That was ~18 requests when it was written; at ~730,000
+  // photos it was ~730 simultaneous requests, and OFFSET makes the Nth page scan
+  // N x 1,000 rows first, so the work grew with the SQUARE of the archive. On
+  // 2026-09-28 one rebuild held the whole API connection pool: 742 of 742 page
+  // reads failed, and every gallery page timed out while Inngest retried it
+  // (lesson 172).
+  //
+  // Keyset (`id > last`, ordered, limited) makes every page an index range scan,
+  // so total work is linear, and the id ranges keep it parallel without letting
+  // concurrency track the archive's size. UUIDs compare bytewise, which is the
+  // order of their hex text, so a leading hex digit splits the table evenly.
+  // Each shard is ordered by id with strict bounds, so pages cannot overlap or
+  // leave gaps — the dedupe below stays only as belt and braces.
+  const HEX = "0123456789abcdef";
+  const shards = [...HEX].map((h, i) => ({
+    from: `${h}0000000-0000-0000-0000-000000000000`,
+    to: i + 1 < HEX.length ? `${HEX[i + 1]}0000000-0000-0000-0000-000000000000` : null,
+  }));
+  const SHARD_CONCURRENCY = 4;
+  const eventIds = [...eventById.keys()];
+  const readShard = async (shard: { from: string; to: string | null }): Promise<Row[]> => {
+    const out: Row[] = [];
+    let after: string | null = null;
+    for (;;) {
+      let q = supabase
         .from("images")
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
-        .in("event_id", [...eventById.keys()])
+        .in("event_id", eventIds)
         .eq("media_type", "image")
         // Presign-created rows exist BEFORE their bytes do. Counting them
         // promises photos the gallery can't show — Jeff Roark's tile said 77
         // when 9 were ghosts from a died-mid-upload session, and the spotlight
         // rendered them as blank tiles.
-        .eq("processing_status", "complete")
-        .order("id")
-        .range(i * PAGE, i * PAGE + PAGE - 1)
-    )
-  );
-  const seenRowIds = new Set<string>();
-  for (const page of pages) {
-    if (page.error) throw page.error;
-    for (const row of (page.data ?? []) as Row[]) {
-      if (seenRowIds.has(row.id)) continue;
-      seenRowIds.add(row.id);
-      rows.push(row);
+        .eq("processing_status", "complete");
+      q = after ? q.gt("id", after) : q.gte("id", shard.from);
+      if (shard.to) q = q.lt("id", shard.to);
+      const { data, error } = await q.order("id").limit(PAGE);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      out.push(...page);
+      if (page.length < PAGE) return out;
+      after = page[page.length - 1].id;
     }
+  };
+  const shardRows: Row[][] = new Array(shards.length);
+  let nextShard = 0;
+  await Promise.all(
+    Array.from({ length: SHARD_CONCURRENCY }, async () => {
+      while (nextShard < shards.length) {
+        const i = nextShard++;
+        shardRows[i] = await readShard(shards[i]);
+      }
+    })
+  );
+
+  const rows: Row[] = [];
+  const seenRowIds = new Set<string>();
+  for (const row of shardRows.flat()) {
+    if (seenRowIds.has(row.id)) continue;
+    seenRowIds.add(row.id);
+    rows.push(row);
   }
 
   // person key → event id → appearance
