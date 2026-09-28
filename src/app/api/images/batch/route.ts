@@ -5,6 +5,8 @@ import { unpublishAssetFromLane } from "@/lib/site/publish";
 import { syncSitePublication } from "@/lib/site/membership";
 import { partitionSectionDelete } from "@/lib/gallery/delete-partition";
 import { mediaExtension, stripMediaExtension } from "@/lib/upload/media";
+import { parseFilename } from "@/lib/upload/parse-filename";
+import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 
 /**
@@ -459,16 +461,27 @@ export async function PATCH(request: NextRequest) {
           const ext = mediaExtension(filenameById.get(imageId) ?? "");
           const newName = ext ? `${base}.${ext}` : base;
 
+          // The name is re-parsed exactly as upload and the SPS pull store it.
+          // Stacks, /people and the face namer read parsed_name FIRST, so a
+          // rename that wrote only the filename left the old name in charge:
+          // Laura Poore's 7 frames kept a pasted "4kVert 3.jpg4kVert 4.jpg…"
+          // caption and stayed a separate stack from her own (2026-09-27).
           return supabase
             .from("images")
-            .update({ original_filename: newName })
+            .update({
+              original_filename: newName,
+              parsed_name: parseFilename(newName).name,
+            })
             .eq("id", imageId);
         });
 
         const results = await Promise.all(updates);
         const failed = results.filter((r) => r.error);
         if (failed.length > 0) {
-          console.error("Some renames failed:", failed.map((r) => r.error));
+          await reportSystemError("images.batch.rename", failed[0].error, {
+            failed: failed.length,
+            of: ownedIds.length,
+          });
         }
 
         return NextResponse.json({
