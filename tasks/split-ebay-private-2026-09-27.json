@@ -1,0 +1,197 @@
+{
+  "at": "2026-09-28T02:57:58.942Z",
+  "plan": {
+    "move": 90,
+    "moveByName": [
+      [
+        "anat peron_",
+        17
+      ],
+      [
+        "came peron_",
+        30
+      ],
+      [
+        "cindy_",
+        43
+      ]
+    ],
+    "rcgLinksRemoved": 90,
+    "boothCopies": [
+      "260924_RCG_MiniCon_Photobooth_0042.jpg",
+      "260924_RCG_MiniCon_Photobooth_0043.jpg",
+      "260924_RCG_MiniCon_Photobooth_0044.jpg",
+      "260924_RCG_MiniCon_Photobooth_0045.jpg",
+      "260924_RCG_MiniCon_Photobooth_0046.jpg",
+      "260924_RCG_MiniCon_Photobooth_0047.jpg",
+      "260924_RCG_MiniCon_Photobooth_0105.jpg",
+      "260924_RCG_MiniCon_Photobooth_0106.jpg",
+      "260924_RCG_MiniCon_Photobooth_0107.jpg",
+      "260924_RCG_MiniCon_Photobooth_0108.jpg",
+      "260924_RCG_MiniCon_Photobooth_0109.jpg",
+      "260924_RCG_MiniCon_Photobooth_0110.jpg"
+    ],
+    "privateImagesBefore": 0,
+    "privateImagesAfter": 102,
+    "rcgImagesAfter": 1383
+  },
+  "moved": [
+    "0b1cb778-a9ca-4882-9a27-2db58ded2844",
+    "1113c485-ab93-413e-ad94-5862892aec16",
+    "116b4cb5-50e5-4485-bf51-c1068913c291",
+    "11a65fc5-fed0-4e69-909b-4eabe7975cdc",
+    "11afe76d-7565-4528-adab-ad7f81b576f9",
+    "1202dff3-4e95-4240-b20c-8d020ef59184",
+    "1302f4c5-7bc9-4943-af8e-6b186b499653",
+    "1511beee-db6a-4c4c-b80d-ff0a6452ea2c",
+    "179b491d-5a36-4f4b-94e8-946f5ae93508",
+    "17d45032-1ac6-4637-8195-6400c4b6510e",
+    "184da4af-a441-4f8e-910a-f26d0ade0f00",
+    "185c9f8e-4fc6-4533-9728-8405494ab929",
+    "1a7a1ae9-ea8e-46dc-b909-5d0ed9d1ce01",
+    "1f532331-2589-44f7-9246-337825a7857a",
+    "20e2e568-3f75-43e8-80a4-cb2c13f13465",
+    "21390024-d9a0-4b54-83fa-0a3d56718b5c",
+    "21c3c905-3535-4db0-98ba-3d917486f347",
+    "2a48474f-1629-47bf-af24-af0a544bca61",
+    "2c8d5839-e76a-4b6d-b603-25e0b172d6d2",
+    "2ffdd19d-3aab-4673-b8b8-8b98f39416c1",
+    "31b6c46f-4b0c-4629-8763-eba69f6b562f",
+    "3377f88a-9903-4ca9-ba10-8640a0de5089",
+    "3382948f-dc81-4586-b4da-908576b3c456",
+    "3f1d9ad7-b60b-4f3a-b306-b9f7ec84bb8e",
+    "3ff08874-c477-47bd-9ecb-f0f36324bab4",
+    "431bb454-0913-4f8a-9b3d-b4690feff9cc",
+    "45cfb8fa-76e8-4f2d-ba57-2e59f9634410",
+    "52102156-9d74-4dd9-8be2-b5b5adfba6bb",
+    "52537640-a48a-4216-ad17-5f353e5fcd4a",
+    "54fc3cf7-aec4-4046-862b-4e6fee51fd23",
+    "585f0c49-2fb5-4cd9-ab75-74f6b30c5bd7",
+    "58d2a2e2-25c5-4fbb-919b-52835b9d99e6",
+    "59641b14-b3d2-4bab-88d6-1c561f6dc4af",
+    "59abbbda-4bcf-4dec-aa7f-1e54499fc5ad",
+    "59b929ee-3c24-4060-be67-c6cf1838c625",
+    "5b1f76f9-c677-414e-b006-06c13174b426",
+    "651711f9-598c-431c-b1c1-4e0a74aa1a59",
+    "65608eab-0690-479b-bbf4-cd07abe25db2",
+    "66ba5019-ff81-45ce-85a2-74899a63ecbd",
+    "66e6f3e6-3586-4aa5-88b2-9f3dc78dcf66",
+    "6e2915f5-0530-4500-a335-0f877c6468fd",
+    "707d020e-7ea9-4137-a365-fb6e2695696c",
+    "7a630971-57d8-4622-9b93-55acc59cdf0e",
+    "7d766e8f-19c1-4c89-b067-5ed3212ef38d",
+    "80b246e6-eef6-4bfd-91b4-6c04eb2d4fc5",
+    "831be2e0-b522-4284-8406-c4f777208b64",
+    "833d6ad2-e5d0-4932-a492-b63356305d91",
+    "86350c24-6b61-4f07-b4a5-c493845d16c2",
+    "87bd71c3-f55c-489a-aaee-4bf2c5261a83",
+    "8bd0fc73-dcc6-402b-8183-822e14b6c2d9",
+    "8e1c4b7c-600e-46a6-968f-ca5e79ce1ba0",
+    "970f57cb-6e03-420f-81a6-f9487720e9b1",
+    "99048df6-d60e-465b-8a48-28c4586b0d65",
+    "9a8f937f-ec98-44ce-9c46-0b4c4fb02ccf",
+    "9aee64a3-dd86-43bf-ad5e-97359c011f1b",
+    "9c3ddad4-1e6c-4639-bb76-43f5ba20f2e3",
+    "9d9f55ed-675a-446e-b79f-385eaf52cdb4",
+    "9dff4fe5-0ec1-45df-a5aa-bfae424817af",
+    "9e1dec09-31c8-41ce-8bc5-e2bb0e750123",
+    "a5c23637-f43f-4d5a-813e-99456185c65e",
+    "a6eb18ae-fb29-4ac4-b102-e38d90c0c372",
+    "a7c54266-9570-4420-8605-8fa0e2d3923c",
+    "a8ac9aab-aada-4bbe-8c88-66bc6d09986b",
+    "aecf6ba1-002e-4331-aea3-2b87a45d5efc",
+    "b0600595-f799-4120-a3cb-9fe47ef08392",
+    "b434c02f-fc67-40d3-933a-66a2d8c7db17",
+    "c3bf1a55-cc1b-432d-b386-52918c659fe3",
+    "c468aa24-c0cd-4dc1-a3e8-670ae32986f7",
+    "c4e637a5-54b6-41f8-91f8-07293aa19665",
+    "c79c5f34-1b2b-4efe-a830-05ea2b90ad54",
+    "d03fadc6-b78b-44a3-a353-0be0efe6aaaf",
+    "d19ed826-3d7a-41fa-b2e3-a6f91c4c958d",
+    "d3976e68-b815-4650-844f-a2168549574a",
+    "d7720536-ee69-487b-9edb-6c5ab44192a5",
+    "d7e5a3ed-b16d-46ab-835c-ec7d42c9573c",
+    "d9bdbce7-29d3-43bb-b971-b993012cbd9c",
+    "dcd8c2de-4d75-4e5a-a2de-f9a5fa0d1f8a",
+    "e233418e-8247-46ad-945c-0f4a956b70ca",
+    "e43031e4-4e0a-4fe2-9487-0a154b6489c7",
+    "e9c69b5f-e8c8-4278-b7ba-ed1ccd6629e4",
+    "eb2912df-e80f-4224-b8ad-bdc285e88003",
+    "ebe302b5-9901-438d-8177-ba25398a12de",
+    "ec109a4d-b5f9-4817-9ffc-257f84eac8ea",
+    "ee0c02c4-f362-434c-9f0b-b284d3b4c8f9",
+    "f0ee097c-63d2-4360-bf36-3e1c60d513cf",
+    "f1fa7ce8-8616-4cb2-99b9-cad421eaf010",
+    "f2159d4e-f9ae-4007-860e-656a0afcc361",
+    "f306ad6c-366b-4bed-811c-1d4e5e35f3b1",
+    "f5199a14-f7df-4a90-aba2-71eb82cc6e48",
+    "fefd2a0c-c4b4-4dbb-aa79-73415a7ab605"
+  ],
+  "copies": [
+    {
+      "from": "1e6c7100-7743-483a-82b9-9150fe7147d9",
+      "to": "64d03eb2-79d5-4dee-9c93-ca7fe46304b5",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/64d03eb2-79d5-4dee-9c93-ca7fe46304b5.jpg"
+    },
+    {
+      "from": "f6c82fec-c90c-4af7-bdc7-b97de1272d59",
+      "to": "adacc75b-9c67-4399-a646-c410bbcb1113",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/adacc75b-9c67-4399-a646-c410bbcb1113.jpg"
+    },
+    {
+      "from": "f045282a-88b3-4c4e-b8eb-943571811822",
+      "to": "9ca75b37-ea30-4e12-a465-56114f18207d",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/9ca75b37-ea30-4e12-a465-56114f18207d.jpg"
+    },
+    {
+      "from": "1403c639-0993-4888-8e6c-a1c5eda32641",
+      "to": "210dbe20-5b70-471c-ae15-a4a2b44000ec",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/210dbe20-5b70-471c-ae15-a4a2b44000ec.jpg"
+    },
+    {
+      "from": "10e7436d-f26b-40fa-b8e6-30f50627fc7f",
+      "to": "9bb5bd32-4aa7-4342-8812-355698f711e6",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/9bb5bd32-4aa7-4342-8812-355698f711e6.jpg"
+    },
+    {
+      "from": "680cb711-1d3b-4b76-982e-031226aaaa5e",
+      "to": "3e026b76-51da-4522-b0f8-f6f41bdfacbc",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/3e026b76-51da-4522-b0f8-f6f41bdfacbc.jpg"
+    },
+    {
+      "from": "e7ab803d-b1c1-40c3-9e5a-e315a9307465",
+      "to": "7d94d268-8def-4c5e-b5f0-d4c7f21dbd1c",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/7d94d268-8def-4c5e-b5f0-d4c7f21dbd1c.jpg"
+    },
+    {
+      "from": "157175a9-b6e3-4c32-9396-e934520b93eb",
+      "to": "211890bc-a9f3-4efd-85d7-2c7ed0656bb2",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/211890bc-a9f3-4efd-85d7-2c7ed0656bb2.jpg"
+    },
+    {
+      "from": "442e2fa9-2d2c-4fb7-9d31-973ae4ee9c3a",
+      "to": "e3555155-30ba-4542-8d24-91f3072dbea3",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/e3555155-30ba-4542-8d24-91f3072dbea3.jpg"
+    },
+    {
+      "from": "29c328b3-f08b-47f1-a786-c434c4fd090a",
+      "to": "35d107bf-def0-43c3-b03a-fd033a8ab5cc",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/35d107bf-def0-43c3-b03a-fd033a8ab5cc.jpg"
+    },
+    {
+      "from": "1c66b546-35bf-4b59-9ebd-5773a4a231a2",
+      "to": "744d95ff-ef1d-43ed-bc63-8b51a49799b4",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/744d95ff-ef1d-43ed-bc63-8b51a49799b4.jpg"
+    },
+    {
+      "from": "9e3b2318-6b38-46d0-a9da-046170f8ede6",
+      "to": "68a00dce-0b34-40b5-9253-cd282c4f0515",
+      "key": "events/60cfeb50-c13d-47f4-b39c-c10e61235098/originals/68a00dce-0b34-40b5-9253-cd282c4f0515.jpg"
+    }
+  ],
+  "privateAfter": 102,
+  "rcgAfter": 1383,
+  "copiedFilesPresent": true,
+  "boothStillInRcg": true,
+  "ok": true
+}
