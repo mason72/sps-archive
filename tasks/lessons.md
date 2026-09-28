@@ -4137,3 +4137,23 @@ asked this one to look.
 - **A safety check that can print `null` is a check that can pass without looking.** Unwrap every result through one helper that throws on `error`, and give "failed" its own exit code distinct from "all clear".
 - **Ask the question the check exists for, not the one that is easy to count.** "Images in the last 6 h" is a proxy; "uploads to a real event" is the question, and the schema already carried the discriminator.
 - **Scope a hot-table query by an indexed leading column before filtering by time.** A composite `(event_id, created_at)` index does nothing for a global `created_at` range; an `IN` list of event ids turns it into a handful of index probes.
+
+## 170 — A rename changed the filename and left the name in charge (2026-09-27)
+**What happened.** On eBay RCG MiniCon, one guest's name field at the booth held a pasted list of filenames, so 7 frames were stored with `parsed_name` "4kVert 3.jpg4kVert 4.jpg… eBay Bone". Mason renamed them in the editor. The caption did not change and she stayed a separate stack from her own Gels frames, because `POST /api/images/batch` `rename` wrote only `original_filename`, while `personNameFromParts()` (stacks, /people, the face namer) reads `parsed_name` FIRST. Upload and the SPS pull both store `parseFilename(name).name`; rename was the one writer that did not.
+
+**Fix.** Rename stores `parsed_name: parseFilename(newName).name` beside the filename (`ad4e668`), so a renamed photo is indistinguishable from one uploaded under that name; partial failures go to `reportSystemError`. The 7 rows were repaired by hand. The rename had also been typed "Laure Poore", which would have kept her split even with the fix; the repair used "Laura", the spelling Mason gave. Verified with `buildDisplayStacks` over the live section: Laura Poore = 14, one stack.
+
+**Rules.**
+- **A derived column has as many writers as the column it derives from.** Adding a column that is parsed from another one means auditing every write to the SOURCE column, not only the inserts. Same shape as the NOT NULL DEFAULT rule in workflow.md: history was right, one writer made the future wrong.
+- **When a user fix "didn't take", read the row before the code.** Printing the two name columns showed both causes in one query: the stale `parsed_name`, and the "Laure" typo no code fix would have caught.
+- **PostgREST caps a read at 1,000 rows even with `.range(0, 1999)`.** My first verification returned "Laura Poore = 10" from 1,000 of 1,379 rows. Page in 1,000s and print the row count beside the answer.
+
+## 171 — The database froze for 17 minutes with nothing in its logs (2026-09-27)
+**What happened.** At 02:25 UTC (7:25 pm Pacific) Postgres stopped logging mid-checkpoint and stopped accepting connections. Edge traffic fell from 300-600 successful requests a minute to about one, all 5xx; the Management API health endpoint said `db=UNHEALTHY "Failed to connect to database"`. No PANIC, no disk-full, no out-of-memory line. Supabase status showed no incident. Disk was 7.9 GB of 12 GB. A restart through the Management API (`POST /v1/projects/{ref}/restart`, Mason approved) brought every service back healthy at 02:42.
+
+**Cause: unknown.** Leading hypothesis only: memory exhaustion on a small instance (`max_connections` 60) under the migration's steady face-index writes. It is not proven, and the load had run at the same level all day (about 15 statement timeouts and 60 killed PostgREST threads per hour for 24 hours). The dashboard's memory and disk-I/O graphs would settle it.
+
+**Rules.**
+- **Find the cliff before diagnosing.** Per-minute edge-log counts (`countIf(event_message like '%| 2%')`) gave the exact minute of the outage; per-hour timeout counts showed the timeouts were NOT new. Without that split I would have blamed the background noise.
+- **Checkpoint `write=` seconds are not a disk-health signal here.** They run 120-270 s all day because the write is spread across the 5-minute interval. I called it disk starvation at first, then withdrew it after reading 12 hours of history.
+- **The health endpoint and the restart need no database connection**, so they work when `db-sql.ts`, `execute_sql` and PostgREST all time out. Script: read the keychain token inside the process, check `/health?services=db,rest,auth`, restart only if db is still unhealthy, then poll project status (`RESTARTING` then `ACTIVE_HEALTHY`) and prove recovery with a real DB-backed route.
