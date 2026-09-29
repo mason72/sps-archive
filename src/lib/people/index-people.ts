@@ -313,40 +313,48 @@ export async function buildPersonDetail(
     original_filename: string;
     aesthetic_score: number | null;
   };
+  // Galleries go in 200 at a time: `.in()` values ride in the URL, and every
+  // gallery's id at once was a 23,578-character request that overflowed and
+  // failed every spotlight since mid-September (lesson 172).
   const rows: Row[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
-      .from("images")
-      .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
-      .in("event_id", [...eventById.keys()])
-      .eq("media_type", "image")
-      // Presign-created rows exist BEFORE their bytes do. Counting them
-      // promises photos the gallery can't show — Jeff Roark's tile said 77
-      // when 9 were ghosts from a died-mid-upload session, and the spotlight
-      // rendered them as blank tiles.
-      .eq("processing_status", "complete")
-      .or(candidateFilter)
-      // Same reason as the index scan above: OFFSET paging without an ORDER BY
-      // has no defined page boundaries, so rows can repeat or vanish between
-      // pages. This path only paginates for people with 1,000+ frames, which
-      // is exactly when a wrong count would be least obvious.
-      .order("id")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    rows.push(...(data as Row[]));
-    if (data.length < PAGE) break;
+  const detailEventIds = [...eventById.keys()];
+  for (let e = 0; e < detailEventIds.length; e += 200) {
+    const eventChunk = detailEventIds.slice(e, e + 200);
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from("images")
+        .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
+        .in("event_id", eventChunk)
+        .eq("media_type", "image")
+        // Presign-created rows exist BEFORE their bytes do. Counting them
+        // promises photos the gallery can't show — Jeff Roark's tile said 77
+        // when 9 were ghosts from a died-mid-upload session, and the spotlight
+        // rendered them as blank tiles.
+        .eq("processing_status", "complete")
+        .or(candidateFilter)
+        // Same reason as the index scan above: OFFSET paging without an ORDER BY
+        // has no defined page boundaries, so rows can repeat or vanish between
+        // pages. This path only paginates for people with 1,000+ frames, which
+        // is exactly when a wrong count would be least obvious.
+        .order("id")
+        .range(offset, offset + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      rows.push(...(data as Row[]));
+      if (data.length < PAGE) break;
+    }
   }
 
   // Group shots this person is IN — the same resolver the index counts with.
   // Fetched as its own set because the `ilike` candidate filter above is keyed
   // on the person's NAME, and a group shot carries somebody else's name or
   // none at all, so it can never appear in `rows`.
-  const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()]);
   // Union across every key in the identity group — a cluster may be named
-  // with the alias spelling.
+  // with the alias spelling. Only those keys are loaded (see `onlyKeys`).
+  const groupKeys = aliases.groupKeys(key);
+  const faceMembership = await loadFaceMembership(supabase, [...eventById.keys()], new Set(groupKeys));
   const faceImageIds = new Set<string>();
-  for (const k of aliases.groupKeys(key)) {
+  for (const k of groupKeys) {
     for (const id of faceMembership.get(k) ?? []) faceImageIds.add(id);
   }
 
