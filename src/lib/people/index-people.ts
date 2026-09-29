@@ -489,46 +489,40 @@ export async function buildPeopleIndex(
     original_filename: string;
     aesthetic_score: number | null;
   };
-  // Every photo in the archive, read by KEYSET over sixteen id ranges, four at
-  // a time. Never OFFSET, and never one request per page all at once.
+  // Every photo in the archive, read ONE EVENT AT A TIME, four events in
+  // flight, each event paged by keyset. Never OFFSET, never one request per page
+  // all at once, and never one query across every event.
   //
   // The old read counted the archive and fired one OFFSET page per 1,000 rows,
-  // all concurrently. That was ~18 requests when it was written; at ~730,000
-  // photos it was ~730 simultaneous requests, and OFFSET makes the Nth page scan
-  // N x 1,000 rows first, so the work grew with the SQUARE of the archive. On
-  // 2026-09-28 one rebuild held the whole API connection pool: 742 of 742 page
-  // reads failed, and every gallery page timed out while Inngest retried it
-  // (lesson 172).
+  // all concurrently: ~18 requests when it was written, ~730 at ~730,000
+  // photos, and OFFSET made the Nth page scan N x 1,000 rows first, so the work
+  // grew with the SQUARE of the archive. On 2026-09-28 one rebuild held the
+  // whole API connection pool (742 of 742 reads failed) and every gallery page
+  // timed out while Inngest retried it (lesson 172).
   //
-  // Keyset (`id > last`, ordered, limited) makes every page an index range scan,
-  // so total work is linear, and the id ranges keep it parallel without letting
-  // concurrency track the archive's size. UUIDs compare bytewise, which is the
-  // order of their hex text, so a leading hex digit splits the table evenly.
-  // Each shard is ordered by id with strict bounds, so pages cannot overlap or
-  // leave gaps — the dedupe below stays only as belt and braces.
-  const HEX = "0123456789abcdef";
-  const shards = [...HEX].map((h, i) => ({
-    from: `${h}0000000-0000-0000-0000-000000000000`,
-    to: i + 1 < HEX.length ? `${HEX[i + 1]}0000000-0000-0000-0000-000000000000` : null,
-  }));
-  const SHARD_CONCURRENCY = 4;
+  // The first fix (keyset over sixteen id ranges with `event_id IN (574 ids)`)
+  // still timed out: the planner estimated that filter at ~15k rows when it
+  // matches nearly the whole archive, so every page bitmap-scanned and re-sorted
+  // its entire id range. One event per query is planner-proof: it is an index
+  // lookup on `event_id`, the sort covers only that event's photos, and the
+  // total work is one pass over the archive.
   const eventIds = [...eventById.keys()];
-  const readShard = async (shard: { from: string; to: string | null }): Promise<Row[]> => {
+  const EVENT_CONCURRENCY = 4;
+  const readEvent = async (eventId: string): Promise<Row[]> => {
     const out: Row[] = [];
     let after: string | null = null;
     for (;;) {
       let q = supabase
         .from("images")
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
-        .in("event_id", eventIds)
+        .eq("event_id", eventId)
         .eq("media_type", "image")
         // Presign-created rows exist BEFORE their bytes do. Counting them
         // promises photos the gallery can't show — Jeff Roark's tile said 77
         // when 9 were ghosts from a died-mid-upload session, and the spotlight
         // rendered them as blank tiles.
         .eq("processing_status", "complete");
-      q = after ? q.gt("id", after) : q.gte("id", shard.from);
-      if (shard.to) q = q.lt("id", shard.to);
+      if (after) q = q.gt("id", after);
       const { data, error } = await q.order("id").limit(PAGE);
       if (error) throw error;
       const page = (data ?? []) as Row[];
@@ -537,20 +531,20 @@ export async function buildPeopleIndex(
       after = page[page.length - 1].id;
     }
   };
-  const shardRows: Row[][] = new Array(shards.length);
-  let nextShard = 0;
+  const eventRows: Row[][] = new Array(eventIds.length);
+  let nextEvent = 0;
   await Promise.all(
-    Array.from({ length: SHARD_CONCURRENCY }, async () => {
-      while (nextShard < shards.length) {
-        const i = nextShard++;
-        shardRows[i] = await readShard(shards[i]);
+    Array.from({ length: EVENT_CONCURRENCY }, async () => {
+      while (nextEvent < eventIds.length) {
+        const i = nextEvent++;
+        eventRows[i] = await readEvent(eventIds[i]);
       }
     })
   );
 
   const rows: Row[] = [];
   const seenRowIds = new Set<string>();
-  for (const row of shardRows.flat()) {
+  for (const row of eventRows.flat()) {
     if (seenRowIds.has(row.id)) continue;
     seenRowIds.add(row.id);
     rows.push(row);
