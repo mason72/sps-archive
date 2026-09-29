@@ -1,0 +1,147 @@
+{
+  "at": "2026-09-28T17:16:41.525Z",
+  "plan": {
+    "moveToCindy": 25,
+    "copyGroupShots": 17,
+    "staysWithPerons": 77,
+    "peronAfter": 77,
+    "cindyAfter": 42
+  },
+  "moved": [
+    "0b1cb778-a9ca-4882-9a27-2db58ded2844",
+    "17d45032-1ac6-4637-8195-6400c4b6510e",
+    "20e2e568-3f75-43e8-80a4-cb2c13f13465",
+    "21390024-d9a0-4b54-83fa-0a3d56718b5c",
+    "21c3c905-3535-4db0-98ba-3d917486f347",
+    "3ff08874-c477-47bd-9ecb-f0f36324bab4",
+    "52537640-a48a-4216-ad17-5f353e5fcd4a",
+    "59641b14-b3d2-4bab-88d6-1c561f6dc4af",
+    "59b929ee-3c24-4060-be67-c6cf1838c625",
+    "9aee64a3-dd86-43bf-ad5e-97359c011f1b",
+    "a5c23637-f43f-4d5a-813e-99456185c65e",
+    "a8ac9aab-aada-4bbe-8c88-66bc6d09986b",
+    "aecf6ba1-002e-4331-aea3-2b87a45d5efc",
+    "b434c02f-fc67-40d3-933a-66a2d8c7db17",
+    "c4e637a5-54b6-41f8-91f8-07293aa19665",
+    "d3976e68-b815-4650-844f-a2168549574a",
+    "d7720536-ee69-487b-9edb-6c5ab44192a5",
+    "e233418e-8247-46ad-945c-0f4a956b70ca",
+    "e43031e4-4e0a-4fe2-9487-0a154b6489c7",
+    "eb2912df-e80f-4224-b8ad-bdc285e88003",
+    "ebe302b5-9901-438d-8177-ba25398a12de",
+    "ec109a4d-b5f9-4817-9ffc-257f84eac8ea",
+    "f1fa7ce8-8616-4cb2-99b9-cad421eaf010",
+    "f2159d4e-f9ae-4007-860e-656a0afcc361",
+    "f5199a14-f7df-4a90-aba2-71eb82cc6e48"
+  ],
+  "groupShots": [
+    "1302f4c5-7bc9-4943-af8e-6b186b499653",
+    "1511beee-db6a-4c4c-b80d-ff0a6452ea2c",
+    "184da4af-a441-4f8e-910a-f26d0ade0f00",
+    "185c9f8e-4fc6-4533-9728-8405494ab929",
+    "1a7a1ae9-ea8e-46dc-b909-5d0ed9d1ce01",
+    "3377f88a-9903-4ca9-ba10-8640a0de5089",
+    "585f0c49-2fb5-4cd9-ab75-74f6b30c5bd7",
+    "7d766e8f-19c1-4c89-b067-5ed3212ef38d",
+    "87bd71c3-f55c-489a-aaee-4bf2c5261a83",
+    "8e1c4b7c-600e-46a6-968f-ca5e79ce1ba0",
+    "99048df6-d60e-465b-8a48-28c4586b0d65",
+    "9d9f55ed-675a-446e-b79f-385eaf52cdb4",
+    "9e1dec09-31c8-41ce-8bc5-e2bb0e750123",
+    "c3bf1a55-cc1b-432d-b386-52918c659fe3",
+    "d19ed826-3d7a-41fa-b2e3-a6f91c4c958d",
+    "d7e5a3ed-b16d-46ab-835c-ec7d42c9573c",
+    "dcd8c2de-4d75-4e5a-a2de-f9a5fa0d1f8a"
+  ],
+  "copies": [
+    {
+      "from": "184da4af-a441-4f8e-910a-f26d0ade0f00",
+      "to": "9c1d1ca3-f466-4437-880c-a6f4ad73bf60",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/9c1d1ca3-f466-4437-880c-a6f4ad73bf60.jpg"
+    },
+    {
+      "from": "7d766e8f-19c1-4c89-b067-5ed3212ef38d",
+      "to": "514a7c75-dc16-435e-8424-08edf95b60c6",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/514a7c75-dc16-435e-8424-08edf95b60c6.jpg"
+    },
+    {
+      "from": "dcd8c2de-4d75-4e5a-a2de-f9a5fa0d1f8a",
+      "to": "b35705c1-d27d-46e4-bf83-60036979f8cd",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/b35705c1-d27d-46e4-bf83-60036979f8cd.jpg"
+    },
+    {
+      "from": "d19ed826-3d7a-41fa-b2e3-a6f91c4c958d",
+      "to": "8e0c79e0-1204-4691-80ff-125a9101e2f2",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/8e0c79e0-1204-4691-80ff-125a9101e2f2.jpg"
+    },
+    {
+      "from": "9d9f55ed-675a-446e-b79f-385eaf52cdb4",
+      "to": "76e5a8fa-40a8-4b9d-bcdd-7394316454a9",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/76e5a8fa-40a8-4b9d-bcdd-7394316454a9.jpg"
+    },
+    {
+      "from": "1a7a1ae9-ea8e-46dc-b909-5d0ed9d1ce01",
+      "to": "7851f905-6463-40ec-9840-8b06fb21a78d",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/7851f905-6463-40ec-9840-8b06fb21a78d.jpg"
+    },
+    {
+      "from": "9e1dec09-31c8-41ce-8bc5-e2bb0e750123",
+      "to": "816cb946-a337-46fd-a0dc-82a95447d18a",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/816cb946-a337-46fd-a0dc-82a95447d18a.jpg"
+    },
+    {
+      "from": "d7e5a3ed-b16d-46ab-835c-ec7d42c9573c",
+      "to": "443c7750-7c9f-47b5-95e1-cb669bced2d5",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/443c7750-7c9f-47b5-95e1-cb669bced2d5.jpg"
+    },
+    {
+      "from": "87bd71c3-f55c-489a-aaee-4bf2c5261a83",
+      "to": "5d2ddd8c-329b-4780-b4c5-01789320fcee",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/5d2ddd8c-329b-4780-b4c5-01789320fcee.jpg"
+    },
+    {
+      "from": "3377f88a-9903-4ca9-ba10-8640a0de5089",
+      "to": "cf3beda8-22f4-4a4c-a040-a47b9e96be1f",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/cf3beda8-22f4-4a4c-a040-a47b9e96be1f.jpg"
+    },
+    {
+      "from": "99048df6-d60e-465b-8a48-28c4586b0d65",
+      "to": "c5d7b1f2-0dc0-4fb9-8bea-20a58d0b0fba",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/c5d7b1f2-0dc0-4fb9-8bea-20a58d0b0fba.jpg"
+    },
+    {
+      "from": "185c9f8e-4fc6-4533-9728-8405494ab929",
+      "to": "8746100e-2e17-4ab3-8b6e-0eb424342088",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/8746100e-2e17-4ab3-8b6e-0eb424342088.jpg"
+    },
+    {
+      "from": "585f0c49-2fb5-4cd9-ab75-74f6b30c5bd7",
+      "to": "38c12dd7-5e2a-41fb-b8e7-fda39d7d113b",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/38c12dd7-5e2a-41fb-b8e7-fda39d7d113b.jpg"
+    },
+    {
+      "from": "8e1c4b7c-600e-46a6-968f-ca5e79ce1ba0",
+      "to": "e799c9a4-2917-4293-ae85-a2e2010f30e7",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/e799c9a4-2917-4293-ae85-a2e2010f30e7.jpg"
+    },
+    {
+      "from": "1302f4c5-7bc9-4943-af8e-6b186b499653",
+      "to": "822f5666-8ebe-41ae-b3aa-057902237e17",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/822f5666-8ebe-41ae-b3aa-057902237e17.jpg"
+    },
+    {
+      "from": "c3bf1a55-cc1b-432d-b386-52918c659fe3",
+      "to": "efa91eb8-a5d3-41ba-8c5c-8bd24f7dc7a4",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/efa91eb8-a5d3-41ba-8c5c-8bd24f7dc7a4.jpg"
+    },
+    {
+      "from": "1511beee-db6a-4c4c-b80d-ff0a6452ea2c",
+      "to": "6dc51e6f-7fff-436c-8085-1f944b146882",
+      "key": "events/ea1bb900-09a3-4e54-8f62-43f905cdc6e8/originals/6dc51e6f-7fff-436c-8085-1f944b146882.jpg"
+    }
+  ],
+  "peronAfter": 77,
+  "cindyAfter": 42,
+  "copiedFilesPresent": true,
+  "ok": true
+}
