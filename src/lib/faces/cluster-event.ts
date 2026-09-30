@@ -106,6 +106,24 @@ export function frameName(parsedName: string | null, originalFilename: string): 
 }
 
 /**
+ * The one face per frame a filename can be about: the highest-quality face,
+ * ties broken on id. Twin of the sitter rule in
+ * `refresh_person_reference_centroids` (migration 088) — change both together.
+ */
+export function sitterFaceByImage(
+  faces: { id: string; imageId: string; quality: number }[]
+): Map<string, string> {
+  const best = new Map<string, { id: string; quality: number }>();
+  for (const f of faces) {
+    const cur = best.get(f.imageId);
+    if (!cur || f.quality > cur.quality || (f.quality === cur.quality && f.id < cur.id)) {
+      best.set(f.imageId, { id: f.id, quality: f.quality });
+    }
+  }
+  return new Map([...best].map(([imageId, f]) => [imageId, f.id]));
+}
+
+/**
  * Filename-derived name for a person, when the cluster's own files agree.
  * Headshot exports are usually named after the subject — that consensus IS
  * the name (Mason, 2026-08-10: "they are named after the individuals").
@@ -330,6 +348,7 @@ export async function clusterEventFaces(
   for (const f of faces) {
     facesPerImage.set(f.imageId, (facesPerImage.get(f.imageId) ?? 0) + 1);
   }
+  const sitterOf = sitterFaceByImage(faces);
   let personsPruned = 0;
   let personsNamed = 0;
   for (const p of allPersons ?? []) {
@@ -351,7 +370,12 @@ export async function clusterEventFaces(
     const consensus = p.name
       ? null
       : consensusName(
-          list.map((m) => imageIdOfFace.get(m.id)!).filter(Boolean),
+          // A frame's filename names its SITTER only — never the hand or the
+          // background face beside them (lesson 173: a hand in two of Semhar
+          // Negassa's headshots became "Semhar Negassa").
+          list
+            .filter((m) => sitterOf.get(imageIdOfFace.get(m.id) ?? "") === m.id)
+            .map((m) => imageIdOfFace.get(m.id)!),
           nameOf,
           isPersonLike
         );

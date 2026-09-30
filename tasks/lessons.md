@@ -4177,3 +4177,22 @@ asked this one to look.
 - **`.in()` is URL length, again** (lesson from `check-duplicates`, CLAUDE.md). Any `.in()` over a list that grows with the archive (galleries, people) must be chunked. Grep for `.in("event_id", [...` whenever the gallery count jumps.
 - **Still open:** a spotlight for a COMMON name times out (Steven Hughes: statement timeout at 15 s), because the candidate filter is `ilike '%token%'`, which no btree index serves. A trigram index would fix it at a memory cost; not built.
 - **Correction, same day: "production never rebuilt" was a broken probe.** Two /people loads (08:47, 09:06 UTC) left the info@ snapshot unchanged, which read like a stuck Inngest run holding the one-per-user slot. The runtime log showed `GET /api/crew 403` on the same load: the browser's act-as had lapsed overnight (12-hour cookie), so the page was mason@'s, and it asked to rebuild mason@'s nearly empty wall. Nothing about info@'s trigger was tested. **Before testing a per-user job from a browser, confirm WHICH user the session is.** The Intel 403 is a one-line tell (Intel is info@-only).
+
+## 173 — A hand became a reference face, and one bad reference asked about 11 strangers (2026-09-30)
+
+**What happened.** The "Who is this?" tray showed "Is this Vijaya Kumar Vegi?" on six cards across six galleries, every one pointing at a close-up of a man's hand, and "Is this Semhar Negassa?" pointing at a hand too. Nothing on the cards could be opened to check.
+
+**Two causes, one shape: a face that was nobody's evidence became a reference.**
+- The **filename namer** gave a frame's name to EVERY face in it. The detector found Semhar's hand in two of her own headshots (quality 0.24–0.30 beside her face at 0.77–0.87), those two faces clustered, and the cluster took her name from the filenames.
+- The **reference centroid** averaged every face in a named cluster. "Vijaya Kumar Vegi" was 9 background faces from crowd shots (7–42 faces per frame, quality 0.007–0.27), named by one human Confirm at 0.558. Blurry or non-face embeddings sit near the middle of the space and match everything a little, so that one centroid was the best match for 11 unrelated clusters at 0.59–0.71, just over the 0.55 floor.
+
+**Fix.** One rule in two places: **a filename, and a reference, belong to a frame's SITTER** — its highest-quality face, ties on id — and a reference face must also clear the 0.15 seed floor. `sitterFaceByImage()` in `cluster-event.ts` gates the namer's vote; migration 088 gates `refresh_person_reference_centroids`. They are twins; change both together. Measured before shipping over all 26,458 references: 24,781 unchanged, 1,455 lost background faces, 221 dropped (every one built from group frames, "HR Team" among them).
+
+**And the card now opens.** Clicking the faces or the question opens `SuggestionReview` (same shape as the event page's "Is this X?" modal): both groups' frames, the claimed face ringed on group shots, enlarge on click, Confirm / Not them / Not a person in the header, ← → between cards, and a decision advances to the next card. The enlarged frame is what exposed the hand. Photos come from `GET /api/people/identity-suggestions/[id]/photos`.
+
+**Rules.**
+- **A group shot is not evidence of who a face is (lesson 96) applies to REFERENCES too**, not only to suggestion types. The rule was written for mislabels and splits and never reached the centroid.
+- **A reference that is everyone's best match is a hub, not a person.** Eleven pending cards naming one person across six galleries was the tell, visible in one `group by suggested_name`.
+- **A decision UI must let you see the evidence.** Two 80px crops made a hand look plausible; the full frame made it obvious in one second.
+- **The whole-archive centroid refresh no longer fits one statement** (it passed the 120 s guard twice at 26k references and rolled back). Rebuild per gallery: `npx tsx scripts/triage/rebuild-reference-centroids.ts <userId>` (~2.5 s a gallery).
+- **A confirmed name stays.** "Vijaya Kumar Vegi" on those 9 background faces in "PWC Event Photos" was a human's Confirm; the rule removes its reference, not its name. Clearing it is the owner's call.

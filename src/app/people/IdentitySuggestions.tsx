@@ -16,11 +16,16 @@
  * least-confident first (those are the ones that need a person), and leaving
  * it untouched costs nothing but unharvested group shots.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
-import { FaceCircleCrop, type FaceCropGeometry } from "@/components/faces/FaceCircleCrop";
+import {
+  FaceCircleCrop,
+  type FaceCropGeometry,
+} from "@/components/faces/FaceCircleCrop";
+
+import { SuggestionReview } from "./SuggestionReview";
 
 interface SuggestionCard {
   id: string;
@@ -50,6 +55,8 @@ export function IdentitySuggestions() {
   const [confirmedAny, setConfirmedAny] = useState(false);
   const [sureCount, setSureCount] = useState(0);
   const [bulkBusy, setBulkBusy] = useState(false);
+  /** The card open in the review modal, by id — survives the tray reloading. */
+  const [reviewId, setReviewId] = useState<string | null>(null);
   /** The last "Not a person", held for its undo. */
   const [notice, setNotice] = useState<{
     key: string;
@@ -80,6 +87,30 @@ export function IdentitySuggestions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Deciding inside the review moves straight to the next card — the tray is
+  // a run of quick calls, and closing the modal after each one breaks it.
+  // Read through a ref and an updater, never the render that was clicked:
+  // a decision awaits a request, and the person may have moved on (← →) or
+  // decided another card meanwhile (lesson 173 review).
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  const advanceReview = (decidedId: string, skip?: (c: SuggestionCard) => boolean) => {
+    setReviewId((cur) => {
+      if (cur !== decidedId) return cur;
+      const list = cardsRef.current ?? [];
+      const at = list.findIndex((c) => c.id === decidedId);
+      const keep = (c: SuggestionCard | undefined) => !!c && c.id !== decidedId && !skip?.(c);
+      const after = list.slice(at + 1).find(keep);
+      const before = list.slice(0, Math.max(at, 0)).reverse().find(keep);
+      return (after ?? before)?.id ?? null;
+    });
+  };
+  // A card that left the tray (bulk confirm, reload) must not keep a review
+  // open, or re-open it if the id ever comes back.
+  useEffect(() => {
+    if (reviewId && cards && !cards.some((c) => c.id === reviewId)) setReviewId(null);
+  }, [cards, reviewId]);
+
   const decide = async (card: SuggestionCard, action: "confirm" | "reject") => {
     setBusy(card.id);
     try {
@@ -89,6 +120,7 @@ export function IdentitySuggestions() {
         body: JSON.stringify({ id: card.id, action }),
       });
       if (!res.ok) throw new Error();
+      advanceReview(card.id);
       setCards((prev) => (prev ? prev.filter((c) => c.id !== card.id) : prev));
       setPendingTotal((n) => Math.max(0, n - 1));
       if (action === "confirm") setConfirmedAny(true);
@@ -123,6 +155,7 @@ export function IdentitySuggestions() {
         clearedClusters: number;
       };
       setNotice(body);
+      advanceReview(card.id, (c) => c.suggestedName === card.suggestedName);
       await load();
       router.refresh();
     } catch {
@@ -134,9 +167,12 @@ export function IdentitySuggestions() {
 
   const undoNotAPerson = async () => {
     if (!notice) return;
-    const res = await fetch(`/api/people/exclude?key=${encodeURIComponent(notice.key)}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(
+      `/api/people/exclude?key=${encodeURIComponent(notice.key)}`,
+      {
+        method: "DELETE",
+      },
+    );
     if (!res.ok) return;
     // The cards come back when the engine next scans those events, not now —
     // say so, rather than leave an empty tray looking like the undo failed.
@@ -156,7 +192,12 @@ export function IdentitySuggestions() {
   }
 
   const confirmSure = async () => {
-    if (!confirm(`Confirm ${sureCount} matches the archive is at least ${Math.round(SURE * 100)}% sure about?`)) return;
+    if (
+      !confirm(
+        `Confirm ${sureCount} matches the archive is at least ${Math.round(SURE * 100)}% sure about?`,
+      )
+    )
+      return;
     setBulkBusy(true);
     try {
       const res = await fetch("/api/people/identity-suggestions", {
@@ -174,13 +215,19 @@ export function IdentitySuggestions() {
     }
   };
 
+  const reviewAt = reviewId
+    ? (cards ?? []).findIndex((c) => c.id === reviewId)
+    : -1;
+  const reviewCard = reviewAt >= 0 ? cards![reviewAt] : null;
+
   return (
     <section className="mb-14">
       <div className="mb-5 flex items-baseline justify-between">
         <p className="label-caps">
           Who is this?
           <span className="ml-2 normal-case tracking-normal text-stone-300">
-            the archive thinks it knows · {pendingTotal.toLocaleString()} waiting
+            the archive thinks it knows · {pendingTotal.toLocaleString()}{" "}
+            waiting
           </span>
         </p>
         <div className="flex items-baseline gap-4">
@@ -195,7 +242,9 @@ export function IdentitySuggestions() {
               title={`Confirms every pending match at ${Math.round(SURE * 100)}% confidence or higher. Measured floor for a true match is 0.55; impostors topped out at 0.363.`}
               className="text-[12px] text-emerald-700 underline underline-offset-2 transition-colors hover:text-emerald-800 disabled:text-stone-300 disabled:no-underline"
             >
-              {bulkBusy ? "Confirming…" : `Confirm the ${sureCount.toLocaleString()} above ${Math.round(SURE * 100)}%`}
+              {bulkBusy
+                ? "Confirming…"
+                : `Confirm the ${sureCount.toLocaleString()} above ${Math.round(SURE * 100)}%`}
             </button>
           )}
           {confirmedAny && (
@@ -215,13 +264,14 @@ export function IdentitySuggestions() {
         <p role="status" className="mb-4 text-[12px] text-stone-500">
           {notice.undone ? (
             <>
-              Put <span className="text-stone-900">{notice.name}</span> back. Its suggestions
-              return when those events are next scanned.
+              Put <span className="text-stone-900">{notice.name}</span> back.
+              Its suggestions return when those events are next scanned.
             </>
           ) : (
             <>
-              <span className="text-stone-900">{notice.name}</span> is not a person — cleared{" "}
-              {notice.clearedSuggestions} suggestion{notice.clearedSuggestions === 1 ? "" : "s"}
+              <span className="text-stone-900">{notice.name}</span> is not a
+              person — cleared {notice.clearedSuggestions} suggestion
+              {notice.clearedSuggestions === 1 ? "" : "s"}
               {notice.clearedClusters > 0 &&
                 ` and took the name off ${notice.clearedClusters} face group${notice.clearedClusters === 1 ? "" : "s"}`}
               .
@@ -247,42 +297,61 @@ export function IdentitySuggestions() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(cards ?? []).map((card) => (
           <div key={card.id} className="border border-stone-200 bg-white p-4">
-            <div className="flex items-center justify-center gap-3">
-              <figure className="text-center">
-                <div className="relative mx-auto h-20 w-20 overflow-hidden rounded-full bg-stone-100">
-                  {card.clusterFace && <FaceCircleCrop face={card.clusterFace} />}
-                </div>
-                <figcaption
-                  className="mt-1.5 max-w-[96px] truncate text-[10px] uppercase tracking-[0.14em] text-stone-400"
-                  title={card.currentName ? `Filed as "${card.currentName}" — confirming clears it` : undefined}
-                >
-                  {card.currentName ? `"${card.currentName}"` : "unnamed"}
-                </figcaption>
-              </figure>
-              <ArrowRight className="h-4 w-4 shrink-0 text-stone-300" />
-              <figure className="text-center">
-                <div className="relative mx-auto h-20 w-20 overflow-hidden rounded-full bg-stone-100">
-                  {card.referenceFace && <FaceCircleCrop face={card.referenceFace} />}
-                </div>
-                <figcaption className="mt-1.5 max-w-[96px] truncate text-[10px] uppercase tracking-[0.14em] text-stone-400">
-                  {card.suggestedName}
-                </figcaption>
-              </figure>
-            </div>
-            <p className="mt-3 text-center text-[13px] leading-snug text-stone-700">
-              Is this <span className="text-stone-900">{card.suggestedName}</span>?
-              {card.kind === "crew" && (
-                <span
-                  className="ml-1.5 align-middle rounded-full border border-stone-200 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-stone-500"
-                  title="Confirming links this face to your crew roster — crew never join the guest index"
-                >
-                  crew
-                </span>
-              )}
-            </p>
-            <p className="mt-0.5 truncate text-center text-[11px] text-stone-400">
-              {card.photoCount} photo{card.photoCount === 1 ? "" : "s"} at {card.eventName}
-            </p>
+            {/* The faces and the question open the photos behind them — a
+                decision this size should never rest on two 80px crops. */}
+            <button
+              type="button"
+              onClick={() => setReviewId(card.id)}
+              title="Compare the photos"
+              className="group block w-full cursor-zoom-in text-center"
+            >
+              <div className="flex items-center justify-center gap-3">
+                <figure className="text-center">
+                  <div className="relative mx-auto h-20 w-20 overflow-hidden rounded-full bg-stone-100 ring-emerald-500/60 ring-offset-2 transition-shadow group-hover:ring-2">
+                    {card.clusterFace && (
+                      <FaceCircleCrop face={card.clusterFace} />
+                    )}
+                  </div>
+                  <figcaption
+                    className="mt-1.5 max-w-[96px] truncate text-[10px] uppercase tracking-[0.14em] text-stone-400"
+                    title={
+                      card.currentName
+                        ? `Filed as "${card.currentName}" — confirming clears it`
+                        : undefined
+                    }
+                  >
+                    {card.currentName ? `"${card.currentName}"` : "unnamed"}
+                  </figcaption>
+                </figure>
+                <ArrowRight className="h-4 w-4 shrink-0 text-stone-300" />
+                <figure className="text-center">
+                  <div className="relative mx-auto h-20 w-20 overflow-hidden rounded-full bg-stone-100 ring-emerald-500/60 ring-offset-2 transition-shadow group-hover:ring-2">
+                    {card.referenceFace && (
+                      <FaceCircleCrop face={card.referenceFace} />
+                    )}
+                  </div>
+                  <figcaption className="mt-1.5 max-w-[96px] truncate text-[10px] uppercase tracking-[0.14em] text-stone-400">
+                    {card.suggestedName}
+                  </figcaption>
+                </figure>
+              </div>
+              <p className="mt-3 text-center text-[13px] leading-snug text-stone-700">
+                Is this{" "}
+                <span className="text-stone-900">{card.suggestedName}</span>?
+                {card.kind === "crew" && (
+                  <span
+                    className="ml-1.5 align-middle rounded-full border border-stone-200 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-stone-500"
+                    title="Confirming links this face to your crew roster — crew never join the guest index"
+                  >
+                    crew
+                  </span>
+                )}
+              </p>
+              <p className="mt-0.5 truncate text-center text-[11px] text-stone-400">
+                {card.photoCount} photo{card.photoCount === 1 ? "" : "s"} at{" "}
+                {card.eventName}
+              </p>
+            </button>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
               <button
                 onClick={() => decide(card, "confirm")}
@@ -314,6 +383,30 @@ export function IdentitySuggestions() {
           </div>
         ))}
       </div>
+      {reviewCard && (
+        <SuggestionReview
+          card={reviewCard}
+          busy={busy === reviewCard.id}
+          onConfirm={() => decide(reviewCard, "confirm")}
+          onReject={() => decide(reviewCard, "reject")}
+          onNotAPerson={
+            reviewCard.kind === "guest"
+              ? () => notAPerson(reviewCard)
+              : undefined
+          }
+          onPrev={
+            reviewAt > 0
+              ? () => setReviewId(cards![reviewAt - 1].id)
+              : undefined
+          }
+          onNext={
+            cards && reviewAt < cards.length - 1
+              ? () => setReviewId(cards[reviewAt + 1].id)
+              : undefined
+          }
+          onClose={() => setReviewId(null)}
+        />
+      )}
     </section>
   );
 }

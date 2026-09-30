@@ -266,10 +266,14 @@ async function teachEvent(
   eventId: string | null,
   suggestionId: string
 ) {
+  // No gallery means the WHOLE-archive refresh, which no longer fits any
+  // statement budget (lesson 173). The confirm stands; the next scan of the
+  // cluster's gallery teaches instead.
+  if (!eventId) return;
   const { NON_PERSON_GALLERIES } = await import("@/lib/people/index-people");
   const { error } = await supabase.rpc("refresh_person_reference_centroids", {
     p_user_id: userId,
-    p_event_id: eventId ?? undefined,
+    p_event_id: eventId,
     p_excluded_event_names: [...NON_PERSON_GALLERIES],
   });
   if (error) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { consensusName, frameName, nameIsRejected, type FrameName } from "./cluster-event";
+import { consensusName, frameName, nameIsRejected, sitterFaceByImage, type FrameName } from "./cluster-event";
 
 const personLike = (name: string) => /^[A-Za-z]+ [A-Za-z]+$/.test(name);
 
@@ -105,5 +105,24 @@ describe("nameIsRejected", () => {
   });
   it("is a no-op with nothing rejected", () => {
     expect(nameIsRejected("Jenna Wombles", [])).toBe(false);
+  });
+});
+
+describe("sitterFaceByImage", () => {
+  it("gives a frame's filename to its best face, not the hand beside it (lesson 173)", () => {
+    const sitter = sitterFaceByImage([
+      { id: "hand", imageId: "3109", quality: 0.235 },
+      { id: "semhar", imageId: "3109", quality: 0.771 },
+      { id: "solo", imageId: "3110", quality: 0.1 },
+    ]);
+    expect(sitter.get("3109")).toBe("semhar");
+    expect(sitter.get("3110")).toBe("solo");
+  });
+  it("breaks a quality tie on id, so exactly one face per frame qualifies", () => {
+    const sitter = sitterFaceByImage([
+      { id: "b", imageId: "x", quality: 0.5 },
+      { id: "a", imageId: "x", quality: 0.5 },
+    ]);
+    expect(sitter.get("x")).toBe("a");
   });
 });
