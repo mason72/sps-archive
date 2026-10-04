@@ -17,3 +17,13 @@ export function findIntakeSectionId(
   const want = INTAKE_SECTION_NAME.toLowerCase();
   return sections.find((s) => s.name.trim().toLowerCase() === want)?.id ?? null;
 }
+
+/**
+ * Is this the curated "Highlights" section? A photo linked there is a COPY of
+ * one that lives in another section, so Highlights never counts as where a
+ * person's photos are filed (pull-placement.ts), and nothing lands in it
+ * automatically.
+ */
+export function isCuratedSectionName(name: string): boolean {
+  return name.trim().toLowerCase() === CURATED_SECTION_NAME.toLowerCase();
+}

@@ -34,35 +34,31 @@
  * row). A nominee found already here was finished by something else, so its
  * object is HEAD-checked first.
  *
- * The lane's own invariants hold unchanged: this calls the same
- * `importOneImage`, counters fold through `sps_pull_add_progress`, and the
+ * The lane's own invariants hold unchanged: this runs the same `importBatch`
+ * the walk does, counters fold through `sps_pull_add_progress`, and the
  * unique index on (event_id, sps_image_id) is what makes a re-run harmless.
  *
- * (The worker loop below repeats the one in `importSlice`. It was left as a
- * copy on purpose on 2026-10-04: another session had an uncommitted edit in
- * the middle of that loop. Fold the two into one `importBatch` when both are
- * on main.)
+ * The one thing the sweep does differently from the walk is WHERE a photo
+ * lands: beside its person's other photos when one section holds them, not
+ * always in the intake. That rule lives in `pull-placement.ts`.
  */
 import { inngest } from "@/lib/inngest/client";
-import { describeError } from "@/lib/monitoring/report";
 import { objectExistsInR2 } from "@/lib/r2/client";
 import type { createServiceClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
 import { getSpsToken } from "./connection";
 import { fetchManifestPage, type SpsManifestImage } from "./pull-client";
 import {
-  IMPORT_CONCURRENCY,
   IMPORT_SLICE,
-  PROGRESS_FLUSH_EVERY,
   applySliceResult,
   confirmDurable,
   createProgressFlusher,
-  importOneImage,
-  intakeAppendPoint,
+  importBatch,
   type ProgressCounters,
   type SliceResult,
   type SpsPullJob,
 } from "./pull-event";
+import { planSweepPlacement } from "./pull-placement";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -419,52 +415,20 @@ export async function sweepPage(
     return result;
   }
 
-  const { sectionId, sortBase } = await intakeAppendPoint(supabase, job.event_id);
+  // Beside the person's other photos when one section holds them, the intake
+  // otherwise (pull-placement.ts). The gallery may have been sorted since the
+  // walk, and the intake it landed in may be gone.
+  const place = await planSweepPlacement(supabase, job.event_id, found.batch);
 
   const totals: ProgressCounters = { imported: 0, failed: 0, skipped: 0, bytes: 0 };
   const flusher = createProgressFlusher((delta) => fold(delta));
-  const threw: MissingPhoto[] = [];
-  let sinceFlush = 0;
-  let cursor = 0;
-
-  await Promise.all(
-    Array.from(
-      { length: Math.min(IMPORT_CONCURRENCY, found.batch.length) },
-      async () => {
-        for (;;) {
-          const index = cursor++;
-          if (index >= found.batch.length) return;
-          const img = found.batch[index];
-          try {
-            const outcome = await importOneImage(supabase, job, {
-              image: img,
-              sectionId,
-              sortOrder: sortBase + index,
-            });
-            if (outcome.status === "imported") {
-              totals.imported++;
-              totals.bytes += outcome.bytes;
-              durable.push(img.id);
-            } else {
-              totals.skipped++;
-            }
-          } catch (err) {
-            totals.failed++;
-            threw.push({
-              spsImageId: img.id,
-              filename: img.originalFilename,
-              reason: describeError(err),
-            });
-          }
-          if (++sinceFlush >= PROGRESS_FLUSH_EVERY) {
-            sinceFlush = 0;
-            await flusher.flush(totals);
-          }
-        }
-      }
-    )
-  );
-  await flusher.flush(totals);
+  const batch = await importBatch(supabase, job, found.batch, {
+    place,
+    counters: totals,
+    flush: () => flusher.flush(totals),
+  });
+  durable.push(...batch.durable);
+  const threw: MissingPhoto[] = batch.failures;
   result.imported = totals.imported;
 
   // A throw is not an absence. `importOneImage` can fail AFTER the row is

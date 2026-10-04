@@ -553,11 +553,8 @@ export async function importSlice(
 
   const { sectionId, sortBase } = await intakeAppendPoint(supabase, job.event_id);
 
-  const failures: { spsImageId: string; filename: string; reason: string }[] = [];
-
   // Each flush writes only the DELTA since the last one: the fold ADDS, so
   // flushing totals would multiply them.
-  let sinceFlush = 0;
   const flusher = createProgressFlusher((delta) =>
     applySliceResult(
       supabase,
@@ -571,51 +568,18 @@ export async function importSlice(
       null
     )
   );
-  const flushProgress = async () => {
-    sinceFlush = 0;
-    await flusher.flush(result);
-  };
 
-  // Bounded parallelism: each worker holds one full original in memory.
-  let cursor = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(IMPORT_CONCURRENCY, todo.length) }, async () => {
-      for (;;) {
-        const index = cursor++;
-        if (index >= todo.length) return;
-        const img = todo[index];
-        try {
-          const outcome = await importOneImage(supabase, job, {
-            image: img,
-            sectionId,
-            sortOrder: sortBase + index,
-          });
-          if (outcome.status === "imported") {
-            result.imported++;
-            result.bytes += outcome.bytes;
-            durable.push(img.id);
-          } else {
-            result.skipped++;
-          }
-        } catch (err) {
-          result.failed++;
-          failures.push({
-            spsImageId: img.id,
-            filename: img.originalFilename,
-            // describeError, not String(err): a Supabase error is a plain
-            // object, and all 9 AAOMS 2026 failures were stored as
-            // "[object Object]" (2026-10-03), which names nothing.
-            reason: describeError(err),
-          });
-        }
-        if (++sinceFlush >= PROGRESS_FLUSH_EVERY) await flushProgress();
-      }
-    })
-  );
-
-  // The remainder, so the row is accurate the moment the slice ends rather than
-  // when the lane gets around to writing it.
-  await flushProgress();
+  // The walk lands in the intake, in arrival order. (Only the sweep files a
+  // photo beside its person: see pull-placement.ts.)
+  const batch = await importBatch(supabase, job, todo, {
+    place: (_image, index) => ({ sectionId, sortOrder: sortBase + index }),
+    // `result` already carries the photos this slice skipped as present; the
+    // first flush takes them along.
+    counters: result,
+    flush: () => flusher.flush(result),
+  });
+  durable.push(...batch.durable);
+  const failures = batch.failures;
   result.alreadyFolded = true;
 
   await confirmDurable(supabase, token, job, durable, result);
@@ -641,6 +605,110 @@ export async function importSlice(
   }
 
   return result;
+}
+
+/** Where one photo is linked: the section, and its position there. */
+export interface Placement {
+  sectionId: string;
+  sortOrder: number;
+}
+
+/** One photo an import attempt threw on, as the job's failure log keeps it. */
+export interface BatchFailure {
+  spsImageId: string;
+  filename: string;
+  reason: string;
+}
+
+/**
+ * Import a list of manifest photos with bounded parallelism: the ONE worker
+ * loop, shared by the walk (`importSlice`) and the closing sweep (`sweepPage`).
+ * They were two copies until 2026-10-04, kept in step by hand.
+ *
+ * The callers differ in exactly two things, and both are handed in: WHERE a
+ * photo goes (`place`, asked once per photo, after its bytes have landed), and
+ * how progress reaches the job row (`flush`).
+ * `counters` is added to in place, so a caller can start it from what it
+ * already knows (the walk's skipped-as-present count).
+ *
+ * A throw is caught, counted and returned as a failure; it says nothing about
+ * whether the photo is here (`importOneImage` throws on both sides of the row
+ * insert). Deciding that is the caller's job.
+ */
+export async function importBatch(
+  supabase: SupabaseDB,
+  job: SpsPullJob,
+  images: SpsManifestImage[],
+  opts: {
+    place: (image: SpsManifestImage, index: number) => Placement | Promise<Placement>;
+    counters: ProgressCounters;
+    flush: () => Promise<void>;
+  }
+): Promise<{ durable: string[]; failures: BatchFailure[] }> {
+  const { counters } = opts;
+  const durable: string[] = [];
+  const failures: BatchFailure[] = [];
+  let sinceFlush = 0;
+  let cursor = 0;
+
+  // Bounded parallelism: each worker holds one full original in memory.
+  await Promise.all(
+    Array.from({ length: Math.min(IMPORT_CONCURRENCY, images.length) }, async () => {
+      for (;;) {
+        const index = cursor++;
+        if (index >= images.length) return;
+        const img = images[index];
+        try {
+          const outcome = await importOneImage(supabase, job, {
+            image: img,
+            place: () => opts.place(img, index),
+          });
+          if (outcome.status === "imported") {
+            counters.imported++;
+            counters.bytes += outcome.bytes;
+            durable.push(img.id);
+          } else {
+            counters.skipped++;
+          }
+        } catch (err) {
+          counters.failed++;
+          failures.push({
+            spsImageId: img.id,
+            filename: img.originalFilename,
+            // describeError, not String(err): a Supabase error is a plain
+            // object, and all 9 AAOMS 2026 failures were stored as
+            // "[object Object]" (2026-10-03), which names nothing.
+            reason: describeError(err),
+          });
+        }
+        if (++sinceFlush >= PROGRESS_FLUSH_EVERY) {
+          sinceFlush = 0;
+          await opts.flush();
+        }
+      }
+    })
+  );
+
+  // The remainder, so the row is accurate the moment the batch ends rather
+  // than when the lane gets around to writing it.
+  await opts.flush();
+
+  return { durable, failures };
+}
+
+/** The sort position after whatever a section already holds. */
+export async function sectionAppendPoint(
+  supabase: SupabaseDB,
+  sectionId: string
+): Promise<number> {
+  const { data: tail, error } = await supabase
+    .from("section_images")
+    .select("sort_order")
+    .eq("section_id", sectionId)
+    .order("sort_order", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (tail?.[0]?.sort_order ?? -1) + 1;
 }
 
 /**
@@ -685,15 +753,7 @@ export async function intakeAppendPoint(
     sectionId = created.id;
   }
 
-  const { data: tail, error: tailErr } = await supabase
-    .from("section_images")
-    .select("sort_order")
-    .eq("section_id", sectionId)
-    .order("sort_order", { ascending: false })
-    .limit(1);
-  if (tailErr) throw tailErr;
-
-  return { sectionId, sortBase: (tail?.[0]?.sort_order ?? -1) + 1 };
+  return { sectionId, sortBase: await sectionAppendPoint(supabase, sectionId) };
 }
 
 /**
@@ -745,9 +805,18 @@ export async function confirmDurable(
 export async function importOneImage(
   supabase: SupabaseDB,
   job: SpsPullJob,
-  ctx: { image: SpsManifestImage; sectionId: string; sortOrder: number }
+  ctx: {
+    image: SpsManifestImage;
+    /**
+     * Which section, and where in it. Asked AFTER the bytes are in R2 and
+     * before the row exists: a photo whose download fails never asks, so it
+     * can never cause a section to be created for nothing (the sweep creates
+     * the "Unsorted" intake on first use; see pull-placement.ts).
+     */
+    place: () => Placement | Promise<Placement>;
+  }
 ): Promise<{ status: "imported"; bytes: number } | { status: "skipped" }> {
-  const { image, sectionId, sortOrder } = ctx;
+  const { image } = ctx;
 
   // ── 1. Fetch from SPS ──
   const res = await fetch(image.url, {
@@ -812,6 +881,16 @@ export async function importOneImage(
       console.error(`SPS pull: orphaned R2 object ${r2Key}`, err);
     }
   };
+
+  // No row without a section to link it into: no orphans, ever.
+  let placement: Placement;
+  try {
+    placement = await ctx.place();
+  } catch (err) {
+    await abandon();
+    throw err;
+  }
+  const { sectionId, sortOrder } = placement;
 
   // ── 3. The row ──
   const { error: insertErr } = await supabase.from("images").insert({

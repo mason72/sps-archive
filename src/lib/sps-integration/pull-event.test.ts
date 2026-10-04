@@ -1,11 +1,36 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
+// importBatch moves real bytes. Its tests stub the three things that leave the
+// process: R2, the sharp thumbnailer and the EXIF reader.
+vi.mock("@/lib/r2/client", async (original) => ({
+  ...(await original<typeof import("@/lib/r2/client")>()),
+  uploadToR2: vi.fn(async () => {}),
+  deleteFromR2: vi.fn(async () => {}),
+}));
+vi.mock("@/lib/thumbnails/generate", () => ({
+  generateThumbnailsFromBuffer: vi.fn(async () => ({
+    thumbBytes: 100,
+    width: 4,
+    height: 3,
+    dominantColor: "#000000",
+  })),
+}));
+vi.mock("@/lib/upload/parse-filename", async (original) => ({
+  ...(await original<typeof import("@/lib/upload/parse-filename")>()),
+  extractExif: vi.fn(async () => null),
+}));
+
+import { deleteFromR2, uploadToR2 } from "@/lib/r2/client";
 import {
   isPageDrained,
   IMPORT_SLICE,
+  PROGRESS_FLUSH_EVERY,
   createProgressFlusher,
   applySliceResult,
+  importBatch,
+  type SpsPullJob,
 } from "./pull-event";
-import { MANIFEST_PAGE_SIZE } from "./pull-client";
+import { MANIFEST_PAGE_SIZE, type SpsManifestImage } from "./pull-client";
 
 /**
  * The slice walk decides when to advance to the next manifest page. Its failure
@@ -177,5 +202,163 @@ describe("applySliceResult", () => {
     await expect(
       applySliceResult(client({ data: null, error: new Error("boom") }).db, "job-1", slice, null)
     ).rejects.toThrow("boom");
+  });
+});
+
+/**
+ * The one worker loop under both the walk and the closing sweep, run against
+ * a recording stand-in for the database with R2 and thumbnails stubbed. What
+ * it has to get right: a photo is linked exactly where `place` said, `place`
+ * is asked only for a photo whose bytes arrived, and one photo failing never
+ * takes the batch with it.
+ */
+describe("importBatch", () => {
+  beforeEach(() => {
+    vi.mocked(uploadToR2).mockClear();
+    vi.mocked(deleteFromR2).mockClear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BYTES = 4096;
+  const job = { id: "job-1", event_id: "event-1" } as SpsPullJob;
+  const photos = (n: number): SpsManifestImage[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `sps-${i}`,
+      originalFilename: `Ann Lee_26-09-30_${i}.jpg`,
+      width: null,
+      height: null,
+      mimeType: "image/jpeg",
+      capturedAt: null,
+      boothId: null,
+      quality: "archive" as const,
+      alreadyPulled: false,
+      url: `https://sps.example/${i}`,
+    }));
+
+  const sourceUp = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array(BYTES), { headers: { "content-type": "image/jpeg" } })
+      )
+    );
+  const sourceDown = () => {
+    const spy = vi.fn(async () => {
+      throw new Error("source down");
+    });
+    vi.stubGlobal("fetch", spy);
+    return spy;
+  };
+
+  /** Accepts every write and remembers it. */
+  function recordingDb() {
+    const writes: { table: string; op: string; values?: Record<string, unknown> }[] = [];
+    const from = (table: string) => {
+      const builder = {
+        insert: (values: Record<string, unknown>) => (writes.push({ table, op: "insert", values }), builder),
+        update: (values: Record<string, unknown>) => (writes.push({ table, op: "update", values }), builder),
+        delete: () => (writes.push({ table, op: "delete" }), builder),
+        eq: () => builder,
+        then: (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve),
+      };
+      return builder;
+    };
+    const inserted = (table: string) =>
+      writes.filter((w) => w.table === table && w.op === "insert").map((w) => w.values!);
+    return { db: { from } as unknown as Parameters<typeof importBatch>[0], inserted };
+  }
+
+  const zero = () => ({ imported: 0, failed: 0, skipped: 0, bytes: 0 });
+
+  it("links each photo exactly where it was placed, and counts it", async () => {
+    sourceUp();
+    const { db, inserted } = recordingDb();
+    const counters = zero();
+    const out = await importBatch(db, job, photos(3), {
+      place: (_img, index) => ({ sectionId: `section-${index}`, sortOrder: 40 + index }),
+      counters,
+      flush: async () => {},
+    });
+
+    expect(out.failures).toEqual([]);
+    expect([...out.durable].sort()).toEqual(["sps-0", "sps-1", "sps-2"]);
+    expect(counters).toEqual({ imported: 3, failed: 0, skipped: 0, bytes: 3 * BYTES });
+
+    const rows = inserted("images");
+    const links = inserted("section_images");
+    expect(rows).toHaveLength(3);
+    // Every row got a link (no orphans), into the section its own photo was given.
+    for (let i = 0; i < 3; i++) {
+      const row = rows.find((r) => r.sps_image_id === `sps-${i}`)!;
+      expect(links).toContainEqual({
+        section_id: `section-${i}`,
+        image_id: row.id,
+        sort_order: 40 + i,
+      });
+    }
+    expect(links).toHaveLength(3);
+  });
+
+  it("never asks where a photo goes if its bytes did not arrive", async () => {
+    // This is what stops a failed retry from creating an empty "Unsorted":
+    // the sweep's placer finds or creates the intake when it is ASKED.
+    sourceDown();
+    const { db, inserted } = recordingDb();
+    const counters = { ...zero(), skipped: 3 };
+    const place = vi.fn(() => ({ sectionId: "intake", sortOrder: 0 }));
+    const flush = vi.fn(async () => {});
+
+    const out = await importBatch(db, job, photos(12), { place, counters, flush });
+
+    expect(place).not.toHaveBeenCalled();
+    expect(inserted("images")).toEqual([]);
+    expect(out.durable).toEqual([]);
+    expect(out.failures).toHaveLength(12);
+    expect(out.failures[0]).toEqual({
+      spsImageId: "sps-0",
+      filename: "Ann Lee_26-09-30_0.jpg",
+      reason: "source down",
+    });
+    // Added to what the caller already knew, not reset.
+    expect(counters).toEqual({ imported: 0, failed: 12, skipped: 3, bytes: 0 });
+    // Progress moves during the batch, and once more at the end.
+    expect(flush).toHaveBeenCalledTimes(Math.floor(12 / PROGRESS_FLUSH_EVERY) + 1);
+  });
+
+  it("a photo that cannot be placed fails alone, with no row and no object left", async () => {
+    sourceUp();
+    const { db, inserted } = recordingDb();
+    const counters = zero();
+    const out = await importBatch(db, job, photos(3), {
+      place: (img, index) => {
+        if (index === 1) throw new Error("Intake lookup failed");
+        return { sectionId: "ps", sortOrder: index };
+      },
+      counters,
+      flush: async () => {},
+    });
+
+    expect(counters).toMatchObject({ imported: 2, failed: 1 });
+    expect(out.failures).toEqual([
+      { spsImageId: "sps-1", filename: "Ann Lee_26-09-30_1.jpg", reason: "Intake lookup failed" },
+    ]);
+    // Bytes land before the row: its object was written, then taken back, and
+    // no row was ever made for it.
+    expect(uploadToR2).toHaveBeenCalledTimes(3);
+    expect(deleteFromR2).toHaveBeenCalledTimes(1);
+    expect(inserted("images").map((r) => r.sps_image_id).sort()).toEqual(["sps-0", "sps-2"]);
+    expect(inserted("section_images")).toHaveLength(2);
+  });
+
+  it("an empty batch still flushes once", async () => {
+    const flush = vi.fn(async () => {});
+    const out = await importBatch(recordingDb().db, job, [], {
+      place: () => ({ sectionId: "intake", sortOrder: 0 }),
+      counters: zero(),
+      flush,
+    });
+    expect(out).toEqual({ durable: [], failures: [] });
+    expect(flush).toHaveBeenCalledOnce();
   });
 });

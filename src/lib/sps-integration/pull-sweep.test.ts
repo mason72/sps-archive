@@ -1,4 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Only `sweepPage` (bottom of this file) touches these. Everything above it is
+// pure and never reaches a mock.
+vi.mock("./connection", () => ({ getSpsToken: vi.fn(async () => "token") }));
+vi.mock("./pull-client", async (original) => ({
+  ...(await original<typeof import("./pull-client")>()),
+  fetchManifestPage: vi.fn(),
+}));
+vi.mock("./pull-placement", () => ({ planSweepPlacement: vi.fn() }));
+vi.mock("./pull-event", async (original) => ({
+  ...(await original<typeof import("./pull-event")>()),
+  importBatch: vi.fn(async () => ({ durable: [], failures: [] })),
+  applySliceResult: vi.fn(async () => {}),
+  confirmDurable: vi.fn(async () => {}),
+  intakeAppendPoint: vi.fn(),
+}));
+
 import {
   GONE_REASON,
   planSweep,
@@ -7,9 +24,12 @@ import {
   readMissing,
   retryableMissing,
   sweepCandidates,
+  sweepPage,
   unresolvedEntries,
 } from "./pull-sweep";
-import type { SpsManifestImage } from "./pull-client";
+import { fetchManifestPage, type SpsManifestImage } from "./pull-client";
+import { importBatch, intakeAppendPoint, type SpsPullJob } from "./pull-event";
+import { planSweepPlacement } from "./pull-placement";
 
 const img = (id: string): SpsManifestImage => ({
   id,
@@ -251,5 +271,86 @@ describe("unresolvedEntries", () => {
 
   it("returns nothing when every nominee was dealt with", () => {
     expect(unresolvedEntries(fetch, new Set(), null)).toEqual([]);
+  });
+});
+
+/**
+ * The wire this file's module exists for, since 2026-10-04: a swept photo is
+ * placed by `planSweepPlacement` (beside its person), not by the intake. The
+ * rule itself is tested in pull-placement.test.ts; this proves the sweep uses
+ * it, which nothing else would notice if it were undone.
+ */
+describe("sweepPage placement", () => {
+  const job = {
+    id: "job-1",
+    user_id: "user-1",
+    event_id: "event-1",
+    sps_event_id: "sps-event-1",
+    deselected: [],
+  } as unknown as SpsPullJob;
+
+  /** The event's rows for the ids asked about: `present` are here already. */
+  const db = (present: string[]) => {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      in: (_col: string, ids: string[]) =>
+        Promise.resolve({
+          data: ids
+            .filter((id) => present.includes(id))
+            .map((id) => ({
+              sps_image_id: id,
+              r2_key: `events/event-1/${id}.jpg`,
+              processing_status: "complete",
+              sps_pulled_at: "2026-10-04T00:00:00Z",
+            })),
+          error: null,
+        }),
+    };
+    return { from: () => builder } as unknown as Parameters<typeof sweepPage>[0];
+  };
+
+  beforeEach(() => {
+    vi.mocked(planSweepPlacement).mockReset();
+    vi.mocked(importBatch).mockClear();
+    vi.mocked(intakeAppendPoint).mockClear();
+    vi.mocked(fetchManifestPage).mockResolvedValue({
+      images: [img("a"), img("b")],
+    } as unknown as Awaited<ReturnType<typeof fetchManifestPage>>);
+  });
+
+  it("places what it fetches through the placement plan, never the intake", async () => {
+    const placer = vi.fn();
+    vi.mocked(planSweepPlacement).mockResolvedValue(placer);
+    const supabase = db(["a"]);
+
+    await sweepPage(supabase, job, 0, { watch: ["a", "b"], fetch: ["b"], skip: [] });
+
+    // Planned for exactly the photos about to be fetched, in this event.
+    expect(planSweepPlacement).toHaveBeenCalledWith(supabase, "event-1", [
+      expect.objectContaining({ id: "b" }),
+    ]);
+    expect(importBatch).toHaveBeenCalledWith(
+      supabase,
+      job,
+      [expect.objectContaining({ id: "b" })],
+      expect.objectContaining({ place: placer })
+    );
+    expect(intakeAppendPoint).not.toHaveBeenCalled();
+  });
+
+  it("with nothing to fetch, it looks nothing up and creates nothing", async () => {
+    await sweepPage(db(["a", "b"]), job, 0, { watch: ["a", "b"], fetch: ["b"], skip: [] });
+    expect(planSweepPlacement).not.toHaveBeenCalled();
+    expect(importBatch).not.toHaveBeenCalled();
+    expect(intakeAppendPoint).not.toHaveBeenCalled();
+  });
+
+  it("a placement lookup that fails moves no photo: the step throws", async () => {
+    vi.mocked(planSweepPlacement).mockRejectedValue(new Error("statement timeout"));
+    await expect(
+      sweepPage(db([]), job, 0, { watch: ["b"], fetch: ["b"], skip: [] })
+    ).rejects.toThrow("statement timeout");
+    expect(importBatch).not.toHaveBeenCalled();
   });
 });
