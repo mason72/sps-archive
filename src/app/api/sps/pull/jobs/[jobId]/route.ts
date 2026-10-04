@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { loadRecovered, type Recovered } from "@/lib/sps-integration/pull-recovered";
 import { readMissing } from "@/lib/sps-integration/pull-sweep";
 
 /**
@@ -31,7 +32,7 @@ export async function GET(
     const { data: job, error } = await supabase
       .from("sps_pull_jobs")
       .select(
-        "id, event_id, sps_event_id, sps_event_name, status, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, failures, missing, error, created_at, finished_at"
+        "id, event_id, sps_event_id, sps_event_name, status, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, failures, missing, error, created_at, finished_at, walked_at"
       )
       .eq("id", jobId)
       .eq("user_id", user!.id)
@@ -89,6 +90,23 @@ export async function GET(
       );
     }
 
+    // What the import went back for, and where those photos are filed now
+    // (pull-recovered.ts). Only on a finished job: this route is polled every
+    // 2.5s while an import runs, and the answer is not final until it ends.
+    // A decoration: if it cannot be read the screen simply does not show it,
+    // and the failure is reported.
+    let recovered: Recovered | null = null;
+    if (job.status === "completed") {
+      try {
+        recovered = await loadRecovered(supabase, job);
+      } catch (err) {
+        await reportSystemError("sps.pull-job-recovered", err, {
+          jobId: job.id,
+          eventId: job.event_id,
+        });
+      }
+    }
+
     return NextResponse.json({
       job: {
         ...job,
@@ -100,6 +118,7 @@ export async function GET(
         failures: Array.isArray(job.failures) ? job.failures.slice(0, 10) : [],
         landed: landed ?? 0,
         reported: reported ?? 0,
+        recovered,
         thumbs,
       },
     });

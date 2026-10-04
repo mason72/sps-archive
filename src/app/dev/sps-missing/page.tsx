@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import {
   SpsMissingPanel,
   type SpsMissingPhoto,
+  type SpsRecovered,
 } from "@/components/events/SpsMissingPanel";
 
 /**
@@ -37,9 +38,47 @@ const MANY: SpsMissingPhoto[] = Array.from({ length: 31 }, (_, i) => ({
   reason: "canceling statement due to statement timeout (code 57014)",
 }));
 
+// What a retry brought over, as the status route sends it.
+const RECOVERED_ONE: SpsRecovered = {
+  total: 1,
+  groups: [{ section: "A–D", count: 1, filenames: ["Casey Rowan_26-09-09_Summit_3101.jpg"] }],
+};
+const RECOVERED_FIVE: SpsRecovered = {
+  total: 5,
+  groups: [
+    {
+      section: "I–K",
+      count: 2,
+      filenames: ["avery stone_26-09-30_Summit_0141.jpg", "Jordan Pike_26-10-01_Summit_1304.jpg"],
+    },
+    {
+      section: "P–S",
+      count: 3,
+      filenames: [
+        "mORGAN reyes_26-09-30_Summit_1021.jpg",
+        "mORGAN reyes_26-09-30_Summit_1024.jpg",
+        "sam okafor_26-10-01_Summit_2123.jpg",
+      ],
+    },
+  ],
+};
+const RECOVERED_MANY: SpsRecovered = {
+  total: 214,
+  groups: [
+    {
+      section: "Unsorted",
+      count: 212,
+      filenames: Array.from({ length: 12 }, (_, i) => `Guest Name_26-10-01_Event_${1000 + i}.jpg`),
+    },
+    { section: "Keynote and Speakers", count: 1, filenames: [] },
+    { section: null, count: 1, filenames: [] },
+  ],
+};
+
 const FIXTURES: {
   label: string;
   missing: SpsMissingPhoto[] | null;
+  recovered?: SpsRecovered;
   status: string;
   retrying?: boolean;
 }[] = [
@@ -71,6 +110,21 @@ const FIXTURES: {
   },
   { label: "Thirty-one missing, long reasons", missing: MANY, status: "completed" },
   { label: "Checked, nothing missing", missing: [], status: "completed" },
+  { label: "A retry brought one over", missing: [], recovered: RECOVERED_ONE, status: "completed" },
+  { label: "A retry brought five over, into two sections", missing: [], recovered: RECOVERED_FIVE, status: "completed" },
+  {
+    label: "Some came over, one is still missing",
+    missing: FIVE.slice(0, 1),
+    recovered: { total: 3, groups: RECOVERED_FIVE.groups.slice(1) },
+    status: "completed",
+  },
+  {
+    label: "A first import that recovered hundreds (names capped, one in two sections, one in none)",
+    missing: [],
+    recovered: RECOVERED_MANY,
+    status: "completed",
+  },
+  { label: "Recovered, but a retry is running (list waits for it to finish)", missing: FIVE.slice(0, 1), recovered: RECOVERED_ONE, status: "running" },
   { label: "Never checked (renders nothing)", missing: null, status: "completed" },
 ];
 
@@ -89,6 +143,7 @@ export default function SpsMissingFixture() {
             <p className="label-caps mb-3 text-stone-300">{f.label}</p>
             <SpsMissingPanel
               missing={f.missing}
+              recovered={f.recovered}
               status={f.status}
               retrying={!!f.retrying}
               onRetry={() => {}}

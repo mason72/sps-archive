@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SpsManifestImage } from "./pull-client";
+import { fakeDb as fakeDbOf, type FakeState as State } from "./testing/fake-db";
 import {
   chooseHome,
   homesAmong,
@@ -38,32 +39,34 @@ const row = (id: string, originalFilename: string, parsedName: string | null) =>
  */
 describe("stackMates", () => {
   const existing = [
-    row("i1", "jaeyoung choi_26-09-30_AAOMS_0140.jpg", "jaeyoung choi AAOMS"),
-    row("i2", "jaeyoung choi_26-09-30_AAOMS_0142.jpg", "jaeyoung choi AAOMS"),
-    row("i3", "Patrick Vaughn_26-09-30_AAOMS_1020.jpg", "Patrick Vaughn AAOMS"),
-    row("i4", "Kandace Moore_26-10-01_AAOMS_1301.jpg", "Kandace Moore AAOMS"),
+    row("i1", "avery stone_26-09-30_Summit_0140.jpg", "avery stone Summit"),
+    row("i2", "avery stone_26-09-30_Summit_0142.jpg", "avery stone Summit"),
+    row("i3", "Morgan Reyes_26-09-30_Summit_1020.jpg", "Morgan Reyes Summit"),
+    row("i4", "Jordan Pike_26-10-01_Summit_1301.jpg", "Jordan Pike Summit"),
   ];
 
   it("finds the person's photos by the stack rule, not by raw text", () => {
-    // The real AAOMS filenames. The parser stored "… AAOMS" in parsed_name,
-    // and one of them was typed "pATRICK": the stack rule sees through both.
+    // The shapes AAOMS 2026 had, with invented names (guests' names do not
+    // belong in a fixture). The parser stored "… Summit" in parsed_name, and
+    // one name was typed with its capitals inverted: the stack rule sees
+    // through both.
     const mates = stackMates(existing, [
-      incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg"),
-      incoming("s2", "pATRICK vaughn_26-09-30_AAOMS_1024.jpg"),
+      incoming("s1", "avery stone_26-09-30_Summit_0141.jpg"),
+      incoming("s2", "mORGAN reyes_26-09-30_Summit_1024.jpg"),
     ]);
     expect(mates.get("s1")).toEqual(["i1", "i2"]);
     expect(mates.get("s2")).toEqual(["i3"]);
   });
 
   it("a person with no photos here has no mates", () => {
-    const mates = stackMates(existing, [incoming("s1", "riya gupta_26-10-01_AAOMS_2123.jpg")]);
+    const mates = stackMates(existing, [incoming("s1", "sam okafor_26-10-01_Summit_2123.jpg")]);
     expect(mates.get("s1")).toEqual([]);
   });
 
   it("two incoming photos of one person share one lookup", () => {
     const mates = stackMates(existing, [
-      incoming("s1", "pATRICK vaughn_26-09-30_AAOMS_1024.jpg"),
-      incoming("s2", "pATRICK vaughn_26-09-30_AAOMS_1021.jpg"),
+      incoming("s1", "mORGAN reyes_26-09-30_Summit_1024.jpg"),
+      incoming("s2", "mORGAN reyes_26-09-30_Summit_1021.jpg"),
     ]);
     expect(mates.get("s1")).toBe(mates.get("s2"));
     // Each other is not "already here".
@@ -126,80 +129,16 @@ describe("homesAmong / chooseHome", () => {
 // planSweepPlacement, against an in-memory stand-in for the three tables
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Rec = Record<string, unknown>;
-interface State {
-  sections: Rec[];
-  images: Rec[];
-  section_images: Rec[];
-}
-
-/** PostgREST returns at most this many rows whatever was asked for. */
-const RESPONSE_CAP = 1000;
-
-function fakeDb(state: State, opts: { failOn?: keyof State } = {}) {
-  const inserts: string[] = [];
-  const reads: string[] = [];
-  const from = (table: keyof State) => {
-    const filters: ((r: Rec) => boolean)[] = [];
-    let order: { col: string; asc: boolean } | null = null;
-    let limit: number | null = null;
-    let single = false;
-    let inserted: Rec | null = null;
-    const builder = {
-      select: () => builder,
-      insert: (values: Rec) => {
-        inserts.push(table);
-        inserted = { id: `new-${table}-${state[table].length}`, locked: false, ...values };
-        state[table].push(inserted);
-        return builder;
-      },
-      eq: (col: string, v: unknown) => (filters.push((r) => r[col] === v), builder),
-      gt: (col: string, v: string) => (filters.push((r) => String(r[col]) > v), builder),
-      in: (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), builder),
-      ilike: (col: string, v: string) =>
-        (filters.push((r) => String(r[col]).toLowerCase() === v.toLowerCase()), builder),
-      order: (col: string, o?: { ascending?: boolean }) => {
-        order = { col, asc: o?.ascending ?? true };
-        return builder;
-      },
-      limit: (n: number) => ((limit = n), builder),
-      maybeSingle: () => ((single = true), builder),
-      single: () => ((single = true), builder),
-      then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
-        const answer = () => {
-          if (inserted) return { data: inserted, error: null };
-          reads.push(table);
-          if (opts.failOn === table) {
-            return { data: null, error: { message: "canceling statement due to statement timeout" } };
-          }
-          let rows = state[table].filter((r) => filters.every((f) => f(r)));
-          if (order) {
-            const { col, asc } = order;
-            rows = [...rows].sort((a, b) => {
-              const [x, y] = [a[col] as string | number, b[col] as string | number];
-              return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);
-            });
-          }
-          rows = rows.slice(0, Math.min(limit ?? RESPONSE_CAP, RESPONSE_CAP));
-          return { data: single ? (rows[0] ?? null) : rows, error: null };
-        };
-        return Promise.resolve(answer()).then(resolve, reject);
-      },
-    };
-    return builder;
-  };
-  return {
-    db: { from } as unknown as Parameters<typeof planSweepPlacement>[0],
-    inserts,
-    reads,
-  };
-}
+const fakeDb = (state: State, opts: { failOn?: keyof State } = {}) => {
+  const fake = fakeDbOf(state, opts);
+  return { ...fake, db: fake.db as unknown as Parameters<typeof planSweepPlacement>[0] };
+};
 
 const image = (id: string, name: string, frame: string) => ({
   id,
   event_id: EVENT,
-  parsed_name: `${name} AAOMS`,
-  original_filename: `${name}_26-09-30_AAOMS_${frame}.jpg`,
+  parsed_name: `${name} Summit`,
+  original_filename: `${name}_26-09-30_Summit_${frame}.jpg`,
 });
 
 /** A sorted gallery: letter sections, Highlights, no "Unsorted". */
@@ -211,9 +150,9 @@ function sortedGallery(): State {
       { id: "ps", event_id: EVENT, name: "P–S", locked: false, sort_order: 5 },
     ],
     images: [
-      image("i1", "jaeyoung choi", "0140"),
-      image("i2", "jaeyoung choi", "0142"),
-      image("i3", "Patrick Vaughn", "1020"),
+      image("i1", "avery stone", "0140"),
+      image("i2", "avery stone", "0142"),
+      image("i3", "Morgan Reyes", "1020"),
     ],
     section_images: [
       { section_id: "ik", image_id: "i1", sort_order: 40 },
@@ -231,9 +170,9 @@ describe("planSweepPlacement", () => {
     const state = sortedGallery();
     const { db, inserts } = fakeDb(state);
     const batch = [
-      incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg"),
-      incoming("s2", "pATRICK vaughn_26-09-30_AAOMS_1024.jpg"),
-      incoming("s3", "pATRICK vaughn_26-09-30_AAOMS_1021.jpg"),
+      incoming("s1", "avery stone_26-09-30_Summit_0141.jpg"),
+      incoming("s2", "mORGAN reyes_26-09-30_Summit_1024.jpg"),
+      incoming("s3", "mORGAN reyes_26-09-30_Summit_1021.jpg"),
     ];
     const place = await planSweepPlacement(db, EVENT, batch);
 
@@ -249,10 +188,10 @@ describe("planSweepPlacement", () => {
     const state = sortedGallery();
     const { db, inserts } = fakeDb(state);
     const batch = [
-      incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg"),
+      incoming("s1", "avery stone_26-09-30_Summit_0141.jpg"),
       // Nobody by this name is in the gallery.
-      incoming("s2", "riya gupta_26-10-01_AAOMS_2123.jpg"),
-      incoming("s3", "nobody atall_26-10-01_AAOMS_0001.jpg"),
+      incoming("s2", "sam okafor_26-10-01_Summit_2123.jpg"),
+      incoming("s3", "nobody atall_26-10-01_Summit_0001.jpg"),
     ];
     const place = await planSweepPlacement(db, EVENT, batch);
 
@@ -274,7 +213,7 @@ describe("planSweepPlacement", () => {
     const state = sortedGallery();
     state.section_images.push({ section_id: "ps", image_id: "i1", sort_order: 99 });
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg")];
+    const batch = [incoming("s1", "avery stone_26-09-30_Summit_0141.jpg")];
     const { sectionId } = await (await planSweepPlacement(db, EVENT, batch))(batch[0]);
     expect(sectionName(state, sectionId)).toBe("Unsorted");
   });
@@ -283,7 +222,7 @@ describe("planSweepPlacement", () => {
     const state = sortedGallery();
     state.sections.find((s) => s.id === "ps")!.locked = true;
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "pATRICK vaughn_26-09-30_AAOMS_1024.jpg")];
+    const batch = [incoming("s1", "mORGAN reyes_26-09-30_Summit_1024.jpg")];
     const { sectionId } = await (await planSweepPlacement(db, EVENT, batch))(batch[0]);
     expect(sectionId).not.toBe("ps");
     expect(sectionName(state, sectionId)).toBe("Unsorted");
@@ -292,10 +231,10 @@ describe("planSweepPlacement", () => {
   it("a stray already in Unsorted does not pull the person's next photo there", async () => {
     const state = sortedGallery();
     state.sections.push({ id: "in", event_id: EVENT, name: "Unsorted", locked: false, sort_order: 0 });
-    state.images.push(image("i9", "jaeyoung choi", "0139"));
+    state.images.push(image("i9", "avery stone", "0139"));
     state.section_images.push({ section_id: "in", image_id: "i9", sort_order: 0 });
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg")];
+    const batch = [incoming("s1", "avery stone_26-09-30_Summit_0141.jpg")];
     expect(await (await planSweepPlacement(db, EVENT, batch))(batch[0])).toEqual({
       sectionId: "ik",
       sortOrder: 42,
@@ -317,8 +256,8 @@ describe("planSweepPlacement", () => {
     ];
     const { db, inserts } = fakeDb(state);
     const batch = [
-      incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg"),
-      incoming("s2", "riya gupta_26-10-01_AAOMS_2123.jpg"),
+      incoming("s1", "avery stone_26-09-30_Summit_0141.jpg"),
+      incoming("s2", "sam okafor_26-10-01_Summit_2123.jpg"),
     ];
     const place = await planSweepPlacement(db, EVENT, batch);
     expect(await place(batch[0])).toEqual({ sectionId: "in", sortOrder: 3 });
@@ -331,7 +270,7 @@ describe("planSweepPlacement", () => {
     // the database is struggling, and a landed photo is never placed again.
     const state = sortedGallery();
     const { db, inserts } = fakeDb(state, { failOn: "images" });
-    const batch = [incoming("s1", "jaeyoung choi_26-09-30_AAOMS_0141.jpg")];
+    const batch = [incoming("s1", "avery stone_26-09-30_Summit_0141.jpg")];
     await expect(planSweepPlacement(db, EVENT, batch)).rejects.toMatchObject({
       message: expect.stringContaining("statement timeout"),
     });
@@ -342,8 +281,8 @@ describe("planSweepPlacement", () => {
     const state = sortedGallery();
     const flaky = fakeDb(state);
     const batch = [
-      incoming("s1", "riya gupta_26-10-01_AAOMS_2123.jpg"),
-      incoming("s2", "nobody atall_26-10-01_AAOMS_0001.jpg"),
+      incoming("s1", "sam okafor_26-10-01_Summit_2123.jpg"),
+      incoming("s2", "nobody atall_26-10-01_Summit_0001.jpg"),
     ];
     const place = await planSweepPlacement(flaky.db, EVENT, batch);
     // The intake lookup reads `sections`; break it for one call.
@@ -386,7 +325,7 @@ describe("planSweepPlacement at gallery scale", () => {
     state.images.push(image("z1", "Zed Last", "9001"));
     state.section_images.push({ section_id: "ps", image_id: "z1", sort_order: 50 });
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "Zed Last_26-09-30_AAOMS_9002.jpg")];
+    const batch = [incoming("s1", "Zed Last_26-09-30_Summit_9002.jpg")];
     expect(await (await planSweepPlacement(db, EVENT, batch))(batch[0])).toEqual({
       sectionId: "ps",
       sortOrder: 51,
@@ -405,7 +344,7 @@ describe("planSweepPlacement at gallery scale", () => {
       });
     }
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "Booth Crowd_26-09-30_AAOMS_9999.jpg")];
+    const batch = [incoming("s1", "Booth Crowd_26-09-30_Summit_9999.jpg")];
     const { sectionId } = await (await planSweepPlacement(db, EVENT, batch))(batch[0]);
     expect(sectionName(state, sectionId)).toBe("Unsorted");
   });
@@ -423,7 +362,7 @@ describe("planSweepPlacement at gallery scale", () => {
       }
     }
     const { db } = fakeDb(state);
-    const batch = [incoming("s1", "Booth Crowd_26-09-30_AAOMS_9999.jpg")];
+    const batch = [incoming("s1", "Booth Crowd_26-09-30_Summit_9999.jpg")];
     const { sectionId } = await (await planSweepPlacement(db, EVENT, batch))(batch[0]);
     expect(sectionName(state, sectionId)).toBe("Unsorted");
   });

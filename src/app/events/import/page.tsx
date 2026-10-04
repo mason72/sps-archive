@@ -13,6 +13,7 @@ import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import {
   SpsMissingPanel,
   type SpsMissingPhoto,
+  type SpsRecovered,
 } from "@/components/events/SpsMissingPanel";
 import {
   GigIntelStep,
@@ -105,6 +106,8 @@ interface PullJob {
    * failed once and landed on the second try is in it.
    */
   missing: SpsMissingPhoto[] | null;
+  /** What the import went back for and got, by the section each is filed in. */
+  recovered?: SpsRecovered | null;
   error: string | null;
   finished_at: string | null;
   /** Photos actually in the event — the authoritative count, from the rows. */
@@ -1334,6 +1337,7 @@ export default function ImportFromSpsPage() {
                 {/* What the closing check found, and Retry. */}
                 <SpsMissingPanel
                   missing={job.missing}
+                  recovered={job.recovered}
                   status={job.status}
                   retrying={isRetrying}
                   onRetry={retryMissing}
