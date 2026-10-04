@@ -15,6 +15,7 @@ import {
   type SpsMissingPhoto,
   type SpsRecovered,
 } from "@/components/events/SpsMissingPanel";
+import { importHeading, isSettledStatus } from "@/lib/sps-integration/import-heading";
 import {
   GigIntelStep,
   type GigIntelPayload,
@@ -196,6 +197,13 @@ export default function ImportFromSpsPage() {
 
   // Progress state
   const [job, setJob] = useState<PullJob | null>(null);
+  /**
+   * What is already known about the import being opened (from the list row,
+   * or because it was just started), shown until its own status arrives.
+   * Without it a finished import opens under "Pulling camera files" and
+   * "Starting…" for the length of one request.
+   */
+  const [opening, setOpening] = useState<{ name: string | null; status: string } | null>(null);
   /** The last poll didn't land — say so rather than showing a stale number. */
   const [pollStale, setPollStale] = useState(false);
 
@@ -336,8 +344,7 @@ export default function ImportFromSpsPage() {
         setLoadError(data.error || "Could not resume the import.");
         return;
       }
-      setStage("running");
-      pollJob(data.jobId);
+      watchJob(data.jobId, { name: ev.name, status: "queued" });
     } catch {
       setLoadError("Could not resume the import.");
     }
@@ -509,13 +516,11 @@ export default function ImportFromSpsPage() {
       if (!res.ok) {
         setLoadError(data.error || "Could not start the import.");
         if (data.jobId) {
-          setStage("running");
-          pollJob(data.jobId);
+          watchJob(data.jobId, { name: chosen?.name ?? null, status: "queued" });
         }
         return;
       }
-      setStage("running");
-      pollJob(data.jobId);
+      watchJob(data.jobId, { name: chosen?.name ?? null, status: "queued" });
     } catch {
       setLoadError("Could not start the import.");
     } finally {
@@ -593,6 +598,18 @@ export default function ImportFromSpsPage() {
     []
   );
 
+  /**
+   * Open a job's page and watch it. Every way in goes through here, so the
+   * previous job's numbers are never left sitting under this one's title
+   * while it loads.
+   */
+  const watchJob = (jobId: string, known: { name: string | null; status: string }) => {
+    setJob(null);
+    setOpening(known);
+    setStage("running");
+    pollJob(jobId);
+  };
+
   const cancelImport = async () => {
     if (!job) return;
     await fetch(`/api/sps/pull/jobs/${job.id}`, { method: "DELETE" });
@@ -631,6 +648,13 @@ export default function ImportFromSpsPage() {
 
   const missingNow = job?.missing ?? [];
   const isLive = job?.status === "running" || job?.status === "queued";
+  // The words over the job's page follow the job: one that finished weeks ago
+  // is not "pulling camera files".
+  const heading = importHeading({
+    status: job?.status ?? opening?.status ?? null,
+    name: job?.sps_event_name ?? opening?.name ?? null,
+    finishedOn: job?.finished_at ? formatDate(job.finished_at) : null,
+  });
 
   if (!user) return null;
 
@@ -683,7 +707,7 @@ export default function ImportFromSpsPage() {
             </div>
           ) : (
             <h1 className="font-editorial text-[clamp(32px,4vw,48px)] leading-[0.95] text-stone-900 reveal">
-              {stage === "review" ? chosen?.name : "Pulling camera files"}
+              {stage === "review" ? chosen?.name : heading.title}
             </h1>
           )}
           <p className="caption-italic mt-3">
@@ -691,8 +715,7 @@ export default function ImportFromSpsPage() {
               "Finished events, with their camera files still sitting on SPS."}
             {stage === "review" &&
               "Everything is selected. Uncheck the setup frames and test shots you don't want archived."}
-            {stage === "running" &&
-              "Files are copied a page at a time. You can leave this screen — it keeps going."}
+            {stage === "running" && heading.caption}
           </p>
         </div>
 
@@ -823,10 +846,9 @@ export default function ImportFromSpsPage() {
 
                       {busy ? (
                         <button
-                          onClick={() => {
-                            setStage("running");
-                            pollJob(ev.job!.id);
-                          }}
+                          onClick={() =>
+                            watchJob(ev.job!.id, { name: ev.name, status: ev.job!.status })
+                          }
                           className="label-caps text-accent shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
                         >
                           <Loader2 size={12} className="animate-spin" />
@@ -857,10 +879,9 @@ export default function ImportFromSpsPage() {
                           {ev.job?.status === "completed" &&
                             ev.job.missingCount > 0 && (
                               <button
-                                onClick={() => {
-                                  setStage("running");
-                                  pollJob(ev.job!.id);
-                                }}
+                                onClick={() =>
+                                  watchJob(ev.job!.id, { name: ev.name, status: ev.job!.status })
+                                }
                                 className="text-[12px] text-amber-700 underline decoration-amber-700/30 underline-offset-2 transition-colors hover:decoration-amber-700 cursor-pointer"
                               >
                                 {ev.job.missingCount.toLocaleString()}{" "}
@@ -877,10 +898,9 @@ export default function ImportFromSpsPage() {
                             ev.job.missingCount === 0 &&
                             (ev.job.imagesFailed ?? 0) > 0 && (
                               <button
-                                onClick={() => {
-                                  setStage("running");
-                                  pollJob(ev.job!.id);
-                                }}
+                                onClick={() =>
+                                  watchJob(ev.job!.id, { name: ev.name, status: ev.job!.status })
+                                }
                                 className="text-[11px] text-stone-300 transition-colors hover:text-stone-500 cursor-pointer"
                               >
                                 Import details
@@ -1206,7 +1226,7 @@ export default function ImportFromSpsPage() {
           <>
             {!job ? (
               <p className="py-24 text-center text-[13px] text-stone-400">
-                Starting…
+                {isSettledStatus(opening?.status) ? "Loading…" : "Starting…"}
               </p>
             ) : (
               <div className="max-w-2xl">
