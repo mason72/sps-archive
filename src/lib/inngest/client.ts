@@ -61,6 +61,9 @@ type Events = {
   "ops/pricing-summary.run": {
     data: Record<string, never>;
   };
+  "ops/capacity.run": {
+    data: Record<string, never>;
+  };
   // Recompose the cover raster (mosaic/solid) for email/OG serving.
   "cover/raster.generate": {
     data: {

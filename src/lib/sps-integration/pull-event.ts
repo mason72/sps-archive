@@ -41,7 +41,7 @@ import {
 } from "@/lib/upload/media";
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
-import { reportSystemError } from "@/lib/monitoring/report";
+import { describeError, reportSystemError } from "@/lib/monitoring/report";
 import { spsEventLinkPatch } from "./event-link";
 import { withNewGalleryDefaults } from "@/types/event-settings";
 import type { Json } from "@/lib/supabase/database.types";
@@ -611,7 +611,10 @@ export async function importSlice(
           failures.push({
             spsImageId: img.id,
             filename: img.originalFilename,
-            reason: err instanceof Error ? err.message : String(err),
+            // describeError, not String(err): a Supabase error is a plain
+            // object, and all 9 AAOMS 2026 failures were stored as
+            // "[object Object]" (2026-10-03), which names nothing.
+            reason: describeError(err),
           });
         }
         if (++sinceFlush >= PROGRESS_FLUSH_EVERY) await flushProgress();

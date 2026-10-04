@@ -111,6 +111,24 @@ export type Database = {
         }
         Relationships: []
       }
+      capacity_snapshots: {
+        Row: {
+          data: Json
+          id: number
+          taken_at: string
+        }
+        Insert: {
+          data: Json
+          id?: never
+          taken_at?: string
+        }
+        Update: {
+          data?: Json
+          id?: never
+          taken_at?: string
+        }
+        Relationships: []
+      }
       crew: {
         Row: {
           aliases: string[]
@@ -2082,6 +2100,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ai_backlog_snapshot: { Args: never; Returns: Json }
+      capacity_snapshot: { Args: never; Returns: Json }
       count_faces_by_image: {
         Args: { target_event_id: string }
         Returns: {
@@ -2163,6 +2183,7 @@ export type Database = {
           max_attempts?: number
           max_events?: number
           retry_after_minutes?: number
+          upload_stale_minutes?: number
         }
         Returns: {
           event_id: string

@@ -74,9 +74,57 @@ Built 2026-08-10. Everything here shipped verified; history in `tasks/todo.md`
 - `pricing-summary-weekly` (Mon 8:11am PT + `ops/pricing-summary.run`):
   shadow invoice to ADMIN_ALERT_EMAIL; tier fit + margin from
   `PLANS.monthlyPriceUsd` (stripe/config.ts — must match m/pricing page).
+- `capacity-check` (hourly at :23 + `ops/capacity.run`): is the database still
+  big enough, and is the AI lane keeping up? See "Capacity" below.
 - First-run harness: `scripts/verify-ops-crons.ts` (pass ADMIN_ALERT_EMAIL).
 - Verifying Inngest registration: unsigned GET /api/inngest is 401 since SDK
   3.54 — introspection must be HMAC-signed (the 401 is itself healthy).
+
+## Capacity (added 2026-10-04, lesson 175)
+
+**Run this first when anything is slow, stuck or timing out:**
+`npx tsx scripts/capacity-check.ts` (read-only; `--history` prints the trend).
+
+The database runs on Supabase compute size **Medium** (4 GB memory, ~$60/month)
+since 2026-10-04. It was Micro (1 GB) until the archive outgrew it: the vector
+indexes stopped fitting in memory, face inserts went from ~0.1 s to 8.3 s, and
+AI indexing collapsed while 93 "statement timeout" emails said nothing useful.
+
+`src/lib/monitoring/capacity.ts` is the one home for the readings, thresholds,
+sizes and prices. The hourly job emails ADMIN_ALERT_EMAIL **one message per
+finding per day** (sooner if a warning turns critical), each with the action
+and its cost. The alert ledger is `system_errors` rows with context
+`capacity.<key>`; every reading is kept in `capacity_snapshots`.
+
+| Finding | Reads | Warn / critical |
+|---|---|---|
+| `vector-memory` | HNSW index bytes ÷ `effective_cache_size` | 50% / 75% |
+| `db-size` | database bytes ÷ recommended max for the compute size | 70% / 90% |
+| `timeouts` | `statement timeout` rows in `system_errors`, last 6 h | 10 / 50 |
+| `sweep-failing` | `inngest.ai-index-sweep` errors, last 2 h | 2 = critical |
+| `connections` | client connections ÷ `max_connections` | 80% |
+| `ai-stalled` | 500+ photos waiting now AND at the reading 3 h earlier, nothing indexed since | critical |
+| `ai-backlog` | 20,000+ waiting and over 7 days to clear at the last 24 h's pace | warn |
+| `unreadable` | the check itself could not read the database | critical |
+| `history-unreadable` | the check could not read `capacity_snapshots` (so `ai-stalled` is off) | warn |
+
+- **Resizing** is a Management API call (or the dashboard's Compute and Disk
+  page) and a restart of under two minutes; it can be stepped back down. Do it
+  with no uploads or SPS pulls in flight. It costs money, so it is Mason's
+  call: the alert names the smallest size that clears the numbers and its price.
+- **Thresholds have one calibration point each** (the 2026-10-04 incident,
+  replayed as a test in `capacity.test.ts`). Move them on evidence.
+- **`ai-index.slow-insert` rows are part of the timeout count.** When a face
+  insert times out and the smaller chunk saves the batch, nothing fails, so the
+  indexer writes a `system_errors` row (no email) to keep the signal visible.
+- **An unreadable alert ledger still emails critical findings** (hourly while
+  it lasts); warnings wait. `ai-stalled` stays quiet for the first 3 hours
+  after a deploy that empties `capacity_snapshots`, because it needs an older
+  reading to compare with.
+- **Disk is not covered.** Free space is not readable from SQL. Supabase grows
+  the disk 50% at 90% full on the Pro plan (8 → 12 GB happened that way).
+- The compute size is inferred from `shared_buffers` (a quarter of memory:
+  Micro 256 MB, Medium 1,024 MB, both measured).
 
 ## People index (/people) — added 2026-08-10
 

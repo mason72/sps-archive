@@ -5,9 +5,16 @@ description: Diagnose a stuck Pixeltrunk import, ingest or indexing run (Pixiese
 
 # Stall triage (Pixeltrunk ingest and import)
 
-Six stall reports in Q3 2026. The taxonomy is in `tasks/lessons.md` 112, 123, 126, 131, 157, 160 and
-168; this is the decision procedure. Findings before fixes; never kill a process to see what happens
+Six stall reports in Q3 2026. The taxonomy is in `tasks/lessons.md` 112, 123, 126, 131, 157, 160, 168
+and 175; this is the decision procedure. Findings before fixes; never kill a process to see what happens
 (lesson 126: a silent log was a healthy run, and killing it proved nothing).
+
+## 0. Rule out capacity first
+`npx tsx scripts/capacity-check.ts` (read-only, seconds). If it reports a critical finding, that is
+the stall until proven otherwise: on 2026-10-04 a gallery sat at "Queued" for a day because the
+database had outgrown its memory, and an hour went into queues and job rows before one look at
+`pg_settings` (lesson 175). A resize costs money, so it goes to Mason as a decision card with the
+measured numbers and the monthly price.
 
 ## 1. Name the durable record, then read it
 The queue file and the `images` table are the truth; the log and Inngest's dashboard are claims.
@@ -26,6 +33,8 @@ The queue file and the `images` table are the truth; the log and Inngest's dashb
 | Process alive at 0% CPU, one ESTABLISHED socket, no new rows | **Hang** (lessons 112, 131) | A call with no timeout. `ps -o etime,pcpu -p <pid>`; `lsof -nP -i -a -p <pid>`. Add the timeout, then restart. |
 | Inngest shows a run the app has no row for | **Phantom run** (lesson 160) | Only Inngest believed in it. Treat as not running; start fresh after confirming no partial rows. |
 | Pages for finished galleries failing while a job runs | **Resource contention** (lesson 168) | Indexing starving the web tier. Throttle or pause the job; the upload path comes first. |
+| Statement timeouts in several contexts at once, throughput falling for days | **Out of capacity** (lesson 175) | The database has outgrown its compute size. Step 0's check names the size and the price; do not tune queries around it. |
+| A gallery shows "Queued" while others index | **Not its turn** (lesson 175) | The AI lane works a plan: live galleries first, then newest shoot (`src/lib/ai-index/plan.ts`). Check where the gallery sits in `events_needing_ai_index` before calling it stuck. |
 
 ## 3. Act, narrowly
 - Backlog: nothing but a heartbeat message with the measured rate.

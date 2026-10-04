@@ -556,10 +556,14 @@ export const uploadReconciler = inngest.createFunction(
  * STARVED. Silently, because the job reported success either way. Raising
  * the cap alone would not have fixed it.
  *
- * `events_needing_ai_index` groups in the database and orders by the
- * oldest pending image, so it is FIFO: the gallery waiting longest goes
- * first. AI_INDEX_NUDGE_LIMIT tunes the batch without a deploy; the SQL
- * clamps it to 2,000 whatever is passed.
+ * `events_needing_ai_index` picks in the database, NEWEST SHOOT FIRST
+ * (migration 090, lesson 175). It was first-in-first-out by oldest waiting
+ * photo until 2026-10-04, when a client gallery pulled the day before sat
+ * 238th behind a 471,923-photo archive backlog. The same incident is why this
+ * wakes a capacity-sized set and not 200 galleries: the lane runs one gallery
+ * at a time and a continuing run re-queues behind everything woken, so the
+ * woken set IS the rotation (see sweep-plan.ts). AI_INDEX_NUDGE_LIMIT still
+ * tunes how many candidates are considered; the SQL clamps it to 50.
  */
 export const aiIndexSweep = inngest.createFunction(
   { id: "ai-index-sweep", retries: 1 },
@@ -569,32 +573,24 @@ export const aiIndexSweep = inngest.createFunction(
     const aiEventIds = await step.run("ai-index-sweep", async () => {
       const { isAiIndexingEnabled } = await import("@/lib/ai-index/index-event");
       if (!isAiIndexingEnabled()) return [] as string[];
-      const { AI_INDEX_MAX_ATTEMPTS, AI_INDEX_RETRY_AFTER_MINUTES } = await import(
-        "@/lib/ai-index/failures"
-      );
-      const supabase = createServiceClient();
-      const limit = Number(process.env.AI_INDEX_NUDGE_LIMIT) || 200;
-      // The retry rules are passed, not left to the SQL defaults, so the queue
-      // and the batch select read one definition (migration 082, lesson 151).
-      // Without them an image Modal keeps failing kept its event on this list
-      // every 30 minutes, billing a GPU pass each time.
-      const { data, error } = await supabase.rpc("events_needing_ai_index", {
-        max_events: limit,
-        max_attempts: AI_INDEX_MAX_ATTEMPTS,
-        retry_after_minutes: AI_INDEX_RETRY_AFTER_MINUTES,
-      });
-      // An error here returns null, and `data ?? []` would report "nothing to
-      // index" — indistinguishable from a healthy empty queue. Say so instead.
-      if (error) {
+      // The plan's galleries that are not already being worked: one that was
+      // indexed in the last half hour has a live chain of runs, and waking it
+      // again would give it a second (plan.ts).
+      const { loadAiWakeList } = await import("@/lib/ai-index/plan");
+      const limit = Number(process.env.AI_INDEX_NUDGE_LIMIT) || undefined;
+      const plan = await loadAiWakeList(createServiceClient(), limit);
+      // An error here is not "nothing to index" — that would be
+      // indistinguishable from a healthy empty queue. Say so instead.
+      if (!plan.ok) {
         const { reportSystemError } = await import("@/lib/monitoring/report");
         await reportSystemError(
           "inngest.ai-index-sweep",
-          error,
+          plan.error,
           { note: "events_needing_ai_index rpc failed; no nudges dispatched this run", limit }
         );
         return [] as string[];
       }
-      return (data ?? []).map((r: { event_id: string }) => r.event_id);
+      return plan.eventIds;
     });
     // Safety net for the Highlights toggle (migration 086): a waiting section
     // whose fill request was lost still fills within 30 minutes of settling.
@@ -884,6 +880,11 @@ export const coverFocal = inngest.createFunction(
  * an event, batched through the Modal sps-archive-ai app (tasks/todo.md "AI
  * revival" Phase 0).
  *
+ * PLAN-GATED (2026-10-04, lesson 175): a run indexes its gallery only while
+ * that gallery is in the lane's current plan (src/lib/ai-index/plan.ts: live
+ * galleries first, then newest shoot, about one sweep's worth of photos).
+ * Otherwise it returns `skipped: "not-next"` and does not continue.
+ *
  * Settlement-triggered, twice over: the 2m per-event debounce means an
  * upload session fires this once after the dust settles, and the job ALSO
  * verifies zero pending upload rows before touching anything — if uploads are
@@ -898,6 +899,13 @@ export const coverFocal = inngest.createFunction(
  * faces rows only, never processing_status or anything display reads.
  */
 const AI_INDEX_BUDGET_MS = 8 * 60 * 1000;
+/**
+ * No face INSERT starts after this point in a run. The route's limit is 800 s
+ * (src/app/api/inngest/route.ts); a batch that began just inside the budget
+ * above and then met a slow database could run past it, and a platform kill
+ * reports nothing. Stopping at 11.5 minutes leaves time to throw and be seen.
+ */
+const AI_INDEX_HARD_STOP_MS = 11.5 * 60 * 1000;
 
 export const aiIndex = inngest.createFunction(
   {
@@ -954,14 +962,36 @@ export const aiIndex = inngest.createFunction(
         return { skipped: "uploads-in-flight", pending, indexed: 0, faces: 0, remaining: 0 };
       }
 
+      // IS IT THIS GALLERY'S TURN? The lane runs one gallery at a time, so a
+      // run for a gallery outside the current plan is time taken from one
+      // inside it (lesson 175: a client gallery sat behind every archive
+      // gallery that had ever been woken, because each kept re-queuing itself).
+      // Out of plan = do nothing and do not continue; the sweep wakes this
+      // gallery again when its turn comes. A gallery with nothing left to index
+      // is also out of plan, which is the same answer the batch select gave.
+      // If the plan cannot be READ, index anyway: a broken queue query must not
+      // stop the lane (it did, for 48 hours, when the sweep depended on it).
+      const { loadAiPlan } = await import("@/lib/ai-index/plan");
+      const plan = await loadAiPlan(supabase);
+      if (plan.ok && !plan.eventIds.includes(event.data.eventId)) {
+        return { skipped: "not-next", indexed: 0, faces: 0, remaining: 0 };
+      }
+
       const started = Date.now();
       let indexed = 0;
       let faces = 0;
       let remaining = 0;
+      // A chunk that had to shrink stays shrunk for the rest of the run, so
+      // each batch does not re-pay a doomed 15-second insert to rediscover it.
+      let faceChunk: number | undefined;
       try {
         for (;;) {
           if (Date.now() - started > AI_INDEX_BUDGET_MS) break;
-          const r = await indexEventBatch(supabase, event.data.eventId);
+          const r = await indexEventBatch(supabase, event.data.eventId, {
+            faceChunk,
+            deadline: started + AI_INDEX_HARD_STOP_MS,
+          });
+          faceChunk = r.faceChunk;
           indexed += r.indexed;
           faces += r.faces;
           remaining = r.remaining;
@@ -996,6 +1026,21 @@ export const aiIndex = inngest.createFunction(
         name: "faces/cluster.requested",
         data: { eventId: event.data.eventId },
       });
+      // A gallery just left the plan, so another may have entered it. Wake
+      // whatever in the plan is not already being worked, instead of leaving
+      // the lane idle until the next sweep.
+      const next = await step.run("next-in-plan", async () => {
+        const { loadAiWakeList } = await import("@/lib/ai-index/plan");
+        const plan = await loadAiWakeList(createServiceClient());
+        // Unreadable: the sweep is the backstop, within 30 minutes.
+        return plan.ok ? plan.eventIds.filter((id) => id !== event.data.eventId) : [];
+      });
+      if (next.length) {
+        await step.sendEvent(
+          "wake-next-in-plan",
+          next.map((eventId) => ({ name: "ai/index.requested" as const, data: { eventId } }))
+        );
+      }
     }
     return result;
   }

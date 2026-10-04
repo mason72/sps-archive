@@ -47,6 +47,7 @@ npm run dev          # Start dev server (port 3000)
 npm run build        # Production build
 npm run lint         # ESLint
 npm run db:gen-types # Regenerate Supabase types
+npx tsx scripts/capacity-check.ts  # FIRST when anything is slow, stuck or timing out: is the database big enough, is the AI lane keeping up (read-only; docs/OPS.md "Capacity")
 npm run typecheck    # tsc --noEmit on the WORKING tree; ~3s warm, includes scripts/ (no route types, no lint)
 npm run hooks:install # once per clone: points core.hooksPath at scripts/git-hooks (pre-push type-checks + lints the PUSHED commit)
 ~/.venvs/modal-cli/bin/modal deploy modal/ai_pipeline.py  # Deploy AI pipeline (CLI lives in this venv)

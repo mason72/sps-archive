@@ -25,6 +25,12 @@ import {
   batchFailures,
   redactUrlQueries,
 } from "@/lib/ai-index/failures";
+import {
+  FACE_INSERT_CHUNK,
+  FaceInsertOutOfTime,
+  insertInShrinkingChunks,
+  type DbError,
+} from "@/lib/ai-index/face-insert";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { recordUsage, secondsSince } from "@/lib/usage/record";
 
@@ -32,46 +38,6 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
 
 /** Modal endpoint caps at 100 images per call. */
 export const AI_INDEX_BATCH = 100;
-
-/**
- * Rows per `faces` INSERT statement.
- *
- * `faces` carries an HNSW index on the binary-quantized embedding, so every
- * inserted row is woven into that graph at a per-row cost that climbs as the
- * graph grows (173,647 faces / 59 MB at the time of writing). Writing a whole
- * 100-image batch as one statement lost to PostgREST's 8s statement_timeout
- * four times — 57014 on 2026-08-12 (02:30 and 04:10 UTC), 08-29 and 08-30
- * (both 09:47) — each one throwing away a Modal pass that had already been
- * metered.
- *
- * SIZED AGAINST THE EXCURSION, NOT THE ROW COUNT, because the row count turned
- * out not to be the problem. The four failing events run 1.0, 1.0, 2.0 and 3.2
- * faces per image (DAIS 26, Island HQ Headshot Day, Power Rangers, Ivana's
- * Bridal Shower) — headshot days, not group shots. So the failing statements
- * were roughly 100-320 rows, and warm that is ~0.2-0.7s against an 8s ceiling.
- * They still timed out, which means a >10x excursion did it, not the volume.
- * Measured directly: warm cost is flatly linear at ~2.1ms/row (50 rows 107ms,
- * 100 rows 223ms, 150 rows 360ms), but the session's first write ran 8,606ms
- * for 150 rows — a ~24x excursion, one observation.
- *
- * Chunking helps because the timeout is PER STATEMENT: cutting the work per
- * statement by 2-6x is what moves the same excursion from over the ceiling to
- * under it. At 50 rows a 20x excursion lands at ~2.1s; at 150 it lands at
- * ~7.2s, which passes and tells you nothing about the next one. A single
- * observation cannot characterise a tail, which is the argument FOR headroom
- * rather than against it.
- *
- * Do NOT re-derive this as a density story. The archive does reach 9.7 faces
- * per image on some galleries (one frame holds 129), and those batches are
- * genuinely ~1,000 rows — but none of them is what failed. Chasing group shots
- * would be looking in the wrong place.
- *
- * Cost is ~20 statements instead of 7 on a 1,000-row batch, about 2s of extra
- * round-trips in a job that runs for minutes — cheaper than shrinking
- * AI_INDEX_BATCH, which would buy the same safety by paying Modal for more GPU
- * round-trips.
- */
-const FACE_INSERT_CHUNK = 50;
 
 interface IndexedFace {
   bbox: { x: number; y: number; w: number; h: number };
@@ -158,10 +124,35 @@ function dbFail(
   );
 }
 
+/**
+ * How long past `deadline` the per-photo updates may still start. The deadline
+ * is 11.5 minutes into a run and the route is killed at 800 s, so this leaves
+ * about 20 seconds to throw and report.
+ */
+const IMAGE_UPDATE_GRACE_MS = 90_000;
+
+export interface IndexBatchOptions {
+  /** Face-insert chunk to start at: what the previous batch of this run ended on. */
+  faceChunk?: number;
+  /**
+   * Epoch ms after which no further face INSERT is started (see face-insert.ts);
+   * per-photo updates stop IMAGE_UPDATE_GRACE_MS after it.
+   */
+  deadline?: number;
+}
+
 export async function indexEventBatch(
   supabase: SupabaseDB,
-  eventId: string
-): Promise<{ indexed: number; faces: number; errors: Record<string, string>; remaining: number }> {
+  eventId: string,
+  options: IndexBatchOptions = {}
+): Promise<{
+  indexed: number;
+  faces: number;
+  errors: Record<string, string>;
+  remaining: number;
+  /** Face-insert chunk this batch ended on; pass it to the next batch. */
+  faceChunk?: number;
+}> {
   // Eligible only: never failed, or failed but past the cool-down and under the
   // attempt cap (failures.ts). Fewest attempts first, so a retry always goes to
   // the back of the line and a batch of repeat failures can never hide the
@@ -272,6 +263,7 @@ export async function indexEventBatch(
 
   const indexedIds = Object.keys(out.results).filter((id) => batch.some((b) => b.id === id));
   let faceCount = 0;
+  let faceChunk = options.faceChunk;
 
   // Faces first: replace-per-image, then bulk insert. If the process dies
   // between these writes the image's ai_indexed_at is still NULL, so the next
@@ -293,20 +285,63 @@ export async function indexEventBatch(
       }))
     );
     faceCount = faceRows.length;
-    // Chunked per FACE_INSERT_CHUNK. Partial failure stays safe: ai_indexed_at
+    // Chunked (FACE_INSERT_CHUNK in face-insert.ts). Partial failure stays safe: ai_indexed_at
     // is written last, so a throw part-way leaves the batch unindexed and the
     // retry's `faces delete` above wipes whatever did land.
-    for (let i = 0; i < faceRows.length; i += FACE_INSERT_CHUNK) {
-      const { error: insErr } = await supabase
-        .from("faces")
-        .insert(faceRows.slice(i, i + FACE_INSERT_CHUNK));
-      if (insErr) throw dbFail("faces insert", insErr);
+    // A timeout halves the chunk and re-sends the same rows (face-insert.ts):
+    // a slow database costs time here, not the Modal pass already paid for.
+    try {
+      const wrote = await insertInShrinkingChunks(
+        faceRows,
+        async (slice) => {
+          const { error: insErr } = await supabase.from("faces").insert(slice);
+          return insErr;
+        },
+        { startChunk: options.faceChunk, deadline: options.deadline }
+      );
+      faceChunk = wrote.finalChunk;
+      if (wrote.shrinks > 0 || wrote.finalChunk < FACE_INSERT_CHUNK) {
+        // The batch was saved, so nothing throws, but the database is timing
+        // out. Record it where the capacity check counts timeouts
+        // (system_errors), WITHOUT an email: absorbing these quietly would hide
+        // the exact signal that said the database had outgrown its memory
+        // (lesson 175). One row per SLOW BATCH, including batches that only
+        // inherited a shrunk chunk, so the count keeps the scale it had when
+        // every such batch failed outright and the check's thresholds hold.
+        const { error: noteErr } = await supabase.from("system_errors").insert({
+          context: "ai-index.slow-insert",
+          message:
+            `faces insert: statement timeout absorbed ${wrote.shrinks} time(s) this batch, ` +
+            `chunk now ${wrote.finalChunk} of ${FACE_INSERT_CHUNK}`,
+          detail: { eventId, faceRows: faceRows.length, shrinks: wrote.shrinks },
+          notified: false,
+          event_id: eventId,
+        });
+        if (noteErr) console.warn("ai-index slow-insert note not recorded:", noteErr.message);
+      }
+    } catch (insErr) {
+      if (insErr instanceof FaceInsertOutOfTime) throw new Error(`ai-index faces insert: ${insErr.message}`);
+      throw dbFail("faces insert", insErr as DbError);
     }
   }
 
   // Image rows last — ai_indexed_at is the "this image is done" marker.
   const indexedAt = new Date().toISOString();
+  let updated = 0;
   for (const imageId of indexedIds) {
+    // Same reason as the face-insert deadline: past this the platform kills
+    // the run and nothing is reported. Photos already marked stay marked; the
+    // rest are picked up by the next batch, which replaces their faces.
+    if (
+      options.deadline !== undefined &&
+      Date.now() > options.deadline + IMAGE_UPDATE_GRACE_MS
+    ) {
+      throw new Error(
+        `ai-index image update: out of time after ${updated} of ${indexedIds.length}; ` +
+          `the database is too slow to finish this batch inside the run`
+      );
+    }
+    updated++;
     const r = out.results[imageId];
     const { error: updErr } = await supabase
       .from("images")
@@ -340,5 +375,6 @@ export async function indexEventBatch(
     faces: faceCount,
     errors: out.errors,
     remaining: count ?? 0,
+    faceChunk,
   };
 }

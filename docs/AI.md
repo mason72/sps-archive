@@ -45,16 +45,40 @@ pipeline's fatal sin).
 `ai-index` (2m/event debounce + zero-pending-uploads check + kill switch) →
 `src/lib/ai-index/index-event.ts` batches → Modal → writes AI columns + faces
 (replace-per-image, idempotent; focal_x/y untouched). Completion fires
-`faces/cluster.requested`. The `ai-index-sweep` cron nudges every event with
-unindexed work **every 30 minutes** (:07/:37 UTC). It was a nightly step until
+`faces/cluster.requested`.
+
+**The lane works a PLAN (2026-10-04, lesson 175).** `events_needing_ai_index`
+(migrations 090/091) returns waiting galleries in priority order: **live
+galleries before Pixieset-migrated ones** (`settings.pixiesetCollectionId`),
+then newest shoot first. `src/lib/ai-index/plan.ts` takes the first of them
+holding ~4,000 photos (at least 2 galleries; `sweep-plan.ts`), which is about
+what the single-concurrency lane does between sweeps. Three readers, one
+definition: the `ai-index-sweep` cron wakes the plan **every 30 minutes**
+(:07/:37 UTC); **every `ai-index` run checks at its start that its gallery is
+in the plan and otherwise returns `skipped: "not-next"`**; and a run that
+finishes a gallery wakes the plan again so the lane does not idle. Both wakes
+skip a gallery indexed in the last 30 minutes (`loadAiWakeList`): it already
+has a live chain of runs, and a second chain would give it a double share.
+**Known limits:** new photos added to a MIGRATED gallery wait behind every live
+gallery; and a gallery whose runs throw at the database level keeps its place
+at the front (two of them holding 4,000+ photos each would block the lane until
+the capacity check's `ai-stalled` reports it). A run whose
+plan read fails indexes anyway. Before this a run indexed whatever woke it and
+re-queued itself until done, so the rotation was every gallery ever woken (a
+client gallery sat 238th behind the archive backlog). Do not drive one gallery
+from `scripts/backfill-ai-index.ts` while the lane is working it: both pick the
+same batch. The sweep was a nightly step until
 2026-09-14 (lesson 147), and for Pixieset migrations it is the ONLY trigger:
 the ingest runs on the mini, which has no Inngest event key, so its own send
 fails silently. A migrated gallery therefore waits up to ~30 minutes for
 faces and search, not up to a day. Backfill/ops: `scripts/backfill-ai-index.ts`
 (~1 img/s, T4 ≈ $0.60/hr; the 19.6k archive cost ~$5).
 
-**Face rows insert 50 at a time (`FACE_INSERT_CHUNK`), and the number is
-measured, not chosen.** `faces` carries an HNSW index on the binary-quantized
+**Face rows insert 50 at a time (`FACE_INSERT_CHUNK`, `face-insert.ts`), and a
+statement timeout halves the chunk and re-sends the same rows** (2026-10-04,
+lesson 175), so a slow database costs time instead of the Modal pass already
+paid for. If chunks are shrinking, the database is short of memory: run
+`npx tsx scripts/capacity-check.ts`. **The 50 is measured, not chosen.** `faces` carries an HNSW index on the binary-quantized
 embedding, so every inserted row is woven into that graph at a per-row cost that
 climbs as the graph grows — a fixed batch size is therefore on a clock even
 though no code changes. Writing a whole 100-image batch as one statement lost to

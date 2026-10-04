@@ -43,7 +43,7 @@ async function main() {
   // Which events have work? (paged — PostgREST caps a request at 1000 rows)
   const counts = new Map<string, number>();
   for (let page = 0; ; page++) {
-    const { data: rows, error } = await supabase
+    let query = supabase
       .from("images")
       .select("event_id")
       .is("ai_indexed_at", null)
@@ -51,7 +51,11 @@ async function main() {
       .eq("media_type", "image")
       // Same eligibility as the job: images cooling down after a Modal failure,
       // or given up on, are not work (migration 082).
-      .or(aiIndexEligibleFilter())
+      .or(aiIndexEligibleFilter());
+    // One event asked for: count that event only. Unscoped, this walked the
+    // whole archive's backlog first (472 pages on 2026-10-04) to index one gallery.
+    if (eventArg) query = query.eq("event_id", eventArg);
+    const { data: rows, error } = await query
       .order("id", { ascending: true })
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
