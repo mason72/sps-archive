@@ -44,8 +44,9 @@ __pycache__/
 *.pyc
 .modal/
 
-# claude code
-.claude/
+# claude code (skills are shared with the team of sessions; settings.local.json and worktrees stay local)
+.claude/*
+!.claude/skills/
 Claude*.MD
 
 # supabase local temp
