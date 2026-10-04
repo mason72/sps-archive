@@ -22,6 +22,11 @@
  * it is supposed to be testing.)
  *
  *   npx tsx scripts/verify-sps-pull.ts <archiveEventId> [--sample 5]
+ *   npx tsx scripts/verify-sps-pull.ts <archiveEventId> --ids <spsImageId,spsImageId,…>
+ *
+ * `--ids` checks exactly those SPS photos rather than a sample. It is the proof
+ * for a retry (lesson 176): a sample of 8 from 7,109 says nothing about the 5
+ * photos that were just fetched.
  */
 import fs from "node:fs";
 import { createHash } from "node:crypto";
@@ -45,6 +50,15 @@ async function main() {
   const sampleFlag = process.argv.indexOf("--sample");
   const sampleSize =
     sampleFlag !== -1 ? Number(process.argv[sampleFlag + 1]) || 5 : 5;
+  const idsFlag = process.argv.indexOf("--ids");
+  const onlyIds =
+    idsFlag !== -1
+      ? (process.argv[idsFlag + 1] ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
+  if (onlyIds && (!onlyIds.length || onlyIds.length > 100)) {
+    console.error("--ids takes 1 to 100 comma-separated SPS image ids");
+    process.exit(1);
+  }
 
   const { createServiceClient } = await import("../src/lib/supabase/server");
   const { getObjectBuffer } = await import("../src/lib/r2/client");
@@ -72,15 +86,26 @@ async function main() {
   if (!token) throw new Error("No SPS connection for that event's owner.");
 
   // Prefer archive-grade frames — they are the ones that must match.
-  const { data: rows, error: rowsErr } = await supabase
+  const base = supabase
     .from("images")
     .select("id, original_filename, r2_key, file_size, sps_image_id, sps_quality, sps_pulled_at")
-    .eq("event_id", eventId)
-    .not("sps_image_id", "is", null)
-    .order("sps_quality", { ascending: true })
-    .limit(sampleSize);
+    .eq("event_id", eventId);
+  const { data: rows, error: rowsErr } = onlyIds
+    ? await base.in("sps_image_id", onlyIds).order("original_filename", { ascending: true })
+    : await base
+        .not("sps_image_id", "is", null)
+        .order("sps_quality", { ascending: true })
+        .limit(sampleSize);
   if (rowsErr) throw rowsErr;
   if (!rows?.length) throw new Error("No pulled images in that event.");
+  // Asked for by id and not here is the failure this flag exists to catch.
+  if (onlyIds && rows.length !== onlyIds.length) {
+    const have = new Set(rows.map((r) => r.sps_image_id));
+    console.error(
+      `MISSING from the event: ${onlyIds.filter((id) => !have.has(id)).join(", ")}`
+    );
+    process.exitCode = 1;
+  }
 
   console.log(
     `\n${event.name}  (archive ${eventId} ← SPS ${spsEventId})\n` +
