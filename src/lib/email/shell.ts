@@ -7,52 +7,128 @@
  * table-based layout + inline styles because that's what email clients
  * (Gmail/Outlook/Apple Mail) reliably render.
  *
- * The composer can include a `{gallery_button}` token in the body; if present
- * it's replaced with the styled button. If absent, the button is appended after
- * the body when a galleryUrl is provided — so every gallery email gets a real
- * CTA, not just a bare link.
+ * Where the gallery button lands, first match wins:
+ *   1. an explicit `{gallery_button}` token in the body;
+ *   2. a paragraph that is nothing but a link to the gallery, which BECOMES
+ *      the button, so it sits where the photographer put the link;
+ *   3. otherwise it is appended after the body.
+ * Every gallery email gets a real CTA, exactly once.
+ *
+ * `renderEmailContent` is the body cell on its own. The composer preview
+ * injects it directly, so the buttons and cards a photographer sees while
+ * writing are this module's output and not a second copy of it.
  */
+
+import { formatFileSize } from "../utils";
 
 const ACCENT = "#10b981"; // emerald accent
 const INK = "#1c1917"; // stone-900
 const MUTED = "#78716c"; // stone-500
 const HAIRLINE = "#e7e5e4"; // stone-200
 const WASH = "#fafaf9"; // stone-50
+const SANS = "Helvetica,Arial,sans-serif";
+const MONO = "'SF Mono',Menlo,Consolas,monospace";
 
-function galleryButton(url: string, label = "View Gallery"): string {
+/**
+ * A CTA that keeps its shape everywhere.
+ *
+ * The padding is stated twice on purpose. Outlook on Windows lays mail out
+ * with Word's engine, which ignores padding on an `<a>`, so a button padded
+ * only there collapses to the size of its words. `mso-padding-alt` on the cell
+ * is read by Outlook alone and puts the room back. Everywhere else the padding
+ * on the link applies, which makes the whole button the tap target rather than
+ * just the label. NOT verified in Outlook itself (no client to hand,
+ * 2026-10-04); the browser render and Gmail are what was checked.
+ *
+ * `border-collapse:separate` is stated because the composer preview injects
+ * this markup under Tailwind's reset, which collapses table borders and with
+ * them the rounded corners.
+ */
+function ctaButton(
+  url: string,
+  labelHtml: string,
+  variant: "solid" | "outline",
+  margin: string
+): string {
+  const solid = variant === "solid";
+  const padding = solid ? "14px 32px" : "12px 28px";
+  const cell = solid ? "" : `border:1px solid ${INK};`;
   return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px auto 4px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:${margin};border-collapse:separate;">
     <tr>
-      <td align="center" bgcolor="${ACCENT}" style="border-radius:6px;">
+      <td align="center" bgcolor="${solid ? ACCENT : "#ffffff"}" style="${cell}border-radius:6px;mso-padding-alt:${padding};">
         <a href="${url}"
-           style="display:inline-block;padding:14px 32px;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;letter-spacing:0.02em;color:#ffffff;text-decoration:none;border-radius:6px;">
-          ${escapeHtml(label)}
+           style="display:inline-block;padding:${padding};font-family:${SANS};font-size:${solid ? 15 : 14}px;font-weight:600;letter-spacing:0.02em;color:${solid ? "#ffffff" : INK};text-decoration:none;border-radius:6px;">
+          ${labelHtml}
         </a>
       </td>
     </tr>
   </table>`;
 }
 
-/**
- * The password card. Sits under the CTA because it's what you reach for AFTER
- * tapping through, and it has to survive Outlook — hence a table, a background
- * on the cell rather than a border-radius'd div, and letter-spaced monospace
- * so "rn" never reads as "m" when someone retypes it on a phone.
- */
-function credentialCard(label: string, value: string): string {
+/** The washed card both CTAs sit in. A table, because it has to survive Outlook. */
+function card(inner: string, margin: string): string {
   return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 4px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:${margin};border-collapse:separate;">
     <tr>
-      <td style="padding:16px 20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;" align="center">
-        <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};padding-bottom:8px;">
-          ${escapeHtml(label)}
-        </div>
-        <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:19px;font-weight:600;letter-spacing:0.14em;color:${INK};word-break:break-all;">
-          ${escapeHtml(value)}
-        </div>
+      <td align="center" style="padding:20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;">${inner}
       </td>
     </tr>
   </table>`;
+}
+
+function capsLabel(text: string): string {
+  return `
+        <div style="font-family:${SANS};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};">
+          ${escapeHtml(text)}
+        </div>`;
+}
+
+/**
+ * A credential, on one line under the button it unlocks. Letter-spaced
+ * monospace so "rn" never reads as "m" when someone retypes it on a phone.
+ */
+function credentialRow(label: string, value: string, gapAbove: boolean): string {
+  return `
+        <div style="${gapAbove ? "padding-top:14px;" : ""}font-family:${SANS};font-size:12px;color:${MUTED};">
+          ${escapeHtml(label)}&nbsp;&nbsp;<span style="font-family:${MONO};font-size:16px;font-weight:600;letter-spacing:0.14em;color:${INK};word-break:break-all;">${escapeHtml(value)}</span>
+        </div>`;
+}
+
+/**
+ * The gallery CTA and whatever it takes to get through it, as ONE unit.
+ *
+ * The password and PIN used to be cards of their own stacked under the button,
+ * which made three boxes out of one job. They are what you reach for after
+ * tapping through, so they ride inside the same card (Mason, 2026-10-04). With
+ * no credential there is nothing to group, and the button stands bare.
+ *
+ * `placement` only sets the margins: "inline" sits between two paragraphs of
+ * the letter, "end" closes the body.
+ */
+function galleryBlock(opts: {
+  url?: string | null;
+  /** Already HTML: either an escaped label or a link's own words. */
+  labelHtml: string;
+  password?: string | null;
+  downloadPin?: string | null;
+  placement: "inline" | "end";
+}): string {
+  const inline = opts.placement === "inline";
+  const credentials: Array<[string, string]> = [];
+  if (opts.password) credentials.push(["Gallery Password", opts.password]);
+  if (opts.downloadPin) credentials.push(["Download PIN", opts.downloadPin]);
+
+  if (credentials.length === 0) {
+    return opts.url
+      ? ctaButton(opts.url, opts.labelHtml, "solid", inline ? "6px auto 22px" : "20px auto 4px")
+      : "";
+  }
+  const button = opts.url ? ctaButton(opts.url, opts.labelHtml, "solid", "0 auto") : "";
+  const rows = credentials
+    .map(([label, value], i) => credentialRow(label, value, !!button || i > 0))
+    .join("");
+  return card(button + rows, inline ? "4px 0 22px" : "20px 0 4px");
 }
 
 /**
@@ -100,35 +176,136 @@ export function normalizeBodyForEmail(html: string): string {
 }
 
 /**
- * The guest-list link.
+ * Links the photographer typed read the same in every client. Unstyled, they
+ * are whatever blue the reader's mail app defaults to, while the composer
+ * preview has always drawn them emerald.
+ */
+function styleBodyLinks(html: string): string {
+  return html.replace(/<a\b([^>]*)>/gi, (match, attrs: string) =>
+    /\bstyle\s*=/i.test(attrs)
+      ? match
+      : `<a${attrs} style="color:${ACCENT};text-decoration:underline;">`
+  );
+}
+
+/** The path a URL points at, so two origins for one gallery still compare equal. */
+function urlPath(url: string): string | null {
+  try {
+    const path = new URL(url.replace(/&amp;/g, "&")).pathname.replace(/\/+$/, "");
+    return path.length > 1 ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A paragraph holding only a link (or only a bare URL). Groups: 2 = href,
+ * 3 = the link's own text, 4 = a bare URL typed with no link around it.
+ *
+ * Every group is BOUNDED to its own tag or paragraph: the href cannot contain
+ * a quote or an angle bracket, and the link text stops at the first `</a>`,
+ * `</p>` or `<p`. The first version used `.*?` and "anything but </a>", and
+ * since TipTap's HTML has no newlines both ran across the whole body. That
+ * matched from one paragraph's opening link to a LATER paragraph's `</a></p>`
+ * and replaced everything between with one button, hid the real link line
+ * behind an earlier match, and backtracked cubically (8.6 s on a 6 KB body).
+ * All three have a test.
+ */
+const LINK_ONLY_PARAGRAPH =
+  /<p\b[^>]*>\s*(?:<a\b[^>]*\bhref=(["'])([^"'<>]*)\1[^>]*>((?:(?!<\/a>|<\/?p\b)[\s\S])*)<\/a>|(https?:\/\/[^\s<]+))\s*<\/p>/gi;
+
+/** Past this many characters a link's text is a sentence, not a button label. */
+const MAX_LABEL_CHARS = 60;
+
+/**
+ * The words of a link, as HTML that is safe to put on a button. Tags are
+ * dropped and a stray `<` or `>` is escaped. Entities are left exactly as the
+ * editor wrote them: decoding and re-escaping them turns `&rarr;` into the
+ * literal text "&rarr;".
+ */
+function linkWordsAsLabel(inner: string): string | null {
+  const words = inner
+    .replace(/<[^>]*>/g, "")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+  if (!words || words.length > MAX_LABEL_CHARS) return null;
+  return /^https?:\/\//i.test(words) ? null : words;
+}
+
+/**
+ * Turn the photographer's gallery-link line into the button, in place.
+ *
+ * Only a paragraph that is NOTHING BUT the gallery link qualifies: a link
+ * inside a sentence is prose and stays prose. The match is on the URL's path,
+ * because the composer builds its link from the browser's origin and the send
+ * route rebuilds the verified one from the app's configured origin. Either
+ * way the button carries `galleryUrl`, the verified one, never the typed href.
+ *
+ * Words the photographer chose for the link ("View your gallery →") become the
+ * button's label. A link whose text is just the URL, or runs to a sentence,
+ * takes the default.
+ *
+ * Returns null when no such paragraph exists, so the caller appends instead.
+ */
+function replaceGalleryLinkLine(
+  content: string,
+  galleryUrl: string,
+  build: (labelHtml: string | null) => string
+): string | null {
+  const target = urlPath(galleryUrl);
+  if (!target) return null;
+  let placed = false;
+  const out = content.replace(
+    LINK_ONLY_PARAGRAPH,
+    (match, _quote: string, href: string | undefined, text: string | undefined, bare: string | undefined) => {
+      if (placed || urlPath(href ?? bare ?? "") !== target) return match;
+      placed = true;
+      return build(linkWordsAsLabel(text ?? ""));
+    }
+  );
+  return placed ? out : null;
+}
+
+/**
+ * The guest-list card.
  *
  * PII, and email-recipient-only by design (see src/lib/guest-list/store.ts):
  * it exists on no gallery surface, so this card is the entire path to it. It
- * is deliberately quiet — anchor text under the credentials, not a second
- * emerald button competing with "View Gallery" — and the raw URL is never
- * printed. The token is long on purpose, and a 200-character string sitting
- * in the body invites someone to paste it somewhere it should not go.
+ * was anchor text until 2026-10-04, kept quiet so it would not compete with
+ * "View Gallery", and clients were missing it. It is now a button, outlined
+ * where the gallery's is solid, so there is still a first action and a second
+ * one. The file is named so it reads as a download and not as another way
+ * into the gallery.
+ *
+ * The raw URL is still never printed. The token is long on purpose, and a
+ * 200-character string sitting in the body invites someone to paste it
+ * somewhere it should not go.
  */
-function guestListCard(url: string, message?: string | null): string {
-  const line = message?.trim()
-    ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:${INK};padding-bottom:10px;">${escapeHtml(
-        message.trim()
-      )}</div>`
+function guestListCard(guestList: NonNullable<EmailShellOptions["guestList"]>): string {
+  const message = guestList.message?.trim();
+  const line = message
+    ? `
+        <div style="font-family:${SANS};font-size:14px;line-height:1.5;color:${INK};padding-top:8px;">${escapeHtml(message)}</div>`
     : "";
-  return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 4px;">
-    <tr>
-      <td style="padding:16px 20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;">
-        <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};padding-bottom:8px;">
-          Guest List
-        </div>
-        ${line}
-        <a href="${url}" style="font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:${ACCENT};text-decoration:underline;">
-          Download the guest list
-        </a>
-      </td>
-    </tr>
-  </table>`;
+  const file = [
+    guestList.filename?.trim() ? escapeHtml(guestList.filename.trim()) : "",
+    guestList.sizeBytes ? formatFileSize(guestList.sizeBytes) : "",
+  ]
+    .filter(Boolean)
+    .join(" &middot; ");
+  const fileLine = file
+    ? `
+        <div style="font-family:${SANS};font-size:12px;line-height:1.5;color:${MUTED};padding-top:4px;word-break:break-all;">${file}</div>`
+    : "";
+  return card(
+    capsLabel("Guest List") +
+      line +
+      fileLine +
+      ctaButton(guestList.url, "Download Guest List", "outline", "14px auto 0"),
+    "22px 0 4px"
+  );
 }
 
 export interface EmailShellOptions {
@@ -149,7 +326,7 @@ export interface EmailShellOptions {
   /** CTA button label (defaults to "View Gallery"). */
   buttonLabel?: string;
   /**
-   * Gallery password, rendered as a card under the CTA. Caller decides whether
+   * Gallery password, printed under the CTA inside its card. Caller decides whether
    * to include it — this only renders what it's handed. Must come from the
    * server's own read of the event, never from the composer's payload.
    */
@@ -165,8 +342,65 @@ export interface EmailShellOptions {
    * chose to include it. `url` must be the tokenized /api/guest-list/[token]
    * link, built server-side from a token the send route has already verified
    * against the event's stored hash — never a URL taken from the composer.
+   * `filename` and `sizeBytes` name the file under the message; both come
+   * from the event's stored guest-list record.
    */
-  guestList?: { url: string; message?: string | null } | null;
+  guestList?: {
+    url: string;
+    message?: string | null;
+    filename?: string | null;
+    sizeBytes?: number | null;
+  } | null;
+}
+
+export type EmailContentOptions = Pick<
+  EmailShellOptions,
+  "body" | "galleryUrl" | "buttonLabel" | "password" | "downloadPin" | "guestList"
+>;
+
+/**
+ * The body cell: the photographer's message with the gallery block placed in
+ * it and the guest-list card after it. The send path and the composer preview
+ * both call this, which is what keeps the preview honest.
+ */
+export function renderEmailContent({
+  body,
+  galleryUrl,
+  buttonLabel,
+  password,
+  downloadPin,
+  guestList,
+}: EmailContentOptions): string {
+  // If the body looks like plain text (no tags), preserve its line breaks.
+  const looksHtml = /<[a-z][\s\S]*>/i.test(body);
+  let content = looksHtml
+    ? styleBodyLinks(normalizeBodyForEmail(body))
+    : body.replace(/\n/g, "<br/>");
+
+  const block = (placement: "inline" | "end", linkWords?: string | null) =>
+    galleryBlock({
+      url: galleryUrl,
+      labelHtml: linkWords || escapeHtml(buttonLabel || "View Gallery"),
+      password,
+      downloadPin,
+      placement,
+    });
+
+  if (content.includes("{gallery_button}")) {
+    // A function, not a string: in a replacement STRING `$$`, `$&` and friends
+    // are patterns, and a password like "Ca$$h" was mailed as "Ca$h".
+    content = content.replace(/\{gallery_button\}/g, () => block("inline"));
+  } else {
+    const inPlace = galleryUrl
+      ? replaceGalleryLinkLine(content, galleryUrl, (words) => block("inline", words))
+      : null;
+    content = inPlace ?? content + block("end");
+  }
+
+  // Last: it's the one thing here the client reads after the photos, so it
+  // closes the email whatever the letter above it does.
+  if (guestList) content += guestListCard(guestList);
+  return content;
 }
 
 export function renderEmailShell({
@@ -180,27 +414,14 @@ export function renderEmailShell({
   downloadPin,
   guestList,
 }: EmailShellOptions): string {
-  // If the body looks like plain text (no tags), preserve its line breaks.
-  const looksHtml = /<[a-z][\s\S]*>/i.test(body);
-  let content = looksHtml
-    ? normalizeBodyForEmail(body)
-    : body.replace(/\n/g, "<br/>");
-
-  const button = galleryUrl ? galleryButton(galleryUrl, buttonLabel) : "";
-  const credentials =
-    (password ? credentialCard("Gallery Password", password) : "") +
-    (downloadPin ? credentialCard("Download PIN", downloadPin) : "") +
-    // Last: it's the one thing here the client reads after the photos.
-    (guestList ? guestListCard(guestList.url, guestList.message) : "");
-
-  // Replace an explicit {gallery_button} token; otherwise append the button.
-  // The password rides immediately behind the button either way — a client who
-  // scrolls past the CTA has already left the part of the email that matters.
-  if (content.includes("{gallery_button}")) {
-    content = content.replace(/\{gallery_button\}/g, button + credentials);
-  } else {
-    content += button + credentials;
-  }
+  const content = renderEmailContent({
+    body,
+    galleryUrl,
+    buttonLabel,
+    password,
+    downloadPin,
+    guestList,
+  });
 
   const year = ""; // avoid Date in shared code paths; footer year is optional
 

@@ -212,8 +212,9 @@ function ShareComposePage() {
 
   const templateVars: Record<string, string> = {
     event_name: eventName,
-    // Plain URL in the body; the email shell renders the prominent "View
-    // Gallery" button, so a bare link in the text isn't needed.
+    // Plain URL in the body. A line that is only this link becomes the "View
+    // Gallery" button in the email (see renderEmailContent); inside a
+    // sentence it stays a link and the button is appended.
     gallery_link: galleryUrl,
     business_name: businessName || "Your Business",
     photographer_name: photographerName || "Photographer",
@@ -644,6 +645,7 @@ function ShareComposePage() {
                         <EmailPreview
                           subject={interpolatedSubject}
                           bodyHtml={interpolatedBody}
+                          galleryUrl={galleryUrl || undefined}
                           branding={branding}
                           businessName={businessName}
                           coverImageUrl={
@@ -656,7 +658,11 @@ function ShareComposePage() {
                           downloadPin={includePin ? downloadPin : null}
                           guestList={
                             guestList.token
-                              ? { message: guestList.message }
+                              ? {
+                                  message: guestList.message,
+                                  filename: guestList.filename,
+                                  sizeBytes: guestList.sizeBytes,
+                                }
                               : null
                           }
                         />

@@ -54,6 +54,8 @@ export default function EmailHtmlProbe() {
       ? {
           url: "https://app.pixeltrunk.com/api/guest-list/EXAMPLE_TOKEN",
           message: guestListMessage,
+          filename: "example-guest-list.xlsx",
+          sizeBytes: 246_374,
         }
       : null,
   });
@@ -125,8 +127,18 @@ export default function EmailHtmlProbe() {
         <EmailPreview
           subject="Test"
           bodyHtml={interpolated}
+          galleryUrl="https://app.pixeltrunk.com/gallery/test"
           password={showExtras ? "sunset2026" : null}
-          guestList={showExtras ? { message: guestListMessage } : null}
+          downloadPin={showExtras ? "4821" : null}
+          guestList={
+            showExtras
+              ? {
+                  message: guestListMessage,
+                  filename: "example-guest-list.xlsx",
+                  sizeBytes: 246_374,
+                }
+              : null
+          }
         />
       </section>
     </div>

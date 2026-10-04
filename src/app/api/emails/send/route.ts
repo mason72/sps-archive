@@ -197,6 +197,7 @@ export async function POST(request: NextRequest) {
     let eventName: string | null = null;
     let emailPassword: string | null = null;
     let guestListUrl: string | null = null;
+    let guestListFile: { filename: string; sizeBytes: number } | null = null;
     if (eventId) {
       const { data: event } = await supabase
         .from("events")
@@ -240,6 +241,7 @@ export async function POST(request: NextRequest) {
           guestListUrl = `${new URL(verifiedGalleryUrl).origin}/api/guest-list/${encodeURIComponent(
             guestListToken
           )}`;
+          guestListFile = { filename: meta.filename, sizeBytes: meta.sizeBytes };
         } else {
           // Refuse rather than quietly drop it. A photographer who ticked the
           // box and got an email with no sheet in it has been lied to, and
@@ -255,8 +257,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Wrap the composer's message in the branded HTML shell (clean layout +
-    // a real "View Gallery" button instead of a bare text link).
+    // Wrap the composer's message in the branded HTML shell. A paragraph that
+    // is only the gallery link becomes the "View Gallery" button in place;
+    // with none, the button is appended.
     const renderedHtml = renderEmailShell({
       body: bodyHtml || "",
       galleryUrl: verifiedGalleryUrl,
@@ -266,7 +269,7 @@ export async function POST(request: NextRequest) {
       downloadPin: includePin ? shareDownloadPin : null,
       password: emailPassword,
       guestList: guestListUrl
-        ? { url: guestListUrl, message: guestListMessage }
+        ? { url: guestListUrl, message: guestListMessage, ...guestListFile }
         : null,
     });
 

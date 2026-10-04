@@ -43,6 +43,9 @@ export interface GuestListSelection {
   /** Live token, or null when nothing should be attached to this email. */
   token: string | null;
   message: string;
+  /** Shown under the message in the email, and so in its preview. */
+  filename?: string | null;
+  sizeBytes?: number | null;
 }
 
 interface Props {
@@ -83,8 +86,13 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
   // Report upward whenever the effective choice changes. A token we don't
   // have, or a box that isn't ticked, both mean "send nothing".
   useEffect(() => {
-    onChange({ token: include ? token : null, message });
-  }, [token, include, message, onChange]);
+    onChange({
+      token: include ? token : null,
+      message,
+      filename: meta?.filename ?? null,
+      sizeBytes: meta?.sizeBytes ?? null,
+    });
+  }, [token, include, message, meta, onChange]);
 
   useEffect(() => {
     (async () => {

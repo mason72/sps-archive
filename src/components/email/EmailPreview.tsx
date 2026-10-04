@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
-import { normalizeBodyForEmail } from "@/lib/email/shell";
+import { renderEmailContent } from "@/lib/email/shell";
 
 interface EmailPreviewProps {
   subject: string;
@@ -22,29 +22,38 @@ interface EmailPreviewProps {
    */
   coverComposing?: boolean;
   /**
-   * Gallery password, when the sender chose to include it. Mirrors the card
-   * `renderEmailShell` emits — if this preview and that shell ever disagree,
-   * the preview is lying about the email being sent.
+   * The share link. Lets the preview make the same call the send path makes
+   * about where the gallery button goes (in place of a link-only line, or
+   * appended).
    */
+  galleryUrl?: string;
+  /** Gallery password, when the sender chose to include it. */
   password?: string | null;
-  /**
-   * Download PIN, when the sender chose to include it. Mirrors the second
-   * `credentialCard` in `renderEmailShell` — the shell has always emitted this
-   * card and this preview never drew it, so the preview under-reported the
-   * email it was previewing.
-   */
+  /** Download PIN, when the sender chose to include it. */
   downloadPin?: string | null;
   /**
-   * Mirrors the guest-list card `renderEmailShell` emits. No URL: the preview
-   * shows what the client sees, and the client sees anchor text — printing the
-   * live token into an owner-facing pane would be the one place it leaks.
+   * The guest-list card. No URL: the preview shows what the client sees, and
+   * the client sees a button. Printing the live token into an owner-facing
+   * pane would be the one place it leaks, so the button here points nowhere.
    */
-  guestList?: { message?: string | null } | null;
+  guestList?: {
+    message?: string | null;
+    filename?: string | null;
+    sizeBytes?: number | null;
+  } | null;
 }
+
+/** Stands in for the guest-list link, which the preview is never handed. */
+const NOWHERE = "#";
 
 /**
  * EmailPreview — Renders a branded email preview card.
  * Shows how the email will look to recipients.
+ *
+ * Everything inside the body, the buttons and cards included, is
+ * `renderEmailContent`'s output: the same string the send route mails. This
+ * component used to redraw those cards by hand, and for months it drew no
+ * gallery button at all while every sent email carried one.
  */
 export function EmailPreview({
   subject,
@@ -54,6 +63,7 @@ export function EmailPreview({
   logoUrl,
   coverImageUrl,
   coverComposing,
+  galleryUrl,
   password,
   downloadPin,
   guestList,
@@ -134,67 +144,33 @@ export function EmailPreview({
           </div>
         </div>
 
-        {/* Body content */}
+        {/* Body content, with the gallery block and guest-list card the send
+            path would place. A click opens the link in a new tab, so trying a
+            button never costs the draft. */}
         <div
           className="px-6 py-6 text-[14px] leading-relaxed email-body"
           style={{ color: branding.secondaryColor }}
+          onClick={(e) => {
+            const link = (e.target as HTMLElement).closest("a");
+            if (!link) return;
+            e.preventDefault();
+            const href = link.getAttribute("href");
+            if (href && href !== NOWHERE) {
+              window.open(href, "_blank", "noopener,noreferrer");
+            }
+          }}
           dangerouslySetInnerHTML={{
-            // Through the SAME normalizer the shell runs. Without it the
-            // preview silently swallowed typed blank lines exactly as the sent
-            // email did — consistent, and consistently wrong.
-            __html: bodyHtml
-              ? normalizeBodyForEmail(bodyHtml)
-              : '<p style="color: #a8a29e; font-style: italic;">Email body will appear here…</p>',
+            __html: renderEmailContent({
+              body:
+                bodyHtml ||
+                '<p style="color: #a8a29e; font-style: italic;">Email body will appear here…</p>',
+              galleryUrl,
+              password,
+              downloadPin,
+              guestList: guestList ? { url: NOWHERE, ...guestList } : null,
+            }),
           }}
         />
-
-        {/* Password card — mirrors passwordCard() in lib/email/shell.ts */}
-        {password && (
-          <div className="px-6 pb-6 -mt-2">
-            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
-                Gallery Password
-              </p>
-              <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
-                {password}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* PIN card — mirrors credentialCard("Download PIN", …) in shell.ts,
-            and sits after the password there too. */}
-        {downloadPin && (
-          <div className="px-6 pb-6 -mt-2">
-            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
-                Download PIN
-              </p>
-              <p className="font-mono text-[17px] font-semibold tracking-[0.14em] text-stone-900 break-all">
-                {downloadPin}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Guest-list card — mirrors guestListCard() in lib/email/shell.ts */}
-        {guestList && (
-          <div className="px-6 pb-6 -mt-2">
-            <div className="border border-stone-200 bg-stone-50 rounded-lg px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500 mb-2">
-                Guest List
-              </p>
-              {guestList.message?.trim() && (
-                <p className="text-[13px] text-stone-700 mb-2 leading-relaxed">
-                  {guestList.message.trim()}
-                </p>
-              )}
-              <span className="text-[14px] font-semibold text-accent underline">
-                Download the guest list
-              </span>
-            </div>
-          </div>
-        )}
 
         {/* Footer */}
         <div
@@ -205,7 +181,7 @@ export function EmailPreview({
           }}
         >
           <p className="text-[11px]">
-            Sent via{" "}
+            {businessName ? `${businessName} · ` : ""}Delivered with{" "}
             <span style={{ color: branding.primaryColor }}>Pixeltrunk</span>
           </p>
         </div>

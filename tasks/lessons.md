@@ -4196,3 +4196,22 @@ asked this one to look.
 - **A decision UI must let you see the evidence.** Two 80px crops made a hand look plausible; the full frame made it obvious in one second.
 - **The whole-archive centroid refresh no longer fits one statement** (it passed the 120 s guard twice at 26k references and rolled back). Rebuild per gallery: `npx tsx scripts/triage/rebuild-reference-centroids.ts <userId>` (~2.5 s a gallery).
 - **A confirmed name stays.** "Vijaya Kumar Vegi" on those 9 background faces in "PWC Event Photos" was a human's Confirm; the rule removes its reference, not its name. Clearing it is the owner's call.
+
+## 174 — The share email had a button all along; the preview never drew it (2026-10-04)
+
+**What happened.** Mason asked for the gallery link and the guest-list download to be buttons instead of links, working from the composer's preview pane. The sent email already carried a solid "View Gallery" button: `renderEmailShell` appended one after the body. `EmailPreview` was a hand-built React copy of the shell's layout and had no button in it, so the person composing had been looking at a picture that was not the email. The real email also doubled the CTA (the typed link mid-letter, the button after the sign-off).
+
+**What changed.** `renderEmailContent()` in `src/lib/email/shell.ts` is the body cell on its own, and both the send route and `EmailPreview` call it. The preview no longer redraws any card.
+- **Gallery button placement, first match wins:** a `{gallery_button}` token; else a paragraph that is NOTHING BUT a link to the gallery becomes the button in place (and keeps the link's own words as its label); else the button is appended. Matching is on the URL's path, and the button always carries the verified `galleryUrl`.
+- **Password and PIN ride inside the gallery button's card.** One job, one card.
+- **The guest list is an outlined second button** with the file's name and size, always last. It was anchor text on purpose until now; Mason reversed that. Outlined, so there is still a first action and a second one.
+- Typed body links get an inline color, and buttons carry `mso-padding-alt` for Outlook. **Not verified in Outlook itself.**
+
+**The review caught what the tests did not.** The first link-line pattern used `.*?` for the href and "anything but `</a>`" for the text. TipTap's HTML has no newlines, so both ran across the whole body. A fresh-context reviewer found, with inputs: a paragraph opening with `<a href="GALLERY?utm=…">` plus any later `</a></p>` collapsed every paragraph between into one button; an earlier link-then-prose paragraph hid the real link line; and `'<p><a href="x">'` repeated 400 times (6 KB) took 8.6 s. All 36 tests were green at the time. Also `replace(token, string)` treats `$$` and `$&` as patterns, so a password "Ca$$h" was mailed as "Ca$h" on the token path (older than this change).
+
+**Rules.**
+- **A preview that re-implements the thing it previews will drift, and it drifts toward under-reporting.** This file's own comments recorded it happening three times (password card, PIN card, guest-list card) before the missing button. Render the preview FROM the sender's output. This replaces the older advice that `normalizeBodyForEmail()` is the only place body HTML is touched: `renderEmailContent()` is, and it also styles links and places the gallery block.
+- **In a regex over single-line HTML, every group must be bounded to its own tag**: `[^"'<>]*` for an attribute value, a stop at the closing tag AND at the next block boundary for text. `.` and `[\s\S]` are the same thing when there are no newlines.
+- **Pass a function to `String.replace` whenever the replacement contains user data.**
+- **Test a hostile input under a hard time limit.** A synchronous regex cannot be interrupted by the test runner's timeout; the unfixed pattern hung vitest until it was killed. `perl -e 'alarm 60; exec @ARGV' npx vitest run <file>` is the kill switch on macOS, which has no `timeout`.
+- **Before asking "make X a button", and before building it, render what is actually sent.** `/dev/email-html` shows the mail-client render and the composer preview on one page.
