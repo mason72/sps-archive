@@ -4310,6 +4310,8 @@ asked this one to look.
 - **A test of the rule is not a test of the wire.** After building a decision function, revert the call site and run the suite. If it still passes, the feature is untested.
 - **A fake that cannot truncate cannot test a paged read.** Give the stand-in the real response cap, and a fixture bigger than it.
 
+**Proved in production (2026-10-04, commit `ff45c77`).** Pressed **Retry 1 photo** on Grow Therapy Headshots (3 active shares, sorted into A–D … V–Y, no "Unsorted"). The job finished in about 50 seconds with `missing = []`. "Court Roberts_26-09-09_Grow Therapy_3101.jpg" landed in A–D at the tail (position 755, after 754), beside his 44 other frames: one link, complete, reported to SPS, sha256 identical to SPS's copy (`verify-sps-pull.ts --ids`). The gallery still has five sections, 3,089 rows, 0 without a section, 0 not complete. This was the prediction the probe made before the press.
+
 **Harnesses.** `npx tsx scripts/triage/sps-placement-probe.ts <eventId> [filename …]`: the census (stacks with one home, split, locked, none) and, per filename, what the real lookup picks and what the person's OTHER photos say. `pull-placement.test.ts` (rule, laziness, scale), `pull-event.test.ts` (`importBatch`, success path against stubs), `pull-sweep.test.ts` ("sweepPage placement", the wire).
 
 **Not done, and known.**
