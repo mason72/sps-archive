@@ -68,6 +68,8 @@ interface SpsEventRow {
     expectedTotal: number | null;
     /** Photos a finished import could not bring over (its closing sweep). */
     missingCount: number;
+    /** Failed ATTEMPTS during the import (not photos missing). */
+    imagesFailed?: number;
   } | null;
 }
 
@@ -864,6 +866,24 @@ export default function ImportFromSpsPage() {
                                 {ev.job.missingCount.toLocaleString()}{" "}
                                 {ev.job.missingCount === 1 ? "photo" : "photos"} did
                                 not come over
+                              </button>
+                            )}
+                          {/* The way back to an import that finished with
+                              nothing missing but did have failures: its page
+                              says which photos needed a second try and where
+                              each was filed. Without this the page is only
+                              ever seen in the minute after a retry. */}
+                          {ev.job?.status === "completed" &&
+                            ev.job.missingCount === 0 &&
+                            (ev.job.imagesFailed ?? 0) > 0 && (
+                              <button
+                                onClick={() => {
+                                  setStage("running");
+                                  pollJob(ev.job!.id);
+                                }}
+                                className="text-[11px] text-stone-300 transition-colors hover:text-stone-500 cursor-pointer"
+                              >
+                                Import details
                               </button>
                             )}
                           {/* Only hand-made links offer undo — a link with no

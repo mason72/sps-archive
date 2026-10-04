@@ -51,7 +51,7 @@ export async function GET() {
       .from("sps_pull_jobs")
       // `missing_count`, not `missing`: the list page needs to know a finished
       // import left photos behind, not which ones.
-      .select("id, sps_event_id, event_id, status, images_done, expected_total, missing_count")
+      .select("id, sps_event_id, event_id, status, images_done, images_failed, expected_total, missing_count")
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false });
     if (jobsError) throw jobsError;
@@ -78,6 +78,10 @@ export async function GET() {
                 imagesDone: job.images_done,
                 expectedTotal: job.expected_total,
                 missingCount: job.missing_count ?? 0,
+                // Attempts that failed, not photos missing. The list uses it
+                // only to decide whether this import has a story worth a
+                // link back to its own page (what needed a second try).
+                imagesFailed: job.images_failed ?? 0,
               }
             : null,
         };
