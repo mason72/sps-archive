@@ -214,10 +214,13 @@ this repo bites people on:
   into a believable empty result.
 - **Check for live events and recent uploads before pushing.**
   `npx tsx scripts/triage/live-activity.ts`. Gate on the exit code: **0** quiet,
-  **2** a real (non-Pixieset) event has uploads in the last 6h or is dated
-  today ±1 day, **1** the check failed, which means *unknown*, never quiet.
-  Pixieset-migrated events (`settings.pixiesetCollectionId`) are excluded from
-  the verdict; their ingest traffic shows on a separate context line. Lesson 169.
+  **2** a real (non-Pixieset) event has a person's uploads in the last 6h, or is
+  dated today ±1 day, or an SPS pull is queued or running (the verdict prints a
+  `because:` line for each), **1** the check failed, which means *unknown*,
+  never quiet. Two kinds of traffic are shown and NOT counted: Pixieset-migrated
+  events (`settings.pixiesetCollectionId`), and rows a FINISHED SPS pull landed
+  (`sps_image_id` set), which used to read as LIVE for six hours after every
+  import. `--hours 2000` proves it can still say LIVE. Lessons 169 and 176.
 - **Run every heuristic over the real corpus before shipping it.** Green unit
   tests encode your assumptions faithfully, including the wrong ones — lesson 73.
 
