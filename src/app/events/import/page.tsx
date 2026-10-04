@@ -11,6 +11,10 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
 import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import {
+  SpsMissingPanel,
+  type SpsMissingPhoto,
+} from "@/components/events/SpsMissingPanel";
+import {
   GigIntelStep,
   type GigIntelPayload,
 } from "@/components/events/CreateGigConfirm";
@@ -61,6 +65,8 @@ interface SpsEventRow {
     status: string;
     imagesDone: number;
     expectedTotal: number | null;
+    /** Photos a finished import could not bring over (its closing sweep). */
+    missingCount: number;
   } | null;
 }
 
@@ -91,6 +97,14 @@ interface PullJob {
   bytes_copied: number;
   confirmed: number;
   failures: { filename?: string; reason?: string }[];
+  /**
+   * What the import's closing sweep could not bring over: each photo it
+   * failed on, tried once more and then looked up in the gallery. Null = never
+   * checked (imports finished before 2026-10-04). This, not `failures`, is the
+   * record of what is missing: `failures` logs attempts, and a photo that
+   * failed once and landed on the second try is in it.
+   */
+  missing: SpsMissingPhoto[] | null;
   error: string | null;
   finished_at: string | null;
   /** Photos actually in the event — the authoritative count, from the rows. */
@@ -102,6 +116,7 @@ interface PullJob {
 }
 
 type Stage = "pick" | "review" | "running";
+
 
 function formatBytes(bytes: number): string {
   if (bytes < 1e6) return `${(bytes / 1e3).toFixed(0)} KB`;
@@ -541,6 +556,24 @@ export default function ImportFromSpsPage() {
       }
       if (fresh.status === "queued" || fresh.status === "running") {
         again(2500, 0);
+      } else {
+        // Keep the event list's line ("5 photos did not come over") in step
+        // with what this import just finished as, so going back to the list
+        // after a retry does not show the count it had before.
+        setEvents((prev) =>
+          prev.map((ev) =>
+            ev.job?.id === fresh.id
+              ? {
+                  ...ev,
+                  job: {
+                    ...ev.job,
+                    status: fresh.status,
+                    missingCount: fresh.missing?.length ?? 0,
+                  },
+                }
+              : ev
+          )
+        );
       }
     } catch {
       setPollStale(true);
@@ -560,6 +593,39 @@ export default function ImportFromSpsPage() {
     await fetch(`/api/sps/pull/jobs/${job.id}`, { method: "DELETE" });
     pollJob(job.id);
   };
+
+  /**
+   * Go back for what a finished import left behind. The server fetches the
+   * job's stored list and nothing else; this only asks and then watches.
+   */
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryMissing = async () => {
+    if (!job || isRetrying) return;
+    setIsRetrying(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/sps/pull/jobs/${job.id}/retry`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      // "Already running" is not an error to show: watch it instead.
+      if (!res.ok && data.reason !== "in-progress") {
+        setLoadError(data.error || "Could not start the retry.");
+        return;
+      }
+      // One watcher, and the button stays busy until the first answer lands:
+      // otherwise it reads "Retry" again for a moment while the job is queued.
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+      await pollJob(job.id);
+    } catch {
+      setLoadError("Could not start the retry.");
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const missingNow = job?.missing ?? [];
+  const isLive = job?.status === "running" || job?.status === "queued";
 
   if (!user) return null;
 
@@ -780,6 +846,23 @@ export default function ImportFromSpsPage() {
                             <Check size={12} />
                             In the archive
                           </Link>
+                          {/* A finished import that left photos behind says so
+                              here, where the event is listed as done. Opens the
+                              import's own page: the names first, then Retry. */}
+                          {ev.job?.status === "completed" &&
+                            ev.job.missingCount > 0 && (
+                              <button
+                                onClick={() => {
+                                  setStage("running");
+                                  pollJob(ev.job!.id);
+                                }}
+                                className="text-[12px] text-amber-700 underline decoration-amber-700/30 underline-offset-2 transition-colors hover:decoration-amber-700 cursor-pointer"
+                              >
+                                {ev.job.missingCount.toLocaleString()}{" "}
+                                {ev.job.missingCount === 1 ? "photo" : "photos"} did
+                                not come over
+                              </button>
+                            )}
                           {/* Only hand-made links offer undo — a link with no
                               pull job behind it was a human's claim, and a
                               claim can be retracted. A pulled event's link is
@@ -1186,7 +1269,16 @@ export default function ImportFromSpsPage() {
                     <dt className="label-caps text-stone-300 w-32 shrink-0">
                       Status
                     </dt>
-                    <dd className="text-stone-700 capitalize">{job.status}</dd>
+                    <dd className="text-stone-700">
+                      <span className="capitalize">{job.status}</span>
+                      {job.status === "completed" && missingNow.length > 0 && (
+                        <span className="text-amber-700">
+                          , {missingNow.length.toLocaleString()}{" "}
+                          {missingNow.length === 1 ? "photo" : "photos"} did not
+                          come over
+                        </span>
+                      )}
+                    </dd>
                   </div>
                   {/* Two different numbers, and conflating them made a perfect
                       import read as a failed one: `reported` is how many we have
@@ -1215,24 +1307,49 @@ export default function ImportFromSpsPage() {
                       <dd className="text-stone-700">{job.images_skipped}</dd>
                     </div>
                   )}
-                  {job.images_failed > 0 && (
+                  {/* The failure COUNTER counts attempts. Once the import has
+                      been checked against SPS it is the wrong number to show:
+                      AAOMS read "Failed 9" with five photos missing, because
+                      four of the nine landed on a later pass. So it shows only
+                      until the check exists, and says what happens next. */}
+                  {job.images_failed > 0 && job.missing === null && (
                     <div className="flex items-baseline gap-3">
                       <dt className="label-caps text-stone-300 w-32 shrink-0">
                         Failed
                       </dt>
-                      <dd className="text-red-600">{job.images_failed}</dd>
+                      <dd className="text-stone-700">
+                        {job.images_failed}
+                        {isLive && (
+                          <span className="text-stone-400">
+                            {" "}
+                            so far. Each gets one more try before the import
+                            finishes.
+                          </span>
+                        )}
+                      </dd>
                     </div>
                   )}
                 </dl>
 
-                {job.failures?.length > 0 && (
+                {/* What the closing check found, and Retry. */}
+                <SpsMissingPanel
+                  missing={job.missing}
+                  status={job.status}
+                  retrying={isRetrying}
+                  onRetry={retryMissing}
+                />
+
+                {/* Imports from before the closing check keep their raw log. */}
+                {job.missing === null && job.failures?.length > 0 && (
                   <div className="border border-stone-200 p-4 mb-8">
-                    <p className="label-caps mb-3">Failures</p>
+                    <p className="label-caps mb-3">
+                      {isLive ? "Failed so far" : "Failures"}
+                    </p>
                     <ul className="space-y-1.5">
                       {job.failures.slice(0, 10).map((f, i) => (
                         <li key={i} className="text-[13px] text-stone-500">
-                          <span className="text-stone-700">{f.filename}</span> —{" "}
-                          {f.reason}
+                          <span className="text-stone-700">{f.filename}</span>
+                          {f.reason ? ` · ${f.reason}` : ""}
                         </li>
                       ))}
                     </ul>

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { readMissing } from "@/lib/sps-integration/pull-sweep";
 
 /**
  * GET    /api/sps/pull/jobs/[jobId]  — progress, for the import screen to poll.
  * DELETE /api/sps/pull/jobs/[jobId]  — cancel; the lane stops between slices.
+ * (POST …/retry, next door, fetches what a finished import left behind.)
  *
  * Both reads carry `.eq("user_id", …)`: getAuthUser hands back the SERVICE
  * client, so the filter is the authorization, not a convenience. A job row names
@@ -29,7 +31,7 @@ export async function GET(
     const { data: job, error } = await supabase
       .from("sps_pull_jobs")
       .select(
-        "id, event_id, sps_event_id, sps_event_name, status, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, failures, error, created_at, finished_at"
+        "id, event_id, sps_event_id, sps_event_name, status, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, failures, missing, error, created_at, finished_at"
       )
       .eq("id", jobId)
       .eq("user_id", user!.id)
@@ -88,7 +90,18 @@ export async function GET(
     }
 
     return NextResponse.json({
-      job: { ...job, landed: landed ?? 0, reported: reported ?? 0, thumbs },
+      job: {
+        ...job,
+        // Parsed in one place. Null (never swept) stays null: the screen says
+        // different things for "not checked" and "checked, nothing missing".
+        missing: readMissing(job.missing),
+        // The log is the sweep's nomination and can be long; the screen shows
+        // ten lines of it.
+        failures: Array.isArray(job.failures) ? job.failures.slice(0, 10) : [],
+        landed: landed ?? 0,
+        reported: reported ?? 0,
+        thumbs,
+      },
     });
   } catch (error) {
     console.error("SPS pull job status error:", error);

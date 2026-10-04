@@ -59,7 +59,7 @@ type SupabaseDB = ReturnType<typeof createServiceClient>;
 export const IMPORT_SLICE = 100;
 
 /** Simultaneous downloads. Each holds a full original in memory. */
-const IMPORT_CONCURRENCY = 6;
+export const IMPORT_CONCURRENCY = 6;
 
 /**
  * Write progress to the job row every this many photos.
@@ -70,13 +70,19 @@ const IMPORT_CONCURRENCY = 6;
  * Mason read it on the first real import. A slice is a unit of RETRY, not a
  * unit of reporting; progress has to move at human cadence.
  */
-const PROGRESS_FLUSH_EVERY = 5;
+export const PROGRESS_FLUSH_EVERY = 5;
 
 /** Per-file download ceiling. A stalled source must not eat the whole step. */
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
-/** Failure detail kept on the job row. Enough to retry; not a log file. */
-const MAX_RECORDED_FAILURES = 50;
+/**
+ * Failures kept on the job row. This is the closing sweep's NOMINATION (see
+ * pull-sweep.ts): a failed photo that is not on this list is never retried. It
+ * was 50 until 2026-10-04, which is fine for a display and would have silently
+ * dropped the rest of a bad run from every retry. The ceiling now only stops a
+ * runaway; the import screen is sent the first few (the job status route).
+ */
+const MAX_RECORDED_FAILURES = 20_000;
 
 /**
  * Has this page been fully consumed after finishing slice `sliceIndex`?
@@ -108,6 +114,11 @@ export interface SpsPullJob {
   bytes_copied: number;
   confirmed: number;
   deselected: string[];
+  /** Set once the manifest walk reached its last page (migration 093). */
+  walked_at: string | null;
+  /** What the closing sweep left behind; null = never checked. Parse with
+   *  `readMissing()` (pull-sweep.ts), never by hand. */
+  missing: Json | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -450,7 +461,7 @@ export async function loadPullJob(
   const { data, error } = await supabase
     .from("sps_pull_jobs")
     .select(
-      "id, user_id, event_id, sps_event_id, status, next_offset, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, deselected"
+      "id, user_id, event_id, sps_event_id, status, next_offset, expected_total, images_done, images_failed, images_skipped, bytes_copied, confirmed, deselected, walked_at, missing"
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -540,27 +551,7 @@ export async function importSlice(
     return result;
   }
 
-  // Append after whatever the section already holds — the intake reads in
-  // arrival order, and a pulled event may be resumed across several runs.
-  const { data: section, error: sectionErr } = await supabase
-    .from("sections")
-    .select("id")
-    .eq("event_id", job.event_id)
-    .ilike("name", INTAKE_SECTION_NAME)
-    .order("sort_order", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (sectionErr) throw sectionErr;
-  if (!section) throw new Error("Intake section missing for this event");
-
-  const { data: tail, error: tailErr } = await supabase
-    .from("section_images")
-    .select("sort_order")
-    .eq("section_id", section.id)
-    .order("sort_order", { ascending: false })
-    .limit(1);
-  if (tailErr) throw tailErr;
-  const sortBase = (tail?.[0]?.sort_order ?? -1) + 1;
+  const { sectionId, sortBase } = await intakeAppendPoint(supabase, job.event_id);
 
   const failures: { spsImageId: string; filename: string; reason: string }[] = [];
 
@@ -596,7 +587,7 @@ export async function importSlice(
         try {
           const outcome = await importOneImage(supabase, job, {
             image: img,
-            sectionId: section.id,
+            sectionId,
             sortOrder: sortBase + index,
           });
           if (outcome.status === "imported") {
@@ -653,6 +644,59 @@ export async function importSlice(
 }
 
 /**
+ * Where the next pulled photo goes: the event's intake section, and the sort
+ * position after whatever it already holds (the intake reads in arrival order,
+ * and a pulled event may be resumed across several runs).
+ *
+ * The intake is CREATED when it is not there, exactly as the upload route does.
+ * "Sort into sections" consumes the intake (see sections/intake.ts), so any
+ * pull that runs after a sort used to throw "Intake section missing" on every
+ * photo: a resumed import, and every retry of a finished one. AAOMS 2026 had
+ * been sorted into letter sections by the time its five missing photos were
+ * fetched (2026-10-04).
+ */
+export async function intakeAppendPoint(
+  supabase: SupabaseDB,
+  eventId: string
+): Promise<{ sectionId: string; sortBase: number }> {
+  const { data: found, error: sectionErr } = await supabase
+    .from("sections")
+    .select("id")
+    .eq("event_id", eventId)
+    .ilike("name", INTAKE_SECTION_NAME)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (sectionErr) throw sectionErr;
+
+  let sectionId = found?.id ?? null;
+  if (!sectionId) {
+    const { data: created, error: createErr } = await supabase
+      .from("sections")
+      .insert({
+        event_id: eventId,
+        name: INTAKE_SECTION_NAME,
+        sort_order: 0,
+        is_auto: false,
+      })
+      .select("id")
+      .single();
+    if (createErr) throw createErr;
+    sectionId = created.id;
+  }
+
+  const { data: tail, error: tailErr } = await supabase
+    .from("section_images")
+    .select("sort_order")
+    .eq("section_id", sectionId)
+    .order("sort_order", { ascending: false })
+    .limit(1);
+  if (tailErr) throw tailErr;
+
+  return { sectionId, sortBase: (tail?.[0]?.sort_order ?? -1) + 1 };
+}
+
+/**
  * ⚠️ ORDERING — the call that can lose data.
  *
  * Only ids whose bytes are in R2 and whose rows are complete reach this
@@ -665,7 +709,7 @@ export async function importSlice(
  * keep a null `sps_pulled_at`, which is the queryable record of what still owes
  * SPS a call.
  */
-async function confirmDurable(
+export async function confirmDurable(
   supabase: SupabaseDB,
   token: string,
   job: SpsPullJob,
@@ -698,7 +742,7 @@ async function confirmDurable(
  * moment at which a row references an object that isn't there. Every failure
  * path after the upload deletes what it created.
  */
-async function importOneImage(
+export async function importOneImage(
   supabase: SupabaseDB,
   job: SpsPullJob,
   ctx: { image: SpsManifestImage; sectionId: string; sortOrder: number }
@@ -929,6 +973,18 @@ async function importOneImage(
 // Job bookkeeping
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The manifest walk reached its last page; what is left is the closing sweep. */
+export async function markWalked(
+  supabase: SupabaseDB,
+  jobId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("sps_pull_jobs")
+    .update({ walked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", jobId);
+  if (error) throw error;
+}
+
 export async function markJobRunning(
   supabase: SupabaseDB,
   jobId: string
@@ -976,18 +1032,36 @@ export async function applySliceResult(
 export async function finishJob(
   supabase: SupabaseDB,
   jobId: string,
-  outcome: { status: "completed" | "failed" | "cancelled"; error?: string }
-): Promise<void> {
-  const { error } = await supabase
+  outcome: {
+    status: "completed" | "failed" | "cancelled";
+    error?: string;
+    /**
+     * What the closing sweep could not bring over. Written with the status in
+     * ONE update, so there is no moment at which a job reads "completed" and
+     * has not yet said what it left behind. Omitted = leave the column alone.
+     */
+    missing?: Json;
+  }
+): Promise<boolean> {
+  let write = supabase
     .from("sps_pull_jobs")
     .update({
       status: outcome.status,
       error: outcome.error ?? null,
       finished_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      ...(outcome.missing !== undefined ? { missing: outcome.missing } : {}),
     })
     .eq("id", jobId);
+  // "Completed" is only ever written over a live job. Unconditional, it would
+  // overwrite a stop that landed a moment earlier, after DELETE had already
+  // answered "cancelled" to the person who pressed it.
+  if (outcome.status === "completed") {
+    write = write.in("status", ["queued", "running"]);
+  }
+  const { data, error } = await write.select("id");
   if (error) throw error;
+  return (data ?? []).length > 0;
 }
 
 async function recordFailures(

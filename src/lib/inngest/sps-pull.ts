@@ -1,7 +1,7 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "./client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { reportSystemError } from "@/lib/monitoring/report";
+import { describeError, reportSystemError } from "@/lib/monitoring/report";
 import {
   applySliceResult,
   countExpectedTotal,
@@ -11,7 +11,15 @@ import {
   isPageDrained,
   loadPullJob,
   markJobRunning,
+  markWalked,
 } from "@/lib/sps-integration/pull-event";
+import {
+  loadSweepPlan,
+  missingAsJson,
+  sweepPage,
+  unresolvedEntries,
+  type MissingPhoto,
+} from "@/lib/sps-integration/pull-sweep";
 import { decideWatchdog } from "@/lib/sps-integration/pull-watchdog";
 import { cancelLiveRuns } from "./rest";
 
@@ -31,6 +39,13 @@ import { cancelLiveRuns } from "./rest";
  * Resumption needs no run state. `next_offset` on the job row advances only when
  * a page is fully drained, so a continued or re-triggered job re-walks at most
  * one page.
+ *
+ * The run ends with the CLOSING SWEEP (pull-sweep.ts): each photo the walk
+ * failed on gets one more try, and what is still absent is stored on the job
+ * as `missing`. A job is never "completed" without having said what it left
+ * behind. A finished job re-queued by the import screen's Retry skips the walk
+ * (`walked_at` is set) and sweeps its stored list. A clean import nominates
+ * nothing, so its sweep reads no manifest page at all.
  */
 
 /** Slices per run before handing off to a fresh one. Keeps memoized run state
@@ -90,7 +105,13 @@ export const spsPull = inngest.createFunction(
     let offset = snapshot.next_offset;
     let slicesUsed = 0;
 
-    for (;;) {
+    // A job whose walk already reached the last page goes straight to the
+    // sweep: a Retry from the import screen, or a restart during the sweep.
+    // `!= null`, not `!== null`: a run already in flight when this shipped has
+    // a memoized snapshot with no such key, and that must read as "not walked".
+    const walked = snapshot.walked_at != null;
+
+    while (!walked) {
       // ── One manifest page, in slices ──
       let sliceIndex = 0;
       let pageNextOffset: number | null = null;
@@ -174,12 +195,112 @@ export const spsPull = inngest.createFunction(
       }
     }
 
+    if (!walked) {
+      await step.run("walk-done", async () => {
+        await markWalked(createServiceClient(), jobId);
+      });
+    }
+
+    // ── The closing sweep ──
+    //
+    // The plan says what may be fetched (the walk's failures, or on a retry
+    // the stored list) and what is merely looked at. Nothing outside it is
+    // touched: the gallery may have been curated, and a photo that is absent
+    // because a person removed it must stay absent.
+    const plan = await step.run("sweep-plan", async () =>
+      loadSweepPlan(createServiceClient(), jobId)
+    );
+    const fetchIds = plan.fetch.map((m) => m.spsImageId);
+    const awaiting = new Set(plan.watch);
+    const stillMissing: MissingPhoto[] = [];
+    let recovered = 0;
+    let sweepOffset = 0;
+    let sweepError: string | null = null;
+
+    // A sweep that cannot run must not strand the job. Every step here has
+    // already had its retries by the time it throws, and the walk is done: the
+    // right ending is "completed, and these are still owed", not a job left
+    // "running" for the watchdog to restart into the same wall (a deleted SPS
+    // event, a revoked connection).
+    try {
+      while (awaiting.size > 0) {
+        let pageNextOffset: number | null = null;
+
+        for (let pass = 0; ; pass++) {
+          const outcome = await step.run(`sweep-${sweepOffset}-${pass}`, async () => {
+            const supabase = createServiceClient();
+            const job = await loadPullJob(supabase, jobId);
+            if (!job) throw new NonRetriableError(`Pull job ${jobId} vanished`);
+            if (job.status === "cancelled") return { cancelled: true as const };
+            const page = await sweepPage(supabase, job, sweepOffset, {
+              watch: plan.watch,
+              fetch: fetchIds,
+              // One more try each, not a loop: what failed in this run is left.
+              skip: stillMissing.map((m) => m.spsImageId),
+            });
+            return { cancelled: false as const, ...page };
+          });
+
+          if (outcome.cancelled) {
+            return { jobId, status: "cancelled" };
+          }
+
+          stillMissing.push(...outcome.failed);
+          recovered += outcome.imported;
+          pageNextOffset = outcome.nextOffset;
+
+          if (!outcome.more) {
+            // Only once the page is finished: a photo waiting for the next
+            // pass has been met, not dealt with.
+            for (const id of outcome.seen) awaiting.delete(id);
+            break;
+          }
+          if (pass + 1 >= MAX_SLICES_PER_PAGE) {
+            throw new NonRetriableError(
+              `Sweep of manifest page ${sweepOffset} exceeded ${MAX_SLICES_PER_PAGE} passes`
+            );
+          }
+        }
+
+        if (pageNextOffset === null) break;
+        sweepOffset = pageNextOffset;
+      }
+    } catch (err) {
+      sweepError = describeError(err);
+      await step.run("report-sweep-failed", async () => {
+        await reportSystemError("sps.pull-sweep", err, {
+          jobId,
+          eventId: snapshot.event_id,
+          owed: awaiting.size,
+        });
+      });
+    }
+
+    // Nominated and never dealt with: gone from SPS if the manifest was read to
+    // its end, still owed if the sweep could not run. Either way it stays on
+    // the job rather than vanishing as if recovered.
+    const failedIds = new Set(stillMissing.map((m) => m.spsImageId));
+    stillMissing.push(
+      ...unresolvedEntries(
+        plan.fetch.filter((m) => !failedIds.has(m.spsImageId)),
+        awaiting,
+        sweepError
+      ),
+      ...plan.carried
+    );
+
     const summary = await step.run("finish", async () => {
       const supabase = createServiceClient();
       const job = await loadPullJob(supabase, jobId);
       if (!job) throw new NonRetriableError(`Pull job ${jobId} vanished`);
 
-      await finishJob(supabase, jobId, { status: "completed" });
+      // A stop that landed after the last sweep step is still a stop, and
+      // `finishJob` will not write "completed" over one.
+      const finished = await finishJob(supabase, jobId, {
+        status: "completed",
+        missing: missingAsJson(stillMissing),
+      });
+      if (!finished) return null;
 
       // Settlement fires once, at the end: both lanes debounce per event, and
       // 6,000 sends saying the same thing is a way to get rate limited.
@@ -194,21 +315,33 @@ export const spsPull = inngest.createFunction(
       };
     });
 
-    // A partial import is a real outcome, not a silent one: the job row keeps
-    // per-image reasons, and this makes it queryable + emails the admin.
-    if (summary.failed > 0) {
+    if (!summary) return { jobId, status: "cancelled" };
+
+    // A partial import is a real outcome, not a silent one. The count is what
+    // the sweep could not bring over, never the failure counter: that counts
+    // attempts, and a photo that failed once and landed on the second try is
+    // not missing.
+    if (stillMissing.length > 0) {
       await step.run("report-partial", async () => {
+        const names = stillMissing.slice(0, 10).map((m) => `${m.filename} (${m.reason})`);
         await reportSystemError(
           "sps.pull-partial",
           new Error(
-            `SPS pull finished with ${summary.failed} failed of ${summary.failed + summary.imported}`
+            `SPS pull finished with ${stillMissing.length} photo(s) not brought over: ${names.join("; ")}` +
+              `${stillMissing.length > names.length ? "; …" : ""}. Retry from /events/import.`
           ),
           { jobId, eventId: snapshot.event_id, spsEventId: snapshot.sps_event_id }
         );
       });
     }
 
-    return { jobId, status: "completed", ...summary };
+    return {
+      jobId,
+      status: "completed",
+      ...summary,
+      recovered,
+      missing: stillMissing.length,
+    };
   }
 );
 

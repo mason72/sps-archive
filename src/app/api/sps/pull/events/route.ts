@@ -49,7 +49,9 @@ export async function GET() {
     // rather than as a fresh import.
     const { data: jobs, error: jobsError } = await supabase
       .from("sps_pull_jobs")
-      .select("id, sps_event_id, event_id, status, images_done, expected_total")
+      // `missing_count`, not `missing`: the list page needs to know a finished
+      // import left photos behind, not which ones.
+      .select("id, sps_event_id, event_id, status, images_done, expected_total, missing_count")
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false });
     if (jobsError) throw jobsError;
@@ -75,6 +77,7 @@ export async function GET() {
                 status: job.status,
                 imagesDone: job.images_done,
                 expectedTotal: job.expected_total,
+                missingCount: job.missing_count ?? 0,
               }
             : null,
         };

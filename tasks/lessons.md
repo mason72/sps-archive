@@ -4247,3 +4247,33 @@ asked this one to look.
 - **Known limit:** a gallery whose runs throw at the database level collects no attempts and keeps its place at the front of the plan; two such galleries holding 4,000+ photos each would block everything behind them. `ai-stalled` is what reports it.
 - **Left as it was on purpose:** `ai-index` global concurrency stays 1 (Mason, 09-25, lesson 168). On Medium the reason for it may be gone; raising it is his call, after the migration.
 
+
+## 176 — A finished SPS import could never go back for the photos it failed on (2026-10-04)
+
+**What happened.** AAOMS 2026 finished its pull at 7,104 of 7,109 during the run of database timeouts that ended with the resize to Medium. The job was marked `completed`, and `startSpsPull` answers "already imported" for a completed job forever, so the five photos had no way in from `/events/import`. The job's `failures` list named nine photos; four of those were in the gallery.
+
+**What was built.** Every pull now ends with a closing sweep (`src/lib/sps-integration/pull-sweep.ts`): each photo the job logged a failure for gets one more try, is looked up in the event's rows, and what is still absent is stored in `sps_pull_jobs.missing` (migration 093; NULL = never swept, `[]` = nothing left behind). The import screen prints the list with a **Retry N photos** button (`POST /api/sps/pull/jobs/[jobId]/retry`), and the event list shows "N photos did not come over" on the finished event. A retry re-queues the same job; the lane skips the walk (`walked_at`) and fetches only the stored list.
+
+**The design changed twice, and both changes came from measuring before believing.**
+- *First plan: re-walk the manifest and let the skip check do the work.* It would have failed on the one case it was for. AAOMS had been sorted into letter sections, which deletes the "Unsorted" intake, and `importSlice` threw "Intake section missing" when it could not find one. `intakeAppendPoint()` now creates it, as the upload route always has. The same throw was waiting for any import resumed after a sort.
+- *Second plan: at finish, compare the whole manifest with the rows and fetch whatever is absent.* A count of every job showed why not: eBay RCG MiniCon is 95 under its manifest (moved to private galleries), DAIS 26 is 12 under, Jordan 9 under. Those are decisions. I confined the comparison to finish time and stored the answer, and the fresh-context reviewer showed that was still not enough: a resume after curation, or curation while an import runs, would bring the removed photos back.
+- *What shipped: the failure log NOMINATES, the rows DECIDE.* A photo is fetched only if the job recorded a failure for it (or it is on the stored list), and only if it has no row. `planSweep()` is the one home. A clean import nominates nothing, so its sweep reads no manifest page.
+
+**What the reviewer caught that the tests did not** (all confirmed by reading, all fixed before the push):
+- The sweep listed a photo as missing when `importOneImage` threw AFTER its row was written. That is exactly how four AAOMS photos came to be "failed" and present, so the new code would have repeated the bug it was written to fix. A failed attempt is now looked up again, row and R2 object, before it is listed.
+- `snapshot.walked_at !== null` read `undefined` as "walked": a run in flight across the deploy carries a memoized snapshot without the key. `!= null`.
+- A sweep that could not run (SPS event deleted, connection revoked) left a completed gallery showing "Importing" for good, because nothing in this lane writes `failed`. The sweep's steps are now inside a try: the job finishes, and its photos are listed as owed with the reason.
+- `finishJob` wrote "completed" unconditionally, over a stop that had already been answered 200.
+- The Retry button showed on a stopped retry, where the route answers "resume it instead".
+
+**Rules.**
+- **A failure log records attempts; only the rows record state. And "on the source, not here" is not "failed".** A recovery feature needs both records and must not let either do the other's job. Before building anything that re-fetches "what is missing", count how many healthy items are missing on purpose.
+- **A re-run inherits every assumption the first run made about the world.** The intake section existed when the import started. Anything a retry depends on has to be created on demand or checked, because the retry runs days later, after people have used the thing.
+- **A catch block that counts a failure must say what state it left behind.** `importOneImage` throws from six places, on both sides of the row insert. "It threw" told the caller nothing about whether the photo was there.
+- **A cap on a display list becomes a data-loss bug the day the list is used for anything else.** `failures` was capped at 50 "for the screen". The moment it nominates retries, the 51st failure is unrecoverable. Trim at the reader (the status route sends ten), not at the writer.
+- **An empty result is a claim.** `missing = []` prints "The import brought every photo over". The audit script refuses to store an empty list for an old job, because it cannot tell a removed photo from one the walk never reached.
+- **Look in the other worktrees for uncommitted edits before restructuring a shared file.** The `[object Object]` reason fix (`describeError`) was sitting uncommitted in another worktree, in the middle of `importSlice`'s worker loop. The sweep copies that loop on purpose instead of extracting it; fold the two into one `importBatch` once both are on main.
+
+**Harnesses.** `npx tsx scripts/sps-pull-audit.ts <jobId>` (read-only; one SPS request per 500 photos; splits absences into "failed" and "removed"). `/dev/sps-missing` for the panel's states. `src/lib/sps-integration/pull-sweep.test.ts` for the decisions.
+
+**Not done.** `importOneImage` can still leave a row at `pending` when its last update throws (the reconciler finishes it), and its link-failure path can leave an orphan row if the cleanup delete also fails. Old jobs other than AAOMS and Grow Therapy have no stored list on purpose.

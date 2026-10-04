@@ -1649,12 +1649,15 @@ export type Database = {
           images_done: number
           images_failed: number
           images_skipped: number
+          missing: Json | null
+          missing_count: number | null
           next_offset: number
           sps_event_id: string
           sps_event_name: string | null
           status: string
           updated_at: string
           user_id: string
+          walked_at: string | null
           watchdog_alerted_at: string | null
           watchdog_at: string | null
           watchdog_mark: number | null
@@ -1674,12 +1677,15 @@ export type Database = {
           images_done?: number
           images_failed?: number
           images_skipped?: number
+          missing?: Json | null
+          missing_count?: number | null
           next_offset?: number
           sps_event_id: string
           sps_event_name?: string | null
           status?: string
           updated_at?: string
           user_id: string
+          walked_at?: string | null
           watchdog_alerted_at?: string | null
           watchdog_at?: string | null
           watchdog_mark?: number | null
@@ -1699,12 +1705,15 @@ export type Database = {
           images_done?: number
           images_failed?: number
           images_skipped?: number
+          missing?: Json | null
+          missing_count?: number | null
           next_offset?: number
           sps_event_id?: string
           sps_event_name?: string | null
           status?: string
           updated_at?: string
           user_id?: string
+          walked_at?: string | null
           watchdog_alerted_at?: string | null
           watchdog_at?: string | null
           watchdog_mark?: number | null
