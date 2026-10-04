@@ -127,10 +127,35 @@ describe("renderEmailShell guest list", () => {
     expect(html).toContain("&lt;img src=x");
   });
 
-  it("is an outlined button: white cell, ink border, never the solid accent", () => {
+  it("is an ink button on its own grey card: never the gallery's emerald", () => {
     const html = renderEmailContent({ body: "hi", guestList: { url: URL_ } });
     const cell = html.slice(html.lastIndexOf("<td", html.indexOf(`href="${URL_}"`)));
-    expect(cell).toMatch(/^<td[^>]*bgcolor="#ffffff"[^>]*border:1px solid #1c1917/);
+    expect(cell).toMatch(/^<td[^>]*bgcolor="#1c1917"/);
+    const cardStart = html.lastIndexOf('width="100%"', html.indexOf("Guest List"));
+    expect(html.slice(cardStart, html.indexOf("Guest List"))).toContain("background:#e7e5e4");
+  });
+
+  it("is the same size as the gallery button: one width, one padding, one type size", () => {
+    const html = renderEmailContent({
+      body: "hi",
+      galleryUrl: GALLERY,
+      downloadPin: "1077",
+      guestList: { url: URL_ },
+    });
+    // Everything about a button except its fill and its margin.
+    const shape = (href: string) => {
+      const at = html.indexOf(`href="${href}"`);
+      const table = html.slice(html.lastIndexOf("<table", at), html.indexOf("</a>", at));
+      return table
+        .replace(/margin:[^;]*;/, "")
+        .replace(/bgcolor="[^"]*"/, "")
+        .replace(/href="[^"]*"/, "")
+        .replace(/>\s*[^<>]*$/, ">");
+    };
+    // This way round, never `width:240px;max-width:100%`: that one does not
+    // shrink inside nested layout tables and overflowed a 360px phone.
+    expect(shape(GALLERY)).toContain("width:100%;max-width:240px");
+    expect(shape(URL_)).toBe(shape(GALLERY));
   });
 
   it("closes the email even when the gallery block sits inside the letter", () => {
@@ -319,7 +344,7 @@ describe("renderEmailContent gallery button placement", () => {
 
   it("keeps Outlook's padding on the cell, where Outlook reads it", () => {
     const html = renderEmailContent({ body: "<p>Hi</p>", galleryUrl: GALLERY });
-    expect(html).toContain("mso-padding-alt:14px 32px");
+    expect(html).toContain("mso-padding-alt:14px 16px");
   });
 });
 

@@ -26,19 +26,42 @@ const INK = "#1c1917"; // stone-900
 const MUTED = "#78716c"; // stone-500
 const HAIRLINE = "#e7e5e4"; // stone-200
 const WASH = "#fafaf9"; // stone-50
+const NEUTRAL = "#e7e5e4"; // stone-200: the guest-list card
+const NEUTRAL_EDGE = "#d6d3d1"; // stone-300
+const DIM = "#57534e"; // stone-600: muted text that stays readable on NEUTRAL
 const SANS = "Helvetica,Arial,sans-serif";
 const MONO = "'SF Mono',Menlo,Consolas,monospace";
+
+/** Every CTA is this wide, so two buttons in one email line up. */
+const BUTTON_WIDTH = 240;
+const BUTTON_PADDING = "14px 16px";
 
 /**
  * A CTA that keeps its shape everywhere.
  *
+ * ONE size for every button: same width, same padding, same type. The gallery
+ * button and the guest-list button used to differ in padding and font size,
+ * and side by side in one email they read as two different heights (Mason,
+ * 2026-10-04). Only the fill differs: emerald for the gallery, ink for a
+ * second action.
+ *
+ * The width is `100%` capped at `max-width:240px`, NOT `240px` capped at
+ * `100%`. Measured in a browser: a fixed 240px table inside these nested
+ * layout tables does not shrink (a percentage max-width is ignored when the
+ * parent cell sizes to its content), and it pushed the email 20px wider than
+ * a 360px phone. Written this way round the button is 240px wherever there is
+ * room and narrows with its card where there is not; a label too long for one
+ * line wraps inside it. Outlook ignores max-width and would stretch the
+ * button across the card, so an Outlook-only wrapper table pins it to 240.
+ *
  * The padding is stated twice on purpose. Outlook on Windows lays mail out
  * with Word's engine, which ignores padding on an `<a>`, so a button padded
- * only there collapses to the size of its words. `mso-padding-alt` on the cell
- * is read by Outlook alone and puts the room back. Everywhere else the padding
- * on the link applies, which makes the whole button the tap target rather than
- * just the label. NOT verified in Outlook itself (no client to hand,
- * 2026-10-04); the browser render and Gmail are what was checked.
+ * only there collapses to the height of its words. `mso-padding-alt` on the
+ * cell is read by Outlook alone and puts the room back. Everywhere else the
+ * link is `display:block` with its own padding, which makes the whole button
+ * the tap target rather than just the label. NOT verified in Outlook itself
+ * (no client to hand, 2026-10-04); a browser render and Gmail are what was
+ * checked.
  *
  * `border-collapse:separate` is stated because the composer preview injects
  * this markup under Tailwind's reset, which collapses table borders and with
@@ -47,39 +70,45 @@ const MONO = "'SF Mono',Menlo,Consolas,monospace";
 function ctaButton(
   url: string,
   labelHtml: string,
-  variant: "solid" | "outline",
+  fill: "accent" | "ink",
   margin: string
 ): string {
-  const solid = variant === "solid";
-  const padding = solid ? "14px 32px" : "12px 28px";
-  const cell = solid ? "" : `border:1px solid ${INK};`;
+  const color = fill === "accent" ? ACCENT : INK;
   return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:${margin};border-collapse:separate;">
+  <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="${BUTTON_WIDTH}"><tr><td><![endif]-->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:${margin};width:100%;max-width:${BUTTON_WIDTH}px;border-collapse:separate;">
     <tr>
-      <td align="center" bgcolor="${solid ? ACCENT : "#ffffff"}" style="${cell}border-radius:6px;mso-padding-alt:${padding};">
+      <td align="center" bgcolor="${color}" style="border-radius:6px;mso-padding-alt:${BUTTON_PADDING};">
         <a href="${url}"
-           style="display:inline-block;padding:${padding};font-family:${SANS};font-size:${solid ? 15 : 14}px;font-weight:600;letter-spacing:0.02em;color:${solid ? "#ffffff" : INK};text-decoration:none;border-radius:6px;">
+           style="display:block;padding:${BUTTON_PADDING};font-family:${SANS};font-size:15px;line-height:20px;font-weight:600;letter-spacing:0.02em;color:#ffffff;text-align:center;text-decoration:none;border-radius:6px;">
           ${labelHtml}
         </a>
       </td>
     </tr>
-  </table>`;
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->`;
 }
 
-/** The washed card both CTAs sit in. A table, because it has to survive Outlook. */
-function card(inner: string, margin: string): string {
+/**
+ * The card a CTA sits in. A table, because it has to survive Outlook. "wash"
+ * is the near-white card around the gallery button; "neutral" is a clear step
+ * greyer, so the guest list reads as its own box.
+ */
+function card(inner: string, margin: string, tone: "wash" | "neutral" = "wash"): string {
+  const fill = tone === "wash" ? WASH : NEUTRAL;
+  const edge = tone === "wash" ? HAIRLINE : NEUTRAL_EDGE;
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:${margin};border-collapse:separate;">
     <tr>
-      <td align="center" style="padding:20px;background:${WASH};border:1px solid ${HAIRLINE};border-radius:8px;">${inner}
+      <td align="center" style="padding:20px;background:${fill};border:1px solid ${edge};border-radius:8px;">${inner}
       </td>
     </tr>
   </table>`;
 }
 
-function capsLabel(text: string): string {
+function capsLabel(text: string, color: string = MUTED): string {
   return `
-        <div style="font-family:${SANS};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${MUTED};">
+        <div style="font-family:${SANS};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${color};">
           ${escapeHtml(text)}
         </div>`;
 }
@@ -121,10 +150,10 @@ function galleryBlock(opts: {
 
   if (credentials.length === 0) {
     return opts.url
-      ? ctaButton(opts.url, opts.labelHtml, "solid", inline ? "6px auto 22px" : "20px auto 4px")
+      ? ctaButton(opts.url, opts.labelHtml, "accent", inline ? "6px auto 22px" : "20px auto 4px")
       : "";
   }
-  const button = opts.url ? ctaButton(opts.url, opts.labelHtml, "solid", "0 auto") : "";
+  const button = opts.url ? ctaButton(opts.url, opts.labelHtml, "accent", "0 auto") : "";
   const rows = credentials
     .map(([label, value], i) => credentialRow(label, value, !!button || i > 0))
     .join("");
@@ -274,10 +303,12 @@ function replaceGalleryLinkLine(
  * PII, and email-recipient-only by design (see src/lib/guest-list/store.ts):
  * it exists on no gallery surface, so this card is the entire path to it. It
  * was anchor text until 2026-10-04, kept quiet so it would not compete with
- * "View Gallery", and clients were missing it. It is now a button, outlined
- * where the gallery's is solid, so there is still a first action and a second
- * one. The file is named so it reads as a download and not as another way
- * into the gallery.
+ * "View Gallery", and clients were missing it. It is now a button the same
+ * size as the gallery's, filled ink where the gallery's is emerald, on a card
+ * a step greyer than the gallery's. Mason picked this from rendered options:
+ * an ink card was too dark, a green one too green, and emerald stays the
+ * gallery's color so nobody wonders which button is the photos. The file is
+ * named so it reads as a download and not as another way into the gallery.
  *
  * The raw URL is still never printed. The token is long on purpose, and a
  * 200-character string sitting in the body invites someone to paste it
@@ -297,14 +328,15 @@ function guestListCard(guestList: NonNullable<EmailShellOptions["guestList"]>): 
     .join(" &middot; ");
   const fileLine = file
     ? `
-        <div style="font-family:${SANS};font-size:12px;line-height:1.5;color:${MUTED};padding-top:4px;word-break:break-all;">${file}</div>`
+        <div style="font-family:${SANS};font-size:12px;line-height:1.5;color:${DIM};padding-top:4px;word-break:break-all;">${file}</div>`
     : "";
   return card(
-    capsLabel("Guest List") +
+    capsLabel("Guest List", DIM) +
       line +
       fileLine +
-      ctaButton(guestList.url, "Download Guest List", "outline", "14px auto 0"),
-    "22px 0 4px"
+      ctaButton(guestList.url, "Download Guest List", "ink", "14px auto 0"),
+    "22px 0 4px",
+    "neutral"
   );
 }
 
