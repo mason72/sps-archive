@@ -326,8 +326,8 @@ export function assessCapacity(
           action:
             "If the database findings above are also firing, fix those first: a slow database is " +
             "what slowed the lane in October 2026. If the database is healthy, the lane is simply " +
-            "outnumbered, and raising the ai-index concurrency from 1 is the lever (lesson 168 " +
-            "says why it is 1).",
+            "outnumbered, and the ai-index concurrency (2 since 2026-10-04) is the lever. Lesson " +
+            "168 is what to watch for when raising it: pages on finished galleries slowing down.",
         });
       }
     }

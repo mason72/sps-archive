@@ -51,8 +51,9 @@ pipeline's fatal sin).
 (migrations 090/091) returns waiting galleries in priority order: **live
 galleries before Pixieset-migrated ones** (`settings.pixiesetCollectionId`),
 then newest shoot first. `src/lib/ai-index/plan.ts` takes the first of them
-holding ~4,000 photos (at least 2 galleries; `sweep-plan.ts`), which is about
-what the single-concurrency lane does between sweeps. Three readers, one
+holding ~8,000 photos (at least 2 galleries; `sweep-plan.ts`), which is about
+what the lane does between sweeps (two galleries at a time since 2026-10-04,
+was one from 09-25; the plan is ~8,000 photos). Three readers, one
 definition: the `ai-index-sweep` cron wakes the plan **every 30 minutes**
 (:07/:37 UTC); **every `ai-index` run checks at its start that its gallery is
 in the plan and otherwise returns `skipped: "not-next"`**; and a run that

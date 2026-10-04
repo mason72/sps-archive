@@ -912,18 +912,22 @@ export const aiIndex = inngest.createFunction(
     id: "ai-index",
     retries: 2,
     /**
-     * ONE at a time overall (Mason, 2026-09-25; was 2). Indexing shares the
-     * database disk with every page load, and two runs writing faces into the
-     * HNSW index made a 100ms photo count take 5.3s, so event pages failed to
-     * load on galleries that were long finished (lesson 168). He chose a slower
-     * backlog over slow pages. Raise it only after the Pixieset migration.
+     * TWO at a time overall (Mason, 2026-10-04). It was 1 from 2026-09-25,
+     * when two runs writing faces into the HNSW index made a 100ms photo count
+     * take 5.3s and event pages failed to load on finished galleries (lesson
+     * 168). That was on the 1 GB database, where the vector indexes did not fit
+     * in memory (lesson 175). On Medium the same count measured ~4 ms with one
+     * lane running, so he raised it to clear a 470,000-photo backlog. If pages
+     * slow down again while indexing runs, this is the first thing to put back;
+     * the hourly capacity check (src/lib/monitoring/capacity.ts) watches the
+     * timeout rate that would show it.
      *
-     * The per-event key stays: without it a continuation and a sweep nudge for
-     * the same gallery could run side by side, select the same batch, and each
-     * record a failure for the same blip (lesson 151). Redundant at a global
-     * limit of 1, and kept so raising the global limit stays safe.
+     * The per-event key is what keeps two runs off ONE gallery: without it a
+     * continuation and a sweep wake for the same gallery could run side by
+     * side, select the same batch, and each record a failure for the same blip
+     * (lesson 151).
      */
-    concurrency: [{ limit: 1 }, { limit: 1, key: "event.data.eventId" }],
+    concurrency: [{ limit: 2 }, { limit: 1, key: "event.data.eventId" }],
     /**
      * 2 MINUTES, not 15 (changed 2026-08-11 after Mason asked why it was so
      * long, and the answer did not survive contact).
@@ -962,7 +966,7 @@ export const aiIndex = inngest.createFunction(
         return { skipped: "uploads-in-flight", pending, indexed: 0, faces: 0, remaining: 0 };
       }
 
-      // IS IT THIS GALLERY'S TURN? The lane runs one gallery at a time, so a
+      // IS IT THIS GALLERY'S TURN? The lane runs two galleries at a time, so a
       // run for a gallery outside the current plan is time taken from one
       // inside it (lesson 175: a client gallery sat behind every archive
       // gallery that had ever been woken, because each kept re-queuing itself).

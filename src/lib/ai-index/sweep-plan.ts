@@ -1,7 +1,7 @@
 /**
  * Which galleries the AI lane should be working on right now.
  *
- * The lane indexes ONE gallery at a time (lesson 168), and a run that still has
+ * The lane indexes at most TWO galleries at a time (functions.ts), and a run that still has
  * work re-queues itself behind every other queued run. So the set of galleries
  * allowed to run is the rotation: let 200 in and each gets a turn every 200
  * runs, which is how a new client gallery ends up waiting days behind an
@@ -12,19 +12,20 @@
  */
 
 /**
- * Photos to plan at once. The lane's pace is roughly 55 to 90 a minute (measured
- * 2026-10-04 on the Medium database), so about 1,600 to 2,700 per 30-minute
- * sweep; this is above that on purpose, because an idle lane with a backlog
- * costs more than a slightly wider rotation.
+ * Photos to plan at once. One run's pace is roughly 55 to 90 a minute (measured
+ * 2026-10-04 on the Medium database) and two run side by side, so about 3,300
+ * to 5,400 per 30-minute sweep; this is above that on purpose, because an idle
+ * lane with a backlog costs more than a slightly wider rotation.
  */
-export const AI_SWEEP_TARGET_PHOTOS = 4000;
+export const AI_SWEEP_TARGET_PHOTOS = 8000;
 
 /**
  * Never plan fewer galleries than this. A gallery whose runs keep throwing at
  * the database level stays first in line (its photos collect no attempts), and
- * if it were the only one planned the whole lane would sit behind it. Two keeps
- * the lane moving past a stuck gallery while still giving the first in line
- * half the lane; a larger floor is a wider rotation and a slower first gallery.
+ * if it were the only one planned the whole lane would sit behind it. Two is
+ * also the number of galleries the lane runs at once, so with a floor of two
+ * neither slot sits idle and the first in line keeps a slot to itself; a larger
+ * floor is a wider rotation and a slower first gallery.
  */
 export const AI_SWEEP_MIN_EVENTS = 2;
 

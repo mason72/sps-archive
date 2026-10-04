@@ -18,7 +18,7 @@ describe("planSweep", () => {
       5
     );
     expect(picked).toEqual(["big", "b", "c", "d", "e"]);
-    // The shipped floor is two: the first in line gets half the lane.
+    // The shipped floor is two, the number of galleries the lane runs at once.
     expect(planSweep([c("big", 17611), c("b", 10), c("c", 10)])).toEqual(["big", "b"]);
   });
 
