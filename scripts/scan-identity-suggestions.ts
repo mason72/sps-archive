@@ -54,7 +54,8 @@ async function main() {
     }
     if (!candidates || candidates.length < 1000) break;
   }
-  console.log(`events with anonymous clusters: ${byEvent.size}\n`);
+  const totalClusters = [...byEvent.values()].reduce((n, e) => n + e.clusters, 0);
+  console.log(`events with anonymous clusters: ${byEvent.size}  (${totalClusters.toLocaleString()} clusters; ~2 match queries each)\n`);
 
   if (!apply) {
     for (const [id, e] of [...byEvent.entries()].sort((a, b) => b[1].clusters - a[1].clusters).slice(0, 20)) {
@@ -65,14 +66,19 @@ async function main() {
   }
 
   let totalSuggested = 0;
+  let totalAuto = 0;
   let done = 0;
+  const t0 = Date.now();
   for (const [eventId, e] of byEvent) {
     const result = await scanEventForIdentitySuggestions(supabase, e.userId, eventId);
     totalSuggested += result.suggested;
+    totalAuto += result.autoConfirmed;
     done += 1;
-    if (result.suggested > 0 || done % 10 === 0) {
+    // One line per event, news or not: a silent stretch of galleries with no
+    // matches is indistinguishable from a stall, and a stall is what to watch for.
+    {
       console.log(
-        `[${done}/${byEvent.size}] ${e.name}: ${result.anonymousClusters} anonymous, ${result.suggested} suggested`
+        `[${done}/${byEvent.size}] ${((Date.now() - t0) / 60000).toFixed(1)}m ${e.name}: ${result.anonymousClusters} clusters, ${result.suggested} matched, ${result.autoConfirmed} auto-confirmed`
       );
     }
   }
@@ -81,7 +87,7 @@ async function main() {
     .from("person_identity_suggestions")
     .select("id", { count: "exact", head: true })
     .eq("status", "pending");
-  console.log(`\nscan complete: ${totalSuggested} suggestions written this run, ${pending} pending total`);
+  console.log(`\nscan complete: ${totalSuggested} matched this run (${totalAuto} auto-confirmed), ${pending} pending total`);
 }
 
 main().catch((e) => {
