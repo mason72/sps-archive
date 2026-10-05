@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { EventChip, PersonSpotlight, type SplitLink } from "./PersonSpotlight";
+import { AutoMatched } from "./AutoMatched";
 import { IdentitySuggestions } from "./IdentitySuggestions";
 import { CrewWall } from "@/components/crew/CrewWall";
 import { foldName } from "@/lib/people/name-text";
@@ -365,6 +366,9 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
 
       {/* ─── The naming engine's queue (renders nothing when empty) ─── */}
       <IdentitySuggestions />
+
+      {/* ─── What the engine applied itself, awaiting a glance (renders nothing when empty) ─── */}
+      <AutoMatched />
 
       {/* ─── Wall of fame ─── */}
       {podium.length > 0 && (

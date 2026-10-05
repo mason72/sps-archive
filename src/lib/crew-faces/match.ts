@@ -156,7 +156,12 @@ export async function findCrewInArchive(
  */
 export async function confirmCrewPerson(
   db: Db,
-  { userId, crewId, personId }: { userId: string; crewId: string; personId: string }
+  {
+    userId,
+    crewId,
+    personId,
+    confirmedBy = "human",
+  }: { userId: string; crewId: string; personId: string; confirmedBy?: "human" | "auto" }
 ): Promise<{ ok: boolean; error?: string }> {
   // The person id arrives from a request body — prove the cluster lives in
   // this user's own archive before linking anything to it.
@@ -170,7 +175,7 @@ export async function confirmCrewPerson(
   if (!person) return { ok: false, error: "That cluster is not in your archive." };
 
   const { error } = await db.from("crew_persons").upsert(
-    { user_id: userId, crew_id: crewId, person_id: personId, confirmed_by: "human" },
+    { user_id: userId, crew_id: crewId, person_id: personId, confirmed_by: confirmedBy },
     { onConflict: "crew_id,person_id" }
   );
   if (error) return { ok: false, error: error.message };

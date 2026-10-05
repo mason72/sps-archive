@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { requestPeopleIndexRefresh } from "@/lib/people/index-cache";
+import { decideOne, teachEvent } from "@/lib/people/identity-decide";
+import { repFaceCrop } from "@/lib/people/identity-cards";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,43 +20,6 @@ export const maxDuration = 60;
  *        persons.rejected_names, so the engine can never re-ask (the same
  *        durability contract as clearing a name by hand).
  */
-
-interface FaceCropPayload {
-  thumbnailUrl: string;
-  bbox: { x: number; y: number; w: number; h: number };
-  imageWidth: number | null;
-  imageHeight: number | null;
-}
-
-async function repFaceCrop(
-  supabase: Awaited<ReturnType<typeof getAuthUser>>["supabase"],
-  personId: string | null
-): Promise<FaceCropPayload | null> {
-  if (!personId) return null;
-  const { data: person } = await supabase
-    .from("persons")
-    .select("representative_face_id")
-    .eq("id", personId)
-    .maybeSingle();
-  if (!person?.representative_face_id) return null;
-  const { data: face } = await supabase
-    .from("faces")
-    .select("bbox_x, bbox_y, bbox_w, bbox_h, images!inner(r2_key, width, height)")
-    .eq("id", person.representative_face_id)
-    .maybeSingle();
-  if (!face) return null;
-  const img = face.images as unknown as {
-    r2_key: string;
-    width: number | null;
-    height: number | null;
-  };
-  return {
-    thumbnailUrl: await getPresignedDownloadUrl(getThumbnailKey(img.r2_key), 14400),
-    bbox: { x: face.bbox_x, y: face.bbox_y, w: face.bbox_w, h: face.bbox_h },
-    imageWidth: img.width,
-    imageHeight: img.height,
-  };
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -145,142 +109,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-type Decision = { status: string; name?: string | null; crew?: boolean; existingName?: string | null; error?: string };
-// eventId rides along so the bulk caller can teach once per event.
-
-/**
- * One suggestion, decided. Extracted so the bulk path CANNOT drift from the
- * single path — a second implementation of "confirm" would be a second place
- * for the crew-vs-guest rule to be got wrong, and that rule (crew identity is a
- * LINK, never persons.name) is the one that must never bend.
- *
- * `teach` is deferred by the bulk caller: refresh_person_reference_centroids is
- * per EVENT, so running it once per suggestion would repeat the same expensive
- * rebuild 192 times and blow the statement budget (lesson 93). Bulk runs it once
- * per distinct event after the writes land.
- */
-async function decideOne(
-  supabase: Awaited<ReturnType<typeof getAuthUser>>["supabase"],
-  userId: string,
-  id: string,
-  action: "confirm" | "reject",
-  opts: { teach: boolean }
-): Promise<Decision & { eventId?: string | null }> {
-  const { data: suggestion } = await supabase
-    .from("person_identity_suggestions")
-    .select("id, user_id, person_id, event_id, kind, crew_id, suggested_name, status")
-    .eq("id", id)
-    .maybeSingle();
-  if (!suggestion || suggestion.user_id !== userId) return { status: "not_found", error: "Not found" };
-  if (suggestion.status !== "pending") return { status: "already_decided", error: "Already decided" };
-
-  const { data: person } = await supabase
-    .from("persons")
-    .select("id, name, rejected_names")
-    .eq("id", suggestion.person_id)
-    .maybeSingle();
-  if (!person) return { status: "gone", error: "Cluster is gone" };
-
-  // Crew confirm is a LINK, never a name — crew names must not touch
-  // persons.name (guest identity space; the standing crew-faces invariant).
-  // confirmCrewPerson also teaches: the cluster's representative face joins
-  // the crew's reference set.
-  if (action === "confirm" && suggestion.kind === "crew" && suggestion.crew_id) {
-    const { confirmCrewPerson } = await import("@/lib/crew-faces/match");
-    const linked = await confirmCrewPerson(supabase, {
-      userId,
-      crewId: suggestion.crew_id,
-      personId: suggestion.person_id,
-    });
-    if (!linked.ok) throw new Error(linked.error ?? "Crew link failed");
-    // A junk label on a crew cluster dies WITH the confirm: the name came
-    // from random filenames ("Marriott Green" on Christie's faces), and
-    // clearing it into rejected_names means the consensus namer can never
-    // re-apply it. Crew identity lives in the link, never in persons.name.
-    if (person.name) {
-      const rejected = new Set(person.rejected_names ?? []);
-      rejected.add(person.name);
-      const { error: clearErr } = await supabase
-        .from("persons")
-        .update({ name: null, rejected_names: [...rejected] })
-        .eq("id", suggestion.person_id);
-      if (clearErr) throw clearErr;
-    }
-    const { error: statusErr } = await supabase
-      .from("person_identity_suggestions")
-      .update({ status: "confirmed", decided_at: new Date().toISOString() })
-      .eq("id", suggestion.id);
-    if (statusErr) throw statusErr;
-    return { status: "confirmed", crew: true, name: suggestion.suggested_name, eventId: suggestion.event_id };
-  }
-
-  if (action === "confirm") {
-    // Named some other way in the meantime? The human's earlier act wins —
-    // supersede rather than overwrite.
-    if (person.name) {
-      await supabase
-        .from("person_identity_suggestions")
-        .update({ status: "superseded", decided_at: new Date().toISOString() })
-        .eq("id", suggestion.id);
-      return { status: "superseded", existingName: person.name };
-    }
-    const { error: nameErr } = await supabase
-      .from("persons")
-      .update({ name: suggestion.suggested_name })
-      .eq("id", suggestion.person_id);
-    if (nameErr) throw nameErr;
-    const { error: statusErr } = await supabase
-      .from("person_identity_suggestions")
-      .update({ status: "confirmed", decided_at: new Date().toISOString() })
-      .eq("id", suggestion.id);
-    if (statusErr) throw statusErr;
-    if (opts.teach) await teachEvent(supabase, userId, suggestion.event_id, suggestion.id);
-    return { status: "confirmed", name: suggestion.suggested_name, eventId: suggestion.event_id };
-  }
-
-  // Reject: durable, spelling-proof, and scoped to this cluster.
-  const rejected = new Set(person.rejected_names ?? []);
-  rejected.add(suggestion.suggested_name);
-  const { error: rejErr } = await supabase
-    .from("persons")
-    .update({ rejected_names: [...rejected] })
-    .eq("id", suggestion.person_id);
-  if (rejErr) throw rejErr;
-  const { error: statusErr } = await supabase
-    .from("person_identity_suggestions")
-    .update({ status: "rejected", decided_at: new Date().toISOString() })
-    .eq("id", suggestion.id);
-  if (statusErr) throw statusErr;
-  return { status: "rejected", eventId: suggestion.event_id };
-}
-
-/**
- * Teach-on-confirm: the newly named cluster joins the reference library now,
- * not at the next scan. Best-effort with a REPORT — the confirm stands either
- * way, but a swallowed failure here would silently slow the engine's learning
- * (best-effort means the outcome is optional, never the evidence).
- */
-async function teachEvent(
-  supabase: Awaited<ReturnType<typeof getAuthUser>>["supabase"],
-  userId: string,
-  eventId: string | null,
-  suggestionId: string
-) {
-  // No gallery means the WHOLE-archive refresh, which no longer fits any
-  // statement budget (lesson 173). The confirm stands; the next scan of the
-  // cluster's gallery teaches instead.
-  if (!eventId) return;
-  const { NON_PERSON_GALLERIES } = await import("@/lib/people/index-people");
-  const { error } = await supabase.rpc("refresh_person_reference_centroids", {
-    p_user_id: userId,
-    p_event_id: eventId,
-    p_excluded_event_names: [...NON_PERSON_GALLERIES],
-  });
-  if (error) {
-    await reportSystemError("people.identity-suggestions.teach", error, { suggestionId });
-  }
-}
-
 /** A bulk confirm is still a human applying it — one deliberate act, not an
  *  auto-apply. Capped so a malformed client cannot walk the whole table. */
 const MAX_BULK = 500;
@@ -342,7 +170,7 @@ export async function POST(request: NextRequest) {
       let failed = 0;
       for (const id of ids) {
         try {
-          const r = await decideOne(supabase, user!.id, id, action, { teach: false });
+          const r = await decideOne(supabase, user!.id, id, action, { teach: false, decidedBy: "human" });
           counts[r.status] = (counts[r.status] ?? 0) + 1;
           if (r.status === "confirmed" && r.eventId) events.add(r.eventId);
         } catch (err) {
@@ -361,7 +189,7 @@ export async function POST(request: NextRequest) {
 
     // ---- single ----
     if (!body.id) return NextResponse.json({ error: "id or ids is required" }, { status: 400 });
-    const result = await decideOne(supabase, user!.id, body.id, action, { teach: true });
+    const result = await decideOne(supabase, user!.id, body.id, action, { teach: true, decidedBy: "human" });
     if (result.status === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (result.status === "already_decided") return NextResponse.json({ error: "Already decided" }, { status: 409 });
     if (result.status === "gone") return NextResponse.json({ error: "Cluster is gone" }, { status: 410 });

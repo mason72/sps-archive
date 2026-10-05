@@ -18,6 +18,24 @@ splits, mislabel fixes — everything routes through a preview/card the
 photographer clicks. Nothing reorganizes anything autonomously (the v1
 pipeline's fatal sin).
 
+**One measured exception (Mason, 2026-10-04): the identity engine applies
+its own sure matches.** Decided on the engine's own ledger: 869 confirmed
+against 7 rejected, every rejection between 0.55 and 0.58, nothing above
+0.58 ever rejected. A match on an UNNAMED cluster at or above
+`AUTO_CONFIDENCE` (0.70) whose runner-up of a different identity trails by
+`AUTO_MARGIN` (0.10) is confirmed by the scan itself through the same
+`decideOne()` a click uses (`src/lib/people/identity-decide.ts`), stamped
+`decided_by = 'auto'`, and shown on /people as "Auto-matched · Review"
+(`AutoMatched.tsx`, `/api/people/identity-suggestions/auto`) until a person
+clicks "Looks right" or "Undo". The margin exists because re-matching every
+confirmed cluster found 19 of 636 above 0.70 with a SECOND identity also
+above 0.70 (one human under two filename names) — an alias decision, held
+for a person. Named clusters are never auto-decided, and the floor card
+queue below the line is unchanged. Undo is a reject plus un-teach (guest:
+name cleared if still the engine's, references refreshed; crew: link and the
+snapshot face removed). Calibration: `scripts/triage/auto-confirm-margin.ts`
+(read-only); re-run it before moving either constant.
+
 ## Compute: Modal app `sps-archive-ai` (modal/ai_pipeline.py)
 
 - `index_images` (GPU, T4): batches ≤100 presigned thumb-lg URLs → SigLIP-2

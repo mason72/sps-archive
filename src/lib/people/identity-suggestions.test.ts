@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AUTO_CONFIDENCE,
+  AUTO_MARGIN,
+  crewRunnerUp,
+  decideAutoConfirm,
   decideCrewSuggestion,
   decideSuggestion,
+  guestRunnerUp,
   type CrewHit,
   type MatchHit,
 } from "./identity-suggestions";
@@ -116,5 +121,59 @@ describe("decideCrewSuggestion", () => {
     ];
     expect(decideCrewSuggestion(hits, { rejectedNames: ["Christie Jones"] }))
       .toMatchObject({ display_name: "Joey Nagoshiner" });
+  });
+});
+
+describe("decideAutoConfirm", () => {
+  it("applies a sure match with a clear runner-up", () => {
+    expect(decideAutoConfirm(0.86, 0.31, { clusterNamed: false })).toEqual({ auto: true });
+  });
+
+  it("applies a sure match with no runner-up at all", () => {
+    expect(decideAutoConfirm(0.72, null, { clusterNamed: false })).toEqual({ auto: true });
+  });
+
+  it("holds anything under the line for a person — even with no competition", () => {
+    // 0.69 is far above every rejection ever recorded (max 0.58) and STILL
+    // held: the line is the decision Mason made, not a guess.
+    expect(decideAutoConfirm(0.69, null, { clusterNamed: false }))
+      .toEqual({ auto: false, reason: "confidence" });
+    expect(AUTO_CONFIDENCE).toBe(0.7);
+  });
+
+  it("holds a match whose runner-up is a different identity within the margin", () => {
+    // Measured: one human under two filename names scores ~0.95 against both.
+    // That is an alias decision, and aliases are a person's call.
+    expect(decideAutoConfirm(0.953, 0.945, { clusterNamed: false }))
+      .toEqual({ auto: false, reason: "margin" });
+    // Either side of the margin, clear of float noise at the boundary.
+    expect(decideAutoConfirm(0.8, 0.8 - AUTO_MARGIN - 0.01, { clusterNamed: false })).toEqual({ auto: true });
+    expect(decideAutoConfirm(0.8, 0.8 - AUTO_MARGIN + 0.01, { clusterNamed: false }))
+      .toEqual({ auto: false, reason: "margin" });
+  });
+
+  it("never decides a NAMED cluster — overriding a label is a correction", () => {
+    expect(decideAutoConfirm(0.99, null, { clusterNamed: true }))
+      .toEqual({ auto: false, reason: "named" });
+  });
+});
+
+describe("runner-up", () => {
+  it("skips the cluster itself and other clusters of the same identity", () => {
+    const best = hit({ matched_person_id: "ref-1", name_key: "stevenhughes", similarity: 0.9 });
+    const hits = [
+      best,
+      hit({ matched_person_id: "self", name_key: "someoneelse", similarity: 0.88 }),
+      hit({ matched_person_id: "ref-2", name_key: "stevenhughes", similarity: 0.85 }),
+      hit({ matched_person_id: "ref-3", name_key: "bridgerlarsen", similarity: 0.41 }),
+    ];
+    expect(guestRunnerUp(hits, best, "self")).toBe(0.41);
+    expect(guestRunnerUp([best], best, "self")).toBeNull();
+  });
+
+  it("crew: the strongest OTHER crew member", () => {
+    const best: CrewHit = { crew_id: "c1", display_name: "Christie", similarity: 0.91 };
+    expect(crewRunnerUp([best, { crew_id: "c2", display_name: "Joey", similarity: 0.33 }], best)).toBe(0.33);
+    expect(crewRunnerUp([best], best)).toBeNull();
   });
 });

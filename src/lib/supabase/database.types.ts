@@ -1198,6 +1198,8 @@ export type Database = {
           created_at: string
           crew_id: string | null
           decided_at: string | null
+          decided_by: string | null
+          reviewed_at: string | null
           event_id: string
           id: string
           kind: string
@@ -1214,6 +1216,8 @@ export type Database = {
           created_at?: string
           crew_id?: string | null
           decided_at?: string | null
+          decided_by?: string | null
+          reviewed_at?: string | null
           event_id: string
           id?: string
           kind?: string
@@ -1230,6 +1234,8 @@ export type Database = {
           created_at?: string
           crew_id?: string | null
           decided_at?: string | null
+          decided_by?: string | null
+          reviewed_at?: string | null
           event_id?: string
           id?: string
           kind?: string

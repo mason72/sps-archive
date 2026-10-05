@@ -26,12 +26,69 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 import { FACE_MATCH_FLOOR } from "@/lib/faces/calibration";
 import { nameIsRejected } from "@/lib/faces/cluster-event";
+import { decideOne, teachEvent } from "./identity-decide";
+import { requestPeopleIndexRefresh } from "./index-cache";
 import { NON_PERSON_GALLERIES, loadExcludedPersonKeys } from "./index-people";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
 /** The measured floor (src/lib/faces/calibration.ts) — shared with the /people split. */
 export const SUGGESTION_CONFIDENCE_FLOOR = FACE_MATCH_FLOOR;
+
+/**
+ * THE AUTO LINE (Mason, 2026-10-04): above it the engine applies its own match
+ * and a person reviews afterwards, instead of confirming by hand.
+ *
+ * Measured on the decision ledger itself before the line moved: 869 confirmed
+ * against 7 rejected, every rejection between 0.55 and 0.58, nothing above
+ * 0.58 ever rejected. 0.70 would have handled 88% of past confirms with a
+ * 0.12 cushion over the worst rejection.
+ *
+ * THE MARGIN guards the failure the line alone cannot see. Re-matching every
+ * confirmed cluster (scripts/triage/auto-confirm-margin.ts): 19 of 636 clusters
+ * at or above 0.70 have a SECOND identity also above 0.70 — one human under
+ * two filename names ("cristinewatsonhdc" beside "cristinewatson"), an alias
+ * decision rather than a face decision. Requiring the runner-up to trail by
+ * 0.10 holds exactly those 17 for a person and passes the other 619. Crew:
+ * 1 held of 132. Named clusters are never auto-decided: a crew match that
+ * questions an existing label is a correction, and corrections stay human.
+ */
+export const AUTO_CONFIDENCE = 0.7;
+export const AUTO_MARGIN = 0.1;
+
+export type AutoVerdict =
+  | { auto: true }
+  | { auto: false; reason: "named" | "confidence" | "margin" };
+
+/** Pure: may this match be applied without a person? */
+export function decideAutoConfirm(
+  best: number,
+  runnerUp: number | null,
+  opts: { clusterNamed: boolean; confidence?: number; margin?: number }
+): AutoVerdict {
+  const line = opts.confidence ?? AUTO_CONFIDENCE;
+  const margin = opts.margin ?? AUTO_MARGIN;
+  if (opts.clusterNamed) return { auto: false, reason: "named" };
+  if (best < line) return { auto: false, reason: "confidence" };
+  if (runnerUp != null && best - runnerUp < margin) return { auto: false, reason: "margin" };
+  return { auto: true };
+}
+
+/** The strongest hit that is a DIFFERENT identity from the best (other
+ *  clusters of the same person do not compete with it). */
+export function guestRunnerUp(hits: MatchHit[], best: MatchHit, selfId: string): number | null {
+  for (const h of hits) {
+    if (h.matched_person_id === selfId) continue;
+    if (h.name_key === best.name_key) continue;
+    return h.similarity;
+  }
+  return null;
+}
+
+export function crewRunnerUp(hits: CrewHit[], best: CrewHit): number | null {
+  for (const h of hits) if (h.crew_id !== best.crew_id) return h.similarity;
+  return null;
+}
 
 export interface MatchHit {
   matched_person_id: string;
@@ -106,6 +163,8 @@ export interface ScanResult {
   refreshedCentroids: number;
   anonymousClusters: number;
   suggested: number;
+  /** Applied by the engine itself (AUTO_CONFIDENCE + AUTO_MARGIN); unreviewed. */
+  autoConfirmed: number;
   superseded: number;
   skippedDecided: number;
 }
@@ -234,6 +293,7 @@ export async function scanEventForIdentitySuggestions(
   const excludedKeys = await loadExcludedPersonKeys(supabase, userId);
 
   let suggested = 0;
+  let autoConfirmed = 0;
   let skippedDecided = 0;
   for (const cluster of clusters) {
     if (decided.has(cluster.id) || crewLinked.has(cluster.id)) {
@@ -262,7 +322,9 @@ export async function scanEventForIdentitySuggestions(
         // to nothing rather than to guest (named clusters get no guest pass).
         continue;
       }
-      const { error: upsertErr } = await supabase.from("person_identity_suggestions").upsert(
+      const { data: crewRow, error: upsertErr } = await supabase
+        .from("person_identity_suggestions")
+        .upsert(
         {
           user_id: userId,
           person_id: cluster.id,
@@ -277,9 +339,23 @@ export async function scanEventForIdentitySuggestions(
           status: "pending",
         },
         { onConflict: "person_id" }
-      );
+        )
+        .select("id")
+        .single();
       if (upsertErr) throw upsertErr;
       suggested += 1;
+      const crewVerdict = decideAutoConfirm(
+        crewBest.similarity,
+        crewRunnerUp((crewHits ?? []) as CrewHit[], crewBest),
+        { clusterNamed: cluster.name !== null }
+      );
+      if (crewVerdict.auto) {
+        const r = await decideOne(supabase, userId, crewRow.id, "confirm", {
+          teach: false,
+          decidedBy: "auto",
+        });
+        if (r.status === "confirmed") autoConfirmed += 1;
+      }
       continue;
     }
 
@@ -311,7 +387,9 @@ export async function scanEventForIdentitySuggestions(
       }
       continue;
     }
-    const { error: upsertErr } = await supabase.from("person_identity_suggestions").upsert(
+    const { data: guestRow, error: upsertErr } = await supabase
+      .from("person_identity_suggestions")
+      .upsert(
       {
         user_id: userId,
         person_id: cluster.id,
@@ -326,9 +404,30 @@ export async function scanEventForIdentitySuggestions(
         status: "pending",
       },
       { onConflict: "person_id" }
-    );
+      )
+      .select("id")
+      .single();
     if (upsertErr) throw upsertErr;
     suggested += 1;
+    const guestVerdict = decideAutoConfirm(
+      best.similarity,
+      guestRunnerUp((hits ?? []) as MatchHit[], best, cluster.id),
+      { clusterNamed: cluster.name !== null }
+    );
+    if (guestVerdict.auto) {
+      const r = await decideOne(supabase, userId, guestRow.id, "confirm", {
+        teach: false,
+        decidedBy: "auto",
+      });
+      if (r.status === "confirmed") autoConfirmed += 1;
+    }
+  }
+
+  // The engine's own confirms teach once per scan (lesson 93: never per row)
+  // and put group shots on cards, so the wall's snapshot is stale.
+  if (autoConfirmed > 0) {
+    await teachEvent(supabase, userId, eventId, "auto-scan");
+    await requestPeopleIndexRefresh(userId);
   }
 
   return {
@@ -336,6 +435,7 @@ export async function scanEventForIdentitySuggestions(
     refreshedCentroids,
     anonymousClusters: clusters.length,
     suggested,
+    autoConfirmed,
     superseded,
     skippedDecided,
   };

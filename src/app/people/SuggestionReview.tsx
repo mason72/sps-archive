@@ -39,6 +39,7 @@ export function SuggestionReview({
   onPrev,
   onNext,
   onClose,
+  copy,
 }: {
   card: ReviewCard;
   busy: boolean;
@@ -48,6 +49,9 @@ export function SuggestionReview({
   onPrev?: () => void;
   onNext?: () => void;
   onClose: () => void;
+  /** The auto-matched strip reviews a decision already made, so it asks a
+   *  different question of the same photos. */
+  copy?: { question: string; confirm: string; reject: string };
 }) {
   const [data, setData] = useState<{ cluster: Side; reference: Side | null } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -167,7 +171,7 @@ export function SuggestionReview({
         <div className="mb-6 flex shrink-0 flex-wrap items-start gap-x-6 gap-y-3">
           <div className="min-w-0 flex-1">
             <h2 className="font-editorial text-2xl text-stone-900">
-              Is this {card.suggestedName}?
+              {copy?.question ?? <>Is this {card.suggestedName}?</>}
             </h2>
             <p className="mt-1 text-[13px] text-stone-500">
               A face group at {card.eventName}
@@ -199,14 +203,14 @@ export function SuggestionReview({
               disabled={busy}
               className="px-3 py-2 text-[13px] text-stone-400 transition-colors hover:text-stone-600 disabled:opacity-40"
             >
-              Not them
+              {copy?.reject ?? "Not them"}
             </button>
             <button
               onClick={onConfirm}
               disabled={busy}
               className="bg-stone-900 px-5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-stone-700 disabled:opacity-40"
             >
-              Confirm
+              {copy?.confirm ?? "Confirm"}
             </button>
             <button
               onClick={onClose}
