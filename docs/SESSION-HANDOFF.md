@@ -4,7 +4,17 @@
 now. Read `CLAUDE.md` first for the invariants; this is the orientation: what
 Pixeltrunk is, what is in flight, and what the next session should pick up.
 
-Last substantive update: **2026-09-02**.
+Last substantive update: **2026-10-04** (identity auto-confirm; older sections below are from 2026-09-02).
+
+> **In flight, 2026-10-04: the archive-wide identity scan.** `npx tsx scripts/scan-identity-suggestions.ts --apply`
+> is running on the laptop (log: that session's scratchpad `archive-scan.log`), 530 galleries / 34,749 unnamed
+> groups, one per gallery per log line, ~132 groups/minute, ~4.4 h, started ~17:35 PT. It is idempotent: if it dies,
+> rerun it. Sure matches (≥0.70, runner-up ≥0.10 behind, unnamed group) name themselves and wait in the
+> **Auto-matched** strip on `/people` for "Looks right" or "Undo" (`docs/AI.md`, lesson 178, memory
+> `identity-auto-confirm`). At 30 minutes: 132 matched, 124 auto-confirmed, so expect ~1,000 cards in the strip.
+> **Next action:** when the scan ends, skim the strip for wrong names (Undo is a durable reject + un-teach), then
+> "All N look right". Run `npx tsx scripts/capacity-check.ts` first if anything feels slow; the scan adds no load
+> beyond one connection but the AI backlog (461k photos, ~18 days) is separate.
 
 > **Pixieset migration, current truth (2026-08-30).** 79 of 1,371 ingested.
 > Downloads run as in-page JS in Mason's real Chrome — the nightly autopilot is
