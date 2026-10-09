@@ -309,3 +309,13 @@ one command and it would have been the first correct answer.
 The guard now matches the real wording *and* the unrecognized-output branch
 fails closed (idle + shout) instead of open (spin), so the next wording drift
 costs five minutes of latency rather than a day of CPU.
+
+## Inngest plan (decided 2026-10-09)
+Inngest runs every background function in this app (AI index lane, faces, covers, zips, SPS pull + watchdog, and
+the ops crons that alarm). The free plan is 50k executions/month (an execution = one run plus one per step) and
+PAUSES everything at the quota. The Pixieset migration (1.25M photos ingested in the 30 days to 2026-10-09, fed
+through `ai-index` at ~6 executions per batch run) blew past it; Mason moved the account to Pro ($99/mo, 1M
+executions, metered overage $0.00005 each) rather than throttle the lane. Revisit when the migration finishes:
+the cron-only baseline is roughly 20k executions/month, which fits free. Oddity seen that day: `capacity-check`
+landed 48 snapshots/day on Oct 5-7 instead of 24, i.e. a second registered app was running the crons too;
+check the Apps page in the Inngest dashboard if executions look doubled.

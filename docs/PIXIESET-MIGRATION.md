@@ -253,6 +253,7 @@ Step 4: Verification
 - [ ] Sections/sets are correctly mapped
 - [ ] Spot-check 10-20 galleries visually — images load, quality correct
 - [ ] Test filename search works on imported images
+- [ ] After the migration: downgrade Inngest from Pro to free if monthly executions are back under 50k (docs/OPS.md, Inngest plan)
 - [ ] (Only if Modal/Inngest active) AI processing complete (stacks, embeddings, scores) and semantic search works
 - [ ] Back up the `pixieset-export/` folder to a second location (external drive or cloud)
 
