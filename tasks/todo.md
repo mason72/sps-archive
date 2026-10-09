@@ -81,13 +81,16 @@ owner's timezone (`users.timezone`, the guest-list route's convention).
 - [ ] 15. Docs: `docs/TECHNICAL.md` recap section, GOTCHAS (3-month SPS retention → the
       snapshot), CLAUDE.md one-liner, memory file, lessons.
 
-### Follow-ons (not this build, each its own task)
-- tdp-website: "questions to ask any headshot vendor" page in the site's own components
-  (`SiteChrome`, Plus Jakarta / Instrument Sans), linked from pricing and every proposal.
-- tdp-website: raw vs finished, from a staff session (consent first).
-- tdp-books: delivery guarantee line in proposals ("in their inbox within minutes of
-  their last frame", citing the measured median); the 11-month nudge for first-year
-  events (the annual radar only flags 2+ year series, so MangoMeet never fired).
+### Follow-ons (Mason's calls, 2026-10-09)
+- tdp-website: the buyer's question sheet, in the site's own components, linked from
+  pricing. Plus a site-wide copy review for SEO and for ways to set TDP apart, anchored
+  on ONE claim: what the website shows is what guests receive, and we can prove it
+  (a buyer may ask to see a live event page; a competitor cannot make the claim).
+- tdp-books: the 11-month nudge for first-year events (the annual radar only flags
+  2+ year series, so MangoMeet never fired).
+- DROPPED by Mason: raw-vs-finished staff shoot ("won't mean a ton to clients") and the
+  delivery-guarantee line in proposals ("by the time someone sees a proposal they have
+  usually verbally confirmed").
 - Later: a sample-gallery link on the pricing page once a client says yes.
 
 ## Auto-match: the identity engine confirms its own sure matches (2026-10-04)

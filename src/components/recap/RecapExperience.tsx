@@ -129,11 +129,11 @@ function dateRange(recap: SpsRecap | null, fallback: string | null): string | nu
   const tz = recap?.timezone ?? "America/Los_Angeles";
   const fmt = (d: string, opts: Intl.DateTimeFormatOptions) =>
     new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).format(new Date(d));
-  const a = new Date(first);
-  const b = new Date(last ?? first);
   const sameDay = fmt(first, { dateStyle: "medium" }) === fmt(last ?? first, { dateStyle: "medium" });
   if (sameDay) return fmt(first, { month: "short", day: "numeric", year: "numeric" });
-  const sameMonth = a.getUTCMonth() === b.getUTCMonth();
+  // Compared in the event's zone: AAOMS ran Sep 30 to Oct 2 local, which is
+  // Oct 1 to Oct 2 in UTC, and read "Sep 30–2, 2026" on first deploy.
+  const sameMonth = fmt(first, { month: "short" }) === fmt(last ?? first, { month: "short" });
   return sameMonth
     ? `${fmt(first, { month: "short", day: "numeric" })}–${fmt(last!, { day: "numeric", year: "numeric" })}`
     : `${fmt(first, { month: "short", day: "numeric" })} – ${fmt(last!, { month: "short", day: "numeric", year: "numeric" })}`;

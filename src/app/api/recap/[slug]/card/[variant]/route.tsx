@@ -27,9 +27,12 @@ const SIZES = {
 } as const;
 type Variant = keyof typeof SIZES;
 
+// Paper ground, ink type: a photographer's logo is almost always dark on
+// light, and the lead frames carry the color.
 const INK = "#0C0A09";
 const PAPER = "#FAFAF9";
-const DIM = "rgba(250,250,249,0.72)";
+const DIM = "#78716C";
+const RULE = "#E7E5E4";
 
 function headline(p: RecapPayload): string[] {
   const r = p.recap!;
@@ -72,54 +75,100 @@ export async function GET(
 
   const fonts = await loadCardFonts();
   const wide = variant === "wide";
+  try {
+    return await renderCard(p, variant as Variant, size, fonts, wide);
+  } catch (err) {
+    // satori's own errors are the useful part; Next's HTML 500 page hides them.
+    console.error("Recap card render failed:", err instanceof Error ? err.stack : err);
+    return NextResponse.json({ error: "Card could not be rendered" }, { status: 500 });
+  }
+}
+
+async function renderCard(
+  p: RecapPayload,
+  variant: Variant,
+  size: { width: number; height: number },
+  fonts: Awaited<ReturnType<typeof loadCardFonts>>,
+  wide: boolean
+) {
   const pad = Math.round(size.width * 0.055);
   const lines = headline(p);
-  const rows = stats(p, wide ? 4 : 2);
-  const frames = p.leads.slice(0, wide ? 4 : 2);
-  const headSize = wide ? 84 : 64;
+  const rows = stats(p, wide ? 4 : 3);
+  // Spread the picks across the pool so four faces are four different sessions.
+  const want = 4;
+  const step = Math.max(1, Math.floor(p.leads.length / want));
+  const frames = Array.from({ length: want }, (_, i) => p.leads[i * step]).filter(Boolean);
+  const headSize = wide ? 68 : 54;
 
-  return new ImageResponse(
+  const image = new ImageResponse(
     (
       <div
         style={{
           width: size.width,
           height: size.height,
           display: "flex",
-          background: INK,
-          color: PAPER,
+          background: PAPER,
+          color: INK,
           fontFamily: "Inter, sans-serif",
           position: "relative",
           overflow: "hidden",
         }}
       >
-        {/* Lead frames, tilted, bleeding off the edge */}
-        <div
-          style={{
-            position: "absolute",
-            right: wide ? -30 : -60,
-            top: wide ? -40 : undefined,
-            bottom: wide ? undefined : -80,
-            width: wide ? 560 : 520,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 18,
-            transform: "rotate(6deg)",
-          }}
-        >
-          {frames.map((f) => (
-            <img
-              key={f.id}
-              src={f.url}
-              width={wide ? 270 : 250}
-              height={wide ? 405 : 375}
-              style={{
-                objectFit: "cover",
-                objectPosition: `${f.focalX ?? 50}% ${f.focalY ?? 35}%`,
-                borderRadius: 6,
-              }}
-            />
-          ))}
-        </div>
+        {wide ? (
+          // Wide: a tilted 2×2 of lead frames bleeding off the right edge.
+          <div
+            style={{
+              position: "absolute",
+              top: -40,
+              right: -30,
+              width: 560,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 18,
+              transform: "rotate(6deg)",
+            }}
+          >
+            {frames.map((f) => (
+              <img
+                key={f.id}
+                src={f.url}
+                width={270}
+                height={405}
+                style={{
+                  objectFit: "cover",
+                  objectPosition: `${f.focalX ?? 50}% ${f.focalY ?? 35}%`,
+                  borderRadius: 6,
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          // Square: a straight strip of four across the lower half.
+          <div
+            style={{
+              position: "absolute",
+              left: pad,
+              right: pad,
+              bottom: pad,
+              display: "flex",
+              gap: 14,
+            }}
+          >
+            {frames.map((f) => (
+              <img
+                key={f.id}
+                src={f.url}
+                width={Math.floor((size.width - pad * 2 - 14 * 3) / 4)}
+                height={Math.floor(((size.width - pad * 2 - 14 * 3) / 4) * 1.7)}
+                style={{
+                  objectFit: "cover",
+                  objectPosition: `${f.focalX ?? 50}% ${f.focalY ?? 35}%`,
+                  borderRadius: 6,
+                }}
+              />
+            ))}
+          </div>
+        )}
 
         <div
           style={{
@@ -128,20 +177,20 @@ export async function GET(
             padding: pad,
             display: "flex",
             flexDirection: "column",
-            justifyContent: "space-between",
+            gap: wide ? 36 : 28,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
               {p.photographer.logoUrl ? (
-                <img src={p.photographer.logoUrl} height={wide ? 56 : 48} style={{ objectFit: "contain" }} />
+                <img src={p.photographer.logoUrl} width={wide ? 220 : 180} height={wide ? 56 : 46} style={{ objectFit: "contain", objectPosition: "left center" }} />
               ) : (
                 <div style={{ fontSize: 26, fontWeight: 600 }}>{p.photographer.businessName ?? ""}</div>
               )}
               {p.clientLogoUrl ? (
                 <>
                   <div style={{ color: DIM, fontSize: 22 }}>×</div>
-                  <img src={p.clientLogoUrl} height={wide ? 56 : 48} style={{ objectFit: "contain" }} />
+                  <img src={p.clientLogoUrl} width={wide ? 220 : 180} height={wide ? 56 : 46} style={{ objectFit: "contain", objectPosition: "left center" }} />
                 </>
               ) : null}
             </div>
@@ -157,9 +206,9 @@ export async function GET(
               fontFamily: "Playfair Display, serif",
               fontWeight: 700,
               fontSize: headSize,
-              lineHeight: 1.04,
-              letterSpacing: -2,
-              maxWidth: wide ? "62%" : "100%",
+              lineHeight: 1.06,
+              letterSpacing: -1.5,
+              maxWidth: wide ? "58%" : "100%",
             }}
           >
             {lines.map((l, i) => (
@@ -167,11 +216,11 @@ export async function GET(
             ))}
           </div>
 
-          <div style={{ display: "flex", gap: wide ? 64 : 48 }}>
+          <div style={{ display: "flex", gap: wide ? 56 : 44, paddingTop: 22, borderTop: `1px solid ${RULE}`, maxWidth: wide ? "58%" : "100%" }}>
             {rows.map((s, i) => (
               <div key={i} style={{ display: "flex", flexDirection: "column" }}>
-                <div style={{ fontSize: wide ? 40 : 36, fontWeight: 600, letterSpacing: -1 }}>{s.v}</div>
-                <div style={{ fontSize: wide ? 18 : 17, color: DIM, marginTop: 6 }}>{s.l}</div>
+                <div style={{ fontSize: wide ? 38 : 32, fontWeight: 600, letterSpacing: -1 }}>{s.v}</div>
+                <div style={{ fontSize: wide ? 17 : 16, color: DIM, marginTop: 6 }}>{s.l}</div>
               </div>
             ))}
           </div>
@@ -181,7 +230,10 @@ export async function GET(
     {
       ...size,
       fonts: fonts.length ? fonts : undefined,
-      headers: { "Cache-Control": "private, max-age=300" },
     }
   );
+  const png = await image.arrayBuffer();
+  return new NextResponse(png, {
+    headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=300" },
+  });
 }

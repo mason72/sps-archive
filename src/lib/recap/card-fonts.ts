@@ -22,8 +22,8 @@ const FACES: { name: string; weight: CardFont["weight"]; css: string }[] = [
   { name: "Inter", weight: 600, css: "https://fonts.googleapis.com/css2?family=Inter:wght@600" },
 ];
 
-// A user agent that Google Fonts answers with TTF (modern UAs get woff2, which
-// satori cannot read).
+// A user agent old enough that Google Fonts answers with WOFF (modern UAs get
+// woff2, which satori cannot read).
 const TTF_UA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:5.0) Gecko/20100101 Firefox/5.0";
 
 let cached: Promise<CardFont[]> | null = null;
@@ -34,7 +34,8 @@ async function fetchFace(face: (typeof FACES)[number]): Promise<CardFont | null>
       headers: { "User-Agent": TTF_UA },
       signal: AbortSignal.timeout(8000),
     }).then((r) => (r.ok ? r.text() : ""));
-    const url = /src:\s*url\(([^)]+\.ttf)\)/.exec(css)?.[1];
+    // satori reads TTF, OTF and WOFF (not woff2); Google answers this UA with WOFF.
+    const url = /src:\s*url\(([^)]+\.(?:ttf|otf|woff))\)/.exec(css)?.[1];
     if (!url) return null;
     const data = await fetch(url, { signal: AbortSignal.timeout(8000) }).then((r) =>
       r.ok ? r.arrayBuffer() : null
