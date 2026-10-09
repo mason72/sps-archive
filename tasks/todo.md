@@ -73,13 +73,41 @@ owner's timezone (`users.timezone`, the guest-list route's convention).
       the brand, as the gallery does.
 
 ### Verify (the loop)
-- [ ] 13. vitest (SPS aggregation fixture, PT card renderer, floor), `npm run typecheck`,
+- [x] 13. vitest (SPS aggregation fixture, PT card renderer, floor), `npm run typecheck`,
       build in a worktree. Live-event + upload gate on BOTH repos before any push.
-- [ ] 14. Push SPS, confirm the recap route live for Oktane. Push PT, watch the deploy,
+- [x] 14. Push SPS, confirm the recap route live for Oktane. Push PT, watch the deploy,
       snapshot Oktane via "Refresh numbers", send the share email to Mason's own
       address with the card, open `/recap/<slug>` in his Chrome, export both cards.
-- [ ] 15. Docs: `docs/TECHNICAL.md` recap section, GOTCHAS (3-month SPS retention → the
+- [x] 15. Docs: `docs/TECHNICAL.md` recap section, GOTCHAS (3-month SPS retention → the
       snapshot), CLAUDE.md one-liner, memory file, lessons.
+
+### Review (2026-10-09, shipped as f28eaf9 … 6e283ea on sps-archive, 309a5876 + 30e9e961 on spsv2, 0bdd7b6 on tdp-website)
+- Live and verified on production: `/recap/8LusjT89tl` (WebexOne, co-branded Cisco × TDP, 1,067
+  people), `/recap/0_wiEiSq94` (AAOMS), both PNG cards, the email card in Mason's own composer,
+  the share-page panel (people, galleries, inbox, opened, refresh, client logo, preview link).
+- Found on the way, all fixed: middleware had the page behind login; satori threw on an
+  undefined style key; Google served WOFF not TTF; UTC month compare printed "Sep 30–2";
+  Intl printed "Oct 6–2026 (Day: 8)"; the mosaic ran 1,400px tall on an iPad; the recap said
+  "retouched" where the site says nobody needs retouching; the share page loaded all 10,208
+  photos to show a form (a minute on "Loading…", now `?scope=event`).
+- Leads with people, not sign-ins (lesson 181): WebexOne 788 entries vs 1,067 people. The SPS
+  guest-list spreadsheet was 13 people short on WebexOne (unpaged `share_links`, 1,000-row
+  cap); fixed in spsv2 `guest-list.ts`.
+- tdp-website: `/what-to-ask` live, linked from every service's pricing fine print, the quote
+  rail and the contact FAQ; eight meta descriptions trimmed; OG blocks on seven pages;
+  `#faq` anchor exists; alt text on tile and step photos; contact FAQ schema; the headshot
+  booth gained "Named and searchable" and the measured-speed FAQ.
+- Open for Mason: (a) `/quote` has had no nav or footer since launch by accident of the old
+  `/q` prefix test, kept as-is; decide whether the ads lander wants chrome. (b) Where check-in
+  entries exceed merged people (AAOMS: 540 sits, 528 people) the pages read 528; "lead with
+  the larger number" was said about WebexOne, where people IS the larger number.
+  (c) Share-page guest-list attachment from an earlier session shows "link isn't recoverable,
+  create a new link": friction right before a send; worth a one-click re-link.
+  (d) The email card headline says "finished headshot"; make it "finished gallery" for
+  non-headshot events, or read the event type.
+- Not exercised live: Undo on the client logo, a password-locked recap page (the AAOMS and
+  WebexOne shares are open), the pull-finish hook on a brand-new pull (both snapshots were
+  taken by hand through the same function).
 
 ### Follow-ons (Mason's calls, 2026-10-09)
 - tdp-website: the buyer's question sheet, in the site's own components, linked from
