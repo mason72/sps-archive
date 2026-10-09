@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { detectNaming, type PlanImage } from "@/lib/sections/auto-plan";
+import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
+import { rebuildKeepReason, type ExistingSectionFate } from "@/lib/sections/rebuild";
 
 export const runtime = "nodejs";
 
@@ -12,6 +14,12 @@ export const runtime = "nodejs";
  * person-named, suggested mode + target). The client runs the SAME pure
  * `planAutoSections` locally so the slider updates instantly, then POSTs the
  * chosen config to /auto-sections to apply. Ownership-scoped.
+ *
+ * Also returns `existing`: every current section except the intake, with the
+ * fate the apply will give it — `keep` (and why) or null for replaced — from
+ * the SAME rule the apply uses (src/lib/sections/rebuild.ts), so the dialog
+ * lists exactly what is about to go. Highlights carries its photo count: a
+ * filled Highlights is kept as is, and the dialog must not promise new picks.
  */
 export async function GET(
   request: NextRequest,
@@ -52,7 +60,35 @@ export async function GET(
       offset += 1000;
     }
 
-    return NextResponse.json({ images, detection: detectNaming(images) });
+    const { data: sections, error: secErr } = await supabase
+      .from("sections")
+      .select("id, name, locked, filter_query, site_scene_key, sort_order")
+      .eq("event_id", eventId)
+      .order("sort_order", { ascending: true });
+    if (secErr) throw secErr;
+    const existing: ExistingSectionFate[] = await Promise.all(
+      (sections ?? [])
+        .filter((s) => s.name.trim().toLowerCase() !== INTAKE_SECTION_NAME.toLowerCase())
+        .map(async (s) => {
+          const { count } = await supabase
+            .from("section_images")
+            .select("*", { count: "exact", head: true })
+            .eq("section_id", s.id);
+          return {
+            id: s.id,
+            name: s.name,
+            imageCount: count ?? 0,
+            keep: rebuildKeepReason({
+              name: s.name,
+              locked: s.locked,
+              filterQuery: s.filter_query,
+              siteSceneKey: s.site_scene_key,
+            }),
+          };
+        })
+    );
+
+    return NextResponse.json({ images, detection: detectNaming(images), existing });
   } catch (error) {
     console.error("Section-plan error:", error);
     return NextResponse.json({ error: "Failed to build section plan" }, { status: 500 });

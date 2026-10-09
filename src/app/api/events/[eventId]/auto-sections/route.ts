@@ -7,6 +7,7 @@ import {
   type PlanImage,
 } from "@/lib/sections/auto-plan";
 import { CURATED_SECTION_NAME, INTAKE_SECTION_NAME } from "@/lib/sections/intake";
+import { rebuildKeepReason } from "@/lib/sections/rebuild";
 import { clampHighlightCount } from "@/lib/highlights/auto-fill";
 
 export const runtime = "nodejs";
@@ -25,10 +26,13 @@ const MAX_SECTIONS = 60;
  *   { mode: "letter" | "per-person" | "even", target: number, stacks?: boolean,
  *     highlights?: number }
  *
- * Wipes the event's existing AUTO sections (is_auto=true) and rebuilds them
- * from the deterministic plan; manual sections (Highlights, anything the
- * photographer made) are never touched. Additive: images join the new
- * sections, keeping any existing membership. Returns the updated section list.
+ * REPLACES the event's existing sections with the deterministic plan. What
+ * survives is decided by ONE rule shared with the preview endpoint,
+ * `rebuildKeepReason` (src/lib/sections/rebuild.ts): Highlights, locked
+ * sections, smart sections and website-lane sections stay; everything else,
+ * including the sets a Pixieset migration filed, goes. Additive for the
+ * survivors: images keep any membership there. Returns the updated section
+ * list.
  *
  * `highlights: N` also puts a Highlights section FIRST and asks for it to be
  * filled with N picks once AI indexing settles (src/lib/highlights/auto-fill.ts).
@@ -139,23 +143,43 @@ export async function POST(
       );
     }
 
-    // Wipe existing AUTO sections (cascade removes their section_images);
-    // manual sections (is_auto=false) are untouched.
-    const { error: delErr } = await supabase
+    // Replace what the rule says to replace (cascade removes section_images).
+    // The intake is consumed LAST, below, so a failure mid-insert never leaves
+    // the event sectionless; every other replaced section goes first because
+    // the plan may reuse its name (names are unique per event, migration 048).
+    const { data: existingSections, error: exErr } = await supabase
       .from("sections")
-      .delete()
-      .eq("event_id", eventId)
-      .eq("is_auto", true);
-    if (delErr) throw delErr;
+      .select("id, name, locked, filter_query, site_scene_key, sort_order")
+      .eq("event_id", eventId);
+    if (exErr) throw exErr;
+    const replacedIds = (existingSections ?? [])
+      .filter(
+        (s) =>
+          rebuildKeepReason({
+            name: s.name,
+            locked: s.locked,
+            filterQuery: s.filter_query,
+            siteSceneKey: s.site_scene_key,
+          }) === null && s.name.trim().toLowerCase() !== INTAKE_SECTION_NAME.toLowerCase()
+      )
+      .map((s) => s.id);
+    if (replacedIds.length > 0) {
+      const { error: delErr } = await supabase
+        .from("sections")
+        .delete()
+        .eq("event_id", eventId)
+        .in("id", replacedIds);
+      if (delErr) throw delErr;
+    }
 
-    // Place new sections after any manual ones.
-    const { data: lastManual } = await supabase
+    // Place new sections after the survivors.
+    const { data: lastKept } = await supabase
       .from("sections")
       .select("sort_order")
       .eq("event_id", eventId)
       .order("sort_order", { ascending: false })
       .limit(1);
-    let nextSort = (lastManual?.[0]?.sort_order ?? -1) + 1;
+    let nextSort = (lastKept?.[0]?.sort_order ?? -1) + 1;
 
     for (const section of plan) {
       const { data: created, error: secErr } = await supabase
@@ -191,7 +215,7 @@ export async function POST(
 
     // Consume the "Unsorted" intake — the smart sections cover every image in
     // the event, so its photos are now safely sectioned and the dump can go.
-    // (Cascade drops its section_images; Highlights + manual sections stay.)
+    // (Cascade drops its section_images; the survivors above stay.)
     await supabase
       .from("sections")
       .delete()
@@ -241,7 +265,12 @@ export async function POST(
       })
     );
 
-    return NextResponse.json({ sections: enriched, created: plan.length, highlights });
+    return NextResponse.json({
+      sections: enriched,
+      created: plan.length,
+      replaced: replacedIds.length,
+      highlights,
+    });
   } catch (error) {
     console.error("Auto-sections error:", error);
     await reportSystemError("sections.auto-generate", error, { eventId: eventIdForReport });
@@ -261,6 +290,7 @@ async function ensureHighlights(
   eventId: string,
   count: number
 ): Promise<{ status: "waiting" | "kept"; count?: number }> {
+  // `count` is the picks requested when waiting, the photos kept when kept.
   const { data: first, error: firstErr } = await supabase
     .from("sections")
     .select("sort_order")
@@ -307,5 +337,5 @@ async function ensureHighlights(
     )
     .eq("id", existing.id);
   if (error) throw error;
-  return arm ? { status: "waiting", count } : { status: "kept" };
+  return arm ? { status: "waiting", count } : { status: "kept", count: members ?? 0 };
 }

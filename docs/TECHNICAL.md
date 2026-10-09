@@ -91,7 +91,7 @@ Gallery organization units. **Every event has at least one; the seed section is 
 | name | text | "Ceremony", "Highlights" |
 | description | text? | |
 | sort_order | int | Display sequence |
-| is_auto | boolean | AI-generated vs manual (manual only, today) |
+| is_auto | boolean | Provenance: made by "Sort into sections". NOT what a rebuild deletes by — that is `rebuildKeepReason` (`src/lib/sections/rebuild.ts`: Highlights, locked, smart, website-lane survive; all else is replaced) |
 | filter_query | text? | Scene tag for auto sections (*AI: dormant*) |
 | created_at | timestamptz | |
 

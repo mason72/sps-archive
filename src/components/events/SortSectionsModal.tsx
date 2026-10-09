@@ -17,6 +17,7 @@ import {
   MIN_HIGHLIGHTS,
   suggestedHighlightCount,
 } from "@/lib/highlights/limits";
+import { KEEP_REASON_LABEL, type ExistingSectionFate } from "@/lib/sections/rebuild";
 
 interface SectionLite {
   id: string;
@@ -105,6 +106,12 @@ export function SortSectionsModal({
   const [loading, setLoading] = useState(true);
   const [images, setImages] = useState<PlanImage[]>([]);
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
+  // Every current section (bar the intake) with the fate the apply gives it —
+  // computed server-side by the SAME rule the apply uses, so the "Replaces …"
+  // list below is a promise the sort keeps. Before this list existed, the
+  // dialog said "3 sections" and the gallery ended up with eleven (MangoMeet,
+  // 2026-10-09): the migrated Pixieset sets counted as "your own" and stayed.
+  const [existing, setExisting] = useState<ExistingSectionFate[]>([]);
   const [mode, setMode] = useState<UiMode>("letter");
   const [target, setTarget] = useState(300);
   const [stacks, setStacks] = useState(false);
@@ -139,10 +146,15 @@ export function SortSectionsModal({
       try {
         const res = await fetch(`/api/events/${eventId}/section-plan`);
         if (!res.ok) throw new Error();
-        const data = (await res.json()) as { images: PlanImage[]; detection: DetectionSummary };
+        const data = (await res.json()) as {
+          images: PlanImage[];
+          detection: DetectionSummary;
+          existing?: ExistingSectionFate[];
+        };
         const d = data.detection;
         setImages(data.images);
         setDetection(d);
+        setExisting(data.existing ?? []);
         if (!initializedRef.current) {
           initializedRef.current = true;
           // Default stacking on for big person-named jobs — collapses the count.
@@ -281,6 +293,16 @@ export function SortSectionsModal({
 
   const tooMany = mode !== "scenes" && planned.length > 60;
 
+  // What the rebuild does to the sections already there.
+  const replaced = existing.filter((e) => e.keep === null);
+  const keptOthers = existing.filter((e) => e.keep !== null && e.keep !== "highlights");
+  const existingHighlights = existing.find((e) => e.keep === "highlights") ?? null;
+  // A filled Highlights (hand-picked, or the machine's picks a person may have
+  // edited) is kept as is; the sort never re-picks. The toggle then only moves
+  // it to the front, so the slider has nothing to set and is hidden.
+  const highlightsFilled = (existingHighlights?.imageCount ?? 0) > 0;
+  const highlightsRowShown = withHighlights || highlightsFilled;
+
   // Default the count from the event's size, using the generator's own rule.
   // It counts PHOTOS here (the review counts moments, which needs capture
   // times), so it can suggest a little higher than the review would.
@@ -308,10 +330,12 @@ export function SortSectionsModal({
       const data = (await res.json()) as {
         sections: SectionLite[];
         created: number;
+        replaced?: number;
         highlights?: { status: "waiting" | "kept" | "failed"; count?: number } | null;
       };
       onApplied(data.sections);
-      toast.success(`Created ${data.created} section${data.created === 1 ? "" : "s"}`, {
+      const replacedNote = data.replaced ? ` · replaced ${data.replaced}` : "";
+      toast.success(`Created ${data.created} section${data.created === 1 ? "" : "s"}${replacedNote}`, {
         description: highlightsToastLine(data.highlights),
       });
       onClose();
@@ -507,8 +531,9 @@ export function SortSectionsModal({
                       Include a Highlights section
                     </span>
                     <span className="block text-[10px] text-stone-400">
-                      The best picks, first in line. Chosen automatically once AI
-                      finishes reading the photos.
+                      {highlightsFilled
+                        ? `Your ${existingHighlights!.imageCount.toLocaleString()} picks stay as they are, first in line. Re-pick from inside Highlights.`
+                        : "The best picks, first in line. Chosen automatically once AI finishes reading the photos."}
                     </span>
                   </span>
                   <span
@@ -525,7 +550,7 @@ export function SortSectionsModal({
                     />
                   </span>
                 </button>
-                {withHighlights && (
+                {withHighlights && !highlightsFilled && (
                   <div className="border-t border-stone-100 px-3 pb-3 pt-2.5">
                     <label className="mb-1.5 block text-[12px] font-medium text-stone-700">
                       {effectiveHighlightCount} highlights
@@ -552,7 +577,9 @@ export function SortSectionsModal({
                 <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-400">
                   {mode === "scenes" && sceneLoading
                     ? "Reading your photos…"
-                    : `${previewSections.length} section${previewSections.length === 1 ? "" : "s"}`}
+                    : `${previewSections.length + (highlightsRowShown ? 1 : 0)} section${
+                        previewSections.length + (highlightsRowShown ? 1 : 0) === 1 ? "" : "s"
+                      }`}
                 </p>
                 {mode === "scenes" && sceneError ? (
                   <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-[12px] text-amber-700">
@@ -570,11 +597,13 @@ export function SortSectionsModal({
                   </p>
                 ) : (
                   <div className="max-h-52 space-y-1 overflow-y-auto">
-                    {withHighlights && (
+                    {highlightsRowShown && (
                       <div className="flex items-center justify-between rounded-md bg-stone-50 px-3 py-2 text-[12px]">
                         <span className="font-medium text-stone-800">Highlights</span>
                         <span className="text-stone-400">
-                          {effectiveHighlightCount} picks · after AI
+                          {highlightsFilled
+                            ? `${existingHighlights!.imageCount.toLocaleString()} photos · kept`
+                            : `${effectiveHighlightCount} picks · after AI`}
                         </span>
                       </div>
                     )}
@@ -599,13 +628,54 @@ export function SortSectionsModal({
                   </div>
                 )}
               </div>
+
+              {/* What happens to the sections already there. Named, so a
+                  rebuild never surprises — the apply deletes exactly this list. */}
+              {(replaced.length > 0 || keptOthers.length > 0) && (
+                <div className="mt-4 space-y-2.5">
+                  {replaced.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400">
+                        Replaces {replaced.length} section{replaced.length === 1 ? "" : "s"}
+                      </p>
+                      <p className="text-[12px] leading-relaxed text-stone-500">
+                        {replaced.map((e, i) => (
+                          <span key={e.id}>
+                            {i > 0 && <span className="text-stone-300"> · </span>}
+                            <span className="line-through decoration-stone-300">{e.name}</span>
+                            <span className="text-stone-400"> {e.imageCount.toLocaleString()}</span>
+                          </span>
+                        ))}
+                      </p>
+                    </div>
+                  )}
+                  {keptOthers.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400">
+                        Keeps {keptOthers.length} section{keptOthers.length === 1 ? "" : "s"}
+                      </p>
+                      <p className="text-[12px] leading-relaxed text-stone-500">
+                        {keptOthers.map((e, i) => (
+                          <span key={e.id}>
+                            {i > 0 && <span className="text-stone-300"> · </span>}
+                            {e.name}
+                            <span className="text-stone-400"> · {KEEP_REASON_LABEL[e.keep!]}</span>
+                          </span>
+                        ))}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Footer */}
             <div className="flex items-center justify-between border-t border-stone-100 px-6 py-4">
               <p className="max-w-[55%] text-[11px] leading-tight text-stone-400">
-                Creates these sections and clears out Unsorted. Hand-picked
-                Highlights and your own sections stay put.
+                {replaced.length > 0
+                  ? `Creates these sections, clears out Unsorted and replaces the ${replaced.length} above. `
+                  : "Creates these sections and clears out Unsorted. "}
+                Highlights, locked and smart sections stay put.
               </p>
               <div className="flex items-center gap-3">
                 <button
@@ -661,7 +731,10 @@ function highlightsToastLine(
   h: { status: "waiting" | "kept" | "failed"; count?: number } | null | undefined
 ): string | undefined {
   if (!h) return undefined;
-  if (h.status === "kept") return "Your existing Highlights were kept and moved to the front.";
+  if (h.status === "kept")
+    return `Your existing Highlights${
+      h.count ? ` (${h.count.toLocaleString()} photos)` : ""
+    } were kept and moved to the front.`;
   if (h.status === "failed") return "Highlights couldn't be set up. Add it from the sidebar instead.";
   return `Highlights (${h.count} picks) fills itself once AI finishes reading the photos.`;
 }

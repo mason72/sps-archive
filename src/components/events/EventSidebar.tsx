@@ -834,7 +834,7 @@ function SectionsPanel({
                 </span>
                 <span className="block text-[10px] leading-tight text-stone-400">
                   {hasOrganisedSections
-                    ? "Re-sorts the whole gallery · keeps your own sections"
+                    ? "Re-sorts the whole gallery · keeps Highlights & locked sections"
                     : "Group these photos by person, name or size"}
                 </span>
               </span>
