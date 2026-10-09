@@ -254,6 +254,74 @@ Four things that make this endpoint unlike the three above:
 - **It is a read, with no `pulled` counterpart.** Nothing is released on the SPS
   side, so the ordering rule above does not apply and the call is safe to repeat.
 
+### `GET /events/{eventId}/recap`
+
+Added 2026-10-09. The delivery recap: what SPS knows about how the event's
+photos reached its guests, as **aggregates only**. Pixeltrunk snapshots it into
+`events.recap` when a pull finishes and may refresh it from the share page while
+SPS still has the event (SPS deletes an event ~3 months after it completes; the
+archive keeps this for years). Shape is `src/lib/recap/types.ts` here and
+`apps/admin/src/lib/archive-recap.ts` there; `normalizeRecap()` is the one
+reader on this side.
+
+```json
+{
+  "version": 1,
+  "generatedAt": "2026-10-09T21:25:26.571Z",
+  "timezone": "America/Los_Angeles",
+  "eventName": "Oktane 2026",
+  "firstCapture": "2026-09-22T20:00:07.536Z",
+  "lastCapture": "2026-09-24T19:21:48.729Z",
+  "guestsCheckedIn": 704,
+  "photos": 5119,
+  "aiRenders": 0,
+  "linksSent": 762,
+  "recipients": 580,
+  "linksOpened": 601,
+  "totalOpens": 2325,
+  "lastFrameToSend": { "medianSec": 45, "p90Sec": 181, "under60s": 394, "under300s": 589, "measured": 621 },
+  "hours": [ { "startsAt": "2026-09-22T13:00:00-07:00", "sent": 2, "opened": 2 } ]
+}
+```
+
+What each number is, as SPS computes it (one SQL function,
+`archive_event_recap(event_id, tz)`, migration `20261009210000`, so the route
+makes one round trip and no `share_links` row ever reaches application code):
+
+- `guestsCheckedIn`: `check_in_entries` for the event.
+- `photos` / `aiRenders`: `images` split on `source_image_id` (NULL = camera
+  frame), every processing status. `firstCapture` / `lastCapture` are the camera
+  frames' min and max `created_at`.
+- `linksSent`: **guest shares of every method** (email, SMS and QR), excluding
+  only the host's own `link` rows. Oktane's 762 is 623 email + 139 QR.
+  `recipients` is distinct email-else-phone; a QR link with neither carries no
+  recipient.
+- `linksOpened` / `totalOpens`: from `access_count`. Since 2026-10-08 SPS counts
+  the visit at lookup, so a retried page load counts twice: `totalOpens` is an
+  upper bound, `linksOpened` is not affected.
+- `lastFrameToSend`: **email links only**, seconds from the newest frame in the
+  link to the link's creation; negative (booth clock skew) clamps to 0.
+  `measured` is the links the timing could be taken on: a link whose frames have
+  since been deleted is left out, not counted as 0 (Oktane: 621 of 623).
+  `medianSec` / `p90Sec` are null when `measured` is 0.
+- `hours`: one bucket per local hour with at least one send, ascending, in the
+  owner's `users.timezone` (fallback America/Los_Angeles). `startsAt` carries
+  the owner's offset, derived per bucket, so the reader never converts and the
+  first ten characters are the local date. The list covers every send, including
+  stragglers days after the event; sum of `sent` equals `linksSent`.
+
+Three things that make this endpoint unlike the guest list:
+
+- **No account gate.** Counts and durations are not PII; any connected account
+  reads its own events' recap. The ownership filter still applies: not-found
+  and not-yours are the same 404.
+- **Nothing identifying can enter the payload by accident.** SPS's route
+  validates the function's output before returning it and refuses (500, reason
+  in its log, nothing in the response) if any key named `email`, `phone`,
+  `name`, `image_ids`, `token` or `id` appears at any depth.
+- **It is a read, safe to repeat**, and `generatedAt` says when SPS computed it.
+  A 404 after SPS's retention window means "keep what is stored".
+
 ## Timing
 
 SPS holds an unclaimed `archive.jpg` for **30 days** from upload, then releases

@@ -1,5 +1,95 @@
 # Pixeltrunk - Build Plan
 
+## Delivery recap: email card + co-branded recap page (2026-10-09)
+
+Why: MangoMeet went to a cheaper vendor after a year with us, and the buyer never
+saw what they had bought. Mason's calls (2026-10-09): the recap is a PIXELTRUNK
+feature wearing the photographer's brand; buyer-facing copy belongs in tdp-website;
+ship the email card and the recap page together; the paste-ready cards live ON the
+page; the page gets motion, parallax and real infographics. No cheap tier, ever.
+No competitor is named anywhere. Comps: https://claude.ai/artifact/UTWBvkdos3MLaimj1XgHnn
+
+Measured on Oktane 2026 (SPS + archive, read-only): 704 checked in, 5,119 photos,
+762 links to 580 people, 601 opened (79%), 2,325 opens; last frame → inbox median
+45 s, 63% under a minute, 95% under five. WebexOne median 34 s. These are the
+numbers the product prints; nothing is estimated.
+
+Data facts that shape the build: SPS deletes events ~3 months after completion, so
+the recap must be SNAPSHOTTED into the archive, not read live. SPS has the delivery
+facts (`check_in_entries`, `share_links.created_at/access_count`, image capture
+times); the archive has the gallery facts (photos, names, sections). The recap API
+returns AGGREGATES ONLY, never a guest name or email. Hours are bucketed in the SPS
+owner's timezone (`users.timezone`, the guest-list route's convention).
+
+### SPS (spsv2)
+- [ ] 1. `GET /api/integrations/archive/events/[eventId]/recap` beside guest-list:
+      `authenticateArchiveRequest` + `user_id` ownership filter (not-yours = 404).
+      Payload: guestsCheckedIn, photos (originals), aiRenders, linksSent, recipients,
+      linksOpened, totalOpens, lastFrameToSend {medianSec, p90Sec, under60s, under300s},
+      hours[{startsAt, sent, opened}], timezone, firstCapture, lastCapture, generatedAt.
+      Pure aggregation in `lib/archive-recap.ts` with a vitest fixture (Oktane shape).
+- [ ] 2. Live-event gate, push, confirm the route answers for Oktane 2026 with the token.
+
+### Pixeltrunk — data
+- [ ] 3. Migration 095: `events.recap jsonb`, `events.recap_fetched_at timestamptz`.
+- [ ] 4. `fetchRecap(token, spsEventId)` in `pull-client.ts` (token stays in headers).
+      Snapshot at the pull's `finish` step; "Refresh numbers" on the share page re-fetches
+      while SPS still has the event; a 404 from SPS keeps the last snapshot.
+- [ ] 5. `src/lib/recap/`: `normalizeRecap()` (one parse point, like cover settings),
+      `recapFloor()` (card only when guests ≥ 20 and links ≥ 20; below it the page still
+      exists for the owner, the email stays clean), `recapCopy()` (the headline sentence).
+
+### Pixeltrunk — email card (A)
+- [ ] 6. `recapCard()` in `src/lib/email/shell.ts`, after the gallery block: eyebrow,
+      headline, four tiles (guests · photos · last frame → inbox · opened), sent/opened
+      bar chart as table cells (SVG does not survive Gmail), "See the full recap" button
+      to the page. Table markup, inline styles, Outlook-safe like the CTA. Tests in
+      `shell.test.ts`: renders with a recap, omits below the floor, omits with none.
+- [ ] 7. Composer (`/events/[eventId]/share`): "Include the delivery recap" toggle,
+      default on when the floor passes; `includeRecap` to `/api/emails/send`; the
+      preview shares the renderer, so the toggle shows the card before sending.
+
+### Pixeltrunk — recap page (B, with the paste-ready cards)
+- [ ] 8. `/recap/[slug]`: resolves the share like `/gallery/[slug]` (password and expiry
+      inherit; owner views excluded from counts as everywhere). Reads event, recap
+      snapshot, photographer branding (`user_profiles.logo_url/business_name`), client
+      logo (`settings.recap.clientLogoKey`, uploaded from the share page; the slot reads
+      "Add your logo" until then, so a sponsor mark appears only when the client puts it
+      there), and 8 lead frames through the share's scope (signed URLs, like the gallery).
+- [ ] 9. Motion: count-up on the hero number, the delivery curve draws, mosaic layers
+      parallax on scroll (transform only, no layout), sections reveal from a VISIBLE
+      resting state, everything stills under `prefers-reduced-motion`.
+- [ ] 10. Infographics (one scale each, one axis, no dual axes): deliveries per hour
+      sent vs opened; last frame → inbox distribution (≤30 s / ≤1 min / ≤2 min / ≤5 min /
+      longer); photos per guest; day split. Direct labels, legend for two series, text in
+      ink tokens never series color.
+- [ ] 11. Paste-ready cards: wide (1600×840) and square (1080×1080) PNGs composed in the
+      existing `cover-raster` Inngest lane (sharp; pool.ts stays sharp-free), stored
+      beside the cover, served through a share-gated route like the cover. Buttons on
+      the page: Download / Copy image. Typography + logos + numbers + the lead frames.
+- [ ] 12. Branding: photographer's logo and name everywhere, "Recap by Pixeltrunk" in the
+      footer, co-brand lockup top and bottom. Pixeltrunk's own design system for the
+      chrome (stone, Inter, Playfair for the headline); the photographer's logo supplies
+      the brand, as the gallery does.
+
+### Verify (the loop)
+- [ ] 13. vitest (SPS aggregation fixture, PT card renderer, floor), `npm run typecheck`,
+      build in a worktree. Live-event + upload gate on BOTH repos before any push.
+- [ ] 14. Push SPS, confirm the recap route live for Oktane. Push PT, watch the deploy,
+      snapshot Oktane via "Refresh numbers", send the share email to Mason's own
+      address with the card, open `/recap/<slug>` in his Chrome, export both cards.
+- [ ] 15. Docs: `docs/TECHNICAL.md` recap section, GOTCHAS (3-month SPS retention → the
+      snapshot), CLAUDE.md one-liner, memory file, lessons.
+
+### Follow-ons (not this build, each its own task)
+- tdp-website: "questions to ask any headshot vendor" page in the site's own components
+  (`SiteChrome`, Plus Jakarta / Instrument Sans), linked from pricing and every proposal.
+- tdp-website: raw vs finished, from a staff session (consent first).
+- tdp-books: delivery guarantee line in proposals ("in their inbox within minutes of
+  their last frame", citing the measured median); the 11-month nudge for first-year
+  events (the annual radar only flags 2+ year series, so MangoMeet never fired).
+- Later: a sample-gallery link on the pricing page once a client says yes.
+
 ## Auto-match: the identity engine confirms its own sure matches (2026-10-04)
 
 Mason's decision (card, 2026-10-04): auto-confirm at 0.70 with a review strip.

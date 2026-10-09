@@ -5,6 +5,8 @@ import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveShareCoverUrl } from "@/lib/cover/resolve-share-cover";
 import { hashToken, readGuestList } from "@/lib/guest-list/store";
+import { normalizeRecap, recapPassesFloor } from "@/lib/recap/normalize";
+import type { SpsRecap } from "@/lib/recap/types";
 import { timingSafeEqual } from "node:crypto";
 
 // node:crypto + Buffer below. This is the default, but the guest-list token
@@ -29,6 +31,9 @@ function constantTimeEquals(a: string, b: string): boolean {
  *  - bodyHtml: string (rendered HTML)
  *  - eventId?: string
  *  - templateId?: string
+ *  - includePassword?, includePin?, includeRecap?: boolean (requests only;
+ *    every value printed is read server-side from the owner's own rows)
+ *  - guestListToken?, guestListMessage?: string
  *
  * Currently logs the send and records it in email_sends.
  * Actual delivery via Resend/SendGrid can be added by configuring
@@ -66,6 +71,12 @@ export async function POST(request: NextRequest) {
       typeof body.guestListMessage === "string"
         ? body.guestListMessage.slice(0, 300)
         : null;
+    // The delivery recap card. Defaults ON, and like the credentials this is
+    // only the REQUEST: the numbers are read below from the owner's own event
+    // row (`events.recap`, the archive's snapshot of SPS), never from the
+    // composer's payload, so a compromised composer cannot mail a client
+    // invented statistics styled as the studio's own.
+    const includeRecap = body.includeRecap !== false;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
@@ -198,10 +209,11 @@ export async function POST(request: NextRequest) {
     let emailPassword: string | null = null;
     let guestListUrl: string | null = null;
     let guestListFile: { filename: string; sizeBytes: number } | null = null;
+    let emailRecap: { data: SpsRecap; url: string } | null = null;
     if (eventId) {
       const { data: event } = await supabase
         .from("events")
-        .select("name, settings")
+        .select("name, settings, recap")
         .eq("id", eventId)
         .eq("user_id", user!.id)
         .single();
@@ -255,6 +267,25 @@ export async function POST(request: NextRequest) {
           );
         }
       }
+
+      // The recap rides only with a verified share: its CTA is the recap
+      // page keyed by that share's slug, and a card about a gallery the email
+      // does not link to is a non sequitur. `recapPassesFloor` is the other
+      // gate: below 20 guests and 20 galleries the numbers are a job well
+      // done, not a story, and "12 guests, 7 opened" is not what a client
+      // email should lead with. The recap page still shows any size to the
+      // owner; the floor only decides what gets mailed. Generated types may
+      // lag migration 095, so the column is read off the row as unknown and
+      // parsed by the one reader.
+      if (includeRecap && verifiedGalleryUrl && verifiedSlug) {
+        const recapData = normalizeRecap((event as { recap?: unknown } | null)?.recap);
+        if (recapPassesFloor(recapData)) {
+          emailRecap = {
+            data: recapData,
+            url: `${new URL(verifiedGalleryUrl).origin}/recap/${verifiedSlug}`,
+          };
+        }
+      }
     }
 
     // Wrap the composer's message in the branded HTML shell. A paragraph that
@@ -271,6 +302,7 @@ export async function POST(request: NextRequest) {
       guestList: guestListUrl
         ? { url: guestListUrl, message: guestListMessage, ...guestListFile }
         : null,
+      recap: emailRecap,
     });
 
     // Attempt to send via Resend if configured

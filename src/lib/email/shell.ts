@@ -14,12 +14,23 @@
  *   3. otherwise it is appended after the body.
  * Every gallery email gets a real CTA, exactly once.
  *
+ * After the gallery block come the optional cards, in a fixed order: the
+ * delivery recap (`recapCard`, numbers and a bar chart drawn as table cells
+ * because Gmail strips SVG), then the guest list, which closes the email.
+ *
  * `renderEmailContent` is the body cell on its own. The composer preview
  * injects it directly, so the buttons and cards a photographer sees while
  * writing are this module's output and not a second copy of it.
  */
 
 import { formatFileSize } from "../utils";
+import type { SpsRecap } from "../recap/types";
+import {
+  formatCount,
+  formatSeconds,
+  recapOpenRate,
+} from "../recap/normalize";
+import { shootingDays } from "../recap/chart";
 
 const ACCENT = "#10b981"; // emerald accent
 const INK = "#1c1917"; // stone-900
@@ -94,13 +105,18 @@ function ctaButton(
  * is the near-white card around the gallery button; "neutral" is a clear step
  * greyer, so the guest list reads as its own box.
  */
-function card(inner: string, margin: string, tone: "wash" | "neutral" = "wash"): string {
+function card(
+  inner: string,
+  margin: string,
+  tone: "wash" | "neutral" = "wash",
+  align: "center" | "left" = "center"
+): string {
   const fill = tone === "wash" ? WASH : NEUTRAL;
   const edge = tone === "wash" ? HAIRLINE : NEUTRAL_EDGE;
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:${margin};border-collapse:separate;">
     <tr>
-      <td align="center" style="padding:20px;background:${fill};border:1px solid ${edge};border-radius:8px;">${inner}
+      <td align="${align}" style="padding:20px;background:${fill};border:1px solid ${edge};border-radius:8px;text-align:${align};">${inner}
       </td>
     </tr>
   </table>`;
@@ -340,6 +356,190 @@ function guestListCard(guestList: NonNullable<EmailShellOptions["guestList"]>): 
   );
 }
 
+/** Tallest bar in the recap chart, in px. Gmail honors a div's height inline. */
+const RECAP_BAR_MAX = 72;
+/** Gap between two hours in the chart; a day break is this plus a spacer cell. */
+const RECAP_BAR_GAP = 2;
+const RECAP_DAY_GAP = 10;
+/** The "sent" series: a step greyer than the hairline, so it reads against the wash. */
+const RECAP_SENT = "#d6d3d1"; // stone-300
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * "Tue 22" from a local date "2026-09-22". `shootingDays` hands over the owner's
+ * local date already, so this is calendar arithmetic on fixed digits: no
+ * clock, no zone, the same answer on every machine.
+ */
+function recapDayLabel(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  return `${weekday} ${d}`;
+}
+
+/**
+ * Narrower than this a tile wraps to the next line. 100px holds "photographed"
+ * at 11px and "5,119" at 24px with room; four of them need 400px, which the
+ * 560px email has (438px inside the box) and a 375px phone does not (229px),
+ * so the row is four across on a laptop and two by two on a phone.
+ */
+const RECAP_TILE_MIN = 100;
+
+/**
+ * The stat row: a number and the words under it, per tile.
+ *
+ * NOT table cells. Measured in a browser at phone width: four `<td>`s whose
+ * longest words cannot break sum to about 300px, and a table never shrinks
+ * below its content, so the whole email grew 65px past a 375px viewport (the
+ * control render without the card was exactly 375). Inline-block divs with a
+ * percentage width and a minimum wrap instead, two by two, inside one white
+ * box. Outlook has no inline-block, so a ghost table (read by Outlook alone)
+ * gives it four real cells. The wrapper zeroes its font size so the
+ * whitespace between the divs is not a gap.
+ */
+function recapTiles(tiles: Array<[string, string]>): string {
+  const pct = `${(100 / tiles.length).toFixed(2)}%`;
+  const cells = tiles
+    .map(
+      ([value, label]) => `
+              <!--[if mso]><td width="${pct}" valign="top"><![endif]-->
+              <div class="recap-tile" style="display:inline-block;width:${pct};min-width:${RECAP_TILE_MIN}px;vertical-align:top;">
+                <div style="padding:12px 10px;">
+                  <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:28px;font-weight:700;color:${INK};letter-spacing:-0.01em;">${escapeHtml(value)}</div>
+                  <div style="font-family:${SANS};font-size:11px;line-height:15px;color:${MUTED};padding-top:3px;">${escapeHtml(label)}</div>
+                </div>
+              </div>
+              <!--[if mso]></td><![endif]-->`
+    )
+    .join("");
+  return `
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:16px;border-collapse:separate;background:#ffffff;border:1px solid ${HAIRLINE};border-radius:6px;">
+          <tr>
+            <td style="padding:2px;font-size:0;line-height:0;">
+              <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><![endif]-->${cells}
+              <!--[if mso]></tr></table><![endif]-->
+            </td>
+          </tr>
+        </table>`;
+}
+
+/**
+ * "Galleries delivered, by hour" as table cells.
+ *
+ * Gmail strips `<svg>` and every `<style>` block, so a chart that has to
+ * survive an inbox is a row of `<td>`s, one per hour, each holding a
+ * fixed-height div. The two series stack inside ONE cell: opened is a subset
+ * of sent (an opened gallery was sent first), so the ink bar is the bottom of
+ * the grey one, never beside it. Heights scale to the busiest hour. Days are
+ * separated by a spacer cell and labeled under their group, so the three
+ * shooting days read as three groups instead of one line with the night's
+ * idle hours in it.
+ *
+ * Every bar div zeroes its font and line-height, or a client gives the empty
+ * div a line's worth of height whatever `height` says. NOT verified in
+ * Outlook itself (no client to hand, 2026-10-09; same caveat as `ctaButton`).
+ */
+function recapChart(recap: SpsRecap): string {
+  // Shooting days only: a gallery re-sent a week later is a real send but
+  // not a day the booth was open (same rule as the recap page's chart).
+  const days = shootingDays(recap);
+  const hourCount = days.reduce((n, d) => n + d.hours.length, 0);
+  if (hourCount === 0) return "";
+  const maxSent = Math.max(1, ...recap.hours.map((h) => h.sent));
+  const px = (n: number) => Math.round((n / maxSent) * RECAP_BAR_MAX);
+  const cellWidth = `${(100 / hourCount).toFixed(2)}%`;
+  const spacer = `
+              <td style="width:${RECAP_DAY_GAP}px;font-size:0;line-height:0;"></td>`;
+
+  const bars = days
+    .map((day) =>
+      day.hours
+        .map((h) => {
+          const sentH = h.sent > 0 ? Math.max(1, px(h.sent)) : 0;
+          const openedH = Math.min(sentH, h.opened > 0 ? Math.max(1, px(h.opened)) : 0);
+          const greyH = sentH - openedH;
+          const bar = (height: number, color: string) =>
+            height > 0
+              ? `<div style="height:${height}px;line-height:${height}px;font-size:0;mso-line-height-rule:exactly;background:${color};">&nbsp;</div>`
+              : "";
+          return `
+              <td class="recap-hour" valign="bottom" style="width:${cellWidth};height:${RECAP_BAR_MAX}px;vertical-align:bottom;padding:0;">${bar(greyH, RECAP_SENT)}${bar(openedH, INK)}</td>`;
+        })
+        .join("")
+    )
+    .join(spacer);
+
+  const labels = days
+    .map(
+      (day) => `
+              <td colspan="${day.hours.length}" align="left" style="padding-top:6px;font-family:${MONO};font-size:11px;line-height:14px;color:${MUTED};white-space:nowrap;">${escapeHtml(recapDayLabel(day.date))}</td>`
+    )
+    .join(spacer);
+
+  const swatch = (color: string) =>
+    `<td style="width:10px;height:10px;font-size:0;line-height:0;background:${color};">&nbsp;</td>`;
+
+  return `
+        <div style="font-family:${SANS};font-size:11px;line-height:15px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${MUTED};padding:22px 0 10px;">Galleries delivered, by hour</div>
+        <table role="presentation" cellpadding="0" cellspacing="${RECAP_BAR_GAP}" border="0" width="100%" style="border-collapse:separate;border-spacing:${RECAP_BAR_GAP}px 0;table-layout:fixed;">
+          <tr>${bars}
+          </tr>
+          <tr>${labels}
+          </tr>
+        </table>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;border-collapse:separate;">
+          <tr>
+            ${swatch(RECAP_SENT)}
+            <td style="padding:0 14px 0 6px;font-family:${SANS};font-size:11px;line-height:14px;color:${MUTED};">Sent</td>
+            ${swatch(INK)}
+            <td style="padding:0 0 0 6px;font-family:${SANS};font-size:11px;line-height:14px;color:${MUTED};">Opened</td>
+          </tr>
+        </table>`;
+}
+
+/**
+ * The delivery recap: what the client's guests got, in numbers.
+ *
+ * Sits after the gallery and before the guest list. The gallery is what the
+ * email is for; the recap is the story behind it (how many people walked away
+ * with a finished headshot, how fast, how many opened it); the guest list
+ * closes the email because it is the one thing read after the photos. Every
+ * number is the archive's own snapshot of SPS (`events.recap`), handed over
+ * by the send route; nothing here comes from the composer. The card links to
+ * the recap page for the detail, so the email carries the headline and the
+ * page carries the rest.
+ */
+function recapCard(recap: NonNullable<EmailShellOptions["recap"]>): string {
+  const { data, url } = recap;
+  const guests = data.guestsCheckedIn;
+  const event = escapeHtml(data.eventName);
+  const headline =
+    guests > 0
+      ? `${formatCount(guests)} ${guests === 1 ? "person" : "people"} left ${event} with a finished headshot in their inbox.`
+      : `${formatCount(data.linksSent)} finished galleries went out during ${event}, straight to each guest&rsquo;s inbox.`;
+
+  const tiles: Array<[string, string]> = [
+    [formatCount(guests), "guests photographed"],
+    [formatCount(data.photos), "finished photos"],
+  ];
+  const speed = formatSeconds(data.lastFrameToSend.medianSec);
+  if (speed) tiles.push([speed, "last frame to inbox"]);
+  const rate = recapOpenRate(data);
+  if (rate !== null) tiles.push([`${rate}%`, "opened their gallery"]);
+
+  const inner =
+    capsLabel(`${data.eventName} · Delivery recap`) +
+    `
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:26px;font-weight:700;color:${INK};letter-spacing:-0.01em;padding-top:8px;">${headline}</div>` +
+    recapTiles(tiles) +
+    recapChart(data) +
+    ctaButton(url, "See the full recap", "ink", "20px auto 0");
+
+  return card(inner, "22px 0 4px", "wash", "left");
+}
+
 export interface EmailShellOptions {
   /** The photographer's message — plain text or simple HTML. */
   body: string;
@@ -383,11 +583,20 @@ export interface EmailShellOptions {
     filename?: string | null;
     sizeBytes?: number | null;
   } | null;
+  /**
+   * The delivery recap card. `data` is the archive's snapshot of the event's
+   * SPS numbers (`events.recap`, read through `normalizeRecap`), handed over
+   * by the send route from the owner's own event row, never from the
+   * composer's payload. `url` is the recap page, built from the verified
+   * share slug. The route decides whether the numbers clear the floor that
+   * makes them worth a client's attention; this only renders what it is given.
+   */
+  recap?: { data: SpsRecap; url: string } | null;
 }
 
 export type EmailContentOptions = Pick<
   EmailShellOptions,
-  "body" | "galleryUrl" | "buttonLabel" | "password" | "downloadPin" | "guestList"
+  "body" | "galleryUrl" | "buttonLabel" | "password" | "downloadPin" | "guestList" | "recap"
 >;
 
 /**
@@ -402,6 +611,7 @@ export function renderEmailContent({
   password,
   downloadPin,
   guestList,
+  recap,
 }: EmailContentOptions): string {
   // If the body looks like plain text (no tags), preserve its line breaks.
   const looksHtml = /<[a-z][\s\S]*>/i.test(body);
@@ -429,6 +639,9 @@ export function renderEmailContent({
     content = inPlace ?? content + block("end");
   }
 
+  // After the gallery, before the guest list: the story behind the photos.
+  if (recap) content += recapCard(recap);
+
   // Last: it's the one thing here the client reads after the photos, so it
   // closes the email whatever the letter above it does.
   if (guestList) content += guestListCard(guestList);
@@ -445,6 +658,7 @@ export function renderEmailShell({
   password,
   downloadPin,
   guestList,
+  recap,
 }: EmailShellOptions): string {
   const content = renderEmailContent({
     body,
@@ -453,6 +667,7 @@ export function renderEmailShell({
     password,
     downloadPin,
     guestList,
+    recap,
   });
 
   const year = ""; // avoid Date in shared code paths; footer year is optional

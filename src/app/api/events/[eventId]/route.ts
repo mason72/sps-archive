@@ -309,6 +309,11 @@ export async function GET(
         description: event.description,
         settings: event.settings || {},
         created_at: event.created_at,
+        // The SPS delivery recap snapshot (migration 095), raw: the share
+        // composer parses it through normalizeRecap(). Owner-only payload, so
+        // handing over the aggregates is fine; they hold no guest data.
+        // Generated types may lag the migration, hence the cast.
+        recap: (event as { recap?: unknown }).recap ?? null,
       },
       images,
       stacks,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderEmailShell, renderEmailContent, normalizeBodyForEmail } from "./shell";
+import { OKTANE_RECAP } from "../recap/fixtures";
 
 /**
  * Captured from the real editor on 2026-08-11 (/dev/email-html): typing two
@@ -362,6 +363,125 @@ describe("renderEmailContent body links", () => {
     const body = '<p>See <a href="https://x.test" style="color:red">this</a>.</p>';
     expect(renderEmailContent({ body })).toContain('style="color:red"');
     expect(renderEmailContent({ body })).not.toContain("#10b981");
+  });
+});
+
+describe("renderEmailContent delivery recap", () => {
+  const RECAP_URL = "https://app.pixeltrunk.com/recap/0_wiEiSq94";
+  const GUEST_URL = "https://app.pixeltrunk.com/api/guest-list/tok_abc";
+  const withRecap = (data = OKTANE_RECAP) => ({ data, url: RECAP_URL });
+  const tiles = (html: string) => count(html, "guests photographed")
+    + count(html, "finished photos")
+    + count(html, "last frame to inbox")
+    + count(html, "opened their gallery");
+
+  it("leads with the number of people who left with a headshot", () => {
+    const html = renderEmailContent({ body: "hi", recap: withRecap() });
+    expect(html).toContain(
+      "704 people left Oktane 2026 with a finished headshot in their inbox."
+    );
+    expect(html).toContain("Oktane 2026 · Delivery recap");
+  });
+
+  it("shows four tiles and one cell per hour for the Oktane fixture", () => {
+    const html = renderEmailContent({ body: "hi", recap: withRecap() });
+    expect(tiles(html)).toBe(4);
+    expect(html).toContain(">704<");
+    expect(html).toContain(">5,119<");
+    expect(html).toContain(">45 sec<");
+    // 601 of 762 opened.
+    expect(html).toContain(">79%<");
+    // 22, not 24: the two re-sends days after the event count toward
+    // linksSent but are not shooting days, so the chart leaves them out.
+    expect(count(html, 'class="recap-hour"')).toBe(22);
+    expect(html).toContain("Galleries delivered, by hour");
+  });
+
+  it("scales the bars to the busiest hour and draws the two series as one stacked cell", () => {
+    const html = renderEmailContent({ body: "hi", recap: withRecap() });
+    // The busiest hour (59 sent) is the full 72px: 42 opened in ink, 17 grey above it.
+    expect(html).toContain("height:21px;line-height:21px;font-size:0;mso-line-height-rule:exactly;background:#d6d3d1;");
+    expect(html).toContain("height:51px;line-height:51px;font-size:0;mso-line-height-rule:exactly;background:#1c1917;");
+    expect(html).not.toMatch(/height:(7[3-9]|[89]\d|\d{3,})px/);
+    expect(html).not.toContain("<svg");
+  });
+
+  it("labels each shooting day under its group, three days for Oktane", () => {
+    const html = renderEmailContent({ body: "hi", recap: withRecap() });
+    expect(html).toContain(">Tue 22<");
+    expect(html).toContain(">Wed 23<");
+    expect(html).toContain(">Thu 24<");
+    expect(count(html, "colspan=")).toBe(3);
+  });
+
+  it("drops the timing tile when SPS could not measure it", () => {
+    const html = renderEmailContent({
+      body: "hi",
+      recap: withRecap({
+        ...OKTANE_RECAP,
+        lastFrameToSend: { ...OKTANE_RECAP.lastFrameToSend, medianSec: null },
+      }),
+    });
+    expect(tiles(html)).toBe(3);
+    expect(html).not.toContain("last frame to inbox");
+  });
+
+  it("leads with the galleries when nobody checked in at a booth", () => {
+    const html = renderEmailContent({
+      body: "hi",
+      recap: withRecap({ ...OKTANE_RECAP, guestsCheckedIn: 0 }),
+    });
+    expect(html).toContain("762 finished galleries went out during Oktane 2026");
+    expect(html).not.toContain("0 people left");
+  });
+
+  it("omits the card entirely when there is no recap", () => {
+    for (const html of [
+      renderEmailContent({ body: "hi" }),
+      renderEmailContent({ body: "hi", recap: null }),
+      renderEmailShell({ body: "hi", recap: null }),
+    ]) {
+      expect(html).not.toContain("Delivery recap");
+      expect(html).not.toContain("See the full recap");
+      expect(html).not.toContain("recap-hour");
+    }
+  });
+
+  it("links the CTA to the recap url it was given, as an ink button", () => {
+    const html = renderEmailShell({ body: "hi", recap: withRecap() });
+    const at = html.indexOf("See the full recap");
+    expect(at).toBeGreaterThan(-1);
+    const cell = html.slice(html.lastIndexOf("<td", at), at);
+    expect(cell).toContain('bgcolor="#1c1917"');
+    expect(cell).toContain(`href="${RECAP_URL}"`);
+    expect(count(html, `href="${RECAP_URL}"`)).toBe(1);
+  });
+
+  it("sits after the gallery button and before the guest list, which still closes the email", () => {
+    const html = renderEmailContent({
+      body: `<p>Hi,</p><p><a href="${GALLERY}">${GALLERY}</a></p><p>Best, Mason</p>`,
+      galleryUrl: GALLERY,
+      downloadPin: "1077",
+      recap: withRecap(),
+      guestList: { url: GUEST_URL },
+    });
+    const gallery = html.indexOf("View Gallery");
+    const signOff = html.indexOf("Best, Mason");
+    const recap = html.indexOf("Delivery recap");
+    const guests = html.indexOf("Download Guest List");
+    expect(gallery).toBeLessThan(signOff);
+    expect(recap).toBeGreaterThan(signOff);
+    expect(guests).toBeGreaterThan(recap);
+    expect(html.lastIndexOf("<table")).toBeLessThan(guests);
+  });
+
+  it("escapes the event name: it is whatever SPS was told", () => {
+    const html = renderEmailContent({
+      body: "hi",
+      recap: withRecap({ ...OKTANE_RECAP, eventName: "<img src=x onerror=alert(1)>" }),
+    });
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img src=x");
   });
 });
 

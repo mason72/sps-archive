@@ -663,6 +663,8 @@ export type Database = {
           id: string
           name: string
           pinned_at: string | null
+          recap: Json | null
+          recap_fetched_at: string | null
           settings: Json
           slug: string
           sort_date: string | null
@@ -679,6 +681,8 @@ export type Database = {
           id?: string
           name: string
           pinned_at?: string | null
+          recap?: Json | null
+          recap_fetched_at?: string | null
           settings?: Json
           slug: string
           sort_date?: string | null
@@ -695,6 +699,8 @@ export type Database = {
           id?: string
           name?: string
           pinned_at?: string | null
+          recap?: Json | null
+          recap_fetched_at?: string | null
           settings?: Json
           slug?: string
           sort_date?: string | null
@@ -1199,13 +1205,13 @@ export type Database = {
           crew_id: string | null
           decided_at: string | null
           decided_by: string | null
-          reviewed_at: string | null
           event_id: string
           id: string
           kind: string
           matched_person_id: string | null
           person_id: string
           photo_count: number
+          reviewed_at: string | null
           status: string
           suggested_key: string
           suggested_name: string
@@ -1217,13 +1223,13 @@ export type Database = {
           crew_id?: string | null
           decided_at?: string | null
           decided_by?: string | null
-          reviewed_at?: string | null
           event_id: string
           id?: string
           kind?: string
           matched_person_id?: string | null
           person_id: string
           photo_count?: number
+          reviewed_at?: string | null
           status?: string
           suggested_key: string
           suggested_name: string
@@ -1235,13 +1241,13 @@ export type Database = {
           crew_id?: string | null
           decided_at?: string | null
           decided_by?: string | null
-          reviewed_at?: string | null
           event_id?: string
           id?: string
           kind?: string
           matched_person_id?: string | null
           person_id?: string
           photo_count?: number
+          reviewed_at?: string | null
           status?: string
           suggested_key?: string
           suggested_name?: string

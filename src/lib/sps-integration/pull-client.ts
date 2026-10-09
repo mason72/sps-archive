@@ -358,3 +358,17 @@ export async function fetchGuestList(
     guestCount: Number.isFinite(guestCount as number) ? guestCount : null,
   };
 }
+
+/**
+ * The delivery recap: aggregates about how this event's galleries reached its
+ * guests (checked in, links sent and opened, seconds from a guest's last frame
+ * to their inbox, deliveries per hour). Shape: `src/lib/recap/types.ts`; the
+ * caller reads it through `normalizeRecap()`, never directly.
+ *
+ * Returned as `unknown` on purpose: SPS owns the computation and the archive
+ * owns the validation. A 404 here means SPS no longer has the event (its
+ * ~3-month retention), which the caller treats as "keep what is stored".
+ */
+export async function fetchRecap(token: string, spsEventId: string): Promise<unknown> {
+  return call<unknown>(token, `/events/${spsEventId}/recap`, { timeoutMs: 20_000 });
+}

@@ -14,6 +14,10 @@ import {
   type GuestListSelection,
 } from "@/components/email/GuestListAttachment";
 import { interpolateTemplate } from "@/lib/email/interpolate";
+import { normalizeRecap, recapPassesFloor } from "@/lib/recap/normalize";
+import type { SpsRecap } from "@/lib/recap/types";
+import { RecapPanel, type RecapState } from "@/components/recap/RecapPanel";
+import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -24,6 +28,7 @@ import {
   Send,
   Link2,
   Lock,
+  BarChart3,
 } from "lucide-react";
 import type { EmailTemplate } from "@/types/email";
 import { TEMPLATE_VARIABLES } from "@/types/email";
@@ -67,6 +72,16 @@ function ShareComposePage() {
    *  has one and not the other, and the PIN is one the guest gets ASKED for. */
   const [includePin, setIncludePin] = useState(true);
   const [includePassword, setIncludePassword] = useState(true);
+  /** The SPS delivery recap, when the event has one that clears the floor
+   *  (`recapPassesFloor`). Null means no toggle: a card that would never be
+   *  mailed should not be offered. */
+  const [recap, setRecap] = useState<SpsRecap | null>(null);
+  const [includeRecap, setIncludeRecap] = useState(true);
+  /** Only an event pulled from SPS can have a recap; the panel hides otherwise. */
+  const [spsLinked, setSpsLinked] = useState(false);
+  const handleRecapState = useCallback((s: RecapState) => {
+    setRecap(s.passesFloor ? s.recap : null);
+  }, []);
   /** The SPS guest-list sheet. `token` is non-null only when one was attached
    *  in THIS session and the photographer wants it in this email. */
   const [guestList, setGuestList] = useState<GuestListSelection>({
@@ -156,6 +171,11 @@ function ShareComposePage() {
           const gated = !!(sharing?.requirePinBulk || sharing?.requirePinIndividual);
           const p = sharing?.downloadPin;
           if (gated && typeof p === "string" && p.trim()) setDownloadPin(p.trim());
+          // Same floor the send route applies, so the toggle and the mailed
+          // email agree about whether there is a card at all.
+          const parsedRecap = normalizeRecap(data.event?.recap);
+          if (recapPassesFloor(parsedRecap)) setRecap(parsedRecap);
+          setSpsLinked(!!readSpsEventId(data.event?.settings ?? null));
         }
 
         // Templates
@@ -206,9 +226,11 @@ function ShareComposePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
-  const galleryUrl = shareSlug
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/gallery/${shareSlug}`
-    : "";
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const galleryUrl = shareSlug ? `${origin}/gallery/${shareSlug}` : "";
+  // The recap page is keyed by the share slug, the same way the send route
+  // builds it from the verified share.
+  const recapUrl = shareSlug ? `${origin}/recap/${shareSlug}` : "";
 
   const templateVars: Record<string, string> = {
     event_name: eventName,
@@ -276,6 +298,9 @@ function ShareComposePage() {
           // hash — so the composer presents it and the server verifies it.
           guestListToken: guestList.token,
           guestListMessage: guestList.message,
+          // Request only, like the credentials: the server reads the recap
+          // off the event row and applies the floor itself.
+          includeRecap: !!recap && includeRecap,
         }),
       });
 
@@ -301,6 +326,8 @@ function ShareComposePage() {
     // left them.
     includePin,
     guestList,
+    recap,
+    includeRecap,
     router,
   ]);
 
@@ -604,6 +631,55 @@ function ShareComposePage() {
                         </div>
                       )}
 
+                      {/* ─── Include the delivery recap ─── */}
+                      {/* Only when the event has a recap that clears the
+                          floor the send route applies; below it there is no
+                          card to include, so there is no toggle. */}
+                      {recap && (
+                        <div className="border border-stone-200 p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <BarChart3 size={13} className="text-stone-400 shrink-0" />
+                                <span className="text-[13px] text-stone-700">
+                                  Include the delivery recap
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                                Guests photographed, galleries sent and opened,
+                                and how fast they arrived. Links to the full
+                                recap page.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIncludeRecap((v) => !v)}
+                              role="switch"
+                              aria-checked={includeRecap}
+                              aria-label="Include the delivery recap in this email"
+                              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
+                                includeRecap ? "bg-emerald-500" : "bg-stone-200"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                                  includeRecap ? "translate-x-4" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ─── The delivery recap: numbers, refresh, client logo ─── */}
+                      {spsLinked && (
+                        <RecapPanel
+                          eventId={eventId}
+                          shareSlug={shareSlug || null}
+                          onRecapChange={handleRecapState}
+                        />
+                      )}
+
                       {/* ─── The SPS guest-list spreadsheet ─── */}
                       {/* Lives here and nowhere else: the email recipient is
                           the only person who ever gets a path to it. */}
@@ -663,6 +739,11 @@ function ShareComposePage() {
                                   filename: guestList.filename,
                                   sizeBytes: guestList.sizeBytes,
                                 }
+                              : null
+                          }
+                          recap={
+                            recap && includeRecap && recapUrl
+                              ? { data: recap, url: recapUrl }
                               : null
                           }
                         />

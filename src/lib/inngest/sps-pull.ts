@@ -306,6 +306,22 @@ export const spsPull = inngest.createFunction(
       // 6,000 sends saying the same thing is a way to get rate limited.
       await dispatchPullSettlement(supabase, job);
 
+      // The delivery recap is complete once the event has wrapped, and SPS
+      // keeps the event for only ~3 months, so this is the moment to take the
+      // durable copy. Best effort: a pull is finished whether or not the
+      // numbers came across, and the share page can refresh them later.
+      try {
+        const { snapshotRecap } = await import("@/lib/recap/snapshot");
+        const outcome = await snapshotRecap(supabase, job.event_id);
+        if (outcome.kind === "failed") {
+          await reportSystemError("sps-pull:recap", outcome.message, {
+            eventId: job.event_id,
+          });
+        }
+      } catch (err) {
+        await reportSystemError("sps-pull:recap", err, { eventId: job.event_id });
+      }
+
       return {
         imported: job.images_done,
         failed: job.images_failed,

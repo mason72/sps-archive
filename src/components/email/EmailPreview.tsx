@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Branding } from "@/types/user-profile";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { renderEmailContent } from "@/lib/email/shell";
+import type { SpsRecap } from "@/lib/recap/types";
 
 interface EmailPreviewProps {
   subject: string;
@@ -41,6 +42,12 @@ interface EmailPreviewProps {
     filename?: string | null;
     sizeBytes?: number | null;
   } | null;
+  /**
+   * The delivery recap card, when the sender chose to include it and the
+   * event has numbers worth showing. `url` is the recap page; the preview
+   * builds it from the share slug the way the send route does.
+   */
+  recap?: { data: SpsRecap; url: string } | null;
 }
 
 /** Stands in for the guest-list link, which the preview is never handed. */
@@ -67,6 +74,7 @@ export function EmailPreview({
   password,
   downloadPin,
   guestList,
+  recap,
 }: EmailPreviewProps) {
   // Hide the hero when the event has no cover (the cover route 404s).
   const [coverFailed, setCoverFailed] = useState(false);
@@ -168,6 +176,7 @@ export function EmailPreview({
               password,
               downloadPin,
               guestList: guestList ? { url: NOWHERE, ...guestList } : null,
+              recap,
             }),
           }}
         />
