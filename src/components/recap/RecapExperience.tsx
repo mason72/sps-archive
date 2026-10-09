@@ -7,6 +7,7 @@ import type { RecapPayload, RecapBrand, RecapLeadFrame } from "@/lib/recap/paylo
 import { formatCount, formatSeconds, recapOpenRate } from "@/lib/recap/normalize";
 import { buildHourChart, timingBars } from "@/lib/recap/chart";
 import type { SpsRecap } from "@/lib/recap/types";
+import { dateRange } from "@/lib/recap/dates";
 
 /**
  * The recap page. Reads /api/recap/[slug] and renders the story of one
@@ -122,23 +123,6 @@ function useParallax(reduced: boolean) {
   return register;
 }
 
-function dateRange(recap: SpsRecap | null, fallback: string | null): string | null {
-  const first = recap?.firstCapture ?? fallback;
-  const last = recap?.lastCapture ?? fallback;
-  if (!first) return null;
-  const tz = recap?.timezone ?? "America/Los_Angeles";
-  const fmt = (d: string, opts: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).format(new Date(d));
-  const sameDay = fmt(first, { dateStyle: "medium" }) === fmt(last ?? first, { dateStyle: "medium" });
-  if (sameDay) return fmt(first, { month: "short", day: "numeric", year: "numeric" });
-  // Compared in the event's zone: AAOMS ran Sep 30 to Oct 2 local, which is
-  // Oct 1 to Oct 2 in UTC, and read "Sep 30–2, 2026" on first deploy.
-  const sameMonth = fmt(first, { month: "short" }) === fmt(last ?? first, { month: "short" });
-  return sameMonth
-    ? `${fmt(first, { month: "short", day: "numeric" })}–${fmt(last!, { day: "numeric", year: "numeric" })}`
-    : `${fmt(first, { month: "short", day: "numeric" })} – ${fmt(last!, { month: "short", day: "numeric", year: "numeric" })}`;
-}
-
 const EYEBROW = "text-[11px] font-medium uppercase tracking-[0.14em] text-stone-500";
 
 function Lockup({ photographer, clientLogoUrl, clientName, dark = false }: {
@@ -170,7 +154,7 @@ function Mosaic({ leads, register }: { leads: RecapLeadFrame[]; register: (f: nu
   const cols = [leads.filter((_, i) => i % 2 === 0), leads.filter((_, i) => i % 2 === 1)];
   const factors = [0.06, -0.05];
   return (
-    <div className="grid grid-cols-2 gap-3 md:gap-4" aria-hidden="true">
+    <div className="grid w-full max-w-[50vh] grid-cols-2 gap-3 md:ml-auto md:gap-4" aria-hidden="true">
       {cols.map((col, ci) => (
         <div key={ci} ref={register(factors[ci])} className={`flex flex-col gap-3 md:gap-4 will-change-transform ${ci === 1 ? "pt-10" : ""}`}>
           {col.slice(0, 4).map((f, i) => (
