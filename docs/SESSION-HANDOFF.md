@@ -4,7 +4,22 @@
 now. Read `CLAUDE.md` first for the invariants; this is the orientation: what
 Pixeltrunk is, what is in flight, and what the next session should pick up.
 
-Last substantive update: **2026-10-04** (identity auto-confirm; older sections below are from 2026-09-02).
+Last substantive update: **2026-10-09** (delivery recap; the 2026-10-04 and older sections below still hold).
+
+> **Shipped 2026-10-09: the delivery recap, end to end** (`docs/TECHNICAL.md` §9, lessons 180–181,
+> memory `delivery-recap`). SPS reports an event's delivery as aggregates; the archive snapshots it
+> (`events.recap`); the share email carries a card; `/recap/<share slug>` is the page the client
+> forwards (Cisco × TDP lockup, count-up, delivery curve, speed split, AI looks, two paste-ready
+> PNG cards); the editor header has **Recap / Build recap**; the sidebar has **AI Looks · N**.
+> WebexOne 2026 is the guinea pig: 1,067 people, 1,029 galleries, 80% opened, median 34 s. Mason
+> reviews and sends it himself. tdp-website gained `/what-to-ask` (the buyer's question sheet,
+> four entry points, proof from existing scenes), the recap as a value-add on two service pages,
+> two new benefit tiles and a recap mockup; `/quote` has its chrome back.
+> **Next action:** none owed. Watch the first pull that finishes on its own to confirm the recap
+> snapshot hook fires (`sps-pull:recap` in system_errors if it fails); try "Build recap" on an
+> event with no share to exercise the mint path; and if Cisco says yes, link WebexOne's recap from
+> `/what-to-ask` as the live example.
+
 
 > **In flight, 2026-10-04: the archive-wide identity scan.** `npx tsx scripts/scan-identity-suggestions.ts --apply`
 > is running on the laptop (log: that session's scratchpad `archive-scan.log`), 530 galleries / 34,749 unnamed
