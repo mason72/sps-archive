@@ -378,7 +378,7 @@ describe("renderEmailContent delivery recap", () => {
   it("leads with the number of people who left with a headshot", () => {
     const html = renderEmailContent({ body: "hi", recap: withRecap() });
     expect(html).toContain(
-      "706 people left Oktane 2026 with a finished headshot in their inbox."
+      "706 people left Oktane 2026 with a finished gallery in their inbox."
     );
     expect(html).toContain("Oktane 2026 · Delivery recap");
   });

@@ -504,7 +504,7 @@ function recapChart(recap: SpsRecap): string {
  *
  * Sits after the gallery and before the guest list. The gallery is what the
  * email is for; the recap is the story behind it (how many people walked away
- * with a finished headshot, how fast, how many opened it); the guest list
+ * with a finished gallery, how fast, how many opened it); the guest list
  * closes the email because it is the one thing read after the photos. Every
  * number is the archive's own snapshot of SPS (`events.recap`), handed over
  * by the send route; nothing here comes from the composer. The card links to
@@ -517,7 +517,7 @@ function recapCard(recap: NonNullable<EmailShellOptions["recap"]>): string {
   const event = escapeHtml(data.eventName);
   const headline =
     guests > 0
-      ? `${formatCount(guests)} ${guests === 1 ? "person" : "people"} left ${event} with a finished headshot in their inbox.`
+      ? `${formatCount(guests)} ${guests === 1 ? "person" : "people"} left ${event} with a finished gallery in their inbox.`
       : `${formatCount(data.linksSent)} finished galleries went out during ${event}, straight to each guest&rsquo;s inbox.`;
 
   const tiles: Array<[string, string]> = [
