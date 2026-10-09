@@ -157,7 +157,9 @@ function Mosaic({ leads, register }: { leads: RecapLeadFrame[]; register: (f: nu
     <div className="grid w-full max-w-[50vh] grid-cols-2 gap-3 md:ml-auto md:gap-4" aria-hidden="true">
       {cols.map((col, ci) => (
         <div key={ci} ref={register(factors[ci])} className={`flex flex-col gap-3 md:gap-4 will-change-transform ${ci === 1 ? "pt-10" : ""}`}>
-          {col.slice(0, 4).map((f, i) => (
+          {/* Two per column: with the 50vh width cap, two rows of 2:3 frames
+              are about 75vh, so the hero fits one screen on a tablet. */}
+          {col.slice(0, 2).map((f, i) => (
             <img
               key={f.id}
               src={f.url}
