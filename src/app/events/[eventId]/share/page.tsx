@@ -152,7 +152,9 @@ function ShareComposePage() {
       try {
         const [eventRes, templatesRes, accountRes, sharesRes] =
           await Promise.all([
-            fetch(`/api/events/${eventId}`),
+            // The event row only: name, settings, recap. The full read carries
+            // every photo with a presigned thumbnail, which this screen never shows.
+            fetch(`/api/events/${eventId}?scope=event`),
             fetch("/api/emails/templates"),
             fetch("/api/account"),
             fetch(`/api/shares?eventId=${eventId}`),

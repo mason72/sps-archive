@@ -21,6 +21,28 @@ export const maxDuration = 300;
  * - Stacks (with nested images and person names)
  * - Sections (with image counts)
  */
+/** The event half of the payload, shared by the full read and `?scope=event`. */
+function eventPayload(event: {
+  id: string; name: string; slug: string | null; event_type: string | null;
+  event_date: string | null; description: string | null; settings: unknown;
+  created_at: string; recap?: unknown;
+}) {
+  return {
+    id: event.id,
+    name: event.name,
+    slug: event.slug,
+    event_type: event.event_type,
+    event_date: event.event_date,
+    description: event.description,
+    settings: event.settings || {},
+    created_at: event.created_at,
+    // The SPS delivery recap snapshot (migration 095), raw: the share
+    // composer parses it through normalizeRecap(). Owner-only payload, so
+    // handing over the aggregates is fine; they hold no guest data.
+    recap: event.recap ?? null,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
@@ -48,6 +70,15 @@ export async function GET(
         { error: "Event not found" },
         { status: 404 }
       );
+    }
+
+    // 1a. `?scope=event`: the event row alone, for screens that need its name,
+    // settings and recap but none of its photos. The share composer used to
+    // load the whole gallery (10,208 presigned thumbnails for WebexOne) to
+    // show a compose form, and sat on "Loading…" for 30 s on the day of the
+    // send (2026-10-09). Same ownership check as above; nothing else.
+    if (new URL(request.url).searchParams.get("scope") === "event") {
+      return NextResponse.json({ event: eventPayload(event) });
     }
 
     // 1b. The TDP Website gallery materializes newly registered scenes on
@@ -300,21 +331,7 @@ export async function GET(
     }));
 
     return NextResponse.json({
-      event: {
-        id: event.id,
-        name: event.name,
-        slug: event.slug,
-        event_type: event.event_type,
-        event_date: event.event_date,
-        description: event.description,
-        settings: event.settings || {},
-        created_at: event.created_at,
-        // The SPS delivery recap snapshot (migration 095), raw: the share
-        // composer parses it through normalizeRecap(). Owner-only payload, so
-        // handing over the aggregates is fine; they hold no guest data.
-        // Generated types may lag the migration, hence the cast.
-        recap: (event as { recap?: unknown }).recap ?? null,
-      },
+      event: eventPayload(event),
       images,
       stacks,
       sections,
