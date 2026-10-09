@@ -2,7 +2,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
-import { fetchMosaicPool, poolLeads } from "@/lib/cover/pool";
+import { fetchMosaicPool, poolLeads, type TileRow } from "@/lib/cover/pool";
 import { normalizeRecap } from "./normalize";
 import type { SpsRecap } from "./types";
 
@@ -176,10 +176,21 @@ export async function resolveRecap(
     supabase.from("sections").select("id", { count: "exact", head: true }).eq("event_id", event.id),
   ]);
 
-  // Lead frames: the share's own pool, stack-deduped, first N, presigned.
-  const pool = await fetchMosaicPool(event.id, share.section_id ?? undefined);
-  const inScope = selected ? pool.filter((t) => selected.has(t.id)) : pool;
-  const leadRows = poolLeads(inScope).slice(0, leadCount);
+  // Lead frames: the share's own pool, stack-deduped, first N, presigned. A
+  // selection share's pool IS its picks (the section pool may hold none of
+  // them, which showed a recap with no faces on Oktane's curated share).
+  let pool: TileRow[];
+  if (selected) {
+    const { data: picked } = await supabase
+      .from("images")
+      .select("id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y")
+      .in("id", [...selected])
+      .eq("thumbnail_generated", true);
+    pool = ((picked ?? []) as (TileRow & { media_type: string | null })[]).filter((t) => t.media_type !== "video");
+  } else {
+    pool = await fetchMosaicPool(event.id, share.section_id ?? undefined);
+  }
+  const leadRows = poolLeads(pool).slice(0, leadCount);
   const leads: RecapLeadFrame[] = await Promise.all(
     leadRows.map(async (t) => ({
       id: t.id,
