@@ -52,8 +52,16 @@ export interface RecapPayload {
     /** Of those, carrying the person's name (searchable by name). */
     named: number;
     sections: number;
+    /** AI renders in scope. */
+    aiRenders: number;
   };
   leads: RecapLeadFrame[];
+  /**
+   * AI renders (SPS makes them on the spot from the guest's own frame; the
+   * archive marks them by `sps_source_image_id`), spread across the event so
+   * eight tiles are eight different looks. Empty when the event had none.
+   */
+  aiLeads: RecapLeadFrame[];
   galleryUrl: string;
 }
 
@@ -183,6 +191,34 @@ export async function resolveRecap(
     }))
   );
 
+  // AI renders, in scope, spread evenly so the strip shows eight different looks.
+  let aiQuery = supabase
+    .from("images")
+    .select("id, r2_key, width, height, focal_x, focal_y")
+    .eq("event_id", event.id)
+    .eq("thumbnail_generated", true)
+    .not("sps_source_image_id", "is", null)
+    .neq("media_type", "video")
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1000);
+  if (selected) aiQuery = aiQuery.in("id", [...selected]);
+  const { data: aiRows } = await aiQuery;
+  const aiAll = aiRows ?? [];
+  const aiWant = Math.min(8, aiAll.length);
+  const aiStep = aiWant ? Math.max(1, Math.floor(aiAll.length / aiWant)) : 1;
+  const aiPicked = Array.from({ length: aiWant }, (_, i) => aiAll[i * aiStep]).filter(Boolean);
+  const aiLeads: RecapLeadFrame[] = await Promise.all(
+    aiPicked.map(async (t) => ({
+      id: t.id,
+      url: await getPresignedDownloadUrl(getThumbnailKey(t.r2_key, "thumb-md"), 3600),
+      width: t.width,
+      height: t.height,
+      focalX: t.focal_x,
+      focalY: t.focal_y,
+    }))
+  );
+
   return {
     kind: "ok",
     payload: {
@@ -194,8 +230,9 @@ export async function resolveRecap(
       photographer,
       recap: normalizeRecap(event.recap),
       recapFetchedAt: event.recap_fetched_at,
-      archive: { photos: photos ?? 0, named: named ?? 0, sections: sections ?? 0 },
+      archive: { photos: photos ?? 0, named: named ?? 0, sections: sections ?? 0, aiRenders: aiAll.length },
       leads,
+      aiLeads,
       galleryUrl: `${appOrigin.replace(/\/$/, "")}/gallery/${slug}`,
     },
   };

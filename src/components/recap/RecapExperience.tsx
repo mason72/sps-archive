@@ -178,6 +178,23 @@ function Mosaic({ leads, register }: { leads: RecapLeadFrame[]; register: (f: nu
   );
 }
 
+function AiStrip({ leads }: { leads: RecapLeadFrame[] }) {
+  const [ref, seen] = useInView<HTMLDivElement>(0.2);
+  return (
+    <div ref={ref} className="grid grid-cols-4 gap-2 sm:gap-3 md:grid-cols-8">
+      {leads.map((f, i) => (
+        <img
+          key={f.id}
+          src={f.url}
+          alt=""
+          className={`w-full rounded-[3px] object-cover ${seen ? "reveal" : "opacity-0"}`}
+          style={{ aspectRatio: "2 / 3", objectPosition: `${f.focalX ?? 50}% ${f.focalY ?? 35}%`, animationDelay: `${i * 60}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function Stat({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
     <div className="min-w-0">
@@ -393,6 +410,16 @@ function Ready({ data }: { data: RecapPayload }) {
             lead={`Measured on ${formatCount(r.lastFrameToSend.measured)} galleries: the time between a guest's last photo and their gallery leaving for their inbox.`}
           >
             <TimingBars recap={r} reduced={reduced} />
+          </Section>
+        )}
+
+        {data.aiLeads.length > 0 && (
+          <Section
+            eyebrow="AI looks"
+            title="Every guest could try an AI look too."
+            lead={`${formatCount(data.archive.aiRenders)} AI renders, made on the spot from each guest's own headshot and delivered in the same gallery.`}
+          >
+            <AiStrip leads={data.aiLeads} />
           </Section>
         )}
 
