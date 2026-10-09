@@ -4384,3 +4384,31 @@ count re-sends but draw shooting days only, count QR.
   `node_modules` holds stripe 20.3.1 against a 23.0.0 pin and three unrelated
   tsc errors pre-exist. The machine-portability rule, again; fix is a
   per-machine `.npmrc` or none at all. Vercel's build is the gate meanwhile.
+
+## 181 — A check-in entry is a sit, not a person; and the guest list was 13 people short (2026-10-09)
+
+Setting up the WebexOne send, Mason had three numbers for one event: 788 on
+the recap ("guests checked in"), 1,029 galleries sent, 1,054 rows on the
+guest-list spreadsheet. Measured: 788 is `check_in_entries` (the same guest
+can sign in twice; 719 people once merged by email or name); 348 addresses
+received a gallery without ever signing in (walk-ups, an address typed at the
+camera); the union is 1,067 people, which is the spreadsheet's own rule. The
+sheet said 1,054 because its `share_links` read was a single select under
+PostgREST's ~1,000-row cap, and WebexOne has 1,029: the last 29 links, 13
+people, fell off a sheet a client was about to receive. The images read ten
+lines above it had paged since bug #15; nobody had asked whether its
+neighbours needed to.
+
+- **Name what a count counts before leading with it.** "Guests" meant three
+  different things across three surfaces. The recap now carries both
+  (`guestsCheckedIn`, `guests`) and every surface leads with people.
+- **Mason: "generally I'd prefer to lead with the larger number."** For
+  WebexOne that is also the honest one. Where check-ins exceed merged people
+  (AAOMS: 540 sits, 528 people) the pages now read 528; flagged, not decided.
+- **The 1,000-row cap hides in every per-event read, not only the big table.**
+  `share_links` and `check_in_entries` are small until the one event where
+  they are not. Page every per-event read; a short page ends the loop.
+- **The share composer loaded the whole gallery to show a form.** 10,208
+  presigned thumbnails, a minute on "Loading…" on the day of the send.
+  `?scope=event` returns the row alone. Any screen that reads
+  `/api/events/[id]` should ask what it actually uses.

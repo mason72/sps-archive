@@ -344,7 +344,9 @@ the buyer had seen a line item, never the delivery.
 
 - **Source.** SPS `GET /api/integrations/archive/events/[eventId]/recap`
   (token + ownership, `archive_event_recap()` SQL function, service-role only).
-  Aggregates only: guests checked in, camera frames and AI renders, galleries
+  Aggregates only: guests (people with any record: merged sign-ins plus gallery
+  recipients who never signed in; the number every surface leads with), check-in
+  entries, camera frames and AI renders, galleries
   sent (every guest share, QR included), distinct recipients, opened and total
   opens, seconds from a guest's LAST frame to their gallery leaving (median,
   p90, under 60 s / 300 s, measured), and per-hour sent/opened buckets in the
