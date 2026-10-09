@@ -336,6 +336,48 @@ Binaries are stored at `events/{eventId}/originals/{filename}`. Importing from S
 
 ---
 
+### Delivery recap (2026-10-09)
+
+What SPS knows about how an event's photos reached its guests, shown to the
+client. Built because a happy client left for a cheaper vendor after a year:
+the buyer had seen a line item, never the delivery.
+
+- **Source.** SPS `GET /api/integrations/archive/events/[eventId]/recap`
+  (token + ownership, `archive_event_recap()` SQL function, service-role only).
+  Aggregates only: guests checked in, camera frames and AI renders, galleries
+  sent (every guest share, QR included), distinct recipients, opened and total
+  opens, seconds from a guest's LAST frame to their gallery leaving (median,
+  p90, under 60 s / 300 s, measured), and per-hour sent/opened buckets in the
+  SPS owner's timezone. No name, email, phone, image id or token.
+- **Snapshot.** SPS deletes events ~3 months after completion, so the archive
+  keeps the only durable copy: `events.recap` + `recap_fetched_at` (migration
+  095), written by `snapshotRecap()` at the pull's `finish` step and by
+  "Refresh numbers" on the share page (`POST /api/events/[eventId]/recap`). A
+  failed refresh keeps what is stored. Contract: `src/lib/recap/types.ts`;
+  `normalizeRecap()` is the ONE parse point.
+- **Floor.** `RECAP_FLOOR` (20 guests, 20 galleries): below it the email keeps
+  the card out and the composer hides the toggle; the page still works.
+- **Email.** `recapCard()` in `src/lib/email/shell.ts`, after the gallery
+  block, before the guest-list card. Table cells for the bars (Gmail strips
+  SVG), tiles that go 2×2 at phone width. `includeRecap` on `/api/emails/send`
+  is a request; the server reads the recap from the owner's event row.
+- **Page.** `/recap/[slug]` → `RecapExperience`, data from
+  `GET /api/recap/[slug]` (`resolveRecap()`), share-gated like the gallery
+  (same slug, `gallery_auth_<slug>` cookie, expiry). Lead frames come through
+  the share's scope and the cover's stack-deduped pool. Writes nothing; not a
+  gallery view.
+- **Paste-ready cards.** `GET /api/recap/[slug]/card/{wide|square}` renders a
+  PNG with `next/og` (satori) on demand: no raster job, nothing stored, same
+  gate. Fonts fetched once per instance from Google (`card-fonts.ts`);
+  satori needs TTF, so a woff2-only answer degrades to its default faces.
+- **Client logo.** `events.settings.recap.clientLogoKey` (`recap/<eventId>/…`
+  in the private bucket, presigned on read), `PUT/DELETE
+  /api/events/[eventId]/recap/logo`. The page shows the photographer's lockup
+  alone until a logo exists.
+- **Shooting days.** `shootingDays()` in `chart.ts` keeps the chart and the
+  email bars to the capture window: a gallery re-sent a week later counts in
+  `linksSent` but is not a day the booth was open.
+
 ## 10. Design System
 
 - **Fonts:** `font-brand` (Libre Baskerville — wordmark only), `font-editorial` (Playfair Display — headlines), `font-sans` (Inter — body).

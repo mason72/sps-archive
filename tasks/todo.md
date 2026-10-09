@@ -22,52 +22,52 @@ returns AGGREGATES ONLY, never a guest name or email. Hours are bucketed in the 
 owner's timezone (`users.timezone`, the guest-list route's convention).
 
 ### SPS (spsv2)
-- [ ] 1. `GET /api/integrations/archive/events/[eventId]/recap` beside guest-list:
+- [x] 1. `GET /api/integrations/archive/events/[eventId]/recap` beside guest-list:
       `authenticateArchiveRequest` + `user_id` ownership filter (not-yours = 404).
       Payload: guestsCheckedIn, photos (originals), aiRenders, linksSent, recipients,
       linksOpened, totalOpens, lastFrameToSend {medianSec, p90Sec, under60s, under300s},
       hours[{startsAt, sent, opened}], timezone, firstCapture, lastCapture, generatedAt.
       Pure aggregation in `lib/archive-recap.ts` with a vitest fixture (Oktane shape).
-- [ ] 2. Live-event gate, push, confirm the route answers for Oktane 2026 with the token.
+- [x] 2. Live-event gate, push, confirm the route answers for Oktane 2026 with the token.
 
 ### Pixeltrunk — data
-- [ ] 3. Migration 095: `events.recap jsonb`, `events.recap_fetched_at timestamptz`.
-- [ ] 4. `fetchRecap(token, spsEventId)` in `pull-client.ts` (token stays in headers).
+- [x] 3. Migration 095: `events.recap jsonb`, `events.recap_fetched_at timestamptz`.
+- [x] 4. `fetchRecap(token, spsEventId)` in `pull-client.ts` (token stays in headers).
       Snapshot at the pull's `finish` step; "Refresh numbers" on the share page re-fetches
       while SPS still has the event; a 404 from SPS keeps the last snapshot.
-- [ ] 5. `src/lib/recap/`: `normalizeRecap()` (one parse point, like cover settings),
+- [x] 5. `src/lib/recap/`: `normalizeRecap()` (one parse point, like cover settings),
       `recapFloor()` (card only when guests ≥ 20 and links ≥ 20; below it the page still
       exists for the owner, the email stays clean), `recapCopy()` (the headline sentence).
 
 ### Pixeltrunk — email card (A)
-- [ ] 6. `recapCard()` in `src/lib/email/shell.ts`, after the gallery block: eyebrow,
+- [x] 6. `recapCard()` in `src/lib/email/shell.ts`, after the gallery block: eyebrow,
       headline, four tiles (guests · photos · last frame → inbox · opened), sent/opened
       bar chart as table cells (SVG does not survive Gmail), "See the full recap" button
       to the page. Table markup, inline styles, Outlook-safe like the CTA. Tests in
       `shell.test.ts`: renders with a recap, omits below the floor, omits with none.
-- [ ] 7. Composer (`/events/[eventId]/share`): "Include the delivery recap" toggle,
+- [x] 7. Composer (`/events/[eventId]/share`): "Include the delivery recap" toggle,
       default on when the floor passes; `includeRecap` to `/api/emails/send`; the
       preview shares the renderer, so the toggle shows the card before sending.
 
 ### Pixeltrunk — recap page (B, with the paste-ready cards)
-- [ ] 8. `/recap/[slug]`: resolves the share like `/gallery/[slug]` (password and expiry
+- [x] 8. `/recap/[slug]`: resolves the share like `/gallery/[slug]` (password and expiry
       inherit; owner views excluded from counts as everywhere). Reads event, recap
       snapshot, photographer branding (`user_profiles.logo_url/business_name`), client
       logo (`settings.recap.clientLogoKey`, uploaded from the share page; the slot reads
       "Add your logo" until then, so a sponsor mark appears only when the client puts it
       there), and 8 lead frames through the share's scope (signed URLs, like the gallery).
-- [ ] 9. Motion: count-up on the hero number, the delivery curve draws, mosaic layers
+- [x] 9. Motion: count-up on the hero number, the delivery curve draws, mosaic layers
       parallax on scroll (transform only, no layout), sections reveal from a VISIBLE
       resting state, everything stills under `prefers-reduced-motion`.
-- [ ] 10. Infographics (one scale each, one axis, no dual axes): deliveries per hour
+- [x] 10. Infographics (one scale each, one axis, no dual axes): deliveries per hour
       sent vs opened; last frame → inbox distribution (≤30 s / ≤1 min / ≤2 min / ≤5 min /
       longer); photos per guest; day split. Direct labels, legend for two series, text in
       ink tokens never series color.
-- [ ] 11. Paste-ready cards: wide (1600×840) and square (1080×1080) PNGs composed in the
+- [x] 11. Paste-ready cards: wide (1600×840) and square (1080×1080) PNGs composed in the
       existing `cover-raster` Inngest lane (sharp; pool.ts stays sharp-free), stored
       beside the cover, served through a share-gated route like the cover. Buttons on
       the page: Download / Copy image. Typography + logos + numbers + the lead frames.
-- [ ] 12. Branding: photographer's logo and name everywhere, "Recap by Pixeltrunk" in the
+- [x] 12. Branding: photographer's logo and name everywhere, "Recap by Pixeltrunk" in the
       footer, co-brand lockup top and bottom. Pixeltrunk's own design system for the
       chrome (stone, Inter, Playfair for the headline); the photographer's logo supplies
       the brand, as the gallery does.

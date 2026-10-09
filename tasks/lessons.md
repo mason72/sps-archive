@@ -4354,3 +4354,33 @@ Mason rebuilt MangoMeet 2025 into Letter ranges, the dialog previewed "3 section
 - **A toggle whose effect is already decided must say so, not offer a slider.** With a filled Highlights the "40 highlights" slider set nothing. It is hidden and the copy says "your 61 picks stay as they are, first in line".
 - Mason's choice, from a card with three options: replace everything except Highlights, locked, smart and website sections (over per-section checkboxes, or just honest copy). He wanted "Rebuild all" to mean rebuild all.
 - `is_auto` is now provenance only (sort_order placement, labels); nothing deletes by it. Memory `section-model-invariants` rule 7 updated.
+
+## 180 — A fixture typed from a one-off query is a hypothesis; the production function is the record (2026-10-09)
+
+Building the delivery recap, I measured Oktane 2026 by hand (read-only SQL),
+typed the result into `src/lib/recap/fixtures.ts`, and briefed the SPS agent to
+"reproduce these numbers". It reproduced all of them except three, and all
+three were the fixture's fault: `measured` 623 vs 621 (two links point at
+frames that were later deleted, and a link you cannot time is not a 0-second
+delivery), 22 hour buckets vs 24 (three galleries re-sent days after the
+event, so the fixture's hours did not sum to its own `linksSent`), and
+"email or SMS" vs every guest share (QR pickups are deliveries too). Each
+needed a product decision, not a number fix: leave untimeable links out,
+count re-sends but draw shooting days only, count QR.
+
+- **A hand-measured fixture is where the contract gets argued, not settled.**
+  Write it, then make the implementer report every disagreement instead of
+  matching it ("do not fudge numbers to match" in the brief is what surfaced
+  all three).
+- **The first timing I quoted was the wrong number.** First frame → send read
+  "2 min median"; Mason said guests get the gallery in seconds, and last frame
+  → send is 45 s. Measure from the moment the guest is done, not the moment
+  they started. The rule generalises: before printing a duration, say which
+  two events it spans.
+- **`Intl.DateTimeFormat` orders parts by locale ("22 Tue"); assemble labels
+  from `formatToParts`,** never from `format()` string order.
+- **The agent could not typecheck spsv2 on this Mac:** an untracked `.npmrc`
+  pins the pnpm store to the other machine's home (`/Users/masonfoster/…`), so
+  `node_modules` holds stripe 20.3.1 against a 23.0.0 pin and three unrelated
+  tsc errors pre-exist. The machine-portability rule, again; fix is a
+  per-machine `.npmrc` or none at all. Vercel's build is the gate meanwhile.
