@@ -158,7 +158,7 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Social link-preview (OG) image for every page — cropped 1.91:1 around the focal point" },
 
   // ── Ordered: position-mapped page sets (image N → position N) ────────────
-  { key: "benefits/headshot-booth", label: "Benefits — Headshot Booth", kind: "ordered", service: "headshot-booth", positions: 6, path: "/services/headshot-booth",
+  { key: "benefits/headshot-booth", label: "Benefits — Headshot Booth", kind: "ordered", service: "headshot-booth", positions: 8, path: "/services/headshot-booth",
     description: "Benefits grid — image N fills tile N" },
   { key: "benefits/photo-booth", label: "Benefits — Photo Booth", kind: "ordered", service: "photo-booth", positions: 6, path: "/services/photo-booth",
     description: "Benefits grid — image N fills tile N" },
@@ -200,7 +200,7 @@ export const SITE_SCENES: SceneDef[] = [
  * interchangeable, so they fall back to plain position numbers.)
  */
 const POSITION_LABELS: Record<string, string[]> = {
-  "benefits/headshot-booth": ["Instant delivery", "Zero retouching", "Endless traffic", "Lead capture", "Scales to 10+ teams", "Branded to your event"],
+  "benefits/headshot-booth": ["Instant delivery", "Zero retouching", "Endless traffic", "Lead capture", "Scales to 10+ teams", "Branded to your event", "Named and searchable", "A recap for whoever signed"],
   "benefits/photo-booth": ["Real photographers", "Studio lighting", "80+ backdrops", "Props that land", "Instant sharing", "Hosted gallery"],
   "benefits/anti-booth": ["The venue is the set", "Editorial lighting", "Never recreated", "Any light, any hour", "Instant sharing", "Gallery included"],
   "benefits/event-photography": ["Conferences & expos", "Activations & launches", "Stadiums to boardrooms", "Fast turnaround", "Teams that scale", "Personality included"],
