@@ -375,7 +375,7 @@ function Ready({ data }: { data: RecapPayload }) {
                 : "finished photos, delivered on site."}
             </h1>
             <p className="mt-4 max-w-[44ch] text-[15px] leading-relaxed text-stone-600">
-              Every frame was lit, shot, culled, retouched and named on site.
+              Every frame was lit, shot, culled and named on site. Nobody needed retouching.
               {median ? ` Guests had their gallery in hand ${median} after their last frame, median.` : ""}
             </p>
           </div>
@@ -414,7 +414,7 @@ function Ready({ data }: { data: RecapPayload }) {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="border border-stone-200 p-5">
               <div className="font-editorial text-lg text-stone-900">Finished, not raw</div>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">{formatCount(data.archive.photos)} photos, culled and retouched live. No blinks, no duplicates, no &ldquo;finals to follow.&rdquo;</p>
+              <p className="mt-2 text-sm leading-relaxed text-stone-600">{formatCount(data.archive.photos)} photos, lit so nobody needs retouching, culled on the spot. No blinks, no duplicates, no &ldquo;finals to follow.&rdquo;</p>
             </div>
             <div className="border border-stone-200 p-5">
               <div className="font-editorial text-lg text-stone-900">Named and searchable</div>
