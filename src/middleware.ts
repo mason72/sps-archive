@@ -17,7 +17,8 @@ const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
  *
  * Public app routes (no auth required):
  *   /, /login, /signup, /forgot-password, /reset-password,
- *   /auth/callback, /gallery/*, /api/gallery/*, /api/inngest, /api/stripe/webhook, /api/site/*,
+ *   /auth/callback, /gallery/*, /api/gallery/*, /recap/*, /api/recap/*, /api/inngest,
+ *   /api/stripe/webhook, /api/site/*,
  *   /api/waitlist, /api/guest-list/* (token-authenticated), /dev/*
  *   — note /api/sps/* is NOT public; see the isPublic block below.
  *
@@ -135,6 +136,11 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/waitlist" ||
     pathname.startsWith("/gallery") ||
     pathname.startsWith("/api/gallery") ||
+    // The delivery recap and its PNG cards: share-gated like the gallery
+    // (the slug is the credential, the password cookie is checked in the
+    // route), so the session gate here would only lock the client out.
+    pathname.startsWith("/recap/") ||
+    pathname.startsWith("/api/recap/") ||
     pathname.startsWith("/api/inngest") ||
     pathname.startsWith("/api/stripe/webhook") ||
     // NOTHING under /api/sps is public any more.
