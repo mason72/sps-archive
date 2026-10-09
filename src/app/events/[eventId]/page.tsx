@@ -599,6 +599,15 @@ export default function EventPage({
   })();
   const wasUploadingRef = useRef(false);
 
+  // ─── AI Looks: every SPS render in one section, one click ───
+  // Counted from the payload's one marker (isAiRender ← sps_source_image_id);
+  // the sidebar shows the action only when this is > 0.
+  const aiRenderCount = useMemo(
+    () => allImages.reduce((n, img) => (img.isAiRender && !img.isCover ? n + 1 : n), 0),
+    [allImages]
+  );
+  // The click handler lives below, after fetchEvent is declared.
+
   const NUDGE_MIN_FILES = 50;
   useEffect(() => {
     if (!uploadProgress.active) return;
@@ -1265,6 +1274,38 @@ export default function EventPage({
     [handleSetActiveSection, fetchEvent]
   );
 
+  // "AI Looks" clicked in the sidebar: POST, refetch, open the section. The
+  // route is idempotent, so a second click adds only what landed since.
+  const handleAiLooks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/sections/ai-looks`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        sectionId?: string;
+        name?: string;
+        linked?: number;
+        total?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.sectionId) {
+        throw new Error(data.error || "Couldn't build the AI Looks section");
+      }
+      // Refetch first so the section (and every render's membership) is in
+      // state before it becomes the active tab.
+      await fetchEvent();
+      handleSetActiveSection(data.sectionId);
+      const linked = data.linked ?? 0;
+      toast.success(
+        linked > 0
+          ? `${data.name ?? "AI Looks"} · ${linked.toLocaleString()} render${linked === 1 ? "" : "s"} added`
+          : `${data.name ?? "AI Looks"} already has every render`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't build the AI Looks section");
+    }
+  }, [eventId, fetchEvent, handleSetActiveSection]);
+
   useEffect(() => {
     const draining = wasUploadingRef.current && !uploadProgress.active;
     wasUploadingRef.current = uploadProgress.active;
@@ -1714,6 +1755,8 @@ export default function EventPage({
           onRequestSort={() => setShowSort(true)}
           onRequestSmartSection={() => setShowSmartSection(true)}
           smartSectionWait={aiWaitLabel}
+          aiRenderCount={aiRenderCount}
+          onRequestAiLooks={handleAiLooks}
         />
       )}
 

@@ -62,7 +62,7 @@ export async function GET(
 
     const { data: sections, error: secErr } = await supabase
       .from("sections")
-      .select("id, name, locked, filter_query, site_scene_key, sort_order")
+      .select("id, name, locked, filter_query, site_scene_key, job_meta, sort_order")
       .eq("event_id", eventId)
       .order("sort_order", { ascending: true });
     if (secErr) throw secErr;
@@ -83,6 +83,7 @@ export async function GET(
               locked: s.locked,
               filterQuery: s.filter_query,
               siteSceneKey: s.site_scene_key,
+              jobMeta: s.job_meta,
             }),
           };
         })

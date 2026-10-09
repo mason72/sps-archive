@@ -91,8 +91,9 @@ Gallery organization units. **Every event has at least one; the seed section is 
 | name | text | "Ceremony", "Highlights" |
 | description | text? | |
 | sort_order | int | Display sequence |
-| is_auto | boolean | Provenance: made by "Sort into sections". NOT what a rebuild deletes by — that is `rebuildKeepReason` (`src/lib/sections/rebuild.ts`: Highlights, locked, smart, website-lane survive; all else is replaced) |
+| is_auto | boolean | Provenance: made by "Sort into sections". NOT what a rebuild deletes by — that is `rebuildKeepReason` (`src/lib/sections/rebuild.ts`: Highlights, locked, smart, website-lane and AI Looks survive; all else is replaced) |
 | filter_query | text? | Scene tag for auto sections (*AI: dormant*) |
+| job_meta | jsonb? | TDP Work job sheet (`src/lib/site/jobs.ts`) on `job/<slug>` sections; `{ kind: "ai-looks" }` marks the AI Looks section (§6). NULL everywhere else |
 | created_at | timestamptz | |
 
 ### section_images
@@ -205,6 +206,7 @@ Enforced across `/api/upload`, `/api/sections`, and `/api/sections/[sectionId]`:
 - **"All Images" is a derived view** (union of all sections). Never stored, never writable, never deletable.
 - **Seed section is "Highlights"** — fully renamable, deletable once others exist, not otherwise special.
 - New manual sections are created at the top (`sort_order = 0`; existing sections shift down).
+- **"AI Looks" is a one-click LINK section, never a move** (2026-10-09, `src/lib/sections/ai-looks.ts`, `POST /api/events/[eventId]/sections/ai-looks`). It gathers every AI render in the event — the ONE marker is `images.sps_source_image_id` (not null = a render the SPS pull brought across) — into a section marked `job_meta: { kind: "ai-looks" }` (name "AI Looks" is the fallback for a hand-made one, which the route adopts and stamps). Each render gains a membership and keeps every other one; the route is idempotent (a second click links only renders that landed since; members a person dragged in are left alone); 400 when the event has no renders, 409 when the section is locked. "Rebuild all sections" keeps it (`rebuildKeepReason` → `"ai-looks"`). The sidebar shows the action only when the images payload counts `isAiRender` > 0, labelled "AI Looks · N".
 
 ---
 

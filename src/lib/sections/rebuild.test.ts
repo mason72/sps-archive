@@ -31,4 +31,21 @@ describe("rebuildKeepReason", () => {
   it("treats a null lock as unlocked", () => {
     expect(rebuildKeepReason(plain({ locked: null }))).toBeNull();
   });
+
+  it("keeps the AI Looks section by its job_meta marker, whatever it is named", () => {
+    expect(rebuildKeepReason(plain({ name: "AI Looks", jobMeta: { kind: "ai-looks" } }))).toBe(
+      "ai-looks"
+    );
+    expect(rebuildKeepReason(plain({ name: "Renders", jobMeta: { kind: "ai-looks" } }))).toBe(
+      "ai-looks"
+    );
+    // The name alone is not the marker: a hand-made "AI Looks" with no
+    // job_meta is an ordinary section until the button adopts it.
+    expect(rebuildKeepReason(plain({ name: "AI Looks" }))).toBeNull();
+    expect(rebuildKeepReason(plain({ name: "AI Looks", jobMeta: null }))).toBeNull();
+    // A TDP Work job sheet in job_meta is not AI Looks (those survive as "site").
+    expect(
+      rebuildKeepReason(plain({ jobMeta: { client: "eBay" }, siteSceneKey: "job/ebay" }))
+    ).toBe("site");
+  });
 });

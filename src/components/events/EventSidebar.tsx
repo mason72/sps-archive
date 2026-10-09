@@ -28,6 +28,7 @@ import {
   X,
   Sparkles,
   FolderTree,
+  Wand2,
 } from "lucide-react";
 import { SectionRow } from "@/components/sections/SectionRow";
 import {
@@ -35,6 +36,7 @@ import {
   INTAKE_SECTION_NAME,
   findIntakeSectionId,
 } from "@/lib/sections/intake";
+import { isAiLooksSection } from "@/lib/sections/ai-looks";
 import { isJobSceneKey, jobMissingFields, parseJobMeta } from "@/lib/site/jobs";
 import { sceneForKey } from "@/lib/site/scenes";
 import { CoverLayoutTab } from "@/components/settings/CoverLayoutTab";
@@ -141,6 +143,18 @@ interface EventSidebarProps {
   onRequestSort?: () => void;
   /** Opens the additive "Smart section" modal (page-owned, like sort). */
   onRequestSmartSection?: () => void;
+  /**
+   * AI renders in this gallery (`isAiRender` on the images payload). The
+   * "AI Looks" action renders only when this is > 0: a gallery with no renders
+   * has nothing for it to gather, so there is no state to explain.
+   */
+  aiRenderCount?: number;
+  /**
+   * Gathers every AI render into the "AI Looks" section (page-owned: it POSTs,
+   * refetches and selects the section). Resolves when done; the sidebar holds
+   * the busy state while it runs.
+   */
+  onRequestAiLooks?: () => Promise<void> | void;
 }
 
 export type Panel = "sections" | "design" | "details" | "activity";
@@ -201,6 +215,8 @@ export function EventSidebar({
   onRequestSort,
   onRequestSmartSection,
   smartSectionWait,
+  aiRenderCount,
+  onRequestAiLooks,
 }: EventSidebarProps) {
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -315,6 +331,8 @@ export function EventSidebar({
             onRequestSort={onRequestSort}
             onRequestSmartSection={onRequestSmartSection}
             smartSectionWait={smartSectionWait}
+            aiRenderCount={aiRenderCount}
+            onRequestAiLooks={onRequestAiLooks}
           />
         )}
         {activePanel === "design" && (
@@ -395,9 +413,13 @@ function SectionsPanel({
   onRequestSort,
   onRequestSmartSection,
   smartSectionWait,
+  aiRenderCount = 0,
+  onRequestAiLooks,
 }: {
   eventId: string;
   smartSectionWait?: string | null;
+  aiRenderCount?: number;
+  onRequestAiLooks?: () => Promise<void> | void;
   sections: SectionItem[];
   uploadProgressBySection?: Map<
     string,
@@ -416,6 +438,22 @@ function SectionsPanel({
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  // ─── AI Looks (gather every render into one section) ───
+  const [aiLooksBusy, setAiLooksBusy] = useState(false);
+  const showAiLooks = !!onRequestAiLooks && aiRenderCount > 0;
+  // Already gathered once? Then the click is "add what landed since", and the
+  // label should say so rather than promise a new section.
+  const aiLooksExists = sections.some((s) => isAiLooksSection(s));
+  const handleAiLooks = useCallback(async () => {
+    if (!onRequestAiLooks || aiLooksBusy) return;
+    setAiLooksBusy(true);
+    try {
+      await onRequestAiLooks();
+    } finally {
+      setAiLooksBusy(false);
+    }
+  }, [onRequestAiLooks, aiLooksBusy]);
 
   // ─── Section search + filters (long lists, e.g. the website gallery) ───
   const [sectionQuery, setSectionQuery] = useState("");
@@ -785,8 +823,40 @@ function SectionsPanel({
           the list outgrows the screen (mt-auto in the flex column). Additive
           "Smart section" first — the destructive rebuild reads as the heavier
           option it is. */}
-      {!isWorkGallery && (onRequestSmartSection || onRequestSort) && (
+      {!isWorkGallery && (onRequestSmartSection || onRequestSort || showAiLooks) && (
         <div className="shrink-0 border-t border-stone-100 bg-white">
+          {/* "AI Looks" — one click, additive, no AI wait: it reads a column
+              the SPS pull already wrote, so it never greys out. Shown only
+              when the gallery holds renders (nothing to gather otherwise). */}
+          {showAiLooks && (
+            <button
+              onClick={handleAiLooks}
+              disabled={aiLooksBusy}
+              aria-busy={aiLooksBusy}
+              className={`flex w-full items-start gap-2 px-4 py-2.5 text-left transition-colors ${
+                aiLooksBusy ? "cursor-progress opacity-60" : "hover:bg-emerald-50/50"
+              }`}
+            >
+              <Wand2
+                size={14}
+                className={`mt-0.5 shrink-0 ${aiLooksBusy ? "text-stone-300" : "text-emerald-500"}`}
+              />
+              <span>
+                <span
+                  className={`block text-[12px] font-medium ${aiLooksBusy ? "text-stone-500" : "text-emerald-700"}`}
+                >
+                  AI Looks · {aiRenderCount.toLocaleString()}
+                </span>
+                <span className="block text-[10px] leading-tight text-stone-400">
+                  {aiLooksBusy
+                    ? "Gathering the renders…"
+                    : aiLooksExists
+                      ? "Adds any new renders to the AI Looks section"
+                      : "One section with every AI render · nothing moves"}
+                </span>
+              </span>
+            </button>
+          )}
           {onRequestSmartSection && (
             <button
               onClick={onRequestSmartSection}

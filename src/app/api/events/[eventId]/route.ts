@@ -98,7 +98,7 @@ export async function GET(
     // curation editor — the TDP Website gallery shows images that live in
     // other events, and captions are sourced from those events.
     const IMAGE_FIELDS =
-      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, processing_error, width, height, created_at, taken_at, focal_x, focal_y, service, featured, media_type, duration_seconds, event_id, events!event_id(name, city)";
+      "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, processing_error, width, height, created_at, taken_at, focal_x, focal_y, service, featured, media_type, duration_seconds, event_id, sps_source_image_id, events!event_id(name, city)";
     const PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -247,6 +247,9 @@ export async function GET(
           eventCity: img.events?.city ?? null,
           sectionIds: sectionIdsByImage.get(img.id) ?? [],
           isCover: coverImageId ? img.id === coverImageId : false,
+          // An AI render SimplePhotoShare generated and the pull brought across
+          // (migration 076). The ONE marker; the AI Looks button counts these.
+          isAiRender: !!img.sps_source_image_id,
         };
       })
     );

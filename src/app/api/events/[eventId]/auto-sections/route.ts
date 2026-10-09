@@ -149,7 +149,7 @@ export async function POST(
     // the plan may reuse its name (names are unique per event, migration 048).
     const { data: existingSections, error: exErr } = await supabase
       .from("sections")
-      .select("id, name, locked, filter_query, site_scene_key, sort_order")
+      .select("id, name, locked, filter_query, site_scene_key, job_meta, sort_order")
       .eq("event_id", eventId);
     if (exErr) throw exErr;
     const replacedIds = (existingSections ?? [])
@@ -160,6 +160,7 @@ export async function POST(
             locked: s.locked,
             filterQuery: s.filter_query,
             siteSceneKey: s.site_scene_key,
+            jobMeta: s.job_meta,
           }) === null && s.name.trim().toLowerCase() !== INTAKE_SECTION_NAME.toLowerCase()
       )
       .map((s) => s.id);

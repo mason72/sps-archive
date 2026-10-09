@@ -65,6 +65,11 @@ export interface ImageData {
    * grid / "All Images" — it's a cover, not a gallery photo.
    */
   isCover?: boolean;
+  /**
+   * True for an AI render SimplePhotoShare generated from a guest's photo
+   * (`images.sps_source_image_id` set). The AI Looks section gathers these.
+   */
+  isAiRender?: boolean;
 }
 
 /** Full image detail returned by GET /api/images/[imageId] */
