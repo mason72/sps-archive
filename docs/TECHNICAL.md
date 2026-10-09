@@ -378,6 +378,15 @@ the buyer had seen a line item, never the delivery.
   in the private bucket, presigned on read), `PUT/DELETE
   /api/events/[eventId]/recap/logo`. The page shows the photographer's lockup
   alone until a logo exists.
+- **From the editor.** The event header shows "Recap" (opens `/recap/<full share
+  slug>`) when the snapshot and a full share exist, else "Build recap": refresh
+  from SPS, then the full share, else the newest active share (a curated
+  selection stays curated), else mint a full share. Hidden when the event is
+  not SPS-linked. The share page's panel and the email card are the other two
+  ways in.
+- **AI looks.** `aiLeads` (eight renders spread across the event, by
+  `sps_source_image_id`) and `archive.aiRenders` feed an "AI looks" section on
+  the page when the event had renders.
 - **Shooting days.** `shootingDays()` in `chart.ts` keeps the chart and the
   email bars to the capture window: a gallery re-sent a week later counts in
   `linksSent` but is not a day the booth was open.
