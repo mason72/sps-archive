@@ -105,6 +105,13 @@ owner's timezone (`users.timezone`, the guest-list route's convention).
   create a new link": friction right before a send; worth a one-click re-link.
   (d) The email card headline says "finished headshot"; make it "finished gallery" for
   non-headshot events, or read the event type.
+- Website tiles 7 and 8 carry rendered compositions (search close-up from the website gallery's
+  own headshots; the recap stats and curve from WebexOne, unattributed), published through the
+  Pixeltrunk website gallery into `benefits/headshot-booth` at positions 7 and 8; the scene
+  registries read eight positions (sps-archive `src/lib/site/scenes.ts`, tdp-website
+  `src/lib/scenes.ts`). A third mockup, the recap, sits under the gallery in "And so is
+  everything after it". Upload trap: a new upload lands at sort_order 0, tied with the first
+  tile; the position was set by hand (6 and 7).
 - Later the same day: "AI looks" strip on the page; the "AI Looks" sidebar button (links every
   render into one section, kept through rebuilds); the editor header's Recap / Build recap
   action (verified on AAOMS and Oktane: Oktane's snapshot and recap came from the button);
