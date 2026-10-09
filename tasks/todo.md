@@ -105,9 +105,15 @@ owner's timezone (`users.timezone`, the guest-list route's convention).
   create a new link": friction right before a send; worth a one-click re-link.
   (d) The email card headline says "finished headshot"; make it "finished gallery" for
   non-headshot events, or read the event type.
+- Later the same day: "AI looks" strip on the page; the "AI Looks" sidebar button (links every
+  render into one section, kept through rebuilds); the editor header's Recap / Build recap
+  action (verified on AAOMS and Oktane: Oktane's snapshot and recap came from the button);
+  a selection share's recap uses its picks as the lead pool; the email card says "gallery";
+  the website carries the recap as a value-add on two service pages and /quote has its chrome.
 - Not exercised live: Undo on the client logo, a password-locked recap page (the AAOMS and
   WebexOne shares are open), the pull-finish hook on a brand-new pull (both snapshots were
-  taken by hand through the same function).
+  taken by hand through the same function), and "Build recap" minting a share on an event
+  with none (every linked event already had one).
 
 ### Follow-ons (Mason's calls, 2026-10-09)
 - tdp-website: the buyer's question sheet, in the site's own components, linked from
