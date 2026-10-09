@@ -130,7 +130,7 @@ export function RecapPanel({
         <div className="mt-4 text-sm text-stone-400">Loading…</div>
       ) : r ? (
         <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Mini v={formatCount(r.guestsCheckedIn)} l="guests checked in" />
+          <Mini v={formatCount(r.guests)} l={r.guestsCheckedIn && r.guestsCheckedIn !== r.guests ? `people (${formatCount(r.guestsCheckedIn)} checked in)` : "people"} />
           <Mini v={formatCount(r.linksSent)} l="galleries sent" />
           <Mini v={median ?? "—"} l="last frame to inbox" />
           <Mini v={open !== null ? `${open}%` : "—"} l="opened" />

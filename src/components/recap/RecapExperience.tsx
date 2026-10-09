@@ -346,14 +346,14 @@ function Ready({ data }: { data: RecapPayload }) {
   const register = useParallax(reduced);
   const [heroRef, heroSeen] = useInView<HTMLElement>(0.1);
   const r = data.recap;
-  const leadNumber = r && r.guestsCheckedIn > 0 ? r.guestsCheckedIn : r?.photos || data.archive.photos;
+  const leadNumber = r && r.guests > 0 ? r.guests : r?.photos || data.archive.photos;
   const shown = useCountUp(leadNumber, heroSeen, reduced);
   const median = r ? formatSeconds(r.lastFrameToSend.medianSec) : null;
   const open = r ? recapOpenRate(r) : null;
   const when = dateRange(r, data.eventDate);
-  const perGuest = r && r.guestsCheckedIn > 0 ? Math.round(data.archive.photos / r.guestsCheckedIn) : null;
+  const perGuest = r && r.guests > 0 ? Math.round(data.archive.photos / r.guests) : null;
   const namedShare = data.archive.photos > 0 ? data.archive.named / data.archive.photos : 0;
-  const leadsWith = r && r.guestsCheckedIn > 0;
+  const leadsWith = r && r.guests > 0;
 
   return (
     <main className="min-h-screen bg-white text-stone-900">

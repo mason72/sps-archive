@@ -513,7 +513,7 @@ function recapChart(recap: SpsRecap): string {
  */
 function recapCard(recap: NonNullable<EmailShellOptions["recap"]>): string {
   const { data, url } = recap;
-  const guests = data.guestsCheckedIn;
+  const guests = data.guests;
   const event = escapeHtml(data.eventName);
   const headline =
     guests > 0

@@ -378,7 +378,7 @@ describe("renderEmailContent delivery recap", () => {
   it("leads with the number of people who left with a headshot", () => {
     const html = renderEmailContent({ body: "hi", recap: withRecap() });
     expect(html).toContain(
-      "704 people left Oktane 2026 with a finished headshot in their inbox."
+      "706 people left Oktane 2026 with a finished headshot in their inbox."
     );
     expect(html).toContain("Oktane 2026 · Delivery recap");
   });
@@ -386,7 +386,7 @@ describe("renderEmailContent delivery recap", () => {
   it("shows four tiles and one cell per hour for the Oktane fixture", () => {
     const html = renderEmailContent({ body: "hi", recap: withRecap() });
     expect(tiles(html)).toBe(4);
-    expect(html).toContain(">704<");
+    expect(html).toContain(">706<");
     expect(html).toContain(">5,119<");
     expect(html).toContain(">45 sec<");
     // 601 of 762 opened.
@@ -429,7 +429,7 @@ describe("renderEmailContent delivery recap", () => {
   it("leads with the galleries when nobody checked in at a booth", () => {
     const html = renderEmailContent({
       body: "hi",
-      recap: withRecap({ ...OKTANE_RECAP, guestsCheckedIn: 0 }),
+      recap: withRecap({ ...OKTANE_RECAP, guests: 0, guestsCheckedIn: 0 }),
     });
     expect(html).toContain("762 finished galleries went out during Oktane 2026");
     expect(html).not.toContain("0 people left");

@@ -13,6 +13,7 @@ describe("normalizeRecap", () => {
     const r = normalizeRecap(OKTANE_RECAP);
     expect(r).not.toBeNull();
     expect(r!.guestsCheckedIn).toBe(704);
+    expect(r!.guests).toBe(706);
     expect(r!.linksSent).toBe(762);
     expect(r!.linksOpened).toBe(601);
     expect(r!.lastFrameToSend.medianSec).toBe(45);
@@ -24,6 +25,12 @@ describe("normalizeRecap", () => {
     expect(normalizeRecap({ ...OKTANE_RECAP, eventName: "" })).toBeNull();
     expect(normalizeRecap(null)).toBeNull();
     expect(normalizeRecap("{}")).toBeNull();
+  });
+
+  it("falls back to check-ins when a snapshot predates the guests field", () => {
+    const { guests: _dropped, ...older } = OKTANE_RECAP;
+    void _dropped;
+    expect(normalizeRecap(older)!.guests).toBe(704);
   });
 
   it("coerces junk counts to zero and drops malformed hours", () => {
@@ -51,7 +58,7 @@ describe("recapPassesFloor", () => {
   it("passes Oktane and refuses a small office day", () => {
     const r = normalizeRecap(OKTANE_RECAP)!;
     expect(recapPassesFloor(r)).toBe(true);
-    expect(recapPassesFloor({ ...r, guestsCheckedIn: 12 })).toBe(false);
+    expect(recapPassesFloor({ ...r, guests: 12 })).toBe(false);
     expect(recapPassesFloor({ ...r, linksSent: 19 })).toBe(false);
     expect(recapPassesFloor(null)).toBe(false);
   });

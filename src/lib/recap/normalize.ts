@@ -47,6 +47,8 @@ export function normalizeRecap(input: unknown): SpsRecap | null {
     firstCapture: str(r.firstCapture),
     lastCapture: str(r.lastCapture),
     guestsCheckedIn: count(r.guestsCheckedIn),
+    // A snapshot taken before `guests` existed falls back to the check-ins.
+    guests: count(r.guests) || count(r.guestsCheckedIn),
     photos: count(r.photos),
     aiRenders: count(r.aiRenders),
     linksSent: count(r.linksSent),
@@ -75,7 +77,7 @@ export const RECAP_FLOOR = { guests: 20, links: 20 } as const;
 export function recapPassesFloor(recap: SpsRecap | null): recap is SpsRecap {
   return (
     !!recap &&
-    recap.guestsCheckedIn >= RECAP_FLOOR.guests &&
+    recap.guests >= RECAP_FLOOR.guests &&
     recap.linksSent >= RECAP_FLOOR.links
   );
 }

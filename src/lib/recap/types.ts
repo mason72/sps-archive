@@ -49,8 +49,15 @@ export interface SpsRecap {
   eventName: string;
   firstCapture: string | null;
   lastCapture: string | null;
-  /** Guests who checked in at the booth (SPS check-in entries). */
+  /** Check-in entries at the booth (a sit, not a person: a guest can sign in twice). */
   guestsCheckedIn: number;
+  /**
+   * People with any record of being served: sign-ins merged by email (else
+   * name), plus everyone who received a gallery without signing in. This is
+   * the number a client recognises from their guest list and the one every
+   * surface leads with (WebexOne: 788 check-ins, 1,067 people).
+   */
+  guests: number;
   /** Camera frames (AI renders excluded). */
   photos: number;
   aiRenders: number;

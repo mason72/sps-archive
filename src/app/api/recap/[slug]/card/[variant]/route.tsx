@@ -37,7 +37,7 @@ const RULE = "#E7E5E4";
 function headline(p: RecapPayload): string[] {
   const r = p.recap!;
   const median = formatSeconds(r.lastFrameToSend.medianSec);
-  const who = r.guestsCheckedIn > 0 ? `${formatCount(r.guestsCheckedIn)} people photographed.` : `${formatCount(r.photos)} finished photos.`;
+  const who = r.guests > 0 ? `${formatCount(r.guests)} people photographed.` : `${formatCount(r.photos)} finished photos.`;
   const how = median ? ["Finished photos in their inbox", `in ${median}.`] : ["Finished photos, delivered", "before they left."];
   return [who, ...how];
 }

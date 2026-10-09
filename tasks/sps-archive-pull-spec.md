@@ -273,6 +273,7 @@ reader on this side.
   "firstCapture": "2026-09-22T20:00:07.536Z",
   "lastCapture": "2026-09-24T19:21:48.729Z",
   "guestsCheckedIn": 704,
+  "guests": 706,
   "photos": 5119,
   "aiRenders": 0,
   "linksSent": 762,
