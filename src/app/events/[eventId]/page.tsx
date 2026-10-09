@@ -42,6 +42,8 @@ import { useGalleryShortcuts } from "@/hooks/useGalleryShortcuts";
 import { ShortcutsHelp } from "@/components/command/ShortcutsHelp";
 import { BrandButton } from "@/components/ui/brand-button";
 import { toast } from "sonner";
+import { normalizeRecap } from "@/lib/recap/normalize";
+import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
@@ -292,6 +294,63 @@ export default function EventPage({
   const [hasFullShare, setHasFullShare] = useState(false);
   /** Slug of the full share only; never a selection share. */
   const [fullShareSlug, setFullShareSlug] = useState<string | null>(null);
+  /**
+   * The delivery recap, from the editor. A recap page is a share slug plus a
+   * snapshot, so "Recap" opens it when both exist and "Build recap" fills in
+   * whichever is missing: the numbers from SPS, then a share. The share is
+   * the full share when there is one, else the newest active share (a
+   * curated selection stays curated; the recap scopes to it), and a full
+   * share is minted only when the event has none. Hidden on events that never
+   * went through SPS: there is no delivery data to recap.
+   */
+  const recapReady = !!normalizeRecap((event as { recap?: unknown } | null)?.recap);
+  const spsLinked = !!readSpsEventId((event?.settings ?? null) as Record<string, unknown> | null);
+  const [recapBusy, setRecapBusy] = useState(false);
+  const handleRecap = useCallback(async () => {
+    setRecapBusy(true);
+    try {
+      if (!recapReady) {
+        const res = await fetch(`/api/events/${eventId}/recap`, { method: "POST" });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast.error(body.error ?? "Couldn't fetch the numbers from SimplePhotoShare");
+          return;
+        }
+        const data = (await res.json()) as { recap?: unknown };
+        setEvent((prev) => (prev ? ({ ...prev, recap: data.recap ?? null } as typeof prev) : prev));
+      }
+      let slug = fullShareSlug;
+      if (!slug) {
+        const sharesRes = await fetch(`/api/shares?eventId=${eventId}`);
+        const sharesData = sharesRes.ok ? await sharesRes.json() : { shares: [] };
+        const active = ((sharesData.shares ?? []) as { isActive: boolean; shareType: string; slug: string; createdAt?: string }[])
+          .filter((s) => s.isActive)
+          .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+        slug = active.find((s) => s.shareType === "full")?.slug ?? active[0]?.slug ?? null;
+      }
+      if (!slug) {
+        const createRes = await fetch("/api/shares", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId }),
+        });
+        if (!createRes.ok) {
+          toast.error("Couldn't create a share link for the recap");
+          return;
+        }
+        const created = await createRes.json();
+        slug = created.share?.slug ?? null;
+        if (slug) {
+          setHasFullShare(true);
+          setFullShareSlug(slug);
+          toast.success("Share link created; the recap uses it");
+        }
+      }
+      if (slug) window.open(`/recap/${slug}`, "_blank", "noopener");
+    } finally {
+      setRecapBusy(false);
+    }
+  }, [eventId, recapReady, fullShareSlug]);
 
   // Stable ref for activeSection so UploadZone always has the current value
   const activeSectionRef = useRef<string | null>(null);
@@ -1854,6 +1913,31 @@ export default function EventPage({
         >
           {hasFullShare ? "View" : "Preview"}
         </a>
+
+        {/* Delivery recap: open it, or build it (numbers from SPS, then a share). */}
+        {spsLinked && (
+          recapReady && fullShareSlug ? (
+            <a
+              href={`/recap/${fullShareSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the delivery recap your client sees"
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
+            >
+              Recap
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={handleRecap}
+              disabled={recapBusy}
+              title={recapReady ? "Create the share link the recap needs and open it" : "Fetch the delivery numbers from SimplePhotoShare and open the recap"}
+              className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300 disabled:opacity-50"
+            >
+              {recapBusy ? "Building…" : "Build recap"}
+            </button>
+          )
+        )}
 
         {/* Publish / Share — both go to email compose page */}
         <Link href={hasFullShare
