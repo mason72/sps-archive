@@ -242,6 +242,75 @@ export async function selectShareImage(
 }
 
 /**
+ * The OWNER's counterpart of `shareImages`: the exact photos a signed-in user
+ * may ZIP out of their own event from the editor (Justin, 2026-10-11: the
+ * editor's "Download" fired one file per photo while the weblink made a ZIP).
+ *
+ * Ownership is the `events.user_id` filter, checked here and nowhere later —
+ * the caller holds the SERVICE client (`getAuthUser`), which bypasses RLS,
+ * and an id-only lookup from it is the IDOR this repo has shipped twice. A
+ * foreign event and a missing one both answer 404. Ids that are not this
+ * event's photos simply do not match; no display gate, since the owner may
+ * take an original before its thumbnail exists.
+ */
+export async function selectOwnerImages(
+  supabase: DB,
+  userId: string,
+  eventId: string,
+  imageIds: string[],
+  label?: string | null
+): Promise<SelectionResult> {
+  const ids = Array.from(new Set(imageIds.filter((id) => UUID_RE.test(id))));
+  if (ids.length === 0) {
+    return { ok: false, status: 400, message: "No photos selected" };
+  }
+  const { data: event } = await supabase
+    .from("events")
+    .select("id, name, user_id")
+    .eq("id", eventId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!event) {
+    return { ok: false, status: 404, message: "Event not found" };
+  }
+
+  // Chunked `.in()`: a Select All on a big event is thousands of ids, and
+  // both the URL-sized filter and the 1,000-row response cap bite past that.
+  const images: DownloadImage[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await supabase
+      .from("images")
+      .select("id, r2_key, original_filename, file_size")
+      .eq("event_id", event.id)
+      .in("id", ids.slice(i, i + 500))
+      .not("r2_key", "is", null);
+    if (error) throw error;
+    images.push(...(data ?? []));
+  }
+  if (images.length === 0) {
+    return { ok: false, status: 404, message: "No matching photos" };
+  }
+  // Keep the order the editor showed, not the database's.
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  images.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+
+  const zipFilename = `${asciiFilePart(event.name ?? "", "gallery")}-${asciiFilePart(label ?? "", "selection")}.zip`;
+  const totalBytes = images.reduce((sum, img) => sum + (img.file_size || 0), 0);
+  const scopeKey = createHash("sha256")
+    .update(images.map((i) => i.id).sort().join(","))
+    .digest("hex");
+  return {
+    ok: true,
+    images,
+    totalBytes,
+    sectionsByImage: new Map(),
+    zipFilename,
+    eventUserId: event.user_id,
+    scopeKey,
+  };
+}
+
+/**
  * Resolve the exact image set for a scope. Every filter only NARROWS the
  * share's own event images, so foreign section/image ids simply don't match.
  */

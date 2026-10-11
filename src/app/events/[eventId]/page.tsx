@@ -1135,13 +1135,20 @@ export default function EventPage({
     setShowShareModal(true);
   }, [selectedArray]);
 
+  /** Download the selection. One photo saves as a file; two or more come
+   *  down as ONE ZIP through the owner route, the way the weblink does it
+   *  (Justin, 2026-10-11: the editor fired a file per photo). The ZIP is
+   *  named after the search when there is one ("WebexOne-Pramod.zip"). */
   const handleBatchDownload = useCallback(async () => {
     const selectedImages = images.filter((img) => selectedIds.has(img.id));
-    // Fetch each image's signed DOWNLOAD url (attachment disposition) on
-    // demand — the list payload carries only display urls, which render
-    // inline. No target="_blank": the attachment disposition makes the
-    // browser save the file, and a new tab is exactly the bug to avoid.
-    for (const img of selectedImages) {
+    if (selectedImages.length === 0) return;
+
+    if (selectedImages.length === 1) {
+      const img = selectedImages[0];
+      // Signed DOWNLOAD url (attachment disposition) on demand — the list
+      // payload carries only display urls, which render inline. No
+      // target="_blank": the attachment disposition makes the browser save
+      // the file, and a new tab is exactly the bug to avoid.
       let url: string | undefined;
       try {
         const res = await fetch(`/api/images/${img.id}`);
@@ -1153,20 +1160,45 @@ export default function EventPage({
         /* fall through to thumbnail */
       }
       url = url || img.thumbnailUrl;
-      if (url) {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = img.originalFilename || "image";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        // Stagger multi-selection so the browser doesn't drop rapid downloads.
-        if (selectedImages.length > 1) {
-          await new Promise((r) => setTimeout(r, 200));
-        }
-      }
+      if (!url) return;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = img.originalFilename || "image";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
     }
-  }, [images, selectedIds]);
+
+    const params = new URLSearchParams({
+      images: selectedImages.map((img) => img.id).join(","),
+    });
+    if (trimmedQuery) params.set("name", trimmedQuery);
+    const base = `/api/events/${eventId}/download?${params.toString()}`;
+    // Preflight as JSON so the size ceiling becomes a toast, not a navigation
+    // into an error body.
+    try {
+      const res = await fetch(`${base}&check=1`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(data?.error || "Download failed — please try again.");
+        return;
+      }
+      if (!data?.ok) {
+        const mb = Math.round((data?.maxBytes ?? 0) / 1024 / 1024);
+        toast.error(
+          `That's too much for one ZIP — pick up to ${data?.maxCount ?? 300} photos (${mb} MB) at a time, or download the whole gallery from its share page.`,
+          { duration: 8000 }
+        );
+        return;
+      }
+    } catch {
+      toast.error("Download failed — please try again.");
+      return;
+    }
+    toast.success(`Zipping ${selectedImages.length} photos…`);
+    window.location.href = base;
+  }, [images, selectedIds, eventId, trimmedQuery]);
 
   const handleAddToSection = useCallback(
     async (sectionId: string) => {
@@ -1484,8 +1516,11 @@ export default function EventPage({
     }
     const stacks: StackData[] = [];
     const loose: ImageData[] = [];
-    // A view that would be ONE stack (a photo booth section) lays out flat.
-    for (const group of buildDisplayStacks(sortedImages)) {
+    // A section view that would be ONE stack (a photo booth section) lays out
+    // flat. A search or a person chip is the user asking for one person, so
+    // that one stack stays (Justin, Pramod, 2026-10-11).
+    const view = isSearching || personFilter ? "search" : "section";
+    for (const group of buildDisplayStacks(sortedImages, { view })) {
       if (group.images.length > 1) {
         stacks.push({
           id: `name:${group.key}`,
@@ -1500,7 +1535,7 @@ export default function EventPage({
       }
     }
     return { gridStacks: stacks, gridStandalone: loose };
-  }, [showStacks, sortedImages]);
+  }, [showStacks, sortedImages, isSearching, personFilter]);
   // Kept name `standalone` for the existing render/filmstrip props below.
   const standalone = gridStandalone;
 
@@ -2210,19 +2245,43 @@ export default function EventPage({
                     : "Search all images…"
                 }
               />
-              {/* Section-scoped search → offer to widen to the whole event,
+              {/* The result line: how many, select them all in one click
+                  (Justin, 2026-10-11: searched Pramod, found no way to grab
+                  the lot — Select All sat in the divider row below), and on a
+                  section-scoped search the offer to widen to the whole event,
                   carrying the query into the All Images context. */}
-              {isSearching && activeSection && (
+              {isSearching && (images.length > 0 || activeSection) && (
                 <p className="mt-2 text-[12px] text-stone-400">
                   {images.length === 0
                     ? "No matches in this section. "
-                    : `${images.length} in this section. `}
-                  <button
-                    onClick={handleSearchAllImages}
-                    className="text-accent hover:text-accent/80 transition-colors"
-                  >
-                    Search all images
-                  </button>
+                    : activeSection
+                    ? `${images.length} in this section. `
+                    : `${images.length} ${images.length === 1 ? "match" : "matches"}. `}
+                  {images.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const allIds = images.map((img) => img.id);
+                          if (selection.count === images.length) selection.deselectAll();
+                          else selection.selectAll(allIds);
+                        }}
+                        className="text-accent hover:text-accent/80 transition-colors"
+                      >
+                        {selection.count === images.length
+                          ? "Deselect all"
+                          : `Select all ${images.length}`}
+                      </button>
+                      {activeSection && <span className="text-stone-300"> · </span>}
+                    </>
+                  )}
+                  {activeSection && (
+                    <button
+                      onClick={handleSearchAllImages}
+                      className="text-accent hover:text-accent/80 transition-colors"
+                    >
+                      Search all images
+                    </button>
+                  )}
                 </p>
               )}
             </div>

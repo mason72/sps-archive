@@ -518,7 +518,8 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     // The selfie grid never stacks (smartStacks={false} below), so its arrows
     // must not walk a person-grouped order the guest cannot see.
     if (gallery?.settings?.smartStacks && !(selfieMatches && !searchQuery.trim())) {
-      list = buildDisplayStacks(list).flatMap((stack) => stack.images);
+      const view = searchQuery.trim() ? "search" : "section";
+      list = buildDisplayStacks(list, { view }).flatMap((stack) => stack.images);
     }
     return list;
   }, [gallery, searchQuery, filteredImages, selfieMatches, selfieImages, sectionVisibleImages]);
@@ -1555,6 +1556,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               gridColumns={s?.gridColumns}
               gridGap={s?.gridGap}
               smartStacks={stacksActive}
+              view="search"
               />
             </>
           ) : semanticLoading ? (

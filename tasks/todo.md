@@ -1,5 +1,24 @@
 # Pixeltrunk - Build Plan
 
+## Justin's editor feedback, round 3 (2026-10-11)
+
+Three items, reproduced in code before building (Mason: "ok lfg build all three").
+
+- [x] 1. A one-name search keeps its stack. The 2026-09-27 flatten rule
+      ("a view that is ONE stack lays out flat") listed "a search for one guest"
+      as an intended case; Justin searched Pramod in WebexOne and wanted one
+      stack, and Mason's 2026-08-10 note said the same. REVERSED for search and
+      person-filter views in both surfaces (`buildDisplayStacks` option, editor
+      + guest grid). Sections still flatten (the photo booth case stays).
+- [x] 2. Selected download in the editor is one ZIP, like the weblink.
+      `GET /api/events/[eventId]/download?images=…&name=…`: owner-authed
+      (`getAuthUser` + `events.user_id` filter), same archiver stream as the
+      gallery route, same SYNC caps (300 / 750 MB); over the cap it says so.
+      One photo still downloads as a file.
+- [x] 3. Select All is findable from a search: a "Select all N" control beside
+      the result count, under the search box.
+- [x] Proof: vitest (stacks + owner selection), typecheck, lint, guest gallery checked locally (one stack card, badge 8). Editor half verified on production after deploy (his Chrome blocks localhost).
+
 ## Delivery recap: email card + co-branded recap page (2026-10-09)
 
 Why: MangoMeet went to a cheaper vendor after a year with us, and the buyer never

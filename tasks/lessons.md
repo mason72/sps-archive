@@ -4412,3 +4412,31 @@ neighbours needed to.
   presigned thumbnails, a minute on "Loading…" on the day of the send.
   `?scope=event` returns the row alone. Any screen that reads
   `/api/events/[id]` should ask what it actually uses.
+
+## 182 — A rule's doc comment listed the case it was wrong about, and nobody tried it (2026-10-11)
+
+The 2026-09-27 display rule ("a view that would fold into ONE stack lays out
+flat") was built for a photo-booth section and its own comment named "a search
+for one guest" as a case it covered. It did: Justin searched Pramod in WebexOne
+and got 8 loose tiles, the stack switch doing nothing (off = flat, on = one
+stack = flattened), with no way to grab the lot. The rule had conflated two
+views that look identical to the function and mean opposite things to a person:
+in a section, one group means the filenames cannot tell people apart, so the
+grouping says nothing; in a search, one group IS the answer. The fix is a
+`view` option the caller states, and the test that said "flattens a one-name
+search too" was the bug written down as a spec.
+
+- When a rule's comment enumerates the cases it applies to, each case is a
+  test to RUN, not a sentence to reread. The comment named the failing case a
+  fortnight before a user did.
+- A function that behaves on the shape of its input cannot tell apart two
+  views with the same shape. If the right answer depends on what the user
+  asked for, the caller has to say so; do not infer it from the data.
+- Same day, same report: the editor's "Download" fired one anchor click per
+  photo because the ZIP lane was share-authed and nobody wired an owner
+  route; and Select All existed but sat in the divider row where a person who
+  had just typed a name did not look. Three items, three different kinds of
+  gap: a wrong rule, a missing route, a hidden control. "Does this make
+  sense?" was answered by reading the code for each, not by reasoning about
+  the feature.
+

@@ -34,6 +34,9 @@ interface GalleryGridProps {
   showFilenames?: boolean;
   /** Group photos of the same person (by filename) into rotating stacks. */
   smartStacks?: boolean;
+  /** What this grid is showing. A section that folds into ONE stack lays out
+   *  flat; a search for one person keeps its stack. See buildDisplayStacks. */
+  view?: "section" | "search";
 }
 
 /**
@@ -84,24 +87,25 @@ export function GalleryGrid({
   gridGap = "normal",
   showFilenames = false,
   smartStacks = false,
+  view = "section",
 }: GalleryGridProps) {
   const colCount = useResponsiveColumns(gridColumns);
   const isUniform = gridStyle === "uniform";
 
   // With smart stacks on, the layout unit is a stack (singles are stacks of
-  // one and render as plain cards). Off, every image is its own item. A view
-  // that would be ONE stack (a photo booth tab) lays out flat — see
-  // buildDisplayStacks.
+  // one and render as plain cards). Off, every image is its own item. A
+  // section view that would be ONE stack (a photo booth tab) lays out flat; a
+  // search for one person keeps its stack — see buildDisplayStacks.
   const items: GalleryStack[] = useMemo(
     () =>
       smartStacks
-        ? buildDisplayStacks(images)
+        ? buildDisplayStacks(images, { view })
         : images.map((img) => ({
             key: img.id,
             personName: img.parsedName || img.originalFilename,
             images: [img],
           })),
-    [images, smartStacks]
+    [images, smartStacks, view]
   );
 
   const columns = useMemo(

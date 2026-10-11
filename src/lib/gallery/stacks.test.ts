@@ -397,12 +397,34 @@ describe("buildDisplayStacks — a view that is one stack lays out flat (2026-09
     expect(out[5].key).toBe("pb5");
   });
 
-  it("flattens one person's photos too (a per-person section, a one-name search)", () => {
+  it("flattens one person's photos in a section view (a per-person section)", () => {
     const one = [
       img({ id: "a", parsedName: "Cindy" }),
       img({ id: "b", parsedName: "Cindy" }),
     ];
     expect(buildDisplayStacks(one).map((s) => s.images.length)).toEqual([1, 1]);
+    expect(buildDisplayStacks(one, { view: "section" }).map((s) => s.images.length)).toEqual([1, 1]);
+  });
+
+  it("keeps one person's stack in a SEARCH view (Justin, Pramod in WebexOne, 2026-10-11)", () => {
+    // Searching a name that appears once in the gallery is the user asking
+    // for that person: the answer is their stack, not 14 loose tiles.
+    const pramod = Array.from({ length: 14 }, (_, i) =>
+      img({ id: `p${i}`, parsedName: "Pramod", originalFilename: `Pramod_${i}.jpg` })
+    );
+    const out = buildDisplayStacks(pramod, { view: "search" });
+    expect(out).toHaveLength(1);
+    expect(out[0].images.map((i) => i.id)).toEqual(pramod.map((p) => p.id));
+    expect(out).toEqual(buildStacks(pramod));
+  });
+
+  it("a search view with several people is still grouped per person", () => {
+    const two = [
+      img({ id: "a1", parsedName: "Pramod" }),
+      img({ id: "b1", parsedName: "Pramodini" }),
+      img({ id: "a2", parsedName: "Pramod" }),
+    ];
+    expect(buildDisplayStacks(two, { view: "search" }).map((s) => s.images.length)).toEqual([2, 1]);
   });
 
   it("leaves a view with two or more people exactly as buildStacks groups it", () => {

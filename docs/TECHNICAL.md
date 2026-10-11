@@ -266,6 +266,18 @@ Sharing & public galleries:
   - Sync route internals: `maxDuration = 800`, `store: true` (JPEGs don't deflate),
     `Readable.toWeb(archive)`, 413 `{useJob:true}` above the caps (defense — prepare
     routes clients before they hit it), client-abort detection.
+  - **Owner's selection ZIP (2026-10-11): `GET /api/events/[eventId]/download?images=<id,…>&name=<label>`.**
+    The editor's "Download" on two or more selected photos (one photo still saves as a
+    file). `getAuthUser` + `selectOwnerImages()` in download-core (the `events.user_id`
+    filter lives there; foreign event = 404, foreign ids simply don't match, no display
+    gate since the owner may take an original before its thumbnail). Same archiver stream
+    and caps as the guest route; over them it answers 413 with the limit, because the
+    background builder is keyed to a share (`zip_jobs.share_id`) and the whole gallery
+    already has a ZIP on the share page. `&check=1` returns the decision as JSON so the
+    editor shows the limit as a toast instead of navigating into an error body. The ZIP
+    is named after the search when there is one (`WebexOne-2026-Pramod.zip`). Before
+    this the editor fired one anchor click per photo, 200 ms apart (Justin, 2026-10-11).
+    Test: `download-core.owner.test.ts` asserts the ownership filter was asked for.
   - PIN shares: verify-pin returns an HMAC download token (4h, share-scoped); bulk
     URLs carry `?dt=<token>` so the PIN never lands in access logs.
 - `POST /api/gallery/[slug]/image-download` — one original, for the **per-image** PIN
@@ -318,7 +330,12 @@ adds one rule: **a view that would fold into ONE tile is laid out flat.** That i
 a photo booth section (every file named for the job, so one 98-photo tile) sit beside a
 stacked headshot section with no per-section switch: Mason, when asked, said "one but
 not all" is rare and he did not want to toggle sections. It also flattens a per-person
-section and a one-name search. Known gap: a booth section with two or three camera
+section. **A search does NOT flatten** (`{ view: "search" }`, reversed 2026-10-11): the
+first cut flattened a one-name search too, and Justin searched Pramod in WebexOne and got
+8 loose tiles with no stack to grab, the stack switch changing nothing (off = flat, on =
+one stack = flattened). In a section, one group means the filenames tell no one apart; in a
+search or a person chip, one group is the person the user asked for. Both grids and the
+lightbox order pass the view. Known gap: a booth section with two or three camera
 prefixes still stacks into a few tiles; add a per-section override only if that bites.
 
 Email templates, analytics, stats, search, SPS, stacks, Inngest:

@@ -384,11 +384,20 @@ export function buildStacks<
  * One tile holding everything on screen is never a stack — it is a mystery
  * thumbnail with every photo hidden behind a click. It happens whenever a view
  * is one name: a photo booth section whose every file is
- * "260924_RCG_MiniCon_Photobooth_NNNN" (98 photos, one tile, 2026-09-27), a
- * per-person section, a search for one guest. The event's stack switch stays
- * the one control; this is why a booth section beside a headshot section needs
- * no switch of its own. The single-person share title (GalleryExperience)
- * answers the same question for a whole gallery.
+ * "260924_RCG_MiniCon_Photobooth_NNNN" (98 photos, one tile, 2026-09-27), or a
+ * per-person section. The event's stack switch stays the one control; this is
+ * why a booth section beside a headshot section needs no switch of its own.
+ * The single-person share title (GalleryExperience) answers the same question
+ * for a whole gallery.
+ *
+ * A SEARCH for one name is the exception (`view: "search"`), reversed
+ * 2026-10-11. The first cut flattened it too, and Justin searched Pramod in
+ * WebexOne and got his 14 photos spread out with no stack to grab, with the
+ * stack switch changing nothing (off = flat, on = one stack = flattened).
+ * In a section, one group means the filenames do not tell people apart, so
+ * the grouping says nothing. In a search for a person, one group is the
+ * answer the user asked for, and it keeps its stack (Mason, 2026-08-10: "with
+ * STACKS ON I'd expect people to remain in their stacks").
  *
  * Grouping is untouched — `detectStackable` and the mosaic still read
  * `buildStacks`, because "does this event stack" is about its filenames, not
@@ -396,8 +405,12 @@ export function buildStacks<
  */
 export function buildDisplayStacks<
   T extends { id: string; parsedName: string | null; originalFilename: string }
->(images: T[]): PersonStack<T>[] {
+>(
+  images: T[],
+  opts: { view?: "section" | "search" } = {}
+): PersonStack<T>[] {
   const groups = buildStacks(images);
+  if (opts.view === "search") return groups;
   if (groups.length !== 1 || images.length < 2) return groups;
   return images.map((img) => ({
     key: img.id,
