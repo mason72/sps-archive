@@ -123,6 +123,65 @@ const REPAIRS = [
     requeue: ["servicenowsko26"],
     front: ["servicenowsko26"],
   },
+  {
+    id: "2026-10-11-requeue-password-refused",
+    // 141 gated collections (109,700 photos, 2016-2025) were retired as "the
+    // armed password was refused" between 2026-09-24 and 2026-10-10, one or two
+    // an hour, while plain collections kept landing. The passwords were not
+    // wrong: Chrome 154 stopped sending Pixieset's cookies on fetches made from
+    // the extension's own origin, so the guest-login POST could never set a
+    // session and the admin API answered 401 to Arm (measured 2026-10-11: the
+    // same call from a page tab answered 200). v1.3.0 routes every Pixieset
+    // request through a real Pixieset tab; this puts the 141 back, adds the 22
+    // collections that joined queue.json after jobs.json was seeded on
+    // 2026-08-31 (20 small 2015 sittings, Palo Alto SKO 24' with 13,983 photos,
+    // East Bay Gamers), and moves the two big ones to the front.
+    requeue: [
+      "linkedinholidayparty2016", "hobart2016holidayparty", "sfcasa2016party", "goldenstatewarriors2016holidayparty",
+      "tsmcwinterparty2017", "vandys50th", "steves50thbday", "kats60thbday", "prescotts50thbday",
+      "michaelasportraitsession", "valleverdeminifling", "adobehappyhour", "adobepride",
+      "methodmagicalforestprom", "dockersalwayson", "ianjacobsbday", "stanfordclassof97reunion",
+      "joethuy", "googlersinwonderland", "gtech2017holidayparty", "sfcasa2017", "gtbayarea2017holidayparty",
+      "prothena2018party", "tsmc2018party", "atfortmasonsurprisesabound_11zz0437h", "stephcurryandmake-a-wishboomers",
+      "babycurryshower", "vvminifling2018", "methodprom2018", "topofthetower2018", "flashpeter",
+      "paloaltonetworks2018holidayparty", "redoakrealty2018holidayparty", "gtech2018holidayparty",
+      "sfcasa2018", "5thannualhohohobartholidayparty", "goldenstatelumber2019holidayparty",
+      "goldengateypo2019holidayparty", "atlassian2019holidayparty", "oaklandathletics2019seasonticketholders",
+      "prothena2019party", "tsmc2019party", "ayeshas30thbday", "valleverdeminifling-1", "ohanafloorgrandopeningnyc",
+      "atlassianb2b", "2019methodprom", "marielledj", "atlassianmtvofficegrandopening", "msftsurfaceprotour2019",
+      "siskas50thbdaybash", "googlegroveheadshots", "sfcasa2019", "2019holidays101california",
+      "apple2019holidayparty", "redoakrealtyholidayparty", "christmaswiththecurrysdec2019",
+      "teamcurry2019", "nye2020", "tsmc2020holidayparty", "hitachivantaragajen", "summerfriyay",
+      "goldengateypoholidayparty2021", "sfcasa2021", "redoakholidayparty", "cathedralscelebrationbacktothefuture",
+      "sutterwestselects", "georgeandhannahsanniversarycelebration", "cytokinetics25thanniversarycelebration",
+      "valleverdepoolparty2022", "petersheadshots", "newrelicexecutiveportraits", "redoakholidayparty2022",
+      "wacaholidayparty2022", "wekabowl2022", "wekaawardsdinner2022", "sfcasayouthholidayparty2022",
+      "hobartannualholidayparty2022", "glowbalbayareaholidayparty", "elroyairholidayparty",
+      "prothenaholidayparty", "usfreeskiandsnowboardaprsparty", "axosbank", "hitachivantaraallphotos",
+      "schoolforcegala2023", "valleverdespringfling-bootleggersball2023", "iloveoaklandballetgala2023",
+      "valleverde5thgradepromotion", "entrepreneuroftheyearawardscelebration-bayarea", "dataaisummit2023databricks",
+      "hitachivantaraexecutivecommittee", "hitachivantaraaug2023portraits", "bardlauncheventsept2023",
+      "mcapszzz", "wonderwedding", "stanfordclassof199825threunion", "hitachivantaraportraitsoctober2023",
+      "googleweenatthegrove", "sis101520awardsnight", "applovinsslayrideengineeringholidayparty2023",
+      "smcwinterfest2023", "stripeconvergenceoverheadbooth", "lucidmotors", "accelholidayparty2023",
+      "sfcasa2023", "hohoholidayparty2023", "tsmcholidayparty", "stripesko24", "scjlifestylebubblebash",
+      "mcapsacademyacceleratefebruary2024999", "stephencurryseason36episode1", "schoolforceauctionandgala2024",
+      "securitirsa-ccustomerparty", "moodyexceedance2024", "atlassianteam24", "areallifehoedown",
+      "annesmargaritamixer", "twodudesanti-boothexperiencecema2024", "universe", "stanforduniversity15threunionclassof2009",
+      "stanfordclassof199925threunion", "stanfordclassof201410threunion", "sisawards2024",
+      "applovinholidayparty", "chimemarketingevent", "ypolunarnewyear2024", "stripeconvergence2024anti-boothgiantllama",
+      "8thannaulhobartpary", "carolsparkcitynewyearseveevent", "adobeendofyearholidayparty",
+      "pattikangwankijsheadshots", "ypolunarnewyear2025", "scjohnsondenimanddiamonds", "tsmcwinterparty2025",
+      "schoolforcegala2025", "atlassianexecutiveheadshots", "commercetoolselevate", "commercetoolselevateneonparty",
+      "jackieandchristiansbigday", "costargrouprva", "stanford10threunion",
+    ],
+    add: [
+      "accalia-huskyhybrid", "benandgiddy", "shaughn", "karat", "jacob", "kalineandbruce",
+      "kiya", "maggieandcharlie", "maxy", "sage", "sulley", "texas", "carlyanddusty", "cona",
+      "crash", "dash", "lexi", "riot", "tyler", "gnomeo", "paloaltoskobooth22023", "eastbaygamers",
+    ],
+    front: ["paloaltoskobooth22023", "eastbaygamers"],
+  },
 ];
 
 const DEFAULTS = {
@@ -228,6 +287,10 @@ function applyRepairs(s) {
       s.tooBig = { ...(s.tooBig || {}), [slug]: gb };
       if (s.driving?.slug === slug) s.driving = null;
     }
+    // Added: collections that joined the ledger after jobs.json was seeded.
+    // Appended, never re-ordered, and never re-added once present.
+    const add = (r.add || []).filter((slug) => !s.jobs.includes(slug));
+    if (add.length) s.jobs = [...s.jobs, ...add];
     // To the front: named collections already in the queue go to its head, in
     // the order named. A name that is not in `jobs` is reported, never added,
     // so a typo cannot start requesting a collection nobody queued.
@@ -235,7 +298,7 @@ function applyRepairs(s) {
     const missing = (r.front || []).filter((slug) => !s.jobs.includes(slug));
     if (front.length) s.jobs = [...front, ...s.jobs.filter((j) => !front.includes(j))];
     s.repairs.push(r.id);
-    applied.push({ id: r.id, count: back.length, setAside: aside.length, front: front.length, missing });
+    applied.push({ id: r.id, count: back.length, setAside: aside.length, added: add.length, front: front.length, missing });
   }
   return applied;
 }
@@ -244,6 +307,7 @@ function applyRepairs(s) {
 function repairNote(r) {
   return `repair ${r.id}: ${r.count} collection(s) back in the queue` +
     (r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : "") +
+    (r.added ? `, ${r.added} added to the queue` : "") +
     (r.front ? `, ${r.front} moved to the front` : "") +
     (r.missing?.length ? ` — NOT IN THE QUEUE, nothing moved: ${r.missing.join(", ")}` : "");
 }
@@ -282,6 +346,90 @@ function afterReload(s) {
 function note(s, line) {
   s.log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
   if (s.log.length > 60) s.log.shift();
+}
+
+/**
+ * Fetch from a REAL Pixieset tab (v1.3.0, 2026-10-11).
+ *
+ * Until Chrome 154 a fetch from the offscreen document carried Mason's Pixieset
+ * cookies, because the extension holds host permissions for both Pixieset
+ * origins. Then it stopped: Arm got HTTP 401 from the admin API while the same
+ * call from a page tab answered 200 in the same minute, and every guest-login
+ * POST since 2026-09-24 had "succeeded" into a cookie jar nothing kept, so 141
+ * gated collections were retired as "password refused". Plain collections never
+ * noticed, since their download flow needs no session.
+ *
+ * So the HTTP now runs INSIDE a tab on the Pixieset origin, where a request is
+ * first-party by definition: `chrome.scripting.executeScript` injects one small
+ * fetch, the tab's own cookie jar applies, and Set-Cookie on the way back lands
+ * where the next request will find it. The offscreen document keeps the parsing
+ * and the state machine; only the wire moved. The tab is opened in the
+ * background, pinned, and reused; it is never navigated by us after that. If
+ * the anchor page redirects off the origin (signed out: galleries.pixieset.com
+ * sends you to accounts.pixieset.com) the injection cannot run there, and that
+ * is reported as the sign-in problem it is rather than retried into a pile of
+ * tabs.
+ */
+const PX_TAB_LOAD_MS = 60_000;
+
+function tabLoaded(tabId) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(on);
+      reject(new Error("the Pixieset tab did not finish loading in 60s"));
+    }, PX_TAB_LOAD_MS);
+    function on(id, info) {
+      if (id !== tabId || info.status !== "complete") return;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(on);
+      resolve();
+    }
+    chrome.tabs.onUpdated.addListener(on);
+    chrome.tabs.get(tabId).then((t) => { if (t.status === "complete") on(tabId, { status: "complete" }); }).catch(reject);
+  });
+}
+
+/** A loaded tab on the anchor's origin, found or created. Returns its id. */
+async function pixiesetTab(anchor) {
+  const origin = new URL(anchor).origin;
+  const open = await chrome.tabs.query({ url: `${origin}/*` });
+  let tab = open.find((t) => t.status === "complete") ?? open[0];
+  let created = false;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: anchor, active: false, pinned: true });
+    created = true;
+  }
+  if (tab.status !== "complete") await tabLoaded(tab.id);
+  const now = await chrome.tabs.get(tab.id);
+  let landed = "";
+  try { landed = new URL(now.url || "").origin; } catch { landed = ""; }
+  if (landed !== origin) {
+    if (created) { try { await chrome.tabs.remove(tab.id); } catch { /* already closed */ } }
+    throw new Error(`${origin} sent the tab to ${landed || "nowhere"} — sign in to galleries.pixieset.com first`);
+  }
+  return tab.id;
+}
+
+async function pxfetch({ url, method, body, headers, anchor, timeoutMs }) {
+  const tabId = await pixiesetTab(anchor);
+  const [hit] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (url, method, body, headers, timeoutMs) => {
+      try {
+        const init = { method, credentials: "include", headers: headers || {}, signal: AbortSignal.timeout(timeoutMs) };
+        if (body != null) {
+          init.headers = { "Content-Type": "application/x-www-form-urlencoded", ...init.headers };
+          init.body = body;
+        }
+        const r = await fetch(url, init);
+        return { ok: true, url: r.url, status: r.status, html: await r.text() };
+      } catch (e) {
+        return { ok: false, error: String(e?.message ?? e).slice(0, 180) };
+      }
+    },
+    args: [url, method || "GET", body ?? null, headers ?? null, timeoutMs || 180_000],
+  });
+  return hit?.result ?? { ok: false, error: "the Pixieset tab returned nothing" };
 }
 
 /** One offscreen document, created on demand and reused. */
@@ -931,8 +1079,8 @@ async function handleDriveResult(slug, token, r) {
     // armed it stays queued, or an unarmed run would silently retire all 282.
     if (s2.passwords[slug]) {
       s2.done.push(slug);
-      note(s2, `${slug}: password rejected`);
-      beacons.push({ slug, reason: "password-rejected", detail: "the armed password was refused" });
+      note(s2, `${slug}: ${r.error || "password rejected"}`);
+      beacons.push({ slug, reason: "password-rejected", detail: r.error || "the armed password was refused" });
     } else {
       if (!s2.gated.includes(slug)) s2.gated.push(slug);
       note(s2, `${slug}: gated, deferred`);
@@ -1080,6 +1228,12 @@ async function onLoaded(s, how) {
 
 chrome.runtime.onMessage.addListener((msg, _s, respond) => {
   if (msg?.target !== "background") return;
+  // The wire for the offscreen driver. Outside `serial` on purpose: a fetch can
+  // take minutes, and status or stop must not queue behind it.
+  if (msg.type === "pxfetch") {
+    pxfetch(msg).then(respond, (e) => respond({ ok: false, error: String(e?.message ?? e).slice(0, 180) }));
+    return true;
+  }
   // Every handler loads, mutates and saves the whole state, so all of them take
   // turns with ticks and drive results. "arm" holds its copy across a network
   // sweep; saving it over a result that landed meanwhile restores the lock and

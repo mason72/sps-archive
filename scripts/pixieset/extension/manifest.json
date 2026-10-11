@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pixieset Migration Driver",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Requests Two Dudes Photo's Pixieset collections one at a time so the archive migration survives a closed tab.",
   "background": {
     "service_worker": "background.js",
@@ -15,7 +15,8 @@
     "alarms",
     "downloads",
     "storage",
-    "offscreen"
+    "offscreen",
+    "scripting"
   ],
   "host_permissions": [
     "https://twodudesphoto.pixieset.com/*",

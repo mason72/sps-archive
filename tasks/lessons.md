@@ -4440,3 +4440,43 @@ search too" was the bug written down as a spec.
   sense?" was answered by reading the code for each, not by reasoning about
   the feature.
 
+## 183 — "Refused" and "never reached" must not share a verdict; and a seed list is not a queue (2026-10-11)
+
+**What happened.** Mason asked whether the Pixieset migration was complete. The ledger said
+1,194 of 1,371 ingested and the extension said "queue drained", but 141 gated collections
+(109,700 photos: GitHub Universe, Atlassian Team '24, Data + AI Summit 2023, Hitachi Vantara's
+7,405-frame set) had been retired as "the armed password was refused", one or two an hour from
+2026-09-24 to 2026-10-10, and 22 more (Palo Alto SKO 24', 13,983 photos) had never been requested.
+No alarm fired: STARVED read as "queue empty", which from the extension's view it was.
+
+**Cause one.** The guest-login `unlock()` returned a bare boolean from `!isGated(r.url)`. Chrome
+154 stopped sending the profile's Pixieset cookies on fetches from the extension's offscreen
+document, so the POST "succeeded" into a cookie jar nothing kept and the follow-up GET was gated
+again. The only word the driver had for that was "password rejected", and the beacon carried it
+into the ledger as fact. Same with Arm: a 401 from the admin API was reported as "sign in", while
+the same call from a page tab answered 200 in the same minute. Proved by the pair of calls, not by
+reasoning about Chrome.
+
+**Cause two.** `jobs.json` was seeded on 2026-08-31 and never rebuilt; `queue.mjs` kept adding rows
+the extension could not see, and "queued 26" in the stall check could not say which were waiting
+on a password and which had never been handed over.
+
+**Fix.** v1.3.0: every Pixieset request runs inside a real tab on the Pixieset origin via
+`chrome.scripting.executeScript` (first-party by construction); `unlock()` returns `POST <status>
+→ <path>` and that string reaches the log and the beacon; a named repair puts the 141 back, adds
+the 22, fronts the two big ones; `stall-check.ts` prints "N NOT in jobs.json" beside the queued
+count (negative-tested against the old list: 22; against the new: silent).
+
+**Rules.**
+- **A failure verdict must carry the server's answer, not the driver's inference.** "Refused"
+  is a status code and a landing path; a boolean that collapses "wrong password", "no cookie",
+  "challenged" and "timed out" into one word will retire real work and the ledger will believe it.
+- **When a browser-side auth step starts failing at a steady rate while unauthenticated work
+  keeps succeeding, suspect the cookie path before the credentials.** The two-call test (same
+  request from a page tab vs from the extension) settles it in a minute.
+- **A seed list and a live queue drift the moment the second one gains a row.** Either the queue
+  is the seed or a guard counts the difference; "queued N" with no provenance hides both.
+- **"Queue drained" is only "done" if the queue was complete.** Before calling a migration
+  finished, diff the ledger's leftovers against the archive by name (`scripts/triage/
+  pixieset-leftovers.ts`): 2 of 177 matched.
+

@@ -44,20 +44,30 @@ const scrub = (s) => String(s ?? "")
  */
 const REQUEST_TIMEOUT_MS = 180_000;
 
-async function GET(url) {
-  const r = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  return { url: r.url, status: r.status, html: await r.text() };
+/**
+ * Since v1.3.0 (2026-10-11) nothing here calls `fetch` on Pixieset directly.
+ * Chrome 154 stopped sending the profile's Pixieset cookies on requests made
+ * from this document, so a guest-login POST set a session nobody kept and the
+ * admin API answered 401. Every request now goes to the service worker, which
+ * runs it inside a real tab on the Pixieset origin (`pxfetch` in background.js).
+ * ANCHOR is the page that tab is opened on; each driver sets it for its origin.
+ */
+let ANCHOR = `${ORIGIN}/`;
+
+async function px(url, method, body, headers) {
+  let r;
+  try {
+    r = await chrome.runtime.sendMessage({
+      target: "background", type: "pxfetch", url, method, body, headers, anchor: ANCHOR, timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+  } catch (e) {
+    throw new Error(`no answer from the scheduler for ${method} ${pathOf(url)}: ${String(e?.message ?? e).slice(0, 120)}`);
+  }
+  if (!r?.ok) throw new Error(r?.error || `${method} ${pathOf(url)} failed in the Pixieset tab`);
+  return { url: r.url, status: r.status, html: r.html };
 }
-async function POST(url, params) {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-    credentials: "include",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  return { url: r.url, status: r.status, html: await r.text() };
-}
+const GET = (url) => px(url, "GET", null, null);
+const POST = (url, params) => px(url, "POST", params.toString(), null);
 
 const anchors = (doc) =>
   [...doc.querySelectorAll("a[href]")].map((a) => ({ href: a.getAttribute("href"), text: text(a) }));
@@ -113,10 +123,10 @@ function generateBody(doc, chosen) {
  * verbatim, and let the server tell us whether it worked.
  */
 async function unlock(slug, password) {
-  if (!password) return false;
+  if (!password) return { ok: false, why: "no password armed" };
   const g = await GET(`${ORIGIN}/guestlogin/${slug}/`);
   const form = parse(g.html).querySelector("form");
-  if (!form) return false;
+  if (!form) return { ok: false, why: `no form on the login page (HTTP ${g.status} at ${pathOf(g.url)})` };
   const body = new URLSearchParams();
   let filled = false;
   for (const i of form.querySelectorAll("input")) {
@@ -124,10 +134,11 @@ async function unlock(slug, password) {
     if (i.type === "password") { body.set(i.name, password); filled = true; }
     else body.set(i.name, i.value ?? "");
   }
-  if (!filled) return false;
+  if (!filled) return { ok: false, why: "no password field in the login form" };
   const action = form.getAttribute("action");
   const r = await POST(action ? new URL(action, g.url).href : g.url, body);
-  return !isGated(r.url);
+  // What the server actually said, so "refused" can be told from "never reached".
+  return { ok: !isGated(r.url), why: `POST ${r.status} → ${pathOf(r.url)}` };
 }
 
 /**
@@ -148,18 +159,25 @@ async function driveOne(slug, password, opts) {
   const t0 = Date.now();
   const out = { slug, ok: false, phase: "gallery", expect: null, zips: [], unlocked: false, error: null, sec: 0 };
   const notes = [];
+  ANCHOR = `${ORIGIN}/${slug}/`;
   try {
     let g = await GET(`${ORIGIN}/${slug}/`);
 
     if (isGated(g.url)) {
       notes.push(password ? "gated — trying its password" : "gated — no password on record");
-      if (password && (await unlock(slug, password))) {
-        out.unlocked = true;
-        g = await GET(`${ORIGIN}/${slug}/`);
+      let why = "";
+      if (password) {
+        const u = await unlock(slug, password);
+        why = u.why;
+        notes.push(`unlock: ${u.why}`);
+        if (u.ok) {
+          out.unlocked = true;
+          g = await GET(`${ORIGIN}/${slug}/`);
+        }
       }
       if (isGated(g.url)) {
         out.phase = "gate";
-        out.error = password ? "password rejected" : "gated, no password armed";
+        out.error = password ? `password rejected (${why})` : "gated, no password armed";
         return out;
       }
     }
@@ -286,11 +304,13 @@ async function driveOne(slug, password, opts) {
 async function armPasswords() {
   const map = {};
   let total = 0;
+  ANCHOR = "https://galleries.pixieset.com/collections";
   for (let page = 1; page <= 90; page++) {
-    const r = await fetch(`https://galleries.pixieset.com/api/v1/dashboard_listings?page=${page}`,
-      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } });
-    if (!r.ok) throw new Error(`admin API HTTP ${r.status} — sign in to galleries.pixieset.com`);
-    const j = await r.json();
+    const r = await px(`https://galleries.pixieset.com/api/v1/dashboard_listings?page=${page}`,
+      "GET", null, { "X-Requested-With": "XMLHttpRequest" });
+    if (r.status < 200 || r.status >= 300) throw new Error(`admin API HTTP ${r.status} — sign in to galleries.pixieset.com`);
+    let j;
+    try { j = JSON.parse(r.html); } catch { throw new Error(`admin API answered a page, not JSON (${pathOf(r.url)}) — sign in to galleries.pixieset.com`); }
     const d = j?.data ?? j;
     const cols = (d.data && d.data.collections) || d.collections || [];
     if (!cols.length) break;

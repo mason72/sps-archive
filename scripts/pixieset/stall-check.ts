@@ -83,6 +83,8 @@ const HOME = process.env.HOME!;
 // PIXIESET_QUEUE exists for negative tests: a temp copy with rows edited into
 // the shape under test, so FAILING can be made to fire without touching the ledger.
 const QUEUE = process.env.PIXIESET_QUEUE || path.join("scripts", "pixieset", "data", "queue.json");
+/** The extension's seed list. A ledger row whose slug is not in it is work the downloader has never been told about. */
+const JOBS = process.env.PIXIESET_JOBS || path.join("scripts", "pixieset", "extension", "jobs.json");
 const LOG = path.join(HOME, "pixieset-staging", "logs", "ingest.log");
 const STATE = path.join(HOME, "pixieset-staging", "logs", "stall-state.json");
 /** Written by the watcher from the extension's POSTs — see EXTENSION_STATUS in watch.mjs. */
@@ -388,9 +390,22 @@ function housekeepingKept(): { collections: number; gb: number } | null {
 
 async function main() {
   const q = JSON.parse(fs.readFileSync(QUEUE, "utf8")) as {
-    collections: Record<string, { state: string; history?: { state: string; at: string }[] }>;
+    collections: Record<string, { state: string; slug?: string; history?: { state: string; at: string }[] }>;
   };
   const rows = Object.values(q.collections);
+  /**
+   * Queued rows the extension cannot see (2026-10-11). jobs.json was seeded once
+   * on 2026-08-31 and 22 collections added to the ledger afterwards sat `queued`
+   * for six weeks, Palo Alto SKO 24' (13,983 photos) among them, while the
+   * extension reported "queue drained". A "queued" count alone cannot show that.
+   */
+  let unhanded: string[] = [];
+  try {
+    const jobs = new Set<string>(JSON.parse(fs.readFileSync(JOBS, "utf8")));
+    unhanded = rows.filter((r) => r.state === "queued" && r.slug && !jobs.has(r.slug)).map((r) => r.slug as string);
+  } catch (e) {
+    unhanded = [`jobs.json unreadable: ${String((e as Error).message).slice(0, 60)}`];
+  }
   const by: Record<string, number> = {};
   for (const r of rows) by[r.state] = (by[r.state] || 0) + 1;
 
@@ -510,7 +525,7 @@ async function main() {
     `Verdict: ${verdict}`,
     headline ? `\n${headline}\n` : "",
     `ingested   ${ingested} of ${rows.length}`,
-    `queued     ${queued}`,
+    `queued     ${queued}${unhanded.length ? ` — ${unhanded.length} NOT in jobs.json, the extension has never been handed them: ${unhanded.slice(0, 6).join(", ")}${unhanded.length > 6 ? ", …" : ""}` : ""}`,
     `staged     ${verified} waiting to ingest`,
     `last done  ${lastIngest ? new Date(lastIngest).toISOString() : "never"} (${hoursSince === Infinity ? "n/a" : hoursSince.toFixed(1) + "h ago"})`,
     `agents     ${agents.map((a) => `${a.label.split(".").pop()}=${a.up ? "up" : "DOWN"}`).join("  ")}`,

@@ -73,6 +73,42 @@ Chrome restart by itself.
   Chrome restart does NOT re-read unpacked code (measured 2026-09-15), so the
   bump is the only way in short of the Reload button.
 
+## Every Pixieset request runs inside a real Pixieset tab (v1.3.0, 2026-10-11)
+
+Chrome 154 stopped attaching the profile's Pixieset cookies to fetches made from
+the offscreen document, host permissions or not. Two symptoms, one cause:
+
+- **Arm failed** — the admin API answered 401 from the extension while the same
+  call from a page tab in the same Chrome answered 200 in the same minute.
+- **141 gated collections retired as "password refused"** between 2026-09-24 and
+  2026-10-10 (109,700 photos). The guest-login POST succeeded, its Set-Cookie
+  landed in a jar nothing kept, and the next GET was gated again, which the
+  driver could only read as "wrong password". Plain collections kept landing
+  because their flow needs no session, so nothing looked broken.
+
+So `offscreen.js` no longer calls `fetch` on Pixieset at all. `GET`/`POST` send a
+`pxfetch` message to the service worker, which finds or opens a pinned
+background tab on the request's origin (`ANCHOR`: the collection page for a
+drive, `/collections` for Arm) and runs one small fetch there with
+`chrome.scripting.executeScript`. First-party by construction; cookies in and
+out behave as in a tab because it IS a tab. The parsing and the state machine
+did not move. `unlock()` now returns what the server said (`POST 302 →
+/<slug>/` vs `POST 200 → /guestlogin/<slug>/`), and that reaches the log and the
+beacon, so a future "refused" can be told from "never reached".
+
+Rules this adds:
+- **A tab is a sign-in sensor.** If the anchor redirects off its origin (signed
+  out: `galleries.pixieset.com` → `accounts.pixieset.com`) the injection cannot
+  run, the created tab is closed, and the error names the sign-in. It never
+  retries into a pile of tabs.
+- **The pinned Pixieset tabs are the extension's; leave them.** Closing one
+  costs a reload of the page on the next request, nothing more.
+- **`jobs.json` is a seed, not the queue.** It was built once on 2026-08-31, and
+  22 collections that joined `queue.json` later sat `queued` for six weeks while
+  the extension said "queue drained". The `2026-10-11` repair adds them, and
+  `stall-check.ts` now prints "N NOT in jobs.json" beside the queued count. A
+  new ledger row still needs a repair `add:` entry (or `jobs.json` + reinstall).
+
 ## Invariants worth not breaking
 
 - **`done` is append-only and never cleared on reinstall.** A restart must
