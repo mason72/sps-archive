@@ -182,6 +182,17 @@ const REPAIRS = [
     ],
     front: ["paloaltoskobooth22023", "eastbaygamers"],
   },
+  {
+    id: "2026-10-12-requeue-downloads-enabled",
+    // Both were retired on 2026-10-11 23:55 as "bulk download switched off":
+    // they joined the ledger after the 2026-08-15 pass that enabled downloads
+    // across the keep set. Mason approved switching them on (2026-10-12);
+    // originals saved under "2026-10-12" in
+    // ~/pixieset-staging/pixieset-download-settings-backup.json. 14,167 photos,
+    // Pixieset the only copy.
+    requeue: ["paloaltoskobooth22023", "eastbaygamers"],
+    front: ["paloaltoskobooth22023", "eastbaygamers"],
+  },
 ];
 
 const DEFAULTS = {
