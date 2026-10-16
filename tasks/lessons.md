@@ -4480,3 +4480,26 @@ count (negative-tested against the old list: 22; against the new: silent).
   finished, diff the ledger's leftovers against the archive by name (`scripts/triage/
   pixieset-leftovers.ts`): 2 of 177 matched.
 
+
+## 184. A cover-only upload is an `images` row, so "every row of the event" is not "every photo" (2026-10-15)
+
+**What happened.** 2026 Community Summit: Mason ran Sort into sections with the Highlights toggle
+(count 75) at 02:13 UTC. At 02:14 he uploaded `LogoColor.png` as the gallery COVER from the Design
+tab. Cover uploads post with `skipSection` and deliberately join no section, but they are still
+`images` rows: `event_readiness` counted it ("Processing 4,748 of 4,749"), the AI sweep indexed it,
+and the Highlights generator (`allEventImages` in `propose.ts`) read every row of the event with no
+section filter. Probed read-only before the fill fired: the logo was one of the 75 picks, as a
+"moment" of its own. Production held 17 section-less rows across 13 events, 12 of them covers.
+
+**Fix.** Held the fill by locking the waiting section (a locked section is never filled), then
+`allEventImages` now keeps only rows linked to a section of the event (`galleryImageIds`, a paged
+`section_images` read that throws on failure, so an empty set can never mean "no filter"). Probe
+`scripts/triage/summit-picks.ts <eventId> [count]`: 1 section-less pick before, 0 after. Filled the
+section from the fixed code (75 picks, 0 logos, every pick also in its letter section).
+
+**Rules.**
+- **A gallery photo is a row IN A SECTION.** Any reader that picks, shows, counts or exports an
+  event's photos goes through `section_images`, never `images.event_id` alone. The no-orphans
+  invariant has one deliberate exception (covers), and every event-wide reader inherits it.
+- **When a machine-owned write is about to go out wrong, hold it with the switch it already
+  honours** (here `locked`), fix, then release; do not race a deploy against a debounce.

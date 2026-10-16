@@ -34,8 +34,63 @@ interface ImageRow {
   focal_y: number | null;
 }
 
-/** Page past PostgREST's 1000-row ceiling — lesson 39. */
+/**
+ * Ids of the event's GALLERY photos: rows linked to at least one section.
+ *
+ * A row with no section link is a cover-only upload (the Design tab's cover
+ * posts with `skipSection`, usually a client logo or banner). It is not a
+ * gallery photo, but it is still an `images` row and gets AI-indexed, so a
+ * generator that reads `images` alone treats it as a moment of its own. On
+ * 2026-10-15 that put "LogoColor.png" among 2026 Community Summit's 75
+ * auto-picks (lesson 184). A failed read throws: an empty set here must never
+ * mean "no filter".
+ */
+async function galleryImageIds(
+  supabase: SupabaseClient,
+  eventId: string,
+  ownerUserId: string
+): Promise<Set<string>> {
+  const { data: sections, error: secErr } = await supabase
+    .from("sections")
+    .select("id, events!inner(user_id)")
+    .eq("event_id", eventId)
+    .eq("events.user_id", ownerUserId);
+  if (secErr) throw secErr;
+  const sectionIds = (sections ?? []).map((s) => s.id as string);
+  const ids = new Set<string>();
+  if (!sectionIds.length) return ids;
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from("section_images")
+      .select("image_id")
+      .in("section_id", sectionIds)
+      .order("image_id", { ascending: true })
+      .order("section_id", { ascending: true })
+      .range(page * 1000, page * 1000 + 999);
+    if (error) throw error;
+    for (const row of data ?? []) ids.add(row.image_id as string);
+    if (!data || data.length < 1000) break;
+  }
+  return ids;
+}
+
+/**
+ * Every gallery photo of the event (section members only, see
+ * galleryImageIds). Pages past PostgREST's 1000-row ceiling — lesson 39.
+ */
 async function allEventImages(
+  supabase: SupabaseClient,
+  eventId: string,
+  ownerUserId: string
+): Promise<ImageRow[]> {
+  const [rows, members] = await Promise.all([
+    allEventImageRows(supabase, eventId, ownerUserId),
+    galleryImageIds(supabase, eventId, ownerUserId),
+  ]);
+  return rows.filter((r) => members.has(r.id));
+}
+
+async function allEventImageRows(
   supabase: SupabaseClient,
   eventId: string,
   ownerUserId: string
