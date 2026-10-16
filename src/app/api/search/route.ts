@@ -8,6 +8,7 @@ export const maxDuration = 60;
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { applyFaceCountRule, faceCountRule } from "@/lib/ai-index/face-count-query";
+import { coverUploadIdsAmong } from "@/lib/sections/gallery-members";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -76,13 +77,19 @@ export async function GET(request: NextRequest) {
     if (searchType === "faces") {
       const rule = faceCountRule(query);
       if (!rule) return NextResponse.json({ type: "faces", results: [], count: 0 });
-      const results = await searchByFaceCount(supabase, rule, scopeEventIds, limit);
+      const results = await galleryOnly(
+        supabase,
+        await searchByFaceCount(supabase, rule, scopeEventIds, limit)
+      );
       return NextResponse.json({ type: "faces", results, count: results.length, rule: rule.label });
     }
 
     if (searchType === "filename" || searchType === "auto") {
       // Try filename search first
-      const filenameResults = await searchByFilename(supabase, query, scopeEventIds, limit);
+      const filenameResults = await galleryOnly(
+        supabase,
+        await searchByFilename(supabase, query, scopeEventIds, limit)
+      );
 
       if (filenameResults.length > 0 || searchType === "filename") {
         return NextResponse.json({
@@ -106,7 +113,10 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const semanticResults = await searchBySemantic(supabase, user!.id, query, scopeEventIds, limit);
+      const semanticResults = await galleryOnly(
+        supabase,
+        await searchBySemantic(supabase, user!.id, query, scopeEventIds, limit)
+      );
       return NextResponse.json({
         type: "semantic",
         results: semanticResults,
@@ -302,4 +312,18 @@ async function searchBySemantic(
       };
     })
   );
+}
+
+/**
+ * Drop cover uploads (a client logo, is_cover_upload) from search results: it
+ * is indexed like a photo, so "logo" found it, and Smart section could file it
+ * into a section (lesson 184).
+ */
+async function galleryOnly<T extends { id: unknown }>(
+  supabase: SupabaseDB,
+  results: T[]
+): Promise<T[]> {
+  if (!results.length) return results;
+  const covers = await coverUploadIdsAmong(supabase, results.map((r) => String(r.id)));
+  return covers.size ? results.filter((r) => !covers.has(String(r.id))) : results;
 }

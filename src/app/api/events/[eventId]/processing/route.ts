@@ -48,17 +48,22 @@ export async function GET(
     if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const staleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    // Cover uploads (client logos, is_cover_upload) are not photos: every
+    // count here leaves them out, matching event_readiness (migration 096),
+    // or a fresh logo reads as "Processing 4,748 of 4,749" (lesson 184).
     const [totalRes, indexedRes, pendingRes, stalledRes, firstRes, gaveUpRes] = await Promise.all([
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .eq("media_type", "image")
         .eq("processing_status", "complete"),
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .eq("media_type", "image")
         .eq("processing_status", "complete")
         .not("ai_indexed_at", "is", null),
@@ -66,6 +71,7 @@ export async function GET(
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .eq("processing_status", "pending")
         // RECENT only. A row pending for hours is a ghost, not an upload in
         // flight — reporting it as "still uploading" tells the photographer to
@@ -76,12 +82,14 @@ export async function GET(
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .eq("processing_status", "pending")
         .lt("created_at", staleCutoff),
       supabase
         .from("images")
         .select("ai_indexed_at")
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .not("ai_indexed_at", "is", null)
         .order("ai_indexed_at", { ascending: true })
         .limit(1)
@@ -93,6 +101,7 @@ export async function GET(
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("event_id", eventId)
+        .eq("is_cover_upload", false)
         .eq("media_type", "image")
         .eq("processing_status", "complete")
         .is("ai_indexed_at", null)

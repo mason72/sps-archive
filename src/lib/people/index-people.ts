@@ -326,6 +326,9 @@ export async function buildPersonDetail(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .in("event_id", eventChunk)
         .eq("media_type", "image")
+        // Not a cover upload: "FM Logo" and "What IF logo" pass
+        // looksLikePersonName and were cards on the wall (lesson 184).
+        .eq("is_cover_upload", false)
         // Presign-created rows exist BEFORE their bytes do. Counting them
         // promises photos the gallery can't show — Jeff Roark's tile said 77
         // when 9 were ghosts from a died-mid-upload session, and the spotlight
@@ -402,6 +405,7 @@ export async function buildPersonDetail(
       .select("id, event_id, r2_key, original_filename, aesthetic_score")
       .in("id", slice)
       .eq("media_type", "image")
+      .eq("is_cover_upload", false)
       .eq("processing_status", "complete");
     if (error) throw error;
     for (const row of data ?? []) {
@@ -525,6 +529,9 @@ export async function buildPeopleIndex(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .eq("event_id", eventId)
         .eq("media_type", "image")
+        // Not a cover upload: "FM Logo" and "What IF logo" pass
+        // looksLikePersonName and were cards on the wall (lesson 184).
+        .eq("is_cover_upload", false)
         // Presign-created rows exist BEFORE their bytes do. Counting them
         // promises photos the gallery can't show — Jeff Roark's tile said 77
         // when 9 were ghosts from a died-mid-upload session, and the spotlight

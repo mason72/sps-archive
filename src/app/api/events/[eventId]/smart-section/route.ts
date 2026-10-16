@@ -56,6 +56,9 @@ export async function POST(
       .from("images")
       .select("id")
       .eq("event_id", eventId)
+      // A cover upload (a client logo) matched "logo" and would have been
+      // filed into the new section (lesson 184).
+      .eq("is_cover_upload", false)
       .in("id", body.imageIds.slice(0, 2000));
     if (ownErr) throw ownErr;
     const imageIds = (owned ?? []).map((r) => r.id);

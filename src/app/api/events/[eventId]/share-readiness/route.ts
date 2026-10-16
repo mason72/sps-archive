@@ -44,11 +44,12 @@ export async function GET(
     // Run all readiness queries in parallel
     const [imagesResult, processingResult, profileResult, sharesResult] =
       await Promise.all([
-        // Total image count
+        // Total image count (photos, not cover uploads; lesson 184)
         supabase
           .from("images")
           .select("id", { count: "exact", head: true })
-          .eq("event_id", eventId),
+          .eq("event_id", eventId)
+          .eq("is_cover_upload", false),
         // Images not yet displayable = those still missing a thumbnail. (NOT
         // processing_status<>'complete' — that counts photos whose hidden AI
         // step failed, which are perfectly shareable, and would raise a false
@@ -57,7 +58,8 @@ export async function GET(
           .from("images")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId)
-          .or("thumbnail_generated.is.null,thumbnail_generated.eq.false"),
+          .or("thumbnail_generated.is.null,thumbnail_generated.eq.false")
+          .eq("is_cover_upload", false),
         // Photographer profile / branding
         supabase
           .from("user_profiles")

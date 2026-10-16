@@ -49,7 +49,11 @@ export async function GET(
         .from("images")
         .select("id, parsed_name, original_filename")
         .eq("event_id", eventId)
+        // A cover upload (a client logo) is not a photo; it must never be
+        // planned into a section (lesson 184).
+        .eq("is_cover_upload", false)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(offset, offset + 999);
       if (error) throw error;
       if (!data || data.length === 0) break;

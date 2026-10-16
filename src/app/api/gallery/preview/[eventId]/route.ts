@@ -6,6 +6,7 @@ import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-se
 import { coverGalleryFields } from "@/lib/cover/payload";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
 import { detectStackable } from "@/lib/gallery/stackable";
+import { loadSectionLinks } from "@/lib/sections/gallery-members";
 
 /**
  * GET /api/gallery/preview/[eventId]
@@ -65,7 +66,7 @@ export async function GET(
     }
 
     // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
-    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y";
+    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y, is_cover_upload";
     const PREVIEW_PAGE_SIZE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -116,6 +117,27 @@ export async function GET(
     if (coverImageId) {
       rawImages = rawImages.filter((img) => img.id !== coverImageId);
     }
+    // A cover upload (a client logo, marked is_cover_upload) is never a gallery
+    // photo, whatever the cover type is now. The exclusion above covers only
+    // the CURRENT photo cover; a mosaic cover's logo and every replaced cover
+    // used to reach the "All" tab, search and the mosaic tiles (lesson 184).
+    // Filtered AFTER coverImageRow is captured, because a logo can BE the cover.
+    rawImages = rawImages.filter((img) => !img.is_cover_upload);
+
+    // 3c. Sections and their links, through the same reader as the public
+    // gallery (manual order, throws on a failed page) so Preview keeps
+    // matching what clients see. The old loop had no ORDER BY, so paging could
+    // skip links and manual order was ignored.
+    const { data: rawSections, error: sectionsErr } = await supabase
+      .from("sections")
+      .select("id, name, description, sort_mode, sort_seed")
+      .eq("event_id", eventId)
+      .order("sort_order", { ascending: true });
+    if (sectionsErr) throw sectionsErr;
+    const sectionImageRows = await loadSectionLinks(
+      supabase,
+      (rawSections || []).map((s) => s.id)
+    );
 
     // 4. Generate presigned URLs (grid thumbs via the presign memo + srcset
     // pair, same as the live gallery)
@@ -205,35 +227,11 @@ export async function GET(
       gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
-    // 6. Fetch sections with their image assignments
-    const { data: rawSections } = await supabase
-      .from("sections")
-      .select("id, name, description, sort_mode, sort_seed")
-      .eq("event_id", eventId)
-      .order("sort_order", { ascending: true });
-
+    // 6. Group the section links read in 3c into each section's imageIds.
     const imageIdSet = new Set((rawImages || []).map((img) => img.id));
-    const sectionIds = (rawSections || []).map((s) => s.id);
-
-    // Paginate — a single select caps at 1000 rows, which would drop sections
-    // in large events (same bug fixed in the public gallery route).
-    const sectionImageRows: { section_id: string; image_id: string }[] = [];
-    if (sectionIds.length > 0) {
-      const SI_PAGE = 1000;
-      for (let off = 0; ; off += SI_PAGE) {
-        const { data: page } = await supabase
-          .from("section_images")
-          .select("section_id, image_id")
-          .in("section_id", sectionIds)
-          .range(off, off + SI_PAGE - 1);
-        if (!page || page.length === 0) break;
-        sectionImageRows.push(...page);
-        if (page.length < SI_PAGE) break;
-      }
-    }
 
     const sectionImageMap = new Map<string, string[]>();
-    for (const row of sectionImageRows || []) {
+    for (const row of sectionImageRows) {
       if (!imageIdSet.has(row.image_id)) continue;
       const arr = sectionImageMap.get(row.section_id) || [];
       arr.push(row.image_id);

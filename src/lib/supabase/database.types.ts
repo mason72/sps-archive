@@ -876,6 +876,7 @@ export type Database = {
           has_audio: boolean | null
           height: number | null
           id: string
+          is_cover_upload: boolean
           is_eyes_open: boolean | null
           iso: number | null
           last_error: string | null
@@ -934,6 +935,7 @@ export type Database = {
           has_audio?: boolean | null
           height?: number | null
           id?: string
+          is_cover_upload?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null
@@ -992,6 +994,7 @@ export type Database = {
           has_audio?: boolean | null
           height?: number | null
           id?: string
+          is_cover_upload?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null

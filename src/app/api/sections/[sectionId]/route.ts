@@ -8,6 +8,7 @@ import {
   validateJobMeta,
   JOB_KEY_PREFIX,
 } from "@/lib/site/jobs";
+import { loadSectionLinks } from "@/lib/sections/gallery-members";
 
 /**
  * Helper: verify section ownership through event → user chain.
@@ -210,7 +211,9 @@ export async function DELETE(
     // Before deleting, rescue any photo that lives ONLY in this section by
     // reassigning it to a fallback section. Deleting a section must never
     // orphan its photos (the FK cascade would otherwise just drop the links).
-    const { data: fallback } = await supabase
+    // A failed read must stop the delete: with no fallback nothing is rescued,
+    // and the cascade would strip every sole-member photo of its section.
+    const { data: fallback, error: fallbackErr } = await supabase
       .from("sections")
       .select("id")
       .eq("event_id", section.event_id)
@@ -218,35 +221,65 @@ export async function DELETE(
       .order("sort_order", { ascending: true })
       .limit(1)
       .maybeSingle();
+    if (fallbackErr) throw fallbackErr;
+    // No other section means the last-section guard above did not hold (its
+    // count read can fail quietly). Deleting now would strip every photo here
+    // of its only section, so refuse.
+    if (!fallback) {
+      return NextResponse.json(
+        { error: "Cannot delete the last section" },
+        { status: 400 }
+      );
+    }
 
-    const { data: links } = await supabase
-      .from("section_images")
-      .select("image_id")
-      .eq("section_id", sectionId);
-    const imageIds = (links ?? []).map((l) => l.image_id);
+    // Every link of this section, paged and error-checked. This read used to
+    // be a single select, capped at 1,000 rows with its error ignored, so
+    // deleting a 3,000-photo section rescued only the first 1,000 and the
+    // cascade silently stripped the rest of their only section (lesson 184).
+    const imageIds = (await loadSectionLinks(supabase, [sectionId])).map(
+      (l) => l.image_id
+    );
 
-    if (fallback) {
-      if (imageIds.length > 0) {
-        const { data: otherLinks } = await supabase
+    if (imageIds.length > 0) {
+      // Which of them also live in another section? Chunked: one `.in()` with
+      // thousands of ids overflows the URL, and an ignored error here read as
+      // "lives nowhere else".
+      const safe = new Set<string>();
+      // 100 ids per chunk keeps each answer far under the 1,000-row cap even
+      // when a photo also sits in several other sections.
+      for (let i = 0; i < imageIds.length; i += 100) {
+        const { data: otherLinks, error: otherErr } = await supabase
           .from("section_images")
           .select("image_id")
-          .in("image_id", imageIds)
+          .in("image_id", imageIds.slice(i, i + 100))
           .neq("section_id", sectionId);
-        const safe = new Set((otherLinks ?? []).map((l) => l.image_id));
-        const orphaning = imageIds.filter((id) => !safe.has(id));
+        if (otherErr) throw otherErr;
+        for (const l of otherLinks ?? []) safe.add(l.image_id);
+      }
+      const orphaning = imageIds.filter((id) => !safe.has(id));
 
-        if (orphaning.length > 0) {
-          const { error: rescueError } = await supabase
-            .from("section_images")
-            .insert(
-              orphaning.map((image_id, i) => ({
-                section_id: fallback.id,
-                image_id,
-                sort_order: i,
-              }))
-            );
-          if (rescueError) throw rescueError;
-        }
+      if (orphaning.length > 0) {
+        // Append after the fallback's own photos; numbering from 0 interleaved
+        // the rescued ones with the photographer's manual order at the top.
+        const { data: last, error: lastErr } = await supabase
+          .from("section_images")
+          .select("sort_order")
+          .eq("section_id", fallback.id)
+          .order("sort_order", { ascending: false })
+          .limit(1);
+        if (lastErr) throw lastErr;
+        const base = (last?.[0]?.sort_order ?? -1) + 1;
+        const { error: rescueError } = await supabase
+          .from("section_images")
+          .upsert(
+            orphaning.map((image_id, i) => ({
+              section_id: fallback.id,
+              image_id,
+              sort_order: base + i,
+            })),
+            { onConflict: "section_id,image_id", ignoreDuplicates: true }
+          );
+        if (rescueError) throw rescueError;
       }
     }
 

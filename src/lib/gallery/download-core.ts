@@ -7,6 +7,7 @@ import { checkAuthRateLimit } from "@/lib/security/rate-limit";
 import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { asciiFilePart, uniqueFolderNames } from "@/lib/gallery/file-part";
+import { loadSectionLinks } from "@/lib/sections/gallery-members";
 
 /**
  * Shared core for gallery ZIP downloads — used by the synchronous streaming
@@ -210,7 +211,10 @@ function shareImages(supabase: DB, share: ShareRow) {
     .from("images")
     .select("id, r2_key, original_filename, file_size")
     .eq("event_id", share.event_id)
-    .eq("thumbnail_generated", true);
+    .eq("thumbnail_generated", true)
+    // A cover upload (a client logo) is shown as the cover, never handed out
+    // as a photo: it used to land loose in every full-gallery ZIP (lesson 184).
+    .eq("is_cover_upload", false);
   const scope = resolveShareImageScope(share);
   if (scope.kind === "event") return q;
   return q.in("id", scope.kind === "images" ? scope.imageIds : []);
@@ -329,9 +333,11 @@ export async function selectDownloadImages(
   const allImages: DownloadImage[] = [];
   const IMG_PAGE = 1000;
   for (let off = 0; ; off += IMG_PAGE) {
-    const { data: page } = await shareImages(supabase, share)
+    const { data: page, error: pageErr } = await shareImages(supabase, share)
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(off, off + IMG_PAGE - 1);
+    if (pageErr) throw pageErr;
     if (!page || page.length === 0) break;
     allImages.push(...page);
     if (page.length < IMG_PAGE) break;
@@ -342,14 +348,36 @@ export async function selectDownloadImages(
   }
 
   let images = allImages;
+
+  // The event's sections and links, read ONCE and only when used: they answer
+  // a one-section scope and the folder layout (full-gallery AND favorites
+  // ZIPs keep folders); only a selection ZIP, which is flat, never needs them. The folder lookup used to send every image
+  // id in one `.in()` URL and ignore the error, so a big gallery's ZIP came
+  // out with no folders (Community Summit: 4,749 loose files; lesson 184).
+  const needsLinks = !!scope.section || !scope.images?.length;
+  let sectionRows: { id: string; name: string }[] = [];
+  let links: Awaited<ReturnType<typeof loadSectionLinks>> = [];
+  if (needsLinks) {
+    const { data, error: secErr } = await supabase
+      .from("sections")
+      .select("id, name")
+      .eq("event_id", share.event_id)
+      .order("sort_order")
+      .order("id");
+    if (secErr) throw secErr;
+    sectionRows = data ?? [];
+    links = await loadSectionLinks(supabase, sectionRows.map((r) => r.id));
+  }
   let zipSuffix = "";
   let scopedFlat = false;
 
   if (scope.favorites) {
-    const { data: favs } = await supabase
+    const { data: favs, error: favErr } = await supabase
       .from("favorites")
       .select("image_id")
       .eq("share_id", share.id);
+    // A failed read is not "no favorites"; say so instead of a false 404.
+    if (favErr) throw favErr;
     const favSet = new Set((favs ?? []).map((f) => f.image_id));
     images = images.filter((img) => favSet.has(img.id));
     if (images.length === 0) {
@@ -359,26 +387,13 @@ export async function selectDownloadImages(
   }
 
   if (scope.section) {
-    const { data: section } = await supabase
-      .from("sections")
-      .select("id, name")
-      .eq("id", scope.section)
-      .eq("event_id", share.event_id)
-      .single();
+    const section = sectionRows.find((r) => r.id === scope.section);
     if (!section) {
       return { ok: false, status: 404, message: "Section not found" };
     }
-    const memberIds = new Set<string>();
-    for (let from = 0; ; from += 1000) {
-      const { data: links } = await supabase
-        .from("section_images")
-        .select("image_id")
-        .eq("section_id", section.id)
-        .range(from, from + 999);
-      if (!links || links.length === 0) break;
-      for (const l of links) memberIds.add(l.image_id);
-      if (links.length < 1000) break;
-    }
+    const memberIds = new Set(
+      links.filter((l) => l.section_id === section.id).map((l) => l.image_id)
+    );
     images = images.filter((img) => memberIds.has(img.id));
     if (images.length === 0) {
       return { ok: false, status: 404, message: "No images in this section" };
@@ -399,29 +414,15 @@ export async function selectDownloadImages(
   // one-stack ZIP reads better flat.
   const sectionsByImage = new Map<string, string[]>();
   if (!scopedFlat) {
-    const imageIds = images.map((i) => i.id);
-    const { data: sectionRows } = await supabase
-      .from("sections")
-      .select("id, name")
-      .eq("event_id", share.event_id)
-      .order("sort_order")
-      .order("id");
-    const sectionName = uniqueFolderNames(sectionRows ?? []);
-    for (let from = 0; ; from += 1000) {
-      const { data: links } = await supabase
-        .from("section_images")
-        .select("image_id, section_id")
-        .in("image_id", imageIds)
-        .range(from, from + 999);
-      if (!links || links.length === 0) break;
-      for (const l of links) {
-        const folder = sectionName.get(l.section_id);
-        if (!folder) continue;
-        const arr = sectionsByImage.get(l.image_id);
-        if (arr) arr.push(folder);
-        else sectionsByImage.set(l.image_id, [folder]);
-      }
-      if (links.length < 1000) break;
+    const inZip = new Set(images.map((i) => i.id));
+    const sectionName = uniqueFolderNames(sectionRows);
+    for (const l of links) {
+      if (!inZip.has(l.image_id)) continue;
+      const folder = sectionName.get(l.section_id);
+      if (!folder) continue;
+      const arr = sectionsByImage.get(l.image_id);
+      if (arr) arr.push(folder);
+      else sectionsByImage.set(l.image_id, [folder]);
     }
   }
 

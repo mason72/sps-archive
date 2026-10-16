@@ -48,7 +48,9 @@ export async function GET(
       .select("id", { count: "exact", head: true })
       .eq("event_id", eventId)
       .eq("media_type", "image")
-      .eq("thumbnail_generated", true);
+      .eq("thumbnail_generated", true)
+      // Same population as indexedCount, which leaves cover uploads out.
+      .eq("is_cover_upload", false);
 
     const { plan, indexedCount } = await buildScenePlan(supabase, eventId, user!.id, key);
     if (indexedCount === 0) {

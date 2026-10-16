@@ -44,6 +44,20 @@ export async function syncSitePublication(
   const result: SyncResult = { published: [], unpublished: [], failed: [] };
   if (imageIds.length === 0) return result;
 
+  // 100 ids per pass: both reads below put the ids in a URL, and the links
+  // read is capped at 1,000 rows. Deleting a large website section hands over
+  // every member at once (lesson 184), which used to overflow both.
+  const CHUNK = 100;
+  if (imageIds.length > CHUNK) {
+    for (let i = 0; i < imageIds.length; i += CHUNK) {
+      const part = await syncSitePublication(supabase, imageIds.slice(i, i + CHUNK));
+      result.published.push(...part.published);
+      result.unpublished.push(...part.unpublished);
+      result.failed.push(...part.failed);
+    }
+    return result;
+  }
+
   // Which of these images live in a website section, and under which scenes?
   const { data: links, error: linksError } = await supabase
     .from("section_images")

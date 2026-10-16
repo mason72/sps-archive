@@ -19,6 +19,7 @@ import { embedTexts } from "@/lib/ai-index/embed-text";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 import { taxonomyByKey, type SceneTaxonomy } from "./scene-taxonomies";
+import { eventCoverUploadIds } from "@/lib/sections/gallery-members";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -147,6 +148,10 @@ export async function buildScenePlan(
       if (!data || data.length < 1000) break;
     }
   }
+
+  // The RPC scores every indexed row, and a cover upload (a client logo) was
+  // indexed too. It is not a photo, so it gets no scene (lesson 184).
+  for (const id of await eventCoverUploadIds(supabase, eventId)) sims.delete(id);
 
   return {
     taxonomy,

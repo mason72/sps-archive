@@ -168,7 +168,12 @@ export async function POST(request: NextRequest) {
     //   linkable   → already here, add it to this section (no bytes move)
     //   duplicate  → already in THIS section; genuinely nothing to do
     const existingByKey = new Map<string, string>();
-    {
+    // A cover upload never matches anything: it is a fresh row every time.
+    // Matching it against an earlier cover returned no upload slot at all
+    // ("Failed to upload cover image"). And a PHOTO never matches a cover row,
+    // or a later folder upload would link that marked row into a section and
+    // the photo would be hidden from guests as a logo (lesson 184).
+    if (!skipSection) {
       const names = [...new Set(files.map((f) => f.name))];
       // Chunked: a folder drop can be thousands of names, and PostgREST has to
       // fit them in a URL.
@@ -178,6 +183,7 @@ export async function POST(request: NextRequest) {
           .select("id, original_filename, file_size")
           .eq("event_id", eventId)
           .eq("processing_status", "complete")
+          .eq("is_cover_upload", false)
           .in("original_filename", names.slice(i, i + 200));
         if (dupErr) throw dupErr;
         for (const row of (existing ?? []) as {
@@ -291,6 +297,10 @@ export async function POST(request: NextRequest) {
         media_type: mediaTypeForMime(r.file.type),
         parsed_name: r.parsed.name,
         processing_status: "pending",
+        // The one place a cover row is made. Marked, not inferred from its
+        // missing section link: a real photo can lose its link to a bug, and
+        // must then stay visible rather than vanish as "a logo" (lesson 184).
+        is_cover_upload: !!skipSection,
       }))
     );
 

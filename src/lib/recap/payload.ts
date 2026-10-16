@@ -154,16 +154,19 @@ export async function resolveRecap(
     : null;
 
   // Archive facts, in scope. Two counts, one filter.
+  // Photos, never a cover upload (a client logo; lesson 184).
   let photosQuery = supabase
     .from("images")
     .select("id", { count: "exact", head: true })
     .eq("event_id", event.id)
-    .eq("thumbnail_generated", true);
+    .eq("thumbnail_generated", true)
+    .eq("is_cover_upload", false);
   let namedQuery = supabase
     .from("images")
     .select("id", { count: "exact", head: true })
     .eq("event_id", event.id)
     .eq("thumbnail_generated", true)
+    .eq("is_cover_upload", false)
     .not("parsed_name", "is", null);
   if (selected) {
     const ids = [...selected];

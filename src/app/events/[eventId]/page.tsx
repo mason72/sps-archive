@@ -665,6 +665,12 @@ export default function EventPage({
     () => allImages.reduce((n, img) => (img.isAiRender && !img.isCover ? n + 1 : n), 0),
     [allImages]
   );
+  // Photos, not rows: the payload carries the current cover (a client logo,
+  // usually) for the Design preview, and it is not a photo (lesson 184).
+  const galleryPhotoCount = useMemo(
+    () => allImages.reduce((n, img) => (img.isCover ? n : n + 1), 0),
+    [allImages]
+  );
   // The click handler lives below, after fetchEvent is declared.
 
   const NUDGE_MIN_FILES = 50;
@@ -1814,7 +1820,7 @@ export default function EventPage({
           eventDate={event.event_date}
           eventDescription={event.description}
           eventCreatedAt={event.created_at}
-          totalImageCount={allImages.length}
+          totalImageCount={galleryPhotoCount}
           sections={sections}
           uploadProgressBySection={uploadProgress.bySection}
           onShowUploadIssues={() =>

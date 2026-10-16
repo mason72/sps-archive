@@ -19,6 +19,8 @@ const db = {
   tables: [] as string[],
   /** Ops recorded per table (last query wins for repeated tables). */
   ops: {} as Record<string, QueryOp[]>,
+  /** Extra image rows linked to no section (a cover upload, or a lost photo). */
+  extraImages: [] as Record<string, unknown>[],
 };
 
 const IMAGE_ROWS = [
@@ -56,7 +58,22 @@ function resolveQuery(table: string, ops: QueryOp[]) {
     // Paginated loop: rows on the first page, empty after, or the loop spins.
     const range = ops.find((o) => o.fn === "range");
     const offset = (range?.args[0] as number) ?? 0;
-    return { data: offset === 0 ? IMAGE_ROWS : [], error: null };
+    return { data: offset === 0 ? [...IMAGE_ROWS, ...db.extraImages] : [], error: null };
+  }
+  if (table === "sections") {
+    return {
+      data: [{ id: "sec-1", name: "Everyone", description: null, sort_mode: null, sort_seed: null }],
+      error: null,
+    };
+  }
+  if (table === "section_images") {
+    // img-1 is in the one section; rows in db.extraImages are linked nowhere.
+    const range = ops.find((o) => o.fn === "range");
+    const offset = (range?.args[0] as number) ?? 0;
+    return {
+      data: offset === 0 ? [{ section_id: "sec-1", image_id: "img-1" }] : [],
+      error: null,
+    };
   }
   return { data: isSingle ? null : [], error: null };
 }
@@ -153,6 +170,7 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     db.share = null;
     db.tables = [];
     db.ops = {};
+    db.extraImages = [];
   });
 
   it("serves the event's images for a full share", async () => {
@@ -163,6 +181,34 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     expect(res.status).toBe(200);
     expect(body.images).toHaveLength(1);
     expect(body.images[0].id).toBe("img-1");
+  });
+
+  it("never serves a cover upload (a client logo, lesson 184)", async () => {
+    // The old route hid a cover row only while it was the CURRENT photo cover,
+    // so a mosaic cover's logo and every replaced cover reached "All".
+    db.share = { ...baseShare };
+    db.extraImages = [
+      { ...IMAGE_ROWS[0], id: "logo-1", original_filename: "LogoColor.png", is_cover_upload: true },
+    ];
+    const res = await call();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.images.map((i: { id: string }) => i.id)).toEqual(["img-1"]);
+  });
+
+  it("still serves a real photo that lost its section link", async () => {
+    // Why the rule is a MARK and not "no section link": a photo can lose its
+    // last link to a bug (a big section delete, a failed move). It must stay
+    // visible and fixable, not vanish as if it were a logo.
+    db.share = { ...baseShare };
+    db.extraImages = [{ ...IMAGE_ROWS[0], id: "lost-1", is_cover_upload: false }];
+    const res = await call();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.images.map((i: { id: string }) => i.id).sort()).toEqual(["img-1", "lost-1"]);
+    expect(body.sections[0].imageIds).toEqual(["img-1"]);
   });
 
   it("serves nothing for a section share, and never reads images", async () => {

@@ -4492,7 +4492,7 @@ section filter. Probed read-only before the fill fired: the logo was one of the 
 "moment" of its own. Production held 17 section-less rows across 13 events, 12 of them covers.
 
 **Fix.** Held the fill by locking the waiting section (a locked section is never filled), then
-`allEventImages` now keeps only rows linked to a section of the event (`galleryImageIds`, a paged
+(SUPERSEDED the same night by the cover mark, see the addendum) `allEventImages` kept only rows linked to a section of the event (`galleryImageIds`, a paged
 `section_images` read that throws on failure, so an empty set can never mean "no filter"). Probe
 `scripts/triage/summit-picks.ts <eventId> [count]`: 1 section-less pick before, 0 after. Filled the
 section from the fixed code (75 picks, 0 logos, every pick also in its letter section).
@@ -4503,3 +4503,38 @@ section from the fixed code (75 picks, 0 logos, every pick also in its letter se
   invariant has one deliberate exception (covers), and every event-wide reader inherits it.
 - **When a machine-owned write is about to go out wrong, hold it with the switch it already
   honours** (here `locked`), fix, then release; do not race a deploy against a debounce.
+
+**Addendum, same night: the sweep (Mason chose "fix every spot").** A read-only sweep found the
+same assumption in nine more readers. The worst was the guest gallery: it hid a cover row only
+while it was the CURRENT photo cover, so on the 6 shared galleries with a mosaic cover (and every
+replaced cover) the client logo sat in the guest "All" tab and in Download All.
+
+**First design, rejected by review before it shipped:** "a gallery photo is a row in a section".
+It worked on every probe and was wrong: a fresh reviewer showed four existing paths by which a
+REAL photo loses its last link (section delete reads only 1,000 links; a failed drag between
+sections; a failed transfer; a Rebuild that fails midway), and the rule would then hide that
+photo everywhere, silently and for good. Production already held one (Kara Pierce, Fivetran SKO).
+**Shipped design:** migration 096 marks cover uploads (`images.is_cover_upload`), set by the upload
+route from `skipSection`; readers filter the mark. Failure is now a logo that shows up, visible
+and fixable. It is also cheaper (a column filter instead of a link read per event; the /people
+build had grown 10% on the first design) and it let `event_readiness` and the counts be fixed too.
+
+Found along the way:
+- **Download All had silently lost its folders on big galleries.** The folder lookup put every
+  image id in one `.in()` URL and ignored the error: Community Summit's ZIP was 4,749 loose
+  files. `scripts/triage/zip-scope-compare.ts <eventId> <oldModule>`: 4,749 loose → 0 loose in 7
+  folders; a 188-photo control was identical before and after.
+- **/people carded 5 logos** ("What IF logo", "FM Logo", "FartherFaster RGB", "Pacific",
+  "Thumbnail"), measured with `people-index-diff.ts`.
+- Preview paged its section links with no ORDER BY and ignored errors; Sort and the Rebuild
+  preview paged on `created_at` alone. Fixed.
+- AI indexing still indexes covers on purpose: the sweep planner counts unindexed rows, so
+  skipping them would nudge the event every 30 minutes forever.
+
+**Rules.**
+- **Mark the exception; never infer it from an absence.** "No section link" meant "cover" only
+  until some other bug made it mean "lost photo" too. A positive mark fails visible.
+- **Before a new rule hides rows, list the rows it will hide and look at each one.** 16 of 17
+  were covers; the 17th was a guest's photo. Two ambiguous filenames were checked by eye.
+- **A rule that removes data from a client's view needs the reviewer pass even when every probe
+  is green.** The probes tested the case I had in mind; the review found the cases I did not.

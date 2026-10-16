@@ -15,6 +15,7 @@ import { coverGalleryFields } from "@/lib/cover/payload";
 import { logActivity } from "@/lib/analytics/log";
 import { getOptionalUserId } from "@/lib/auth/helpers";
 import { detectStackable } from "@/lib/gallery/stackable";
+import { loadSectionLinks } from "@/lib/sections/gallery-members";
 import {
   resolveShareImageScope,
   shareScopeIsCurated,
@@ -186,7 +187,7 @@ export async function GET(
     }
 
     // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
-    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y";
+    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y, is_cover_upload";
     const IMG_PAGE = 1000;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = [];
@@ -246,6 +247,27 @@ export async function GET(
     if (coverImageId) {
       rawImages = rawImages.filter((img) => img.id !== coverImageId);
     }
+    // A cover upload (a client logo, marked is_cover_upload) is never a gallery
+    // photo, whatever the cover type is now. The exclusion above covers only
+    // the CURRENT photo cover; a mosaic cover's logo and every replaced cover
+    // used to reach the "All" tab, search and the mosaic tiles (lesson 184).
+    // Filtered AFTER coverImageRow is captured, because a logo can BE the cover.
+    rawImages = rawImages.filter((img) => !img.is_cover_upload);
+
+    // 5a'. Sections and their links, grouped into each section's imageIds in
+    // step 7. Read through loadSectionLinks, which pages in manual order and
+    // THROWS on a failed page; the old inline loop stopped at the first error,
+    // so a timeout quietly dropped photos out of their sections.
+    const { data: rawSections, error: sectionsErr } = await supabase
+      .from("sections")
+      .select("id, name, description, sort_mode, sort_seed")
+      .eq("event_id", share.event_id)
+      .order("sort_order", { ascending: true });
+    if (sectionsErr) throw sectionsErr;
+    const sectionImageRows = await loadSectionLinks(
+      supabase,
+      (rawSections || []).map((s) => s.id)
+    );
 
     // 5b. Generate presigned URLs (grid thumbnails at 400px + 800px for
     // srcset, original for lightbox). Thumbnails use the presign memo so
@@ -412,43 +434,12 @@ export async function GET(
       gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
-    // 7. Fetch sections with their image assignments
-    const { data: rawSections } = await supabase
-      .from("sections")
-      .select("id, name, description, sort_mode, sort_seed")
-      .eq("event_id", share.event_id)
-      .order("sort_order", { ascending: true });
-
+    // 7. Group the section links read in 5a' into each section's imageIds.
     const imageIdSet = new Set((rawImages || []).map((img) => img.id));
-    const sectionIds = (rawSections || []).map((s) => s.id);
-
-    // Batch-fetch all section_images for these sections. MUST paginate —
-    // Supabase caps a single select at 1000 rows, and a large event easily has
-    // more links than that. Without paging, sections past the cap lost their
-    // members (showed partial counts, or vanished via the length>0 filter).
-    const sectionImageRows: { section_id: string; image_id: string }[] = [];
-    if (sectionIds.length > 0) {
-      const SI_PAGE = 1000;
-      for (let off = 0; ; off += SI_PAGE) {
-        const { data: page } = await supabase
-          .from("section_images")
-          // Manual (drag) order lives in sort_order; order by it so each
-          // section's imageIds arrive in the photographer's arrangement. The
-          // image_id tiebreaker keeps pagination deterministic across pages.
-          .select("section_id, image_id")
-          .in("section_id", sectionIds)
-          .order("sort_order", { ascending: true })
-          .order("image_id", { ascending: true })
-          .range(off, off + SI_PAGE - 1);
-        if (!page || page.length === 0) break;
-        sectionImageRows.push(...page);
-        if (page.length < SI_PAGE) break;
-      }
-    }
 
     // Group image IDs by section, filtering to images in this gallery
     const sectionImageMap = new Map<string, string[]>();
-    for (const row of sectionImageRows || []) {
+    for (const row of sectionImageRows) {
       if (!imageIdSet.has(row.image_id)) continue;
       const arr = sectionImageMap.get(row.section_id) || [];
       arr.push(row.image_id);

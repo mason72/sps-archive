@@ -37,7 +37,9 @@ export async function GET() {
       supabase
         .from("images")
         .select("id", { count: "exact", head: true })
-        .in("event_id", eventIds),
+        .in("event_id", eventIds)
+        // Photos, not cover uploads (client logos; lesson 184).
+        .eq("is_cover_upload", false),
 
       // All shares (for view count + favorite lookups). Shares carry no
       // user_id — ownership is transitive through the event, so it has to be
