@@ -4538,3 +4538,42 @@ Found along the way:
   were covers; the 17th was a guest's photo. Two ambiguous filenames were checked by eye.
 - **A rule that removes data from a client's view needs the reviewer pass even when every probe
   is green.** The probes tested the case I had in mind; the review found the cases I did not.
+
+## 185. The app had never been used on a phone, and "fits the screen" was not the test (2026-10-17)
+
+Mason tried to import an SPS event from his phone. The only way into Import was a 9px chevron beside
+the New Event button, so his thumb created an event instead. A read-only audit of three areas (editor,
+guest gallery, settings) found about 70 problems; measured at 390px, the editor page was 1095px wide
+(the 320px sidebar opened by default and left the editor ~55px) and the guest gallery 448px (the logo).
+
+**What shipped** (commits 859e125, f0efad9, 5e0afb2): a phone menu (`AppNav` `MobileMenu`), the
+editor sidebar as a full-screen sheet closed by default, a sticky section bar, a `⋯` header menu
+(`OverflowMenu`), touch tap rules for the grid and stacks, URL-driven import screens, wrapping
+toolbars, and visible two-step versions of every hover-only control.
+
+**Found along the way, each worse than a layout bug:**
+- **Hover-hidden controls were invisible AND tappable.** `opacity-0 group-hover:opacity-100` hides a
+  button from a finger but not from its tap. Four of them deleted at once (email template, account
+  logo, share revoke) and one per tile favourited or zipped for a guest aiming to open a photo.
+- **A swipe to scroll reordered sections.** Every editor tile was a dnd-kit handle with
+  `touch-action: none`; tiles fill a phone, so a scroll began a drag that saved a new order and
+  switched the section to Manual.
+- **Double-click-to-open never fires on an iPhone** (a double tap is zoom), so photos could not be
+  opened at all.
+- **A link to the URL already showing is a no-op in Next.** The import job screen was state on
+  `/events/import`, so Import in the nav did nothing while an import ran (Mason, on laptop too).
+- **`position: fixed` inside a `backdrop-filter` element is fixed to THAT element**, and inside a
+  scroller it is clipped. The selection bar's phone popovers rendered nowhere. Page-width checks were
+  green; a fresh reviewer caught it, and a screenshot of the opened popover proved the fix.
+- `git commit -- <path>` leaves NEW files out; the first phone commit compiled locally and would
+  have failed on Vercel. The pre-push hook builds the pushed commit and would have caught it too.
+
+**Rules.**
+- **Touch is a separate input, not a smaller screen.** Use `pointer-coarse:` for what a finger can
+  reach and `max-md:` for what fits; tablets are wide AND touch.
+- **Anything hidden until hover is also `pointer-events-none` until revealed, and visible on
+  `pointer-coarse:`.** A destructive one is two-step and checks `res.ok`.
+- **A phone check opens things.** Page width equal to the screen is necessary, not sufficient: tap
+  into each popover, menu and sheet in the probe and screenshot it open.
+- **Screens worth returning to live in the URL**, so the nav, back links and the back gesture work.
+- After `git commit -- <paths>`, `git status --short` must be empty of `??` files the change uses.
