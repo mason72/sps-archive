@@ -28,6 +28,11 @@ export async function GET(
     if (authError) return authError;
 
     const { jobId } = await params;
+    // Not a uuid is "no such job", not a 500: Postgres rejects the cast, and
+    // the import screen would retry a mistyped link forever.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
     const { data: job, error } = await supabase
       .from("sps_pull_jobs")

@@ -560,11 +560,20 @@ export default function ImportFromSpsPage() {
    * another job's numbers onto this screen.
    */
   const activeJobRef = useRef<string | null>(null);
-  const pollJob = useCallback(async (jobId: string, failures = 0) => {
-    const live = () => activeJobRef.current === jobId;
+  /**
+   * Every fresh start of polling (watch, retry, cancel) is a new generation,
+   * and only the newest may re-arm. The job id alone cannot tell an old loop
+   * from a new one for the SAME job (list, then the same job again while a
+   * fetch is in flight), which left two loops polling side by side.
+   */
+  const pollGen = useRef(0);
+  const pollJob = useCallback(async (jobId: string, failures = 0, gen?: number) => {
+    const myGen = gen ?? ++pollGen.current;
+    if (gen === undefined && pollTimer.current) clearTimeout(pollTimer.current);
+    const live = () => activeJobRef.current === jobId && pollGen.current === myGen;
     const again = (delay: number, nextFailures: number) => {
       if (!live()) return;
-      pollTimer.current = setTimeout(() => pollJob(jobId, nextFailures), delay);
+      pollTimer.current = setTimeout(() => pollJob(jobId, nextFailures, myGen), delay);
     };
 
     try {
@@ -629,7 +638,12 @@ export default function ImportFromSpsPage() {
 
   useEffect(
     () => () => {
+      // showingRef too: React's dev double-mount runs this cleanup between
+      // two runs of the URL effect, and a stale "showing" mark made the second
+      // run skip restarting the poll it had just stopped.
       activeJobRef.current = null;
+      showingRef.current = null;
+      pollGen.current++;
       if (pollTimer.current) clearTimeout(pollTimer.current);
     },
     []
@@ -666,10 +680,13 @@ export default function ImportFromSpsPage() {
       const ev = events.find((e) => e.id === urlReview);
       if (ev) beginReview(ev); // a cold link waits for the list to arrive
       // The list has arrived and this event is not on it: drop the stale id.
-      else if (!isLoading) router.replace("/events/import");
+      // (Not when the list failed to load: that is a temporary error, and
+      // the link may well be good.)
+      else if (!isLoading && !loadError) router.replace("/events/import");
     } else if (showingRef.current !== null) {
       showingRef.current = null;
       activeJobRef.current = null;
+      pollGen.current++;
       if (pollTimer.current) clearTimeout(pollTimer.current);
       setStage("pick");
       // Refetch so an import started a moment ago reads "Importing" here.
@@ -678,7 +695,7 @@ export default function ImportFromSpsPage() {
     // watchJob/beginReview are plain functions recreated each render; the
     // URL and the list are what this effect answers to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlJob, urlReview, events, isLoading, loadEvents]);
+  }, [urlJob, urlReview, events, isLoading, loadError, loadEvents]);
 
   const cancelImport = async () => {
     if (!job) return;

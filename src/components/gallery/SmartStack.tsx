@@ -411,7 +411,8 @@ function ExpandedStackImage({
 
       {/* Best shot indicator */}
       {isCover && !isSelected && (
-        <div className="absolute left-1.5 top-1.5 bg-stone-900 p-1">
+        // Bottom-left on touch: the checkbox is always shown there and sat on it.
+        <div className="absolute left-1.5 top-1.5 bg-stone-900 p-1 pointer-coarse:top-auto pointer-coarse:bottom-1.5">
           <Star className="h-2.5 w-2.5 fill-white text-white" />
         </div>
       )}
