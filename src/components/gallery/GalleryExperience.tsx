@@ -192,8 +192,10 @@ function LightboxImage({
   const [loaded, setLoaded] = useState(false);
   const alt = image.parsedName || image.originalFilename;
   const original = image.originalUrl;
-  // Both layers share one 90vh × 90vw box and letterbox with object-contain,
+  // Both layers share one 90dvh × 90vw box and letterbox with object-contain,
   // so the box is sized by the viewport, never by the thumbnail's pixels.
+  // dvh, not vh: a phone's vh is the viewport with the browser bars hidden,
+  // so 90vh can run under them while they show. Same value on desktop.
   // The element box is larger than the painted photo, so hit-test the click
   // against the contained rect and treat the margin as backdrop.
   const handleClick = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -213,7 +215,7 @@ function LightboxImage({
     if (!inside) onBackdropClick();
   };
   return (
-    <div className="relative h-[90vh] w-[90vw] lightbox-image-enter">
+    <div className="relative h-[90dvh] w-[90vw] lightbox-image-enter">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={image.thumbnailUrl}
@@ -238,7 +240,7 @@ function LightboxImage({
 
 function ZipProgressToast({ label }: { label: string }) {
   return (
-    <div className="flex w-[360px] items-center gap-3 border border-stone-200 bg-white px-4 py-3 shadow-lg">
+    <div className="flex w-full max-w-[360px] items-center gap-3 border border-stone-200 bg-white px-4 py-3 shadow-lg">
       <ElephantWalk trees={false} className="w-[92px] shrink-0" />
       <p className="text-[12px] leading-snug text-stone-600">{label}</p>
     </div>
@@ -349,6 +351,17 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     });
   }, []);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
+  // onBlur alone never closes the menu on iOS Safari, which does not focus a
+  // button on tap, so there is no blur. A tap anywhere outside closes it too.
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!downloadMenuRef.current?.contains(e.target as Node)) setDownloadMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [downloadMenuOpen]);
   const [preparingDownload, setPreparingDownload] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
 
@@ -575,6 +588,22 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       lightboxRef.current.focus();
     }
   }, [selectedImageId]);
+
+  // A fixed overlay doesn't stop a phone scrolling the page behind it (a
+  // drag on the photo chains through to the grid), so freeze the page while a
+  // photo is open. Same pattern as StackModal.
+  const lightboxOpen = !!selectedImageId;
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [lightboxOpen]);
+
+  // Where a one-finger touch on the lightbox began, for swipe navigation.
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // First-ever lightbox open: hint that ← → navigate (once per browser).
   const [showKeyHint, setShowKeyHint] = useState(false);
@@ -1204,16 +1233,16 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         <div className="px-8 md:px-16 pt-12 pb-6">
           <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
             <h1
-              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal min-w-0 flex-1 [overflow-wrap:anywhere] ${titleAlignClass}`}
               style={{ color: colors.primary }}
             >
               {singlePerson ?? gallery.eventName}
             </h1>
             {b && (b.logoUrl || b.businessName) && (
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex min-w-0 items-center gap-3 shrink-0 max-sm:shrink">
                 {b.logoUrl && (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain max-sm:h-8 max-sm:max-w-[40vw]" />
                 )}
                 {b.businessName && !b.logoUrl && (
                   <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
@@ -1240,23 +1269,25 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
 
       {/* ─── Branded header ─── */}
       <header className={`px-8 md:px-16 ${titleBelowCover || titleAboveCover ? "pt-6" : "pt-12"} pb-5`}>
-        {/* Title/meta block (left) with Download across from it (top-right) */}
-        <div className="flex items-start justify-between gap-6">
+        {/* Title/meta block (left) with Download across from it (top-right).
+            Below sm the actions take their own row under the title: side by
+            side, the Share/Download pair left the title about 45px on a phone. */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div className="min-w-0 flex-1">
         {/* When title is below cover: logo + title inline */}
         {titleBelowCover ? (
           <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
             <h1
-              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal flex-1 ${titleAlignClass}`}
+              className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal min-w-0 flex-1 [overflow-wrap:anywhere] ${titleAlignClass}`}
               style={{ color: colors.primary }}
             >
               {singlePerson ?? gallery.eventName}
             </h1>
             {b && (b.logoUrl || b.businessName) && (
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex min-w-0 items-center gap-3 shrink-0 max-sm:shrink">
                 {b.logoUrl && (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain max-sm:h-8 max-sm:max-w-[40vw]" />
                 )}
                 {b.businessName && !b.logoUrl && (
                   <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
@@ -1277,7 +1308,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               >
                 {b.logoUrl && (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto object-contain" />
+                  <img src={b.logoUrl} alt={b.businessName || "Photographer"} className="h-10 w-auto max-w-full object-contain" />
                 )}
                 {b.businessName && !b.logoUrl && (
                   <span className="text-[15px] font-medium tracking-wide uppercase" style={{ color: colors.secondary }}>
@@ -1291,7 +1322,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                 client logo on the cover IS the title */}
             {!coverRendersTitle && !titleAboveCover && !hideCoverTitle && (
               <h1
-                className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal`}
+                className={`${headingClass} text-[clamp(32px,5vw,56px)] leading-[0.95] reveal [overflow-wrap:anywhere]`}
                 style={{ color: colors.primary }}
               >
                 {singlePerson ?? gallery.eventName}
@@ -1348,8 +1379,8 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         )}
           </div>
 
-          {/* Share + Download (top-right, across from the title) */}
-          <div className="flex shrink-0 items-start gap-2">
+          {/* Share + Download (top-right, across from the title; own row on phones) */}
+          <div className="flex shrink-0 flex-wrap items-start gap-2">
           {allowGuestShare && (
             <button
               onClick={handleShareGallery}
@@ -1363,7 +1394,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           )}
           {/* Download menu: All / Favorites */}
           {allowDownload && (
-            <div className="relative shrink-0">
+            <div ref={downloadMenuRef} className="relative shrink-0">
               <button
                 onClick={() => setDownloadMenuOpen((o) => !o)}
                 onBlur={() => setTimeout(() => setDownloadMenuOpen(false), 150)}
@@ -1442,9 +1473,10 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             archive, no full share is under 25 photos, so this changes nothing
             for them. */}
         {gallery.images.length > (gallery.curated ? 24 : 8) && (
-          <div className="flex items-end justify-between gap-6 mb-8">
-            {/* Search bar */}
-            <div className="relative max-w-sm flex-1">
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 mb-8">
+            {/* Search bar. Wraps above "Find my photos" before it squeezes:
+                side by side on a phone the box was ~160px. */}
+            <div className="relative max-w-sm min-w-[min(100%,240px)] flex-1">
               <Search
                 className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4"
                 style={{ color: colors.secondary }}
@@ -1458,7 +1490,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                     ? "Search photos…"
                     : 'Search photos — try "dancing" or a name…'
                 }
-                className="w-full pl-7 pr-8 py-2 text-[13px] bg-transparent border-b focus:outline-none transition-colors duration-300"
+                className="w-full pl-7 pr-8 py-2 text-[13px] max-sm:text-base bg-transparent border-b focus:outline-none transition-colors duration-300"
                 style={{
                   color: colors.primary,
                   borderColor: searchQuery
@@ -1689,6 +1721,37 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           className="fixed inset-0 z-50 flex items-center justify-center lightbox-open"
           style={{ backgroundColor: lightboxBg, color: lbFg }}
           onClick={() => setSelectedImageId(null)}
+          // Swipe left/right pages on a phone, where the arrow keys don't
+          // exist and the chevrons sit at the edge of the thumb's reach.
+          // Touch events, not pointer events: the browser claims a pointer
+          // for panning and cancels it mid-swipe. Mouse drags never page.
+          onTouchStart={(e) => {
+            // A second finger is a pinch; the filmstrip scrolls sideways itself.
+            if (e.touches.length !== 1 || (e.target as Element).closest("[data-no-swipe]")) {
+              swipeStartRef.current = null;
+              return;
+            }
+            swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          }}
+          onTouchEnd={(e) => {
+            const start = swipeStartRef.current;
+            swipeStartRef.current = null;
+            const t = e.changedTouches[0];
+            if (!start || !t) return;
+            const dx = t.clientX - start.x;
+            const dy = t.clientY - start.y;
+            // 50px, and clearly more sideways than up/down, so a shaky tap or
+            // a vertical drag never pages.
+            if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+            if (dx < 0 && selectedIndex >= 0 && selectedIndex < navImages.length - 1) {
+              setSelectedImageId(navImages[selectedIndex + 1].id);
+            } else if (dx > 0 && selectedIndex > 0) {
+              setSelectedImageId(navImages[selectedIndex - 1].id);
+            }
+          }}
+          onTouchCancel={() => {
+            swipeStartRef.current = null;
+          }}
           onKeyDown={(e) => {
             // Arrows walk navImages — the on-screen section/search/sort view
             // (stack members adjacent), not the full gallery.
@@ -1758,7 +1821,8 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                 (stackNav && openStack?.personName) || stackPersonName(selectedImage);
               const fav = favoriteIds.has(selectedImage.id);
               const actionCls =
-                "flex h-7 shrink-0 items-center gap-1.5 border px-2.5 text-[11px] font-medium backdrop-blur-md transition-colors hover:opacity-90";
+                // 28px is a mouse target; a thumb gets 40px (pointer-coarse).
+                "flex h-7 shrink-0 items-center gap-1.5 border px-2.5 text-[11px] font-medium backdrop-blur-md transition-colors hover:opacity-90 pointer-coarse:h-10 pointer-coarse:px-3";
               return (
                 <>
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -1823,7 +1887,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                     )}
                     <button
                       aria-label="Close image viewer"
-                      className="ml-0.5 flex h-7 w-7 items-center justify-center transition-opacity hover:opacity-100"
+                      className="ml-0.5 flex h-7 w-7 items-center justify-center transition-opacity hover:opacity-100 pointer-coarse:h-10 pointer-coarse:w-10"
                       style={{ color: lbFgMuted }}
                       onClick={() => setSelectedImageId(null)}
                     >
@@ -1835,7 +1899,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             })()}
           </div>
 
-          {/* Image — 90vh, keyed on the id so photo and chips change together */}
+          {/* Image — 90dvh, keyed on the id so photo and chips change together */}
           <LightboxImage
             key={selectedImage.id}
             image={selectedImage}
@@ -1848,6 +1912,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               (2026-08-21). Lazy thumbnails, the active one scrolled into view. */}
           {navImages.length > 1 && (
             <div
+              data-no-swipe
               className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex max-w-[90vw] gap-1.5 overflow-x-auto px-2 py-1"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1895,7 +1960,9 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                   : `${colors.secondary}14`,
               }}
             >
-              ← → to navigate
+              {/* Touch has no arrow keys: teach the swipe instead. */}
+              <span className="pointer-coarse:hidden">← → to navigate</span>
+              <span className="hidden pointer-coarse:inline">Swipe to navigate</span>
             </div>
           )}
 

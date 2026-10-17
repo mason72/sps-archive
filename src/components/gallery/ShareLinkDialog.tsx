@@ -103,7 +103,7 @@ export function ShareLinkDialog({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 p-1 transition-opacity hover:opacity-60"
+            className="shrink-0 p-1 transition-opacity hover:opacity-60 pointer-coarse:-m-2.5 pointer-coarse:p-3.5"
             style={{ color: colors.secondary }}
           >
             <X className="h-4 w-4" strokeWidth={1.5} />

@@ -177,7 +177,9 @@ export function StackModal({
                     className={`absolute bottom-2.5 right-2.5 p-2 rounded-full backdrop-blur-sm transition-all duration-300 ${
                       isFavorited
                         ? "bg-white/90 text-red-500"
-                        : "bg-black/30 text-white hover:bg-black/50 opacity-0 group-hover:opacity-100"
+                        : // Hidden hearts take no taps until hover shows
+                          // them; a phone has no hover, so there it always shows.
+                          "bg-black/30 text-white hover:bg-black/50 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
                     }`}
                     title={isFavorited ? "Remove from favorites" : "Add to favorites"}
                   >

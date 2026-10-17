@@ -4,6 +4,12 @@ import Image from "next/image";
 interface NavProps {
   /** Page-specific nav items rendered on the right side */
   children?: React.ReactNode;
+  /**
+   * Drop the wordmark below `sm`, keeping the elephant. For headers whose
+   * actions must stay visible on a phone (the editor's Publish), where logo,
+   * wordmark and button together are wider than the screen.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -12,7 +18,7 @@ interface NavProps {
  * Pure presentational — works in both server and client components.
  * Each page passes its own nav items (auth links, action buttons, etc.) as children.
  */
-export function Nav({ children }: NavProps) {
+export function Nav({ children, compact }: NavProps) {
   return (
     <>
       <nav className="flex items-center justify-between px-8 py-8 md:px-16 fade-in">
@@ -24,7 +30,7 @@ export function Nav({ children }: NavProps) {
             height={32}
             className="rounded-md"
           />
-          <span className="font-brand text-[22px] text-stone-900">
+          <span className={`font-brand text-[22px] text-stone-900 ${compact ? "max-sm:hidden" : ""}`}>
             pixeltrunk
           </span>
         </Link>

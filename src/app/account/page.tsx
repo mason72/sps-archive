@@ -52,6 +52,9 @@ export default function AccountPage() {
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  // Two-step logo removal: first tap arms, second removes. Touch has no hover
+  // to hide the control behind, so the confirm is what stops a stray tap.
+  const [confirmLogoRemove, setConfirmLogoRemove] = useState(false);
 
   // Billing state
   const [subscription, setSubscription] = useState<{
@@ -152,19 +155,21 @@ export default function AccountPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-stone-200 mb-10">
+        {/* Below sm the icons drop and padding tightens so all three tabs fit
+            at 375px; overflow-x-auto is the backstop, never the page. */}
+        <div className="flex overflow-x-auto border-b border-stone-200 mb-10">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-2 px-5 py-3 text-[12px] uppercase tracking-[0.15em] font-medium border-b-2 transition-all duration-300",
+                "flex shrink-0 items-center gap-2 px-3 sm:px-5 py-3 text-[12px] uppercase tracking-[0.15em] font-medium border-b-2 transition-all duration-300",
                 activeTab === tab.id
                   ? "border-stone-900 text-stone-900"
                   : "border-transparent text-stone-400 hover:text-stone-600"
               )}
             >
-              {tab.icon}
+              <span className="max-sm:hidden">{tab.icon}</span>
               {tab.label}
             </button>
           ))}
@@ -269,7 +274,7 @@ export default function AccountPage() {
                   <span className="label-caps shrink-0">Logo</span>
                 </div>
 
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-6">
                   {logoUrl ? (
                     <div className="relative group">
                       <img
@@ -277,16 +282,40 @@ export default function AccountPage() {
                         alt="Logo"
                         className="h-16 w-auto max-w-[200px] object-contain border border-stone-200 p-2"
                       />
-                      <button
-                        onClick={async () => {
-                          await fetch("/api/account/logo", { method: "DELETE" });
-                          setLogoUrl(null);
-                          toast.success("Logo removed");
-                        }}
-                        className="absolute -top-2 -right-2 p-1 bg-white border border-stone-200 text-stone-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                      >
-                        <X size={12} />
-                      </button>
+                      {confirmLogoRemove ? (
+                        <button
+                          onClick={async () => {
+                            setConfirmLogoRemove(false);
+                            try {
+                              const res = await fetch("/api/account/logo", { method: "DELETE" });
+                              if (!res.ok) throw new Error(`Remove failed (${res.status})`);
+                              setLogoUrl(null);
+                              toast.success("Logo removed");
+                            } catch (err) {
+                              console.error("Remove logo failed:", err);
+                              toast.error("Couldn't remove the logo. Try again.");
+                            }
+                          }}
+                          className="absolute -top-3 -right-3 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-10 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+                          title="Remove logo"
+                        >
+                          Remove?
+                        </button>
+                      ) : (
+                        // The ::after pads the tap target to ~42px on touch
+                        // without changing the 22px chip's look.
+                        <button
+                          onClick={() => {
+                            setConfirmLogoRemove(true);
+                            setTimeout(() => setConfirmLogoRemove(false), 3000);
+                          }}
+                          className="absolute -top-2 -right-2 p-1 bg-white border border-stone-200 text-stone-400 hover:text-red-500 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 pointer-coarse:after:content-[''] transition-all"
+                          title="Remove logo"
+                          aria-label="Remove logo"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="h-16 w-16 border border-dashed border-stone-200 flex items-center justify-center">

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
@@ -142,6 +142,19 @@ function formatDate(iso: string | null): string {
 export default function ImportFromSpsPage() {
   const { user } = useAuth();
   const router = useRouter();
+  /**
+   * The screen lives in the URL: `?review=<spsEventId>`, `?job=<jobId>`, or
+   * neither for the list. It used to be state alone, so once an import was
+   * running there was no way back to the list: the nav's Import link pointed
+   * at the URL already showing, which Next treats as a no-op, and the back
+   * link went to the Archive (Mason, 2026-10-17, importing two events). Now
+   * Import, the back link and the phone's back gesture all land on the list.
+   */
+  const searchParams = useSearchParams();
+  const urlJob = searchParams.get("job");
+  const urlReview = searchParams.get("review");
+  /** What the screen is showing, so the URL effect never restarts it. */
+  const showingRef = useRef<string | null>(null);
 
   const [stage, setStage] = useState<Stage>("pick");
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -278,7 +291,7 @@ export default function ImportFromSpsPage() {
   }, [user, router]);
 
   // ── Event list ──
-  useEffect(() => {
+  const loadEvents = useCallback(() => {
     (async () => {
       try {
         const res = await fetch("/api/sps/pull/events");
@@ -296,6 +309,7 @@ export default function ImportFromSpsPage() {
       }
     })();
   }, []);
+  useEffect(() => { loadEvents(); }, [loadEvents]);
 
   // ── Manifest paging ──
   const loadPage = useCallback(
@@ -351,6 +365,8 @@ export default function ImportFromSpsPage() {
   };
 
   const beginReview = (ev: SpsEventRow) => {
+    showingRef.current = `review:${ev.id}`;
+    if (urlReview !== ev.id) router.push(`/events/import?review=${ev.id}`);
     setChosen(ev);
     setImages([]);
     setDeselected(new Set());
@@ -604,11 +620,39 @@ export default function ImportFromSpsPage() {
    * while it loads.
    */
   const watchJob = (jobId: string, known: { name: string | null; status: string }) => {
+    showingRef.current = `job:${jobId}`;
+    // From a review, REPLACE: back from a running import is the list, never a
+    // second review of the event already being imported.
+    if (urlJob !== jobId) {
+      router[urlReview ? "replace" : "push"](`/events/import?job=${jobId}`);
+    }
     setJob(null);
     setOpening(known);
     setStage("running");
     pollJob(jobId);
   };
+
+  // Follow the URL: Import in the nav, the back link, or the back gesture.
+  useEffect(() => {
+    if (urlJob) {
+      if (showingRef.current === `job:${urlJob}`) return;
+      const ev = events.find((e) => e.job?.id === urlJob);
+      watchJob(urlJob, { name: ev?.name ?? null, status: ev?.job?.status ?? "queued" });
+    } else if (urlReview) {
+      if (showingRef.current === `review:${urlReview}`) return;
+      const ev = events.find((e) => e.id === urlReview);
+      if (ev) beginReview(ev); // a cold link waits for the list to arrive
+    } else if (showingRef.current !== null) {
+      showingRef.current = null;
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+      setStage("pick");
+      // Refetch so an import started a moment ago reads "Importing" here.
+      loadEvents();
+    }
+    // watchJob/beginReview are plain functions recreated each render; the
+    // URL and the list are what this effect answers to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlJob, urlReview, events, loadEvents]);
 
   const cancelImport = async () => {
     if (!job) return;
@@ -666,9 +710,9 @@ export default function ImportFromSpsPage() {
 
       <main className="px-8 md:px-16 pt-12 pb-24 max-w-6xl w-full">
         <div className="mb-10">
-          {stage === "review" ? (
+          {stage !== "pick" ? (
             <button
-              onClick={() => setStage("pick")}
+              onClick={() => router.push("/events/import")}
               className="label-caps text-accent hover:text-accent-hover transition-colors duration-300 mb-4 inline-flex items-center gap-1.5 cursor-pointer"
             >
               <ArrowLeft size={12} />

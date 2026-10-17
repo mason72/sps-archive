@@ -400,15 +400,18 @@ function ExpandedStackImage({
 
       {/* Set as cover button — only when a cover-setter is wired (DB stacks).
           Filename-derived stacks have no persistent row, so the cover is simply
-          the first image by sort order and this control is hidden. */}
+          the first image by sort order and this control is hidden.
+          The overlay is inert until hovered, so an invisible button can't eat
+          a tap meant for selection. Touch gets no darkening, just a small
+          labeled button pinned bottom-right with its own hit area. */}
       {!isCover && onSetCover && (
-        <div className="absolute inset-0 flex items-end justify-center bg-black/0 pb-2 opacity-0 transition-all duration-300 group-hover/img:bg-black/30 group-hover/img:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-black/0 pb-2 opacity-0 transition-all duration-300 group-hover/img:pointer-events-auto group-hover/img:bg-black/30 group-hover/img:opacity-100 pointer-coarse:justify-end pointer-coarse:p-1 pointer-coarse:opacity-100">
           <button
             onClick={(e) => {
               e.stopPropagation();
               onSetCover?.(stackId, img.id);
             }}
-            className="bg-white px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-stone-900 hover:bg-stone-50 transition-colors duration-300"
+            className="bg-white px-2.5 py-1 pointer-coarse:pointer-events-auto pointer-coarse:min-h-8 pointer-coarse:px-2 pointer-coarse:shadow-sm text-[10px] font-medium uppercase tracking-wider text-stone-900 hover:bg-stone-50 transition-colors duration-300"
           >
             Set as best
           </button>

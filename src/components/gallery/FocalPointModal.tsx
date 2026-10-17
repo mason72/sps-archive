@@ -244,6 +244,18 @@ export function FocalPointModal({
     save(picked, true);
   };
 
+  // Shared by the keyboard shortcuts and the touch footer buttons, so the two
+  // can never drift apart.
+  const acceptFocal = useCallback(() => {
+    // Accept the marker as shown — saving a suggestion turns it real.
+    if (focal) save(focal, true);
+    else advance();
+  }, [focal, save, advance]);
+
+  const clearFocal = useCallback(() => {
+    if (image?.focalX != null) save(null, false);
+  }, [image?.focalX, save]);
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       switch (e.key) {
@@ -260,21 +272,19 @@ export function FocalPointModal({
           break;
         case "Enter":
           e.preventDefault();
-          // Accept the marker as shown — saving a suggestion turns it real.
-          if (focal) save(focal, true);
-          else advance();
+          acceptFocal();
           break;
         case "Backspace":
         case "Delete":
         case "x":
           e.preventDefault();
-          if (image?.focalX != null) save(null, false);
+          clearFocal();
           break;
       }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, advance, focal, save, image?.focalX]);
+  }, [onClose, advance, acceptFocal, clearFocal]);
 
   const handleSuggestAll = async () => {
     if (!onBulkSuggest || isSuggestingAll) return;
@@ -340,21 +350,21 @@ export function FocalPointModal({
             <button
               onClick={() => setIndex((i) => Math.max(0, i - 1))}
               disabled={index === 0}
-              className="p-1.5 text-stone-400 hover:text-stone-900 transition-colors disabled:opacity-30"
+              className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors disabled:opacity-30"
               aria-label="Previous image"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={advance}
-              className="p-1.5 text-stone-400 hover:text-stone-900 transition-colors"
+              className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors"
               aria-label="Next image"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-stone-400 hover:text-stone-900 transition-colors"
+              className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -397,11 +407,33 @@ export function FocalPointModal({
               ? "Saving…"
               : focal
               ? isSuggestion
-                ? `${focal.x}%, ${focal.y}% — suggested · Enter to accept`
+                ? `${focal.x}%, ${focal.y}% — suggested`
                 : `${focal.x}%, ${focal.y}%`
               : "Not set — crops center on the image"}
+            {/* The Enter hint only means something with a keyboard. */}
+            {!isSaving && focal && isSuggestion && (
+              <span className="pointer-coarse:hidden"> · Enter to accept</span>
+            )}
           </p>
-          <p className="shrink-0 text-[11px] text-stone-300">
+          {/* Touch has no Enter or Backspace: the same two actions as buttons.
+              Desktop keeps its keyboard hints and looks unchanged. */}
+          <div className="hidden shrink-0 items-center gap-2 pointer-coarse:flex">
+            <button
+              onClick={clearFocal}
+              disabled={image.focalX == null || isSaving}
+              className="min-h-10 px-3 text-[11px] font-medium uppercase tracking-[0.12em] text-stone-500 transition-colors disabled:opacity-30"
+            >
+              Clear
+            </button>
+            <button
+              onClick={acceptFocal}
+              disabled={!focal || isSaving}
+              className="min-h-10 bg-stone-900 px-4 text-[11px] font-medium uppercase tracking-[0.12em] text-white transition-colors disabled:opacity-30"
+            >
+              Accept
+            </button>
+          </div>
+          <p className="shrink-0 text-[11px] text-stone-300 pointer-coarse:hidden">
             <kbd className="font-sans">←</kbd> <kbd className="font-sans">→</kbd>{" "}
             navigate · <kbd className="font-sans">Enter</kbd> accept ·{" "}
             <kbd className="font-sans">⌫</kbd> clear ·{" "}

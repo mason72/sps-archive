@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
+import { OverflowMenu } from "@/components/ui/OverflowMenu";
+import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { Footer } from "@/components/layout/Footer";
 
 import { UploadZone } from "@/components/upload/UploadZone";
@@ -45,7 +47,7 @@ import { toast } from "sonner";
 import { normalizeRecap } from "@/lib/recap/normalize";
 import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
+import { ChevronDown, FolderOpen, Palette, AlertTriangle, X, LayoutGrid, Rows3, Eye, EyeOff, ArrowUpDown, Check, CheckSquare, Image as ImageIcon, Heart, Lock, Crosshair, ExternalLink, Layers, Sparkles, Users, Dices, ClipboardList } from "lucide-react";
 import { PeopleView, PersonModal, type Person } from "@/components/events/PeopleView";
 import { IdentifyPersonPicker, type IdentifyTarget } from "@/components/events/IdentifyPersonPicker";
 import { EventIntelPanel } from "@/components/events/EventIntelPanel";
@@ -482,6 +484,15 @@ export default function EventPage({
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<Panel | null>("sections");
+  /** The phone bar's way into the sidebar sheet (see EventSidebar `openRequest`). */
+  const [sidebarRequest, setSidebarRequest] = useState<{ n: number; panel: Panel }>();
+  const openSidebar = (panel: Panel) =>
+    setSidebarRequest((r) => ({ n: (r?.n ?? 0) + 1, panel }));
+  const isTouch = useMediaQuery(TOUCH_QUERY);
+  const toggleUpload = () => {
+    setShowUpload((v) => !v);
+    hadUploadErrors.current = false;
+  };
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const previewRefreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -1479,8 +1490,13 @@ export default function EventPage({
   // search, or favorites — a filtered/cross-section subset can't be persisted to
   // a single sort_order sequence). Dragging while in another sort auto-switches
   // to Manual (see handleReorder), so users never have to pick Manual first.
+  //
+  // Never on touch. Every tile is a drag handle with `touch-action: none`, and
+  // tiles fill a phone screen, so a swipe to SCROLL began a drag instead: on
+  // release the section was reordered, saved and switched to Manual. A phone
+  // reorders nothing until it has a control made for fingers.
   const dndEnabled =
-    !!activeSection && !isSearching && !favoritesOnly && !activeSectionData?.locked;
+    !!activeSection && !isSearching && !favoritesOnly && !activeSectionData?.locked && !isTouch;
 
   // Stacks default themselves from the FILENAMES rather than a blanket ON.
   // Headshot days stack; photo booth dumps and weddings must not (a wedding's
@@ -1857,6 +1873,7 @@ export default function EventPage({
           smartSectionWait={aiWaitLabel}
           aiRenderCount={aiRenderCount}
           onRequestAiLooks={handleAiLooks}
+          openRequest={sidebarRequest}
         />
       )}
 
@@ -1903,13 +1920,13 @@ export default function EventPage({
       {/* ─── Main content ─── */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* ─── Nav ─── */}
-      <Nav>
+      <Nav compact>
+        {/* Desktop row. On a phone these move into the ⋯ menu below, so the
+            one action that matters there, Publish/Share, stays on screen. */}
+        <div className="hidden md:contents">
         {/* Add Images / Upload */}
         <button
-          onClick={() => {
-            setShowUpload((v) => !v);
-            hadUploadErrors.current = false;
-          }}
+          onClick={toggleUpload}
           className="editorial-link text-stone-400 hover:text-stone-700 transition-colors duration-300"
         >
           {showUpload ? "Hide Upload" : allImages.length > 0 ? "Add Images" : "Upload"}
@@ -1980,6 +1997,25 @@ export default function EventPage({
           )
         )}
 
+        </div>
+
+        <OverflowMenu
+          className="md:hidden"
+          label="Event actions"
+          items={[
+            { label: showUpload ? "Hide upload" : allImages.length > 0 ? "Add images" : "Upload", onClick: toggleUpload },
+            {
+              label: hasFullShare ? "View live gallery" : "Preview gallery",
+              href: hasFullShare ? `/gallery/${fullShareSlug}` : `/gallery/preview/${eventId}`,
+            },
+            ...(spsLinked
+              ? [recapReady && fullShareSlug
+                  ? { label: "Recap", href: `/recap/${fullShareSlug}` }
+                  : { label: recapBusy ? "Building recap…" : "Build recap", onClick: handleRecap, disabled: recapBusy }]
+              : []),
+          ]}
+        />
+
         {/* Publish / Share — both go to email compose page */}
         <Link href={hasFullShare
           ? `/events/${eventId}/share?slug=${fullShareSlug}`
@@ -1990,6 +2026,35 @@ export default function EventPage({
           </BrandButton>
         </Link>
       </Nav>
+
+      {/* Phone only: the sidebar is a full-screen sheet there, so this bar is
+          the way in. It names the section you are looking at, because on a
+          phone nothing else on screen does until you scroll to the divider. */}
+      {event && (
+        <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-stone-100 bg-white/95 px-5 backdrop-blur md:hidden">
+          <button
+            type="button"
+            onClick={() => openSidebar("sections")}
+            className="flex min-h-12 min-w-0 items-center gap-2 text-[15px] text-stone-800"
+          >
+            <FolderOpen size={16} strokeWidth={1.5} className="shrink-0 text-stone-400" />
+            <span className="truncate">
+              {activeSection
+                ? sections.find((s) => s.id === activeSection)?.name || "Section"
+                : "All Images"}
+            </span>
+            <ChevronDown size={14} className="shrink-0 text-stone-400" />
+          </button>
+          <button
+            type="button"
+            onClick={() => openSidebar("design")}
+            className="-mr-2 flex min-h-12 shrink-0 items-center gap-1.5 px-2 text-[13px] text-stone-500"
+          >
+            <Palette size={15} strokeWidth={1.5} />
+            Design
+          </button>
+        </div>
+      )}
 
       <main className="px-8 md:px-16 pt-12 pb-24">
         {/* ─── Event header ─── */}
@@ -2293,7 +2358,10 @@ export default function EventPage({
             </div>
 
             {/* ─── Gallery divider ─── */}
-            <div className="editorial-divider mb-10">
+            {/* On a phone the controls (~650px of them) wrap under the label
+                instead of pushing the page sideways; the divider's hairlines
+                give way to one rule underneath, since they cannot wrap. */}
+            <div className="editorial-divider mb-10 max-md:flex-wrap max-md:gap-y-3 max-md:border-b max-md:border-stone-100 max-md:pb-3 max-md:before:hidden max-md:after:hidden">
               <span className="label-caps shrink-0">
                 {activeSection
                   ? sections.find((s) => s.id === activeSection)?.name || "Section"
@@ -2302,7 +2370,7 @@ export default function EventPage({
                   <span className="ml-2 text-stone-300 font-normal tabular-nums">{images.length.toLocaleString()}</span>
                 )}
               </span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 max-md:w-full max-md:flex-wrap max-md:gap-x-4 max-md:gap-y-2">
                 {/* Once a set is accepted the section is populated and the
                     generator's front door (the empty state) is gone — without
                     this the feature would vanish after first use. */}
@@ -2343,7 +2411,7 @@ export default function EventPage({
                       <Crosshair className="h-3.5 w-3.5" />
                       Focal points
                     </button>
-                    <div className="w-px h-4 bg-stone-200" />
+                    <div className="w-px h-4 bg-stone-200 max-md:hidden" />
                   </>
                 )}
 
@@ -2373,7 +2441,7 @@ export default function EventPage({
                     : "Select All"}
                 </button>
 
-                <div className="w-px h-4 bg-stone-200" />
+                <div className="w-px h-4 bg-stone-200 max-md:hidden" />
 
                 {/* Sort dropdown */}
                 <div ref={sortRef} className="relative">
@@ -2446,7 +2514,7 @@ export default function EventPage({
                   )}
                 </div>
 
-                <div className="w-px h-4 bg-stone-200" />
+                <div className="w-px h-4 bg-stone-200 max-md:hidden" />
 
                 {/* Favorites filter */}
                 <button
@@ -2458,7 +2526,7 @@ export default function EventPage({
                   <Heart className="h-4 w-4" fill={favoritesOnly ? "currentColor" : "none"} />
                 </button>
 
-                <div className="w-px h-4 bg-stone-200" />
+                <div className="w-px h-4 bg-stone-200 max-md:hidden" />
 
                 {/* Filename overlay toggle.
                     DISABLED WITH A REASON when every tile in view is a collapsed
@@ -2496,7 +2564,7 @@ export default function EventPage({
                   )}
                 </button>
 
-                <div className="w-px h-4 bg-stone-200" />
+                <div className="w-px h-4 bg-stone-200 max-md:hidden" />
 
                 {/* Stacks — LABELLED, because this one setting also decides
                     what guests see. An unlabelled icon among the view toggles
@@ -2541,7 +2609,7 @@ export default function EventPage({
                   </span>
                 </button>
 
-                <div className="w-px h-4 bg-stone-200" />
+                <div className="w-px h-4 bg-stone-200 max-md:hidden" />
 
                 {/* View mode toggles */}
                 <button

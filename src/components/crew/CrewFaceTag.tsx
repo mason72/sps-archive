@@ -158,10 +158,12 @@ export function CrewFaceTag({
             setOpen((v) => !v);
           }}
           title="That's crew — save their face, still skip the frame"
-          className={`absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full transition-all ${
+          // Hover-revealed on desktop and inert while hidden; always shown on
+          // touch, where there is no hover, at a 40px target.
+          className={`absolute right-1.5 top-1.5 z-10 flex h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 items-center justify-center rounded-full transition-all ${
             open
               ? "bg-stone-900 text-white"
-              : "bg-white/85 text-stone-500 opacity-0 shadow-sm backdrop-blur-sm hover:text-stone-900 group-hover:opacity-100 focus-visible:opacity-100"
+              : "bg-white/85 text-stone-500 opacity-0 pointer-events-none shadow-sm backdrop-blur-sm hover:text-stone-900 group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
           }`}
         >
           <Users size={14} />

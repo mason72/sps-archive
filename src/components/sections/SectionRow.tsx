@@ -181,7 +181,8 @@ export function SectionRow({
             />
             <button
               onClick={handleSave}
-              className="text-accent hover:text-accent-hover transition-colors"
+              className="pointer-coarse:p-[11px] text-accent hover:text-accent-hover transition-colors"
+              aria-label="Save name"
             >
               <Check size={14} />
             </button>
@@ -190,7 +191,8 @@ export function SectionRow({
                 setEditValue(name);
                 setIsEditing(false);
               }}
-              className="text-stone-400 hover:text-stone-600 transition-colors"
+              className="pointer-coarse:p-[11px] text-stone-400 hover:text-stone-600 transition-colors"
+              aria-label="Cancel rename"
             >
               <X size={14} />
             </button>
@@ -279,7 +281,7 @@ export function SectionRow({
             e.stopPropagation();
             onToggleLock(id, !locked);
           }}
-          className={`shrink-0 p-1 transition-colors ${
+          className={`shrink-0 p-1 pointer-coarse:p-3 transition-colors ${
             locked
               ? "text-amber-500 hover:text-amber-600"
               : "text-stone-200 hover:text-stone-400"
@@ -299,17 +301,20 @@ export function SectionRow({
           vanish if the cursor drifts off the row) and swaps the ghost trash
           icon for an unmistakable red "Delete?" button + cancel — the old
           icon-only confirm was invisible because its red matched the hover
-          red. */}
+          red. Hidden actions are also inert (no invisible tap targets), and
+          on touch, where there is no hover, they are always shown at ≥36px. */}
       <div
         className={`flex items-center gap-1 transition-opacity duration-200 ${
-          confirmDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          confirmDelete
+            ? "opacity-100"
+            : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
         }`}
       >
         {confirmDelete ? (
           <>
             <button
               onClick={handleDelete}
-              className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+              className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
               title="Permanently delete this section"
             >
               <Trash2 size={11} />
@@ -320,7 +325,7 @@ export function SectionRow({
                 e.stopPropagation();
                 setConfirmDelete(false);
               }}
-              className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
+              className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
               title="Cancel"
             >
               <X size={13} />
@@ -333,7 +338,7 @@ export function SectionRow({
                 e.stopPropagation();
                 setIsEditing(true);
               }}
-              className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
+              className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
               title="Rename"
             >
               <Pencil size={13} />
@@ -341,7 +346,7 @@ export function SectionRow({
             {canDelete && !locked && (
               <button
                 onClick={handleDelete}
-                className="p-1 text-stone-400 hover:text-red-500 transition-colors"
+                className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-red-500 transition-colors"
                 title="Delete section"
               >
                 <Trash2 size={13} />

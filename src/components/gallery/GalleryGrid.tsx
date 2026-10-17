@@ -373,7 +373,9 @@ function GalleryCard({
       {/* Multi-select checkbox (top-left, away from the hover actions).
           Always visible on touch and whenever the tile is selected — a
           selection affordance that only exists on hover is invisible on a
-          phone, which is where clients actually pick photos. */}
+          phone, which is where clients actually pick photos. Width alone
+          can't tell touch apart (an iPad is md+), so pointer-coarse keeps it
+          shown there, and while hidden it takes no clicks. */}
       {onToggleSelect && (
         <button
           onClick={(e) => {
@@ -385,7 +387,7 @@ function GalleryCard({
           className={`absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
             isSelected
               ? "bg-white text-stone-900 opacity-100 ring-2 ring-white/70"
-              : "bg-black/30 text-white opacity-100 hover:bg-black/50 md:opacity-0 md:group-hover:opacity-100"
+              : "bg-black/30 text-white opacity-100 hover:bg-black/50 md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
           }`}
         >
           {isSelected ? (
@@ -396,8 +398,11 @@ function GalleryCard({
         </button>
       )}
 
-      {/* Action buttons */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+      {/* Action buttons. Revealed on hover; until then they take no clicks,
+          so an invisible control can never catch a tap. A phone has no hover:
+          the heart shows always there (it is how a guest picks), and the
+          download hides, since the lightbox already offers one. */}
+      <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto transition-opacity duration-300">
         {allowFavorites && (
           <button
             onClick={handleFavorite}
@@ -420,7 +425,7 @@ function GalleryCard({
         {allowDownload && (image.downloadUrl || onDownloadClick) && (
           <button
             onClick={handleDownload}
-            className="p-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors"
+            className="p-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors pointer-coarse:hidden"
             title="Download"
           >
             <Download className="h-4 w-4" />

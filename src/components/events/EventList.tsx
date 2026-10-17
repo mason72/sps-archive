@@ -494,18 +494,19 @@ function EventCard({
   // made up, and it reads exactly like an empty event.
   const imageCount = event.images?.[0]?.count ?? null;
 
-  // Close menu on outside click
+  // Close menu on outside click. pointerdown, not mousedown: it fires for
+  // touch too, without waiting on iOS's synthesized mouse events.
   useEffect(() => {
     if (!menuOpen) return;
-    function handleClick(e: MouseEvent) {
+    function handleClick(e: PointerEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
         setConfirmDelete(false);
         setConfirmDuplicate(false);
       }
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("pointerdown", handleClick);
+    return () => document.removeEventListener("pointerdown", handleClick);
   }, [menuOpen]);
 
   const handleDuplicate = async () => {
@@ -616,7 +617,8 @@ function EventCard({
         </div>
       )}
 
-      {/* Action menu button */}
+      {/* Action menu button — hover-revealed on desktop (and inert while
+          hidden), always visible with a 40px target on touch. */}
       <div ref={menuRef}>
         <button
           onClick={(e) => {
@@ -626,14 +628,20 @@ function EventCard({
             setConfirmDelete(false);
             setConfirmDuplicate(false);
           }}
-          className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 opacity-0 group-hover:opacity-100 hover:bg-white transition-all duration-200 z-10"
+          className={`absolute top-2 right-2 p-1.5 pointer-coarse:p-3 bg-white/80 backdrop-blur-sm border border-stone-200/50 hover:bg-white transition-all duration-200 z-10 ${
+            menuOpen
+              ? "opacity-100"
+              : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
+          }`}
+          aria-label="Event actions"
+          aria-expanded={menuOpen}
         >
           <MoreHorizontal className="h-4 w-4 text-stone-500" />
         </button>
 
         {/* Dropdown menu */}
         {menuOpen && (
-          <div className="absolute top-10 right-2 bg-white border border-stone-200 shadow-xl min-w-[160px] py-1 z-20 scale-in">
+          <div className="absolute top-10 pointer-coarse:top-[52px] right-2 bg-white border border-stone-200 shadow-xl min-w-[160px] py-1 z-20 scale-in">
             {event.activeShareSlug && (
               <MenuButton
                 icon={<ExternalLink size={13} />}

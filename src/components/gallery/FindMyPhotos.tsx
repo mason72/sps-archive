@@ -23,9 +23,11 @@ export function FindMyPhotos({
   onResults: (imageIds: string[]) => void;
   onClose: () => void;
 }) {
-  const [mode, setMode] = useState<"choose" | "camera" | "busy" | "none-found" | "no-face" | "error">(
-    "choose"
-  );
+  const [mode, setMode] = useState<
+    "choose" | "camera" | "no-camera" | "busy" | "none-found" | "no-face" | "bad-image" | "error"
+  >("choose");
+  // Why the camera didn't open, for the "no-camera" screen.
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -44,6 +46,14 @@ export function FindMyPhotos({
   useEffect(() => stopCamera, [stopCamera]);
 
   const startCamera = async () => {
+    // No mediaDevices at all: an in-app browser (Instagram, LinkedIn) or a
+    // non-https page. Calling it would throw a TypeError that read as
+    // "Something went wrong" — say what happened and offer the upload.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraBlocked(false);
+      setMode("no-camera");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 1024 } },
@@ -55,8 +65,13 @@ export function FindMyPhotos({
       requestAnimationFrame(() => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       });
-    } catch {
-      setMode("error");
+    } catch (err) {
+      // NotAllowedError: the guest (or the browser's settings) said no, and
+      // asking again won't re-prompt. Anything else: no camera, or another
+      // app holds it. Either way the upload still works.
+      const name = err instanceof DOMException ? err.name : "";
+      setCameraBlocked(name === "NotAllowedError" || name === "SecurityError");
+      setMode("no-camera");
     }
   };
 
@@ -108,9 +123,44 @@ export function FindMyPhotos({
 
   const onFile = (file: File) => {
     const img = new Image();
-    img.onload = () => search(toBase64(img));
-    img.src = URL.createObjectURL(file);
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      search(toBase64(img));
+    };
+    // A format this browser can't decode (HEIC outside Safari) never fires
+    // onload; without this the modal just sat on the chooser.
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setMode("bad-image");
+    };
+    img.src = url;
   };
+
+  // The upload control, shared by the chooser and the no-camera screen
+  // (where it is the primary action). The value is cleared after each pick
+  // so choosing the same photo again still fires onChange.
+  const uploadButton = (primary: boolean) => (
+    <label
+      className={
+        primary
+          ? "w-full py-3 bg-stone-900 text-white text-[13px] tracking-wide hover:bg-stone-700 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
+          : "w-full py-3 border border-stone-300 text-stone-600 text-[13px] tracking-wide hover:border-stone-500 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
+      }
+    >
+      <ImageUp className="h-4 w-4" /> {primary ? "Upload a selfie" : "Upload a photo"}
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onFile(file);
+        }}
+      />
+    </label>
+  );
 
   return (
     <div
@@ -127,7 +177,8 @@ export function FindMyPhotos({
           </h2>
           <button
             onClick={onClose}
-            className="p-1 -mr-2 text-stone-300 hover:text-stone-600 transition-colors"
+            aria-label="Close"
+            className="p-1 -mr-2 text-stone-300 hover:text-stone-600 transition-colors pointer-coarse:-my-1.5 pointer-coarse:-mr-3.5 pointer-coarse:p-2.5"
           >
             <X className="h-4 w-4" />
           </button>
@@ -145,20 +196,29 @@ export function FindMyPhotos({
               >
                 <Camera className="h-4 w-4" /> Take a selfie
               </button>
-              <label className="w-full py-3 border border-stone-300 text-stone-600 text-[13px] tracking-wide hover:border-stone-500 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer">
-                <ImageUp className="h-4 w-4" /> Upload a photo
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
-                />
-              </label>
+              {uploadButton(false)}
             </div>
             <p className="text-[11px] text-stone-400 mt-6 leading-relaxed">
               Your selfie is used once to match faces and is never stored.
             </p>
           </>
+        )}
+
+        {mode === "no-camera" && (
+          <div className="py-6">
+            <p className="text-[13px] text-stone-500 mb-6 leading-relaxed">
+              {cameraBlocked
+                ? "Camera is blocked here. Upload a selfie instead."
+                : "Couldn't open a camera here. Upload a selfie instead."}
+            </p>
+            {uploadButton(true)}
+            <button
+              onClick={() => setMode("choose")}
+              className="mt-3 w-full py-2.5 text-[13px] text-stone-500 hover:text-stone-800 transition-colors"
+            >
+              Back
+            </button>
+          </div>
         )}
 
         {mode === "camera" && (
@@ -202,6 +262,11 @@ export function FindMyPhotos({
         {mode === "none-found" && (
           <RetryMessage onRetry={() => setMode("choose")}>
             No matches in this gallery — you may not appear in these photos.
+          </RetryMessage>
+        )}
+        {mode === "bad-image" && (
+          <RetryMessage onRetry={() => setMode("choose")}>
+            We couldn&apos;t open that photo. Try a different one.
           </RetryMessage>
         )}
         {mode === "error" && (

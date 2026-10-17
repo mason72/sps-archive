@@ -10,6 +10,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandButton } from "@/components/ui/brand-button";
 import { EmailPreview } from "@/components/email/EmailPreview";
 import { EmailEditor, type EmailEditorHandle } from "@/components/email/EmailEditor";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Plus,
@@ -18,6 +19,7 @@ import {
   Mail,
   Variable,
   Star,
+  X,
 } from "lucide-react";
 import type { EmailTemplate } from "@/types/email";
 import { TEMPLATE_VARIABLES } from "@/types/email";
@@ -40,6 +42,9 @@ export default function EmailSettingsPage() {
   const [editBody, setEditBody] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Two-step delete: the first tap arms this id, the second deletes. A phone
+  // has no hover to hide the control behind, so the confirm is the guard.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const editorRef = useRef<EmailEditorHandle | null>(null);
 
   // Branding from account
@@ -139,7 +144,8 @@ export default function EmailSettingsPage() {
   const deleteTemplate = useCallback(
     async (id: string) => {
       try {
-        await fetch(`/api/emails/templates/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/emails/templates/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`Delete failed (${res.status})`);
         setTemplates((prev) => prev.filter((t) => t.id !== id));
         if (activeTemplate?.id === id) {
           setView("list");
@@ -147,6 +153,9 @@ export default function EmailSettingsPage() {
         }
       } catch (err) {
         console.error("Delete template failed:", err);
+        toast.error("Couldn't delete that template. Try again.");
+      } finally {
+        setConfirmDeleteId(null);
       }
     },
     [activeTemplate]
@@ -219,14 +228,20 @@ export default function EmailSettingsPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => openTemplate(template)}
-                    className="w-full text-left group border border-stone-200 hover:border-stone-400 p-5 transition-all duration-300"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
+                {templates.map((template) => {
+                  const armed = confirmDeleteId === template.id;
+                  return (
+                    // Delete is a SIBLING of the card button (a button inside a
+                    // button is invalid and swallowed taps). It hides until hover
+                    // on desktop, and is visible + tappable on touch.
+                    <div
+                      key={template.id}
+                      className="group relative border border-stone-200 hover:border-stone-400 transition-all duration-300"
+                    >
+                      <button
+                        onClick={() => openTemplate(template)}
+                        className="w-full text-left p-5 pr-14"
+                      >
                         <div className="flex items-center gap-2 mb-1.5">
                           <h3 className="text-[15px] font-medium text-stone-900 truncate">
                             {template.name}
@@ -241,21 +256,45 @@ export default function EmailSettingsPage() {
                         <p className="text-[13px] text-stone-400 truncate">
                           {template.subject || "No subject"}
                         </p>
-                      </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteTemplate(template.id);
+                      </button>
+                      {armed ? (
+                        <div className="absolute top-4 right-4 flex items-center gap-1 bg-white">
+                          <button
+                            onClick={() => deleteTemplate(template.id)}
+                            className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-10 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+                            title="Permanently delete this template"
+                          >
+                            <Trash2 size={11} />
+                            Delete?
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="p-1 pointer-coarse:p-[13px] text-stone-400 hover:text-stone-700 transition-colors"
+                            title="Cancel"
+                            aria-label="Cancel delete"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setConfirmDeleteId(template.id);
+                            setTimeout(
+                              () => setConfirmDeleteId((cur) => (cur === template.id ? null : cur)),
+                              3000
+                            );
                           }}
-                          className="p-1.5 text-stone-400 hover:text-red-500 transition-colors cursor-pointer"
+                          className="absolute top-5 right-5 p-1.5 pointer-coarse:top-3 pointer-coarse:right-3 pointer-coarse:p-[13px] text-stone-400 hover:text-red-500 transition-[color,opacity] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
+                          title="Delete template"
+                          aria-label={`Delete template ${template.name}`}
                         >
                           <Trash2 size={14} />
-                        </span>
-                      </div>
+                        </button>
+                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -45,6 +45,7 @@ import { ColorTab } from "@/components/settings/ColorTab";
 import { GridTab } from "@/components/settings/GridTab";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PHONE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { EventSettings, SharingSettings } from "@/types/event-settings";
 import {
@@ -155,6 +156,11 @@ interface EventSidebarProps {
    * the busy state while it runs.
    */
   onRequestAiLooks?: () => Promise<void> | void;
+  /**
+   * Opens the sidebar on `panel` each time `n` changes. On a phone the sidebar
+   * is a sheet with no rail to tap, so the page's own bar opens it.
+   */
+  openRequest?: { n: number; panel: Panel };
 }
 
 export type Panel = "sections" | "design" | "details" | "activity";
@@ -217,9 +223,15 @@ export function EventSidebar({
   smartSectionWait,
   aiRenderCount,
   onRequestAiLooks,
+  openRequest,
 }: EventSidebarProps) {
+  const isPhone = useMediaQuery(PHONE_QUERY);
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") return true;
+    // On a phone the open sidebar covers the whole screen, so it starts
+    // closed: the gallery is what you came to see. The stored choice is a
+    // desktop preference and is neither read nor written here.
+    if (window.matchMedia(PHONE_QUERY).matches) return false;
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored !== "false";
   });
@@ -227,9 +239,29 @@ export function EventSidebar({
 
   // Persist open state + notify parent
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(isOpen));
+    if (!window.matchMedia(PHONE_QUERY).matches) {
+      localStorage.setItem(STORAGE_KEY, String(isOpen));
+    }
     onOpenChange?.(isOpen);
   }, [isOpen, onOpenChange]);
+
+  useEffect(() => {
+    if (!openRequest) return;
+    setIsOpen(true);
+    setActivePanel(openRequest.panel);
+    onActivePanelChange?.(openRequest.panel);
+    // Keyed on the counter alone: a new callback identity is not a new request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest?.n]);
+
+  // The phone sheet is full-screen; the page behind it must not scroll.
+  const sheet = isOpen && isPhone;
+  useEffect(() => {
+    if (!sheet) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [sheet]);
 
   // `[` keyboard shortcut to toggle sidebar
   useEffect(() => {
@@ -258,7 +290,7 @@ export function EventSidebar({
 
   if (!isOpen) {
     return (
-      <div className="shrink-0 border-r border-stone-200 flex flex-col items-center py-4 px-2 gap-2">
+      <div className="shrink-0 border-r border-stone-200 flex flex-col items-center py-4 px-2 gap-2 max-md:hidden">
         <button
           onClick={() => setIsOpen(true)}
           className="p-2 text-stone-400 hover:text-stone-700 transition-colors"
@@ -271,7 +303,7 @@ export function EventSidebar({
   }
 
   return (
-    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden h-screen sticky top-0">
+    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden h-dvh sticky top-0 max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-r-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
         <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
@@ -279,10 +311,11 @@ export function EventSidebar({
         </span>
         <button
           onClick={() => setIsOpen(false)}
-          className="p-1.5 text-stone-400 hover:text-stone-700 transition-colors"
+          className="p-1.5 text-stone-400 hover:text-stone-700 transition-colors max-md:-mr-2.5 max-md:p-2.5 max-md:text-stone-700"
           title="Close sidebar ([)"
+          aria-label="Close sidebar"
         >
-          <PanelLeftClose size={16} />
+          {isPhone ? <X size={22} strokeWidth={1.5} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
@@ -325,6 +358,7 @@ export function EventSidebar({
             onSectionsChange={onSectionsChange}
             activeSection={activeSection}
             onSetActiveSection={onSetActiveSection}
+            onPicked={isPhone ? () => setIsOpen(false) : undefined}
             onDropImagesToSection={onDropImagesToSection}
             isWorkGallery={isWorkGallery}
             onSectionCreated={onSectionCreated}
@@ -407,6 +441,7 @@ function SectionsPanel({
   onSectionsChange,
   activeSection,
   onSetActiveSection,
+  onPicked,
   onDropImagesToSection,
   isWorkGallery = false,
   onSectionCreated,
@@ -429,6 +464,8 @@ function SectionsPanel({
   onSectionsChange: (s: SectionItem[]) => void;
   activeSection: string | null;
   onSetActiveSection: (id: string | null) => void;
+  /** A row was tapped (not created or deleted): the phone sheet closes on it. */
+  onPicked?: () => void;
   onDropImagesToSection?: (sectionId: string, imageIds: string[]) => void;
   isWorkGallery?: boolean;
   onSectionCreated?: (section: SectionItem) => void;
@@ -644,7 +681,7 @@ function SectionsPanel({
           the footer at the bottom of the column. */}
       <div className="min-h-0 overflow-y-auto">
         <button
-          onClick={() => onSetActiveSection(null)}
+          onClick={() => { onSetActiveSection(null); onPicked?.(); }}
           className={cn(
             "w-full text-left px-4 py-3 text-[13px] font-medium transition-colors border-b border-stone-50",
             !activeSection
@@ -752,7 +789,7 @@ function SectionsPanel({
           visibleSections.map(({ section, index }) => (
             <div
               key={section.id}
-              onClick={() => onSetActiveSection(section.id)}
+              onClick={() => { onSetActiveSection(section.id); onPicked?.(); }}
               className={cn(
                 "cursor-pointer transition-colors",
                 activeSection === section.id && "bg-accent/5"

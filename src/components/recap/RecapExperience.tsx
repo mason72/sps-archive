@@ -132,16 +132,18 @@ function Lockup({ photographer, clientLogoUrl, clientName, dark = false }: {
   dark?: boolean;
 }) {
   const nameCls = dark ? "text-stone-50" : "text-stone-900";
+  // Two 140px logos plus the × are ~320px, the whole content width of a
+  // phone: below sm the logos cap at 100px and the lockup may wrap.
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex min-w-0 flex-wrap items-center gap-4 max-sm:gap-3">
       {clientLogoUrl ? (
-        <img src={clientLogoUrl} alt={clientName ?? "Client"} className="h-7 w-auto max-w-[140px] object-contain" />
+        <img src={clientLogoUrl} alt={clientName ?? "Client"} className="h-7 w-auto max-w-[140px] object-contain max-sm:max-w-[100px]" />
       ) : clientName ? (
         <span className={`font-editorial text-lg ${nameCls}`}>{clientName}</span>
       ) : null}
       {(clientLogoUrl || clientName) && <span className="text-stone-400">×</span>}
       {photographer.logoUrl ? (
-        <img src={photographer.logoUrl} alt={photographer.businessName ?? "Photographer"} className="h-7 w-auto max-w-[140px] object-contain" />
+        <img src={photographer.logoUrl} alt={photographer.businessName ?? "Photographer"} className="h-7 w-auto max-w-[140px] object-contain max-sm:max-w-[100px]" />
       ) : (
         <span className={`font-editorial text-lg ${nameCls}`}>{photographer.businessName ?? "Your photographer"}</span>
       )}
@@ -361,9 +363,11 @@ function Ready({ data }: { data: RecapPayload }) {
   return (
     <main className="min-h-screen bg-white text-stone-900">
       <div className="mx-auto max-w-[1180px] px-5 md:px-8">
-        <header className="flex items-center justify-between py-5">
+        {/* Below sm the eyebrow sits under the lockup: side by side they ran
+            off a phone's right edge. */}
+        <header className="flex flex-col items-start gap-3 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
           <Lockup photographer={data.photographer} clientLogoUrl={data.clientLogoUrl} clientName={data.clientName} />
-          <div className={`${EYEBROW} text-right`}>{data.eventName}<br className="md:hidden" /><span className="hidden md:inline"> · </span>Recap</div>
+          <div className={`${EYEBROW} sm:text-right`}>{data.eventName}<br className="md:hidden" /><span className="hidden md:inline"> · </span>Recap</div>
         </header>
 
         <section ref={heroRef} className="grid items-center gap-10 py-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] md:py-16">

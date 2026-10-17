@@ -145,8 +145,9 @@ export default function ConnectionsPage() {
           </div>
         ) : (
           <section className="border border-stone-200">
-            {/* Card header */}
-            <div className="flex items-start justify-between gap-6 p-6 border-b border-stone-100">
+            {/* Card header — stacks below sm so the shrink-0 status label
+                doesn't squeeze the description into a ribbon. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6 p-6 border-b border-stone-100">
               <div>
                 <h2 className="text-[17px] font-medium text-stone-900 mb-1">
                   SimplePhotoShare
@@ -318,7 +319,7 @@ function TokenField({
             if (e.key === "Enter") onSubmit();
           }}
           placeholder="spsa_…"
-          className="h-11 flex-1 min-w-[260px] border-b border-stone-200 bg-transparent text-[15px] font-mono text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
+          className="h-11 flex-1 min-w-0 max-sm:basis-full sm:min-w-[260px] border-b border-stone-200 bg-transparent text-[15px] font-mono text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
         />
         <BrandButton onClick={onSubmit} disabled={!token.trim() || isSaving}>
           {isSaving ? "Checking…" : "Connect"}

@@ -132,6 +132,7 @@ function ShareComposePage() {
   }, [eventId]);
   const editorRef = useRef<EmailEditorHandle | null>(null);
   const creatingShareRef = useRef(false);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   // Branding
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
@@ -481,6 +482,12 @@ function ShareComposePage() {
                           value={recipients}
                           onChange={(e) => setRecipients(e.target.value)}
                           placeholder="client@example.com, friend@example.com"
+                          // Email keyboard, and no auto-capitalised or
+                          // "corrected" addresses on phones.
+                          inputMode="email"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                           rows={2}
                           className="w-full text-[13px] text-stone-900 placeholder:text-stone-300 bg-transparent border border-stone-200 focus:border-stone-900 outline-none p-3 resize-none transition-colors"
                         />
@@ -540,20 +547,23 @@ function ShareComposePage() {
                           always-visible dead toggle teaches people to ignore it. */}
                       {galleryPassword && (
                         <div className="border border-stone-200 p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                          {/* The whole row is the switch's label, so a tap anywhere on
+                              it toggles (a 36x20 pill is a small target on a phone). */}
+                          <label htmlFor="include-password-switch" className="flex cursor-pointer select-none items-start justify-between gap-4">
+                            <span className="block min-w-0">
+                              <span className="flex items-center gap-2">
                                 <Lock size={13} className="text-stone-400 shrink-0" />
                                 <span className="text-[13px] text-stone-700">
                                   Include the password
                                 </span>
-                              </div>
-                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                              </span>
+                              <span className="block text-[11px] text-stone-400 mt-1 leading-relaxed">
                                 This gallery is password-protected. Add it to the
                                 email so your client isn&rsquo;t locked out.
-                              </p>
-                            </div>
+                              </span>
+                            </span>
                             <button
+                              id="include-password-switch"
                               type="button"
                               onClick={() => setIncludePassword((v) => !v)}
                               role="switch"
@@ -569,7 +579,7 @@ function ShareComposePage() {
                                 }`}
                               />
                             </button>
-                          </div>
+                          </label>
                           {includePassword && (
                             <div className="mt-3 pt-3 border-t border-stone-100 flex items-center gap-2">
                               <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">
@@ -590,20 +600,21 @@ function ShareComposePage() {
                           true with no way to turn it off. */}
                       {downloadPin && (
                         <div className="border border-stone-200 p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                          <label htmlFor="include-pin-switch" className="flex cursor-pointer select-none items-start justify-between gap-4">
+                            <span className="block min-w-0">
+                              <span className="flex items-center gap-2">
                                 <Lock size={13} className="text-stone-400 shrink-0" />
                                 <span className="text-[13px] text-stone-700">
                                   Include the download PIN
                                 </span>
-                              </div>
-                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                              </span>
+                              <span className="block text-[11px] text-stone-400 mt-1 leading-relaxed">
                                 Downloads from this gallery ask for a PIN. Add it
                                 to the email so your client can save their photos.
-                              </p>
-                            </div>
+                              </span>
+                            </span>
                             <button
+                              id="include-pin-switch"
                               type="button"
                               onClick={() => setIncludePin((v) => !v)}
                               role="switch"
@@ -619,7 +630,7 @@ function ShareComposePage() {
                                 }`}
                               />
                             </button>
-                          </div>
+                          </label>
                           {includePin && (
                             <div className="mt-3 pt-3 border-t border-stone-100 flex items-center gap-2">
                               <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">
@@ -639,21 +650,22 @@ function ShareComposePage() {
                           card to include, so there is no toggle. */}
                       {recap && (
                         <div className="border border-stone-200 p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                          <label htmlFor="include-recap-switch" className="flex cursor-pointer select-none items-start justify-between gap-4">
+                            <span className="block min-w-0">
+                              <span className="flex items-center gap-2">
                                 <BarChart3 size={13} className="text-stone-400 shrink-0" />
                                 <span className="text-[13px] text-stone-700">
                                   Include the delivery recap
                                 </span>
-                              </div>
-                              <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+                              </span>
+                              <span className="block text-[11px] text-stone-400 mt-1 leading-relaxed">
                                 Guests photographed, galleries sent and opened,
                                 and how fast they arrived. Links to the full
                                 recap page.
-                              </p>
-                            </div>
+                              </span>
+                            </span>
                             <button
+                              id="include-recap-switch"
                               type="button"
                               onClick={() => setIncludeRecap((v) => !v)}
                               role="switch"
@@ -669,7 +681,7 @@ function ShareComposePage() {
                                 }`}
                               />
                             </button>
-                          </div>
+                          </label>
                         </div>
                       )}
 
@@ -704,20 +716,38 @@ function ShareComposePage() {
                         </span>
                       </label>
 
-                      {/* Send button */}
-                      <BrandButton
-                        color="emerald"
-                        celebrate
-                        onClick={handleSend}
-                        disabled={isSending || !recipients.trim()}
-                      >
-                        <Send size={14} />
-                        {isSending ? "Sending…" : "Send Email"}
-                      </BrandButton>
+                      {/* Send button. Below lg the preview stacks under the
+                          form, out of sight of Send, so a link jumps to it. */}
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                        <BrandButton
+                          color="emerald"
+                          celebrate
+                          onClick={handleSend}
+                          disabled={isSending || !recipients.trim()}
+                        >
+                          <Send size={14} />
+                          {isSending ? "Sending…" : "Send Email"}
+                        </BrandButton>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            previewRef.current?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "start",
+                            })
+                          }
+                          className="lg:hidden min-h-10 label-caps text-stone-500 underline underline-offset-4 hover:text-stone-800 transition-colors"
+                        >
+                          Preview email
+                        </button>
+                      </div>
                     </div>
 
                     {/* Right: Live Preview */}
-                    <div className="lg:sticky lg:top-20 lg:self-start">
+                    <div
+                      ref={previewRef}
+                      className="scroll-mt-20 lg:sticky lg:top-20 lg:self-start"
+                    >
                       <p className="label-caps mb-3">Preview</p>
                       <div className="border border-stone-100 bg-stone-50 p-1">
                         <EmailPreview

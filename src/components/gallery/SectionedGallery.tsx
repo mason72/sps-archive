@@ -98,6 +98,17 @@ export function SectionedGallery({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showFilenames, setShowFilenames] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  // onBlur alone never closes the menu on iOS Safari, which does not focus a
+  // button on tap, so there is no blur. A tap anywhere outside closes it too.
+  useEffect(() => {
+    if (!sortOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!sortMenuRef.current?.contains(e.target as Node)) setSortOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [sortOpen]);
 
   // Tab overflow: the row scrolls horizontally. It previously measured each
   // tab and collapsed the tail into a "More ▾" dropdown, which HID whole
@@ -369,14 +380,20 @@ export function SectionedGallery({
 
         </div>
 
-        {/* Controls — sort / favorites / filename (right-aligned, same row) */}
-        <div className="flex shrink-0 items-center gap-5">
+        {/* Controls — sort / favorites / filename (right-aligned, same row).
+            On a phone they are 13px icons: each gets a 41px touch box from
+            padding cancelled by an equal negative margin, so nothing moves,
+            and the gap widens to 28px so neighbouring boxes don't overlap. */}
+        <div className="flex shrink-0 items-center gap-5 pointer-coarse:gap-7">
           {/* Sort */}
-          <div className="relative">
+          <div ref={sortMenuRef} className="relative">
             <button
               onClick={() => setSortOpen((o) => !o)}
               onBlur={() => setTimeout(() => setSortOpen(false), 150)}
-              className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+              aria-label={`Sort photos: ${SORT_LABELS[effectiveSort]}`}
+              aria-haspopup="menu"
+              aria-expanded={sortOpen}
+              className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
               style={{ color: colors.secondary }}
             >
               <ArrowUpDown size={13} />
@@ -410,7 +427,9 @@ export function SectionedGallery({
           {allowFavorites && (
             <button
               onClick={() => setFavoritesOnly((v) => !v)}
-              className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+              aria-label="Show favorites only"
+              aria-pressed={favoritesOnly}
+              className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
               style={{ color: favoritesOnly ? colors.accent : colors.secondary }}
             >
               <Heart size={13} fill={favoritesOnly ? colors.accent : "none"} />
@@ -423,7 +442,9 @@ export function SectionedGallery({
           {/* Filename toggle */}
           <button
             onClick={() => setShowFilenames((v) => !v)}
-            className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+            aria-label="Show names"
+            aria-pressed={showFilenames}
+            className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
             style={{ color: showFilenames ? colors.accent : colors.secondary }}
           >
             <Tag size={13} />

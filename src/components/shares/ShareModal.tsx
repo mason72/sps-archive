@@ -36,6 +36,9 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  // Two-step revoke: first tap arms, second revokes. Revoke sits beside Copy,
+  // and on touch there is no hover to keep it out of a stray thumb's way.
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
   const [hasCreatedShare, setHasCreatedShare] = useState(false);
   const [quickShareUrl, setQuickShareUrl] = useState<string | null>(null);
   const [showQuickOptions, setShowQuickOptions] = useState(false);
@@ -139,8 +142,10 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
   };
 
   const handleRevoke = async (shareId: string) => {
+    setConfirmRevokeId(null);
     try {
-      await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
+      const res = await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Revoke failed (${res.status})`);
       setShares((prev) =>
         prev.map((s) => (s.id === shareId ? { ...s, isActive: false } : s))
       );
@@ -359,11 +364,12 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                       <p className="text-[13px] text-stone-700 font-mono truncate max-w-[240px]">
                         {galleryUrl(share.slug)}
                       </p>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 pointer-coarse:gap-4">
                         <button
                           onClick={() => copyLink(share.slug)}
-                          className="p-1.5 text-stone-400 hover:text-stone-700 transition-colors"
+                          className="p-1.5 pointer-coarse:p-[13px] text-stone-400 hover:text-stone-700 transition-colors"
                           title="Copy link"
+                          aria-label="Copy link"
                         >
                           {copiedSlug === share.slug ? (
                             <Check className="h-3.5 w-3.5 text-accent" />
@@ -371,13 +377,41 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                             <Copy className="h-3.5 w-3.5" />
                           )}
                         </button>
-                        <button
-                          onClick={() => handleRevoke(share.id)}
-                          className="p-1.5 text-stone-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                          title="Revoke link"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {confirmRevokeId === share.id ? (
+                          <>
+                            <button
+                              onClick={() => handleRevoke(share.id)}
+                              className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-10 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+                              title="Revoke this link — guests holding it lose access"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Revoke?
+                            </button>
+                            <button
+                              onClick={() => setConfirmRevokeId(null)}
+                              className="p-1 pointer-coarse:p-[13px] text-stone-400 hover:text-stone-700 transition-colors"
+                              title="Cancel"
+                              aria-label="Cancel revoke"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setConfirmRevokeId(share.id);
+                              setTimeout(
+                                () => setConfirmRevokeId((cur) => (cur === share.id ? null : cur)),
+                                3000
+                              );
+                            }}
+                            className="p-1.5 pointer-coarse:p-[13px] text-stone-300 hover:text-red-500 transition-[color,opacity] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
+                            title="Revoke link"
+                            aria-label="Revoke link"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-stone-400">

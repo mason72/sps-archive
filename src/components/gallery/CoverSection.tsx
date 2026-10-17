@@ -152,6 +152,9 @@ export function CoverSection({
           className={cn(
             headingClass,
             "text-[clamp(36px,6vw,72px)] leading-[0.95] text-white",
+            // A one-word title wider than a phone breaks instead of being
+            // clipped by the cover's overflow-hidden.
+            "max-w-full [overflow-wrap:anywhere]",
             // Position-independent legibility: the bottom-anchored gradient
             // above doesn't protect a top/center-placed title, and a title
             // over a bright cover (white backdrop, snow, product) would wash

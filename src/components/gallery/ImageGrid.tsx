@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Check, Crosshair, Play } from "lucide-react";
 import { formatDuration } from "@/lib/upload/media";
+import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   DndContext,
   DragOverlay,
@@ -745,8 +746,21 @@ function GridImage({
     image.processingStatus === "pending" &&
     Date.now() - new Date(image.createdAt).getTime() < SETTLE_WINDOW_MS;
 
+  const isTouch = useMediaQuery(TOUCH_QUERY);
+
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
+      // On touch there is no double-click to wait for (iOS spends a double tap
+      // on zoom), so the phone-photos convention instead: a tap OPENS the
+      // photo, the checkbox corner selects, and once anything is selected
+      // every tap toggles selection.
+      if (isTouch) {
+        const onBox = (e.target as HTMLElement).closest("[data-select-box]");
+        if (onBox || hasSelection) onSelect();
+        else onDoubleClick();
+        return;
+      }
+
       // Shift+click → range select (immediate, no debounce)
       if (e.shiftKey) {
         if (clickTimerRef.current) {
@@ -767,7 +781,7 @@ function GridImage({
         onSelect();
       }, 200);
     },
-    [onSelect, onRangeSelect]
+    [isTouch, hasSelection, onSelect, onDoubleClick, onRangeSelect]
   );
 
   const handleDoubleClick = useCallback(() => {
@@ -803,15 +817,16 @@ function GridImage({
         isSelected ? "ring-2 ring-accent ring-inset" : ""
       }`}
     >
-      {/* Selection checkbox — always visible */}
-      <div className="absolute top-2 left-2 z-10">
+      {/* Selection checkbox. The wrapper's padding is the tap target on
+          touch (~36px around a 20px box, same visual position as before). */}
+      <div data-select-box className="absolute top-0 left-0 z-10 p-2">
         <div
           className={`w-5 h-5 border-2 flex items-center justify-center transition-all duration-150 ${
             isSelected
               ? "bg-accent border-accent"
               : hasSelection
               ? "border-white/80 bg-black/20 backdrop-blur-sm"
-              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100"
+              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
           }`}
         >
           {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}

@@ -45,7 +45,7 @@ export function EventCardSkeleton() {
  */
 export function EventSidebarSkeleton() {
   return (
-    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col h-screen sticky top-0 px-6 py-8">
+    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col h-dvh sticky top-0 px-6 py-8 max-md:hidden">
       {/* collapse / back affordance */}
       <Skeleton className="h-3 w-16 mb-8" />
       {/* event name */}

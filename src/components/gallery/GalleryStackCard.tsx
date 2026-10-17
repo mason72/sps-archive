@@ -218,9 +218,11 @@ export function GalleryStackCard({
           </div>
         )}
 
-        {/* Stack-wide actions: heart-all + download-all-as-ZIP */}
+        {/* Stack-wide actions: heart-all + download-all-as-ZIP. Click-through
+            until hover reveals them. On a phone (no hover) the heart always
+            shows and the ZIP hides; the stack view offers "Download all". */}
         {(allowFavorites || onDownloadStack) && (
-          <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto transition-opacity duration-300">
             {allowFavorites && (
               <button
                 onClick={handleFavorite}
@@ -248,7 +250,7 @@ export function GalleryStackCard({
                   e.stopPropagation();
                   onDownloadStack(stack);
                 }}
-                className="flex items-center gap-1 pl-2 pr-2.5 py-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors"
+                className="flex items-center gap-1 pl-2 pr-2.5 py-2 rounded-full bg-black/30 text-white hover:bg-black/50 backdrop-blur-sm transition-colors pointer-coarse:hidden"
                 title={`Download all ${count} photos as a single ZIP`}
               >
                 <Download className="h-4 w-4" />
