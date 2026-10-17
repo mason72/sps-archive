@@ -193,11 +193,14 @@ export function SelectionToolbar({
     <div
       // Desktop centres over the gallery, clear of the sidebar. A phone has no
       // sidebar beside the gallery (it is a sheet), and the bar is wider than
-      // the screen, so it pins to both edges and scrolls sideways instead.
+      // the screen, so it pins to both edges and WRAPS. Not a sideways scroll:
+      // a scroller clips its popovers, and the pill's backdrop blur makes it
+      // the box they position against. So on a phone the popovers anchor to
+      // the pill itself (wrappers go `static`) and span its width above it.
       className="fixed bottom-6 -translate-x-1/2 z-50 toolbar-enter max-md:!left-2 max-md:right-2 max-md:translate-x-0 max-md:bottom-[max(0.75rem,env(safe-area-inset-bottom))]"
       style={{ left: `calc(50% + ${sidebarOffset / 2}px)` }}
     >
-      <div className="inline-flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:[scrollbar-width:none] bg-white/90 backdrop-blur-2xl text-stone-900 px-5 h-11 rounded-full border border-stone-200/80 shadow-[0_8px_40px_rgba(0,0,0,0.12),0_2px_12px_rgba(0,0,0,0.08)]">
+      <div className="inline-flex items-center gap-1 max-md:relative max-md:flex max-md:flex-wrap max-md:justify-center max-md:h-auto max-md:py-1 max-md:px-3 max-md:rounded-2xl bg-white/90 backdrop-blur-2xl text-stone-900 px-5 h-11 rounded-full border border-stone-200/80 shadow-[0_8px_40px_rgba(0,0,0,0.12),0_2px_12px_rgba(0,0,0,0.08)]">
         {/* Count + deselect */}
         <span className="text-[12px] font-medium tabular-nums whitespace-nowrap">
           {count}
@@ -215,7 +218,7 @@ export function SelectionToolbar({
         {/* Action icons */}
           {/* Rename */}
           {onRename && (
-            <div className="relative" ref={renameRef}>
+            <div className="relative max-md:static" ref={renameRef}>
               <ToolbarButton
                 icon={<Pencil className="h-4 w-4" />}
                 label="Rename"
@@ -223,7 +226,7 @@ export function SelectionToolbar({
                 active={showRenamePopover}
               />
               {showRenamePopover && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 w-[280px] p-4 scale-in max-md:fixed max-md:inset-x-2 max-md:bottom-20 max-md:w-auto">
+                <div className="absolute bottom-full mb-2 right-0 bg-white text-stone-900 shadow-xl border border-stone-200 w-[280px] p-4 scale-in max-md:left-0 max-md:w-auto">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium mb-3">
                     {singleRename ? "Rename" : "Batch rename"}
                   </p>
@@ -322,7 +325,7 @@ export function SelectionToolbar({
 
           {/* Move to section (always visible as primary action) */}
           {onMoveToSection && sections.length > 0 && (
-            <div className="relative" ref={movePickerRef}>
+            <div className="relative max-md:static" ref={movePickerRef}>
               <ToolbarButton
                 icon={<ArrowRight className="h-4 w-4" />}
                 label="Move to…"
@@ -362,7 +365,7 @@ export function SelectionToolbar({
               It used to hide the within-gallery rows there, which read as
               "this gallery has no sections" (Mason, 2026-08-21). */}
           {((onAddToSection && sections.length > 0) || onCopyToGallery) && (
-            <div className="relative" ref={pickerRef}>
+            <div className="relative max-md:static" ref={pickerRef}>
               <ToolbarButton
                 icon={<FolderPlus className="h-4 w-4" />}
                 label="Copy to…"
@@ -431,9 +434,9 @@ export function SelectionToolbar({
           <div className="w-px h-4 bg-stone-200" />
 
           {showDeleteConfirm ? (
-            <div className="relative flex items-center gap-1">
+            <div className="relative flex items-center gap-1 max-md:static">
               {deleteHint && (
-                <div className="absolute bottom-full mb-3 right-0 w-[260px] max-md:fixed max-md:inset-x-2 max-md:bottom-20 max-md:w-auto bg-white text-stone-600 shadow-xl border border-stone-200 px-3 py-2 text-[12px] leading-relaxed scale-in">
+                <div className="absolute bottom-full mb-3 right-0 w-[260px] max-md:left-0 max-md:w-auto bg-white text-stone-600 shadow-xl border border-stone-200 px-3 py-2 text-[12px] leading-relaxed scale-in">
                   {deleteHint}
                 </div>
               )}
@@ -546,7 +549,7 @@ function SectionFlyout({
     : sections;
 
   return (
-    <div className="absolute bottom-full mb-2 right-0 w-60 bg-white text-stone-900 shadow-xl border border-stone-200 py-1 scale-in max-md:fixed max-md:inset-x-2 max-md:bottom-20 max-md:w-auto max-md:max-h-[60dvh] max-md:overflow-y-auto">
+    <div className="absolute bottom-full mb-2 right-0 w-60 bg-white text-stone-900 shadow-xl border border-stone-200 py-1 scale-in max-md:left-0 max-md:w-auto max-md:max-h-[60dvh] max-md:overflow-y-auto">
       <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-400 font-medium">
         {title}
       </p>

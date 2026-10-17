@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Layers, ChevronDown, Star, Check, ArrowLeftRight, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 
 interface StackImage {
   id: string;
@@ -194,8 +195,16 @@ function CollapsedStack({
   onExpand: () => void;
 }) {
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTouch = useMediaQuery(TOUCH_QUERY);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // Touch: no double-click to wait for (see ImageGrid). A tap opens the
+    // stack; the checkbox corner, or an existing selection, selects it.
+    if (isTouch) {
+      if ((e.target as HTMLElement).closest("[data-select-box]") || hasSelection) onSingleClick();
+      else onExpand();
+      return;
+    }
     if (clickTimerRef.current) {
       clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
@@ -204,7 +213,7 @@ function CollapsedStack({
       clickTimerRef.current = null;
       onSingleClick();
     }, 200);
-  }, [onSingleClick]);
+  }, [isTouch, hasSelection, onSingleClick, onExpand]);
 
   const handleDoubleClick = useCallback(() => {
     if (clickTimerRef.current) {
@@ -224,8 +233,8 @@ function CollapsedStack({
         allSelected && "ring-2 ring-accent ring-inset"
       )}
     >
-      {/* Selection checkbox — always visible */}
-      <div className="absolute top-2 left-2 z-10">
+      {/* Selection checkbox. Padding is the touch target (same visual spot). */}
+      <div data-select-box className="absolute top-0 left-0 z-10 p-2">
         <div
           className={`w-5 h-5 border-2 flex items-center justify-center transition-all duration-150 ${
             allSelected
@@ -234,7 +243,7 @@ function CollapsedStack({
               ? "bg-accent/50 border-accent"
               : hasSelection
               ? "border-white/80 bg-black/20 backdrop-blur-sm"
-              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100"
+              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
           }`}
         >
           {(allSelected || selectedCount > 0) && (
@@ -331,8 +340,16 @@ function ExpandedStackImage({
   onSetCover?: (stackId: string, imageId: string) => void;
 }) {
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTouch = useMediaQuery(TOUCH_QUERY);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // Touch: a tap opens the photo; the checkbox corner or an existing
+    // selection toggles it (the grid's rule, see ImageGrid).
+    if (isTouch) {
+      if ((e.target as HTMLElement).closest("[data-select-box]") || hasSelection) onToggleSelect();
+      else onDoubleClick();
+      return;
+    }
     if (clickTimerRef.current) {
       clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
@@ -341,7 +358,7 @@ function ExpandedStackImage({
       clickTimerRef.current = null;
       onToggleSelect();
     }, 200);
-  }, [onToggleSelect]);
+  }, [isTouch, hasSelection, onToggleSelect, onDoubleClick]);
 
   const handleDoubleClick = useCallback(() => {
     if (clickTimerRef.current) {
@@ -362,15 +379,16 @@ function ExpandedStackImage({
         isSelected && "ring-2 ring-accent ring-inset"
       )}
     >
-      {/* Selection checkbox — always visible in expanded view */}
-      <div className="absolute top-1 left-1 z-10">
+      {/* Selection checkbox — always visible in expanded view. Padding is the
+          touch target (same visual spot). */}
+      <div data-select-box className="absolute top-0 left-0 z-10 p-1">
         <div
           className={`w-4 h-4 border-2 flex items-center justify-center transition-all duration-150 ${
             isSelected
               ? "bg-accent border-accent"
               : hasSelection
               ? "border-white/80 bg-black/20 backdrop-blur-sm"
-              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover/img:opacity-100"
+              : "border-white/60 bg-black/10 backdrop-blur-sm opacity-0 group-hover/img:opacity-100 pointer-coarse:opacity-100"
           }`}
         >
           {isSelected && (

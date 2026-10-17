@@ -571,11 +571,14 @@
 /* iOS Safari zooms the page into any focused form control under 16px, and
    most fields here are 13–15px. Deliberately UNLAYERED: unlayered styles beat
    every @layer (utilities included), so this wins over `text-[13px]` on touch
-   without touching a single component. Desktop keeps its sizes. */
+   without touching a single component. Desktop keeps its sizes.
+   Being unlayered it would also SHRINK a field set larger (the gallery PIN at
+   24px, People's name fields at text-2xl), so those size classes opt out. */
 @media (pointer: coarse) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea {
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):not(
+      [class*="text-lg"], [class*="text-xl"], [class*="text-2xl"], [class*="text-3xl"],
+      [class*="text-4xl"], [class*="text-[2"], [class*="text-[3"], [class*="text-[4"]
+    ) {
     font-size: 16px;
   }
 }

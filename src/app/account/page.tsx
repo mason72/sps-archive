@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
@@ -55,6 +55,8 @@ export default function AccountPage() {
   // Two-step logo removal: first tap arms, second removes. Touch has no hover
   // to hide the control behind, so the confirm is what stops a stray tap.
   const [confirmLogoRemove, setConfirmLogoRemove] = useState(false);
+  /** "Remove?" renders over the ✕ that armed it, so a double-tap would hit both. */
+  const logoArmedAt = useRef(0);
 
   // Billing state
   const [subscription, setSubscription] = useState<{
@@ -285,6 +287,7 @@ export default function AccountPage() {
                       {confirmLogoRemove ? (
                         <button
                           onClick={async () => {
+                            if (Date.now() - logoArmedAt.current < 400) return;
                             setConfirmLogoRemove(false);
                             try {
                               const res = await fetch("/api/account/logo", { method: "DELETE" });
@@ -306,6 +309,7 @@ export default function AccountPage() {
                         // without changing the 22px chip's look.
                         <button
                           onClick={() => {
+                            logoArmedAt.current = Date.now();
                             setConfirmLogoRemove(true);
                             setTimeout(() => setConfirmLogoRemove(false), 3000);
                           }}

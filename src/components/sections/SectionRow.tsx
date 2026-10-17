@@ -158,9 +158,10 @@ export function SectionRow({
         }
       }}
     >
-      {/* Drag handle */}
+      {/* Drag handle. Hidden on touch: native drag-and-drop does not follow a
+          finger, so there it was a handle that moved nothing. */}
       <button
-        className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 transition-colors shrink-0"
+        className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 transition-colors shrink-0 pointer-coarse:hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <GripVertical size={16} />
@@ -169,7 +170,9 @@ export function SectionRow({
       {/* Name / edit */}
       <div className="flex-1 min-w-0">
         {isEditing ? (
-          <div className="flex items-center gap-2">
+          // Taps stop here: the row's click picks the section, and on a phone
+          // that closes the sheet and unmounts this input mid-edit.
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <input
               ref={inputRef}
               type="text"

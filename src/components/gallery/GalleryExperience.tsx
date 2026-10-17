@@ -1213,6 +1213,9 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   const titleBelowCover = hasCover && titlePosition === "below" && !hideCoverTitle;
   const titleAboveCover = hasCover && titlePosition === "above" && !hideCoverTitle;
   const titleAlignClass = titleAlignment === "left" ? "text-left" : titleAlignment === "right" ? "text-right" : "text-center";
+  // Below sm the logo stacks ABOVE the title: side by side, a wordmark logo
+  // took half a 390px row and wrapped the event name one word per line.
+  const titleStackAlign = titleAlignment === "left" ? "max-sm:items-start" : titleAlignment === "right" ? "max-sm:items-end" : "max-sm:items-center";
 
   // Build CSS custom properties from resolved colors
   const brandStyles = {
@@ -1231,7 +1234,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       {/* ─── Logo + Title above cover ─── */}
       {titleAboveCover && (
         <div className="px-8 md:px-16 pt-12 pb-6">
-          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+          <div className={`flex gap-6 sm:items-center max-sm:flex-col-reverse max-sm:gap-4 ${titleStackAlign} ${titleAlignment === "left" ? "" : "sm:flex-row-reverse"}`}>
             <h1
               className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal min-w-0 flex-1 [overflow-wrap:anywhere] ${titleAlignClass}`}
               style={{ color: colors.primary }}
@@ -1276,7 +1279,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           <div className="min-w-0 flex-1">
         {/* When title is below cover: logo + title inline */}
         {titleBelowCover ? (
-          <div className={`flex items-center gap-6 ${titleAlignment === "left" ? "" : "flex-row-reverse"}`}>
+          <div className={`flex gap-6 sm:items-center max-sm:flex-col-reverse max-sm:gap-4 ${titleStackAlign} ${titleAlignment === "left" ? "" : "sm:flex-row-reverse"}`}>
             <h1
               className={`${headingClass} text-[clamp(28px,4vw,48px)] leading-[0.95] reveal min-w-0 flex-1 [overflow-wrap:anywhere] ${titleAlignClass}`}
               style={{ color: colors.primary }}
@@ -1738,6 +1741,8 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             swipeStartRef.current = null;
             const t = e.changedTouches[0];
             if (!start || !t) return;
+            // Pinch-zoomed in, one finger pans the photo; it must not page.
+            if (window.visualViewport && window.visualViewport.scale > 1.01) return;
             const dx = t.clientX - start.x;
             const dy = t.clientY - start.y;
             // 50px, and clearly more sideways than up/down, so a shaky tap or

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { Nav } from "@/components/layout/Nav";
 import { AppNav } from "@/components/layout/AppNav";
 import { Footer } from "@/components/layout/Footer";
@@ -552,8 +553,17 @@ export default function ImportFromSpsPage() {
   // froze at whatever it last saw. A frozen number is indistinguishable from a
   // stalled import, which is exactly how the first real import read.
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * The job this screen is showing, or null on the list. A poll checks it after
+   * every network wait: clearing the timer cannot stop a fetch already in
+   * flight, and that fetch would otherwise re-arm a second loop that writes
+   * another job's numbers onto this screen.
+   */
+  const activeJobRef = useRef<string | null>(null);
   const pollJob = useCallback(async (jobId: string, failures = 0) => {
+    const live = () => activeJobRef.current === jobId;
     const again = (delay: number, nextFailures: number) => {
+      if (!live()) return;
       pollTimer.current = setTimeout(() => pollJob(jobId, nextFailures), delay);
     };
 
@@ -567,6 +577,15 @@ export default function ImportFromSpsPage() {
         `/api/sps/pull/jobs/${jobId}${wantThumbs ? "?thumbs=1" : ""}`,
         { cache: "no-store" }
       );
+      if (!live()) return;
+      // An id that is not this account's import (an old or mistyped link).
+      // Retrying cannot make it exist, so say so and go back to the list.
+      if (res.status === 404) {
+        activeJobRef.current = null;
+        toast.error("That import could not be found.");
+        router.replace("/events/import");
+        return;
+      }
       if (!res.ok) {
         // Back off, but never give up while we still believe it's running.
         setPollStale(true);
@@ -574,6 +593,7 @@ export default function ImportFromSpsPage() {
         return;
       }
       const { job: fresh } = (await res.json()) as { job: PullJob };
+      if (!live()) return;
       setJob(fresh);
       setPollStale(false);
       if (fresh.thumbs?.length) {
@@ -605,10 +625,11 @@ export default function ImportFromSpsPage() {
       setPollStale(true);
       again(Math.min(3000 * 2 ** failures, 30000), failures + 1);
     }
-  }, []);
+  }, [router]);
 
   useEffect(
     () => () => {
+      activeJobRef.current = null;
       if (pollTimer.current) clearTimeout(pollTimer.current);
     },
     []
@@ -626,6 +647,8 @@ export default function ImportFromSpsPage() {
     if (urlJob !== jobId) {
       router[urlReview ? "replace" : "push"](`/events/import?job=${jobId}`);
     }
+    if (pollTimer.current) clearTimeout(pollTimer.current);
+    activeJobRef.current = jobId;
     setJob(null);
     setOpening(known);
     setStage("running");
@@ -642,8 +665,11 @@ export default function ImportFromSpsPage() {
       if (showingRef.current === `review:${urlReview}`) return;
       const ev = events.find((e) => e.id === urlReview);
       if (ev) beginReview(ev); // a cold link waits for the list to arrive
+      // The list has arrived and this event is not on it: drop the stale id.
+      else if (!isLoading) router.replace("/events/import");
     } else if (showingRef.current !== null) {
       showingRef.current = null;
+      activeJobRef.current = null;
       if (pollTimer.current) clearTimeout(pollTimer.current);
       setStage("pick");
       // Refetch so an import started a moment ago reads "Importing" here.
@@ -652,7 +678,7 @@ export default function ImportFromSpsPage() {
     // watchJob/beginReview are plain functions recreated each render; the
     // URL and the list are what this effect answers to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlJob, urlReview, events, loadEvents]);
+  }, [urlJob, urlReview, events, isLoading, loadEvents]);
 
   const cancelImport = async () => {
     if (!job) return;
