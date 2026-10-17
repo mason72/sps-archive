@@ -181,6 +181,11 @@ export default function ImportFromSpsPage() {
    * working with them."
    */
   const [gigIntel, setGigIntel] = useState<GigIntelPayload | null>(null);
+  /** The calendar job's roster crew: the crew tag offers them first. */
+  const jobCrewIds = useMemo(
+    () => (gigIntel?.crew ?? []).map((c) => c.crewId).filter((id): id is string => !!id),
+    [gigIntel]
+  );
   /**
    * Frames whose face went to a crew member's reference set. Each tile carries
    * its own receipt ("Moved to crew photos · Joey"); this is the tally beside
@@ -1274,6 +1279,7 @@ export default function ImportFromSpsPage() {
                      */}
                     <CrewFaceTag
                       imageUrl={img.fullUrl}
+                      jobCrewIds={jobCrewIds}
                       onTagStart={() => {
                         // Unchecked the moment a name is picked — skipping the
                         // frame is the intent either way, and the save can take

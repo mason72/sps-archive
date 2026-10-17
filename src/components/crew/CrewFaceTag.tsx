@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Loader2, RotateCcw, Users } from "lucide-react";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import { crew as crewRegistry, type KnownCrew } from "@/components/intel/registry-cache";
+import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 
 /**
  * "That's crew" on an import-review tile — keep the face, still skip the frame.
@@ -36,6 +37,30 @@ import { crew as crewRegistry, type KnownCrew } from "@/components/intel/registr
 
 type RosterRow = KnownCrew;
 
+/**
+ * The people you tagged lately, newest first, on this device. Mason, 2026-10-17:
+ * a gig has six to ten crew frames and they are mostly the same few people, so
+ * typing "Jake" six times was the whole cost of tagging. Read when a panel
+ * opens, so a pick on one tile is at the top of the next.
+ */
+const RECENT_KEY = "pt:crew-recent";
+const RECENT_MAX = 6;
+function readRecent(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+function pushRecent(id: string) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...readRecent().filter((x) => x !== id)].slice(0, RECENT_MAX)));
+  } catch {
+    // Private mode or a full quota: the shortcut is a convenience, never a blocker.
+  }
+}
+
 type Phase =
   | { kind: "idle" }
   | { kind: "saving"; crew: RosterRow }
@@ -49,12 +74,19 @@ function firstName(displayName: string): string {
 
 export function CrewFaceTag({
   imageUrl,
+  jobCrewIds,
   onTagStart,
   onTagged,
   onTagFailed,
 }: {
   /** The frame's FULL-SIZE source — a thumbnail makes a bad reference. */
   imageUrl: string;
+  /**
+   * Roster ids of the crew on this job's calendar entry ("Which job was
+   * this?"). They lead the panel as one-tap rows: the frames being tagged
+   * are almost always of the people who worked it.
+   */
+  jobCrewIds?: string[];
   /** A name was picked: the caller unchecks the tile now, before the save. */
   onTagStart: (crewName: string) => void;
   /** The face is saved. */
@@ -67,8 +99,11 @@ export function CrewFaceTag({
   const [roster, setRoster] = useState<RosterRow[] | null>(crewRegistry.get());
   const [q, setQ] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [recent, setRecent] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const isTouch = useMediaQuery(TOUCH_QUERY);
 
   /**
    * Where the panel goes, in VIEWPORT coordinates.
@@ -85,9 +120,11 @@ export function CrewFaceTag({
   const place = () => {
     const r = buttonRef.current?.getBoundingClientRect();
     if (!r) return;
-    const PANEL_W = 208;
+    const PANEL_W = 240;
     const left = Math.max(8, Math.min(r.right - PANEL_W, window.innerWidth - PANEL_W - 8));
-    if (window.innerHeight - r.bottom < 320) {
+    // The panel is ~330px tall (288px list, input, borders); flip above the
+    // button when less than that, plus a margin, is left below it.
+    if (window.innerHeight - r.bottom < 345) {
       setPos({ left, bottom: window.innerHeight - r.top + 4 });
     } else {
       setPos({ left, top: r.bottom + 4 });
@@ -97,11 +134,19 @@ export function CrewFaceTag({
   useEffect(() => {
     if (!open) return;
     if (roster === null) void crewRegistry.load().then(setRoster);
-    // Focus after the portal paints.
-    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    setRecent(readRecent());
+    // Focus after the portal paints. Not on touch: the keyboard would come up
+    // over the one-tap rows, which are the faster way in there.
+    const t = isTouch ? undefined : setTimeout(() => inputRef.current?.focus(), 0);
     // A fixed panel does not travel with the page — close rather than drift.
-    // Capture-phase, so scrolls inside any container count too.
-    const close = () => setOpen(false);
+    // Capture-phase, so scrolls inside any container count too, except the
+    // panel's own list (scrolling it used to close it).
+    const close = (e?: Event) => {
+      // Only a SCROLL can come from inside the panel. A resize's target is
+      // `window`, which is not a Node: `contains()` would throw on it.
+      if (e?.type === "scroll" && e.target instanceof Node && panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
     window.addEventListener("scroll", close, { capture: true, passive: true });
     window.addEventListener("resize", close);
     return () => {
@@ -109,11 +154,12 @@ export function CrewFaceTag({
       window.removeEventListener("scroll", close, { capture: true });
       window.removeEventListener("resize", close);
     };
-  }, [open, roster]);
+  }, [open, roster, isTouch]);
 
   if (hasIntel !== true) return null;
 
   const save = async (c: RosterRow) => {
+    pushRecent(c.id);
     setOpen(false);
     setQ("");
     setPhase({ kind: "saving", crew: c });
@@ -138,9 +184,18 @@ export function CrewFaceTag({
     }
   };
 
+  const query = q.trim().toLowerCase();
   const visible = (roster ?? []).filter(
-    (c) => !q.trim() || c.display_name.toLowerCase().includes(q.trim().toLowerCase())
+    (c) => !query || c.display_name.toLowerCase().includes(query)
   );
+  // Enter on a single match still saves (search); `visible` counts it.
+
+  // Only while open: every review tile carries this component, and a closed
+  // panel has nothing to order.
+  const { onJob, recentOff, rest } = open
+    ? orderCrew(roster ?? [], jobCrewIds ?? [], recent, query)
+    : NO_ORDER;
+  const shortcutCount = onJob.length + recentOff.length;
 
   // Once a save is in flight or done, the frame is spoken for; the button
   // would only offer to tag it twice. It comes back on failure, beside Retry.
@@ -219,9 +274,10 @@ export function CrewFaceTag({
 
       {open && pos && createPortal(
         <div
+          ref={panelRef}
           onClick={(e) => e.stopPropagation()}
           style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom }}
-          className="z-50 w-52 border border-stone-200 bg-white text-left shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]"
+          className="z-50 w-60 border border-stone-200 bg-white text-left shadow-[0_8px_24px_-12px_rgba(12,10,9,0.28)]"
         >
           <input
             ref={inputRef}
@@ -237,28 +293,93 @@ export function CrewFaceTag({
             placeholder="Whose face is this?"
             className="w-full border-b border-stone-100 px-3 py-2 text-[13px] text-stone-800 placeholder:text-stone-300 focus:outline-none"
           />
-          <div className="max-h-48 overflow-y-auto">
+          <div className="max-h-72 overflow-y-auto overscroll-contain">
             {roster === null ? (
               <p className="px-3 py-2 text-[12px] text-stone-400">Loading…</p>
             ) : visible.length === 0 ? (
               <p className="px-3 py-2 text-[12px] text-stone-400">Nobody matches.</p>
             ) : (
-              visible.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => save(c)}
-                  className="block w-full px-3 py-1.5 text-left text-[13px] text-stone-700 transition-colors hover:bg-stone-50 hover:text-stone-900"
-                >
-                  {c.is_regular && <span className="mr-1 text-accent">★</span>}
-                  {c.display_name}
-                </button>
-              ))
+              <>
+                {onJob.length > 0 && <CrewGroup label="On this job" people={onJob} onPick={save} quick />}
+                {recentOff.length > 0 && <CrewGroup label="Recent" people={recentOff} onPick={save} quick />}
+                <CrewGroup
+                  label={shortcutCount > 0 ? "Everyone" : null}
+                  people={rest}
+                  onPick={save}
+                />
+              </>
             )}
           </div>
         </div>,
         document.body
       )}
     </>
+  );
+}
+
+const NO_ORDER = { onJob: [], recentOff: [], rest: [] } as { onJob: KnownCrew[]; recentOff: KnownCrew[]; rest: KnownCrew[] };
+
+/**
+ * The panel's order. With nothing typed: "On this job" (the latest pick
+ * first), then people tagged lately who are not on the job, then everyone
+ * else. Typing searches the whole roster and the shortcuts step aside. Ids
+ * that are not in the roster (removed crew) are dropped, never shown blank.
+ */
+export function orderCrew<T extends { id: string; display_name: string }>(
+  roster: T[],
+  jobCrewIds: string[],
+  recent: string[],
+  query: string,
+): { onJob: T[]; recentOff: T[]; rest: T[] } {
+  const q = query.trim().toLowerCase();
+  const visible = roster.filter((c) => !q || c.display_name.toLowerCase().includes(q));
+  if (q) return { onJob: [], recentOff: [], rest: visible };
+  const byId = new Map(roster.map((c) => [c.id, c]));
+  const job = new Set(jobCrewIds);
+  const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter((c): c is T => !!c);
+  const onJob = pick([...recent.filter((id) => job.has(id)), ...[...job].filter((id) => !recent.includes(id))]);
+  const recentOff = pick(recent.filter((id) => !job.has(id)));
+  const shown = new Set([...onJob, ...recentOff].map((c) => c.id));
+  return { onJob, recentOff, rest: visible.filter((c) => !shown.has(c.id)) };
+}
+
+/**
+ * One labelled run of names. `quick` rows are the shortcut rows: taller (a
+ * 44px target on touch) and set a size up, since they are meant to be tapped
+ * without reading the rest of the list.
+ */
+function CrewGroup({
+  label,
+  people,
+  onPick,
+  quick,
+}: {
+  label: string | null;
+  people: RosterRow[];
+  onPick: (c: RosterRow) => void;
+  quick?: boolean;
+}) {
+  if (people.length === 0) return null;
+  return (
+    <div className={quick ? "border-b border-stone-100 pb-1" : undefined}>
+      {label && (
+        <p className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.2em] text-stone-400">{label}</p>
+      )}
+      {people.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          onClick={() => onPick(c)}
+          className={`block w-full px-3 text-left transition-colors hover:bg-stone-50 hover:text-stone-900 active:bg-stone-100 ${
+            quick
+              ? "py-2 text-[14px] text-stone-900 pointer-coarse:min-h-11"
+              : "py-1.5 text-[13px] text-stone-700 pointer-coarse:py-2.5"
+          }`}
+        >
+          {c.is_regular && <span className="mr-1 text-accent">★</span>}
+          {c.display_name}
+        </button>
+      ))}
+    </div>
   );
 }

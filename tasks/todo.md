@@ -1,5 +1,52 @@
 # Pixeltrunk - Build Plan
 
+## Phone pass + import follow-ups (2026-10-17)
+
+Shipped: phone nav, editor/gallery/settings at 390px, URL-driven import, review fixes
+(lesson 185; commits 859e125..90f0be4, live and Inngest-synced). Crew tag shortcuts
+("On this job", "Recent") in review/ship below.
+
+- [x] Crew tag: one-tap "On this job" rows from the calendar crew, latest pick first,
+      "Recent" (localStorage `pt:crew-recent`), no autofocus on touch, list scroll keeps
+      the panel open. `orderCrew()` unit-tested (5, mutation-checked).
+- [ ] **Crew tag, next: "Jake is also in N more photos here: tag all?"** after a tag,
+      using the face just saved (`crew_faces` embedding vs the review frames). One tap
+      instead of N. Needs the review frames embedded on the fly (Modal) or a match on
+      thumbnails; measure the latency on a cold detector (23-44s) before designing UX.
+- [ ] **Crew tag, stretch: pre-tag regulars before review.** Only after the line above
+      proves accurate on real crew: a wrong auto-tag silently drops a real photo from
+      the import (tagging unchecks the tile).
+- [ ] **Auto mosaic cover on SPS import (Mason's idea, 2026-10-17; he picks this next).**
+      What he does by hand every import: mosaic cover, insert mode, the SPS gallery
+      background as the logo. Done by hand for both Stanford reunions on 2026-10-17
+      (`/tmp` scripts, not kept): it works, and these are the edges found:
+  - SPS's archive API sends only `coverUrl` = `events.thumbnail_url` ("Dashboard
+    Thumbnail"). The background is `events.gallery_overlay_url` and is NOT exposed.
+    Needs an SPS change (add it to `apps/admin/src/app/api/integrations/archive/events`
+    and the manifest's `event`), so an SPS deploy: check live events first.
+    Both Stanford backgrounds were the same art as the thumbnail at 2x (2400 vs 1200px),
+    and `enable_gallery_overlay` was false on both: "background" may be off in SPS.
+  - Never the header logo (`header_image_url`): it is white-on-transparent for SPS's
+    dark header and vanishes on the white insert. Fallback: background, then
+    thumbnail, then a photo-only mosaic.
+  - Copy the bytes at pull START into `events/<id>/branding/cover-logo.<ext>` (SPS
+    deletes events after ~3 months; never hotlink). Set `settings.cover` at the
+    FINISH step in `src/lib/inngest/sps-pull.ts` (beside `snapshotRecap`), then send
+    `cover/focal.suggest` and `cover/raster.generate` like the PATCH route does, so the
+    email/OG raster composes once from a full gallery. A mosaic with no photos does not
+    render (`hasCover` checks images), so an early cover is safe on the page anyway.
+  - Only when `settings.cover` is unset: a resume or retry must not clobber a choice.
+  - `coverShowsTitle()` auto-hides the title when a logo is set. SPS art is often a
+    mark that does not name the event ("11"), so write `hideTitle: false`. Ask Mason
+    whether that should be the default.
+  - Fill `#FFFFFF` worked for both (one opaque white, one transparent corners); sample
+    the artwork's corner and use it when opaque and not white.
+  - Show it on the review screen before Import: "Cover: mosaic with [thumb] ✓",
+    untickable. That is the "anticipate it" Mason asked for.
+- [ ] Phone polish still open (from the audits): lightbox back gesture (history entry),
+      downloads to Photos on iOS (`navigator.share` files), section reorder on touch
+      (up/down), recap chart labels at phone width, guest selection bar on phones.
+
 ## Justin's editor feedback, round 3 (2026-10-11)
 
 Three items, reproduced in code before building (Mason: "ok lfg build all three").
