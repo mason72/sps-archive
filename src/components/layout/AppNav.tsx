@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ArrowDownToLine as ImportIcon, Menu as MenuIcon, X as XIcon } from "lucide-react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { BrandButton } from "@/components/ui/brand-button";
 
@@ -122,7 +126,11 @@ function SplitMenu({
           aria-expanded={pinned}
           aria-haspopup="menu"
           aria-label={`${label ?? "New Event"} menu`}
-          className="p-0.5 text-[9px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-600"
+          // The padding is the tap area, which at p-0.5 was ~13px and lost every
+          // thumb to the button beside it; tablets reach this row and have no
+          // hover either. Vertical margin only, so the row height is unchanged
+          // and the target never overlaps the label it sits next to.
+          className="-my-2 px-1.5 py-2 text-[9px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-600"
         >
           <span
             aria-hidden="true"
@@ -206,6 +214,14 @@ export function AppNav({ isAdmin, hasIntel, current }: AppNavProps) {
   const showIntel = hasIntel ?? asked?.hasIntel ?? false;
   return (
     <>
+      <MobileMenu current={current} showOps={showOps} showIntel={showIntel} />
+
+      {/*
+        `md:contents`, not a wrapper box: at desktop width these items must stay
+        direct flex children of Nav's row so its gap spaces them exactly as it
+        did before the phone menu existed.
+      */}
+      <div className="hidden md:contents">
       <Link href="/" className={cls("archive")}>Archive</Link>
       <Link href="/search" className={cls("search")}>Search</Link>
       <Link href="/people" className={cls("people")}>People</Link>
@@ -237,6 +253,142 @@ export function AppNav({ isAdmin, hasIntel, current }: AppNavProps) {
           <SignOutButton />
         </div>
       </SplitMenu>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The whole nav, below `md`, behind one button.
+ *
+ * The desktop row cannot shrink to a phone: logo, five items and two chevrons
+ * need ~800px. Worse, the only way into "Import from SPS" was a 9px chevron
+ * beside the New Event button, so on a phone a thumb landed on New Event and
+ * MADE an event (Mason, 2026-10-17, trying to import from his phone). Here
+ * every destination, menu children included, is a full-size row; nothing is
+ * behind hover or a chevron.
+ *
+ * Portalled to <body> because Nav sits inside `.fade-in`/`.reveal` ancestors,
+ * and an animating transform makes a `position: fixed` child fixed to THAT box
+ * rather than the viewport.
+ */
+function MobileMenu({
+  current,
+  showOps,
+  showIntel,
+}: {
+  current: AppNavProps["current"];
+  showOps: boolean;
+  showIntel: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  // A tapped link changes the route; the sheet must not survive it.
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const close = () => setOpen(false);
+  const big = (k: AppNavProps["current"]) =>
+    `flex items-center gap-3 py-2 font-editorial text-[30px] leading-tight transition-colors duration-200 ${
+      current === k ? "text-stone-900" : "text-stone-400 active:text-stone-700"
+    }`;
+  const dot = (k: AppNavProps["current"]) =>
+    current === k ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" /> : null;
+  const row =
+    "flex min-h-12 items-center justify-between border-b border-stone-100 text-[15px] text-stone-600 active:text-stone-900";
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="-mr-2.5 flex h-11 w-11 items-center justify-center text-stone-700 md:hidden"
+      >
+        <MenuIcon size={22} strokeWidth={1.5} />
+      </button>
+
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+          className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-white md:hidden"
+          style={{ animation: "editorial-fade 0.18s ease-out" }}
+        >
+          {/* Same geometry as Nav, so the X lands exactly where the menu button was. */}
+          <div className="flex shrink-0 items-center justify-between px-8 py-8">
+            <Link href="/" onClick={close} className="flex items-center gap-2.5">
+              <Image src="/logo.png" alt="pixeltrunk" width={32} height={32} className="rounded-md" />
+              <span className="font-brand text-[22px] text-stone-900">pixeltrunk</span>
+            </Link>
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close menu"
+              autoFocus
+              className="-mr-2.5 flex h-11 w-11 items-center justify-center text-stone-700"
+            >
+              <XIcon size={22} strokeWidth={1.5} />
+            </button>
+          </div>
+          <div className="mx-8 shrink-0 rule" />
+
+          <div className="flex flex-1 flex-col gap-10 px-8 pt-8 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+            <section>
+              <p className="label-caps mb-4">Create</p>
+              <Link href="/events/new" onClick={close} className="block">
+                <BrandButton color="emerald" size="md" className="w-full">New event</BrandButton>
+              </Link>
+              <Link
+                href="/events/import"
+                onClick={close}
+                className="mt-3 flex min-h-12 items-center gap-3 rounded-md border border-stone-200 px-4 py-3 text-stone-700 transition-colors active:bg-stone-50"
+              >
+                <ImportIcon size={18} strokeWidth={1.5} className="shrink-0 text-accent" />
+                <span className="flex flex-col">
+                  <span className="text-[15px] text-stone-900">Import from SimplePhotoShare</span>
+                  <span className="text-[12px] text-stone-400">Bring an SPS event&rsquo;s photos into the archive</span>
+                </span>
+              </Link>
+            </section>
+
+            <section>
+              <p className="label-caps mb-2">Browse</p>
+              <Link href="/" onClick={close} className={big("archive")}>Archive {dot("archive")}</Link>
+              <Link href="/search" onClick={close} className={big("search")}>Search {dot("search")}</Link>
+              <Link href="/people" onClick={close} className={big("people")}>People {dot("people")}</Link>
+              {showOps && <Link href="/ops" onClick={close} className={big("ops")}>Ops {dot("ops")}</Link>}
+            </section>
+
+            <section>
+              <p className="label-caps mb-1">Account</p>
+              <Link href="/account" onClick={close} className={row}>Account {dot("account")}</Link>
+              {showIntel && <Link href="/intel" onClick={close} className={row}>Intel {dot("intel")}</Link>}
+              {showIntel && <Link href="/intel/notes/new" onClick={close} className={row}>Add BTS photos</Link>}
+              <Link href="/settings/connections" onClick={close} className={row}>Connections</Link>
+              <div className="flex min-h-12 items-center text-[15px]">
+                <SignOutButton />
+              </div>
+            </section>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

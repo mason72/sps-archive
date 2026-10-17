@@ -793,7 +793,7 @@ export default function ImportFromSpsPage() {
                   return (
                     <li
                       key={ev.id}
-                      className="py-5 flex items-center justify-between gap-6"
+                      className="py-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
                     >
                       <div className="min-w-0 flex items-center gap-4">
                         {/* SPS's own cover, 16:9 — these are event covers, which
@@ -801,7 +801,7 @@ export default function ImportFromSpsPage() {
                             the subject out of its own key art. Cropping is fine
                             (Mason: "we croppin"); cropping to the wrong shape is
                             not. */}
-                        <div className="w-28 aspect-video shrink-0 bg-stone-100 overflow-hidden flex items-center justify-center">
+                        <div className="w-20 sm:w-28 aspect-video shrink-0 bg-stone-100 overflow-hidden flex items-center justify-center">
                           {ev.coverUrl ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img
@@ -816,7 +816,7 @@ export default function ImportFromSpsPage() {
                           )}
                         </div>
                         <div className="min-w-0">
-                          <h3 className="text-[16px] text-stone-900 truncate">
+                          <h3 className="text-[16px] text-stone-900 line-clamp-2 sm:truncate">
                             {ev.name}
                           </h3>
                           <p className="text-[13px] text-stone-400 mt-1">
@@ -865,7 +865,7 @@ export default function ImportFromSpsPage() {
                           Resume import
                         </button>
                       ) : ev.archiveEventId ? (
-                        <div className="flex shrink-0 flex-col items-end gap-1">
+                        <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
                           <Link
                             href={`/events/${ev.archiveEventId}`}
                             className="label-caps text-stone-300 hover:text-stone-500 inline-flex items-center gap-1.5"
@@ -920,10 +920,10 @@ export default function ImportFromSpsPage() {
                           )}
                         </div>
                       ) : (
-                        <div className="relative flex shrink-0 flex-col items-end gap-1.5">
+                        <div className="relative flex shrink-0 flex-col items-stretch gap-1.5 sm:items-end">
                           <button
                             onClick={() => beginReview(ev)}
-                            className="label-caps text-stone-500 hover:text-stone-900 border border-stone-200 hover:border-stone-400 px-4 py-2 transition-colors cursor-pointer"
+                            className="label-caps text-stone-500 hover:text-stone-900 border border-stone-200 hover:border-stone-400 px-4 py-3 sm:py-2 transition-colors cursor-pointer"
                           >
                             Review &amp; import
                           </button>
@@ -933,7 +933,7 @@ export default function ImportFromSpsPage() {
                               re-importing 300 photos that are already here. */}
                           <button
                             onClick={() => setLinkingId(linkingId === ev.id ? null : ev.id)}
-                            className="text-[11px] text-stone-300 transition-colors hover:text-stone-500 cursor-pointer"
+                            className="py-1 text-left text-[12px] text-stone-400 transition-colors hover:text-stone-500 cursor-pointer sm:py-0 sm:text-right sm:text-[11px] sm:text-stone-300"
                           >
                             Already in the archive?
                           </button>
