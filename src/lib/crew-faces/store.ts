@@ -435,6 +435,10 @@ function urlHostAllowed(u: URL): boolean {
   ).hostname;
   return (
     h === spsHost ||
+    // SPS serves guest photos from its own domain since 2026-10-20 (the shared
+    // r2.dev host is blocked by corporate web filters); r2.dev stays for rows
+    // minted before that.
+    h === "photos-cdn.simplephotoshare.com" ||
     h.endsWith(".r2.dev") ||
     h.endsWith(".r2.cloudflarestorage.com")
   );
