@@ -325,7 +325,10 @@ are ~0.17 TB and duplicates only 31 GB, so neither is worth trimming. There is
 no cheaper R2 plan.
 
 **To read the bill:** storage dollars ÷ $0.015 ≈ average GB stored; compare with
-R2 > Overview before suspecting a loop. Class A should fall toward the free
+R2 > Overview before suspecting a loop. The budget alert (email only, caps
+nothing) is **$150** since 2026-10-20, about twice the normal bill, so it fires
+on a runaway, not on growth. The dashboard's "Upgrade" is Workers Paid, which is
+compute this app does not use; it does not change R2 prices. Class A should fall toward the free
 1M/month once the migration is done.
 
 **Infrequent Access (IA) for originals** (`src/lib/r2/tiering.ts`,
