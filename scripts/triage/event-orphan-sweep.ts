@@ -28,7 +28,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     region: "auto",
     endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
-    requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
+    // socketTimeout is the idle limit; requestTimeout only warns (R2_REQUEST_HANDLER in client.ts).
+    requestHandler: { connectionTimeout: 10_000, socketTimeout: 120_000 },
   });
   const Bucket = process.env.R2_BUCKET_NAME!;
 

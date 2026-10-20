@@ -21,6 +21,7 @@ import {
   usageAnomalyDaily,
   pricingSummaryWeekly,
   capacityCheck,
+  r2InfrequentAccess,
 } from "@/lib/inngest/ops-functions";
 import { peopleIndexRefresh } from "@/lib/inngest/people-index";
 
@@ -51,5 +52,6 @@ export const { GET, POST, PUT } = serve({
     usageAnomalyDaily,
     pricingSummaryWeekly,
     capacityCheck,
+    r2InfrequentAccess,
   ],
 });

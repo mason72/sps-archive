@@ -3,6 +3,7 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { R2_REQUEST_HANDLER } from "./client";
 
 /**
  * Public marketing lane (sps-public bucket).
@@ -29,6 +30,8 @@ const R2 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
+  // The shared idle timeout (it had none); see R2_REQUEST_HANDLER in client.ts.
+  requestHandler: R2_REQUEST_HANDLER,
 });
 
 /** Private source bucket (client galleries live here). */

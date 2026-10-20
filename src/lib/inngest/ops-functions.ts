@@ -75,3 +75,78 @@ export const capacityCheck = inngest.createFunction(
     });
   }
 );
+
+/**
+ * Daily 3:41am PT (10:41 UTC): move originals untouched for 30 days to R2
+ * Infrequent Access (src/lib/r2/tiering.ts). Walks the bucket in bounded
+ * slices from a cursor in ops_config, so one lap of the archive can span a
+ * few runs. Off unless R2_IA_TIERING_ENABLED is "true".
+ *
+ * Born 2026-10-20: the bill crossed its $75 alert once the Pixieset migration
+ * landed (~4.3 TB of originals), and Infrequent Access saves ~$21/month on
+ * files that are almost never read.
+ */
+// A slice stops STARTING pages after 5 minutes (a full page of copies takes
+// ~3 min at the measured ~5 copies/s) and stops starting COPIES at 580 s; a
+// copy in flight is capped at 150 s, so a step ends by ~735 s, under the
+// route's 800 s even when R2 turns slow mid-page. 150 slices is more than one
+// lap (~4,500 pages, ~1.3 s each).
+const IA_SLICE_BUDGET_MS = 5 * 60 * 1000;
+const IA_SLICE_HARD_MS = 580 * 1000;
+const IA_MAX_SLICES = 150;
+
+export const r2InfrequentAccess = inngest.createFunction(
+  {
+    id: "r2-infrequent-access",
+    // A listing can fail on a transient DNS/network blip (seen 2026-10-20 on
+    // the dry run); the cursor is saved per page, so a retried step resumes.
+    retries: 3,
+    concurrency: { limit: 1 },
+    // A run that dies after its retry must not fail silently.
+    onFailure: async ({ error }) => {
+      await reportSystemError("r2.ia-tiering-crashed", error, {});
+    },
+  },
+  [{ cron: "41 10 * * *" }, { event: "ops/r2-ia.run" }],
+  async ({ step }) => {
+    const { isIaTieringEnabled } = await import("@/lib/r2/tiering");
+    if (!isIaTieringEnabled()) return { skipped: 'R2_IA_TIERING_ENABLED is not "true"' };
+
+    const { runIaSlice } = await import("@/lib/r2/tiering-run");
+    const totals = { slices: 0, pages: 0, moved: 0, movedGB: 0, failed: 0, wrapped: false, stalled: false };
+    const failures: { key: string; error: string }[] = [];
+    for (let i = 0; i < IA_MAX_SLICES; i++) {
+      const r = await step.run(`walk-${i}`, async () => {
+        const res = await runIaSlice(createServiceClient(), IA_SLICE_BUDGET_MS, IA_SLICE_HARD_MS);
+        // Inngest stores step output: keep it small.
+        return { ...res, failed: res.failed.slice(0, 20), failedCount: res.failed.length };
+      });
+      totals.slices += 1;
+      totals.pages += r.pages;
+      totals.moved += r.moved;
+      totals.movedGB = Math.round((totals.movedGB + r.movedBytes / 1e9) * 100) / 100;
+      totals.failed += r.failedCount;
+      if (failures.length < 20) failures.push(...r.failed);
+      if (r.wrapped || r.stalled) {
+        totals.wrapped = r.wrapped;
+        totals.stalled = r.stalled;
+        break;
+      }
+    }
+
+    if (totals.failed > 0 || totals.stalled) {
+      await step.run("report", () =>
+        reportSystemError(
+          "r2.ia-tiering",
+          new Error(
+            totals.stalled
+              ? "R2 Infrequent Access walk stalled: every copy in a page failed (5 or more)"
+              : `R2 Infrequent Access: ${totals.failed} copies failed (they stay on the normal tier and retry next lap)`
+          ),
+          { totals, sample: failures.slice(0, 10) }
+        )
+      );
+    }
+    return totals;
+  }
+);

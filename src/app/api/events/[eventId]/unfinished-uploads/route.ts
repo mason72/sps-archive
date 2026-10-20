@@ -117,35 +117,48 @@ export async function DELETE(
       .lt("created_at", staleCutoff);
     if (error) throw error;
 
-    const { getObjectMetadata } = await import("@/lib/r2/client");
+    // getObjectSize, not getObjectMetadata: the latter returns only custom
+    // x-amz-meta-* fields, so its `.size` was always undefined and every row
+    // read as "no bytes", including photos that had landed (found 2026-10-20).
+    const { getObjectSize } = await import("@/lib/r2/client");
     const deletable: string[] = [];
     let recoverable = 0;
+    let unchecked = 0;
     for (const row of (rows ?? []) as { id: string; r2_key: string | null }[]) {
-      let bytes = 0;
+      let bytes: number | null = null;
       if (row.r2_key) {
         try {
-          bytes = Number((await getObjectMetadata(row.r2_key))?.size ?? 0);
+          bytes = await getObjectSize(row.r2_key);
         } catch {
-          bytes = 0;
+          // R2 did not answer: unknown is not "gone", so keep the row for the
+          // next click rather than delete a photo that may be there.
+          unchecked += 1;
+          continue;
         }
       }
       // Bytes present = a finalize that never landed, NOT a lost upload.
       // Deleting it would destroy a photo the photographer actually has.
-      if (bytes > 0) recoverable += 1;
+      if (bytes !== null && bytes > 0) recoverable += 1;
       else deletable.push(row.id);
     }
 
+    let deleted = 0;
     if (deletable.length > 0) {
-      const { error: delErr } = await supabase
+      const { data: gone, error: delErr } = await supabase
         .from("images")
         .delete()
-        .in("id", deletable);
+        .in("id", deletable)
+        // A row that finalized after the check above is no longer a ghost.
+        .eq("processing_status", "pending")
+        .select("id");
       if (delErr) throw delErr;
+      deleted = gone?.length ?? 0;
     }
 
     return NextResponse.json({
-      deleted: deletable.length,
+      deleted,
       recoverable,
+      unchecked,
       checked: rows?.length ?? 0,
     });
   } catch (error) {

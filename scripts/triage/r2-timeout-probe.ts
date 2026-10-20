@@ -5,6 +5,11 @@
  * bucket through src/lib/r2/client.ts to prove the option did not break it.
  *
  *   npx tsx scripts/triage/r2-timeout-probe.ts <existing-r2-key>
+ *
+ * ⚠️ 2026-10-20: a blackhole ADDRESS never accepts the connection, so this
+ * only ever exercised connectionTimeout, never the idle timeout the 2026-09-09
+ * fix depended on, and it kept passing while that guard was a no-op. The idle
+ * case (accepts, never answers) is scripts/triage/r2-timeout-mode-probe.ts.
  */
 import fs from "node:fs";
 for (const l of fs.readFileSync(".env.local","utf8").split("\n")) { const m=l.match(/^([A-Z0-9_]+)=(.*)$/); if(m&&process.env[m[1]]===undefined) process.env[m[1]]=m[2]; }
@@ -15,7 +20,7 @@ async function main() {
     region: "auto",
     endpoint: "https://10.255.255.1",
     credentials: { accessKeyId: "x", secretAccessKey: "y" },
-    requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
+    requestHandler: { connectionTimeout: 10_000, socketTimeout: 120_000 },
     maxAttempts: 1,
   });
   let t = Date.now();

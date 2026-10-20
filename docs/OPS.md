@@ -76,6 +76,9 @@ Built 2026-08-10. Everything here shipped verified; history in `tasks/todo.md`
   `PLANS.monthlyPriceUsd` (stripe/config.ts — must match m/pricing page).
 - `capacity-check` (hourly at :23 + `ops/capacity.run`): is the database still
   big enough, and is the AI lane keeping up? See "Capacity" below.
+- `r2-infrequent-access` (daily 3:41am PT + `ops/r2-ia.run`): moves originals
+  untouched for 30 days to R2 Infrequent Access. Off unless
+  `R2_IA_TIERING_ENABLED=true`. See "R2 bill and storage tiers" below.
 - First-run harness: `scripts/verify-ops-crons.ts` (pass ADMIN_ALERT_EMAIL).
 - Verifying Inngest registration: unsigned GET /api/inngest is 401 since SDK
   3.54 — introspection must be HMAC-signed (the 401 is itself healthy).
@@ -309,6 +312,48 @@ one command and it would have been the first correct answer.
 The guard now matches the real wording *and* the unrecognized-output branch
 fails closed (idle + shout) instead of open (spin), so the next wording drift
 costs five minutes of latency rather than a day of CPU.
+
+## R2 bill and storage tiers (added 2026-10-20)
+
+The Cloudflare account (`aa3ce5fa…`) carries three buckets, measured 2026-10-20:
+`sps-prism` (this app, 4.43 TB, 6.25M objects), `sps-storage` (SimplePhotoShare
+v2, 456 GB) and `sps-public` (website lane, 5 GB), plus the $5/month Stream
+subscription for the TDP site videos. The cycle ending Oct 22 came to ~$81:
+$53 storage, $22.50 Class A writes from the Pixieset migration, reads free.
+`sps-prism` is ~96% originals (`images.file_size` sums to 4.26 TB); thumbnails
+are ~0.17 TB and duplicates only 31 GB, so neither is worth trimming. There is
+no cheaper R2 plan.
+
+**To read the bill:** storage dollars ÷ $0.015 ≈ average GB stored; compare with
+R2 > Overview before suspecting a loop. Class A should fall toward the free
+1M/month once the migration is done.
+
+**Infrequent Access (IA) for originals** (`src/lib/r2/tiering.ts`,
+`tiering-run.ts`, job `r2-infrequent-access`). IA stores for $0.010/GB-month
+instead of $0.015 but charges $0.01/GB per read, $9/M writes, no free tier,
+and a 30-day minimum. Originals qualify once they are 30 days old, at least
+1 MiB, not video, not website-published and not a cover upload. Saving ~$21/month
+once the migration's originals have aged in (late November 2026).
+- **How it works:** the job walks the bucket listing (which reports each
+  object's age and class), jumps over each event's thumbnails, and copies each
+  qualifying original onto itself with `StorageClass: STANDARD_IA`, guarded by
+  the listed ETag. Bytes, length and Content-Type are unchanged (sha256 proof:
+  `scripts/triage/r2-ia-probe.ts`). The cursor lives in `ops_config` key
+  `r2-ia-tiering`; a lap of the archive (~4,500 listing pages at ~1.3 s each)
+  spans one to two daily runs, and the cursor wraps at the end.
+- **Dry run / backlog:** `npx tsx scripts/r2-ia-tiering.ts` counts what would
+  move (moves nothing); `--apply` moves it; `--pages N` limits the walk. It does
+  not touch the job's cursor and is safe beside it.
+- **Undo:** copy the objects back with `StorageClass: STANDARD` (same cost as
+  the move); nothing in the app reads the storage class.
+- **Readers that pay the retrieval fee on old photos:** downloads and ZIPs, the
+  guest lightbox and cover hero (they load the original), the OG image fallback,
+  thumbnail self-heal and batch rebuilds. All are cents per gallery. **The trap
+  is a whole-archive job that re-reads originals** (a thumbnail regeneration,
+  `verify-pixieset-ingest --all`): about $43 for every 4.3 TB read.
+- **Watch** the first invoice after the backfill for a new "Infrequent Access
+  data retrieval" line. If it is more than a few dollars, something is
+  bulk-reading old originals.
 
 ## Inngest plan (decided 2026-10-09)
 Inngest runs every background function in this app (AI index lane, faces, covers, zips, SPS pull + watchdog, and

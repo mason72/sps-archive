@@ -284,17 +284,24 @@ export function ProcessingBanner({
                 const r = (await res.json()) as {
                   deleted?: number;
                   recoverable?: number;
+                  unchecked?: number;
                 };
-                if (res.ok) {
+                if (res.ok && !r.deleted && r.unchecked) {
+                  toast.error("Couldn't check those uploads", {
+                    description: "Nothing was removed. Try again in a minute.",
+                  });
+                } else if (res.ok) {
                   toast.success(
                     `Cleared ${(r.deleted ?? 0).toLocaleString()} unfinished upload${r.deleted === 1 ? "" : "s"}`,
                     {
-                      description: r.recoverable
-                        ? `${r.recoverable} had already arrived and will be repaired automatically.`
-                        : "Re-drop those files if you still want them.",
+                      description: r.unchecked
+                        ? `${r.unchecked} couldn't be checked and were kept. Try again in a minute.`
+                        : r.recoverable
+                          ? `${r.recoverable} had already arrived and will be repaired automatically.`
+                          : "Re-drop those files if you still want them.",
                     }
                   );
-                  setStatus((s) => (s ? { ...s, stalled: 0 } : s));
+                  setStatus((s) => (s ? { ...s, stalled: r.unchecked ?? 0 } : s));
                 } else {
                   toast.error("Couldn't clear those rows");
                 }

@@ -6,6 +6,7 @@ beforeEach(() => {
 });
 
 vi.mock("@/lib/r2/client", () => ({
+  R2_REQUEST_HANDLER: { connectionTimeout: 10_000, socketTimeout: 120_000 },
   uploadToR2: vi.fn().mockResolvedValue(undefined),
   buildImageKey: (eventId: string, filename: string, variant?: string) =>
     variant

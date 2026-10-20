@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { buildImageKey, getThumbnailKey } from "./client";
+import { buildImageKey, getThumbnailKey, R2_REQUEST_HANDLER } from "./client";
+
+describe("R2_REQUEST_HANDLER", () => {
+  // requestTimeout only WARNS on @smithy/node-http-handler 4.9.x; the idle
+  // limit that aborts a hung socket is socketTimeout (2026-10-20 probe).
+  it("aborts on an idle socket, not with the warn-only total timer", () => {
+    expect(R2_REQUEST_HANDLER.socketTimeout).toBe(120_000);
+    expect("requestTimeout" in R2_REQUEST_HANDLER).toBe(false);
+  });
+});
 
 describe("buildImageKey", () => {
   it("builds the originals key by default", () => {

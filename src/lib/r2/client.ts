@@ -6,10 +6,43 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  CopyObjectCommand,
+  type _Object,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 import { PassThrough } from "node:stream";
+
+/**
+ * TIMEOUTS for every R2 client in the app, because a socket that dies
+ * mid-request otherwise waits forever.
+ *
+ * 2026-09-09: one R2 PUT hung for two hours with 0% CPU and a single
+ * ESTABLISHED socket, and since the Pixieset ingest awaits its workers with
+ * one Promise.all, that one call froze the whole collection at 2,792 of 2,834
+ * photos — silently, because the loop only prints a run's output when it
+ * exits. The intent is an IDLE limit: a large transfer that is still moving
+ * must never trip it; a transfer that has stopped moving for two minutes is
+ * dead. A timeout is a retryable error to the SDK, so a flaky connection costs
+ * a retry, not a stall.
+ *
+ * ⚠️ That limit is `socketTimeout`, NOT `requestTimeout` (2026-10-20). On
+ * @smithy/node-http-handler 4.9.x `requestTimeout` is a TOTAL-time timer that
+ * only logs a WARN unless `throwOnRequestTimeout` is set, so the original
+ * `requestTimeout: 120_000` had silently stopped protecting anything after an
+ * SDK upgrade. Proof against a local server that accepts and never answers:
+ * scripts/triage/r2-timeout-mode-probe.ts (requestTimeout hangs past its
+ * deadline; socketTimeout aborts on time).
+ *
+ * What it covers, precisely: smithy arms the idle timer ~3 s into a request
+ * and clears it when response HEADERS arrive. So it catches a request that
+ * goes silent before answering (the 2026-09-09 PUT hang, a hung copy), but NOT
+ * a download whose body stalls after quick headers. Calls that must never hang
+ * pass their own `abortSignal: AbortSignal.timeout(...)` (getObjectSize,
+ * listObjectsPage, copyToInfrequentAccess). getObjectBuffer and the thumbnail
+ * generator's GET still rely on the platform's function limit for that case.
+ */
+export const R2_REQUEST_HANDLER = { connectionTimeout: 10_000, socketTimeout: 120_000 };
 
 const R2 = new S3Client({
   region: "auto",
@@ -18,19 +51,7 @@ const R2 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
-  /**
-   * TIMEOUTS, because a socket that dies mid-request otherwise waits forever.
-   *
-   * 2026-09-09: one R2 PUT hung for two hours with 0% CPU and a single
-   * ESTABLISHED socket, and since the Pixieset ingest awaits its workers with
-   * one Promise.all, that one call froze the whole collection at 2,792 of 2,834
-   * photos — silently, because the loop only prints a run's output when it
-   * exits. `requestTimeout` is socket IDLE time, not total time, so a large
-   * transfer that is still moving never trips it; a transfer that has stopped
-   * moving for two minutes is dead. A timeout is a retryable error to the SDK,
-   * so a flaky connection costs a retry, not a stall.
-   */
-  requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
+  requestHandler: R2_REQUEST_HANDLER,
 });
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
@@ -277,6 +298,70 @@ export async function objectExistsInR2(key: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Did R2 answer "no such object" (as opposed to failing to answer)? */
+export function isR2NotFound(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return e?.name === "NotFound" || e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
+}
+
+/**
+ * Byte length of an object: a number when it exists, null when R2 says it does
+ * not. Any other failure THROWS, so a caller deciding whether to delete
+ * something can never mistake "R2 did not answer" for "the bytes are gone"
+ * (objectExistsInR2 folds both into false, which is fine for a nudge and wrong
+ * for a delete).
+ */
+export async function getObjectSize(key: string, timeoutMs = 15_000): Promise<number | null> {
+  try {
+    const head = await R2.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }), {
+      abortSignal: AbortSignal.timeout(timeoutMs),
+    });
+    return head.ContentLength ?? 0;
+  } catch (err) {
+    if (isR2NotFound(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * One page (≤1,000 keys, lexical order) of the bucket under `prefix`, resuming
+ * after `startAfter`. Hard 60 s limit (a page takes ~1.3 s): the idle timeout
+ * cannot catch a body that stalls after quick headers.
+ */
+export async function listObjectsPage(
+  prefix: string,
+  startAfter?: string
+): Promise<{ objects: _Object[]; truncated: boolean }> {
+  const res = await R2.send(
+    new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, StartAfter: startAfter, MaxKeys: 1000 }),
+    { abortSignal: AbortSignal.timeout(60_000) }
+  );
+  return { objects: res.Contents ?? [], truncated: !!res.IsTruncated };
+}
+
+/**
+ * Re-store an object in R2's Infrequent Access class by copying it onto
+ * itself. Server-side and atomic: the key either still holds the old object or
+ * holds the identical bytes at the cheaper class (proved by sha256 round-trip,
+ * scripts/triage/r2-ia-probe.ts, 2026-10-20). `etag` is the one the caller
+ * listed, so an object overwritten since then is refused (412), not re-filed.
+ * Hard 150 s limit across the SDK's retries (a copy takes ~2.8 s), so one hung
+ * copy cannot hold a walk past its step's time limit.
+ */
+export async function copyToInfrequentAccess(key: string, etag: string): Promise<void> {
+  await R2.send(
+    new CopyObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      CopySource: encodeURI(`${BUCKET}/${key}`),
+      CopySourceIfMatch: etag,
+      MetadataDirective: "COPY",
+      StorageClass: "STANDARD_IA",
+    }),
+    { abortSignal: AbortSignal.timeout(150_000) }
+  );
 }
 
 /** Delete a file from R2 */

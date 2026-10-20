@@ -4577,3 +4577,39 @@ toolbars, and visible two-step versions of every hover-only control.
   into each popover, menu and sheet in the probe and screenshot it open.
 - **Screens worth returning to live in the URL**, so the nav, back links and the back gesture work.
 - After `git commit -- <paths>`, `git status --short` must be empty of `??` files the change uses.
+
+## 186. The R2 alert fired at the normal bill, and "dismiss unfinished uploads" deleted landed photos (2026-10-20)
+
+**What happened.** Cloudflare's $75 budget alert fired at $75.95 for the cycle. Nothing was wrong: the
+Pixieset migration had landed ~4.3 TB of originals, and storage is $15/TB/month. The alert sat at $75
+because on 2026-09-16 I set it at "2x a $30-60 steady state", and that steady state was a guess from the
+upload rate, never checked against the size of what was being migrated. One SQL sum
+(`select sum(file_size) from images`) would have given the real number then.
+
+While mapping every reader of originals for the Infrequent Access move, the code survey found
+`DELETE /api/events/[id]/unfinished-uploads` deciding "did this stale row's photo land?" with
+`getObjectMetadata(key)?.size`. That helper returns only custom `x-amz-meta-*` fields; nothing writes
+`size`, so every row read as 0 bytes and was deleted, including rows whose photo was in R2 (the bytes
+stay there, unnamed). The comment above the check said the opposite of what it did.
+
+**Rules.**
+- **A budget threshold is derived from a measured size, not from a rate.** Before setting an alert,
+  compute the steady state from what will be stored (row sums, bucket sizes), and write the measurement
+  next to the number.
+- **A helper's name is not its contract.** `getObjectMetadata` reads custom metadata, not object facts.
+  Existence and size come from `getObjectSize` (HEAD ContentLength; null only on a real 404; throws
+  otherwise), so a delete can never treat "R2 did not answer" as "the bytes are gone".
+- **Swept:** all 6 callers of `getObjectMetadata`; only this route read a field nobody writes.
+
+**Found the same day: the R2 hang guard had been a no-op.** Timing the Infrequent Access copies, the SDK
+printed `[WARN] a request has exceeded the configured 120000 ms requestTimeout ... throwOnRequestTimeout=true`.
+On `@smithy/node-http-handler` 4.9.2 `requestTimeout` is a TOTAL-time timer that only warns; the idle timer
+is `socketTimeout`. So the 2026-09-09 fix (lesson 131) protected nothing after an SDK upgrade, and its probe
+(`r2-timeout-probe.ts`) pointed at an address that never accepts a connection, which only exercises
+`connectionTimeout`. `scripts/triage/r2-timeout-mode-probe.ts` uses a local server that accepts and never
+answers: `requestTimeout` HUNG past an 8 s deadline, `socketTimeout` threw at 2.0 s. Fixed in all three
+app clients through one `R2_REQUEST_HANDLER`; within the hour it aborted a real hung copy at 120 s.
+- **A timeout guard is tested against the failure it names.** "Hangs mid-request" needs a peer that accepts
+  and goes silent; an unroutable address tests the connect phase only.
+- **A dependency upgrade can change what an option MEANS without a type error.** Pin the behavior with a
+  test (`client.test.ts` asserts the handler has `socketTimeout` and no `requestTimeout`).
