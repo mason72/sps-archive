@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Loader2, RotateCcw, Users } from "lucide-react";
+import { Check, Loader2, RotateCcw, Undo2, Users } from "lucide-react";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import { crew as crewRegistry, type KnownCrew } from "@/components/intel/registry-cache";
 import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
@@ -25,6 +25,12 @@ import { TOUCH_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
  * saving → "Moved to crew photos · Joey" → or a Retry on failure, which also
  * re-checks the tile (no face saved means the frame has no reason to go).
  * Nothing on screen waits on the detector, and several tags run at once.
+ *
+ * A saved receipt carries Undo (2026-10-21). Mason picked Erin for a frame of
+ * Mike and had no way back short of a database edit: the receipt was the end
+ * of the line. Undo deletes exactly the reference this tag made (the id the
+ * POST returned), puts the frame back into the import, and brings the tag
+ * button back so the right name can be picked.
  *
  * Renders nothing without Event Intel — the roster is crew data, and the
  * import screen itself is open to every account.
@@ -64,7 +70,8 @@ function pushRecent(id: string) {
 type Phase =
   | { kind: "idle" }
   | { kind: "saving"; crew: RosterRow }
-  | { kind: "saved"; crew: RosterRow }
+  | { kind: "saved"; crew: RosterRow; refId: string; undoError?: string }
+  | { kind: "undoing"; crew: RosterRow; refId: string }
   | { kind: "failed"; crew: RosterRow; error: string };
 
 /** First name is enough on a 200px tile; the full name is in the title. */
@@ -78,6 +85,7 @@ export function CrewFaceTag({
   onTagStart,
   onTagged,
   onTagFailed,
+  onUntagged,
 }: {
   /** The frame's FULL-SIZE source — a thumbnail makes a bad reference. */
   imageUrl: string;
@@ -93,6 +101,8 @@ export function CrewFaceTag({
   onTagged: (crewName: string) => void;
   /** The save failed: the caller puts the frame back into the import. */
   onTagFailed: (crewName: string) => void;
+  /** The tag was undone: the caller puts the frame back into the import. */
+  onUntagged?: (crewName: string) => void;
 }) {
   const hasIntel = useIntelAccess();
   const [open, setOpen] = useState(false);
@@ -176,11 +186,31 @@ export function CrewFaceTag({
         onTagFailed(c.display_name);
         return;
       }
-      setPhase({ kind: "saved", crew: c });
+      setPhase({ kind: "saved", crew: c, refId: j.id });
       onTagged(c.display_name);
     } catch {
       setPhase({ kind: "failed", crew: c, error: "Couldn't save the face." });
       onTagFailed(c.display_name);
+    }
+  };
+
+  const undo = async (c: RosterRow, refId: string) => {
+    setPhase({ kind: "undoing", crew: c, refId });
+    const failed = (undoError: string) => setPhase({ kind: "saved", crew: c, refId, undoError });
+    try {
+      const res = await fetch(`/api/crew/${c.id}/faces`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ faceRefId: refId }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        return failed(j.error ?? "Couldn't undo. Try again.");
+      }
+      setPhase({ kind: "idle" });
+      onUntagged?.(c.display_name);
+    } catch {
+      failed("Couldn't undo. Try again.");
     }
   };
 
@@ -232,8 +262,11 @@ export function CrewFaceTag({
             phase.kind === "failed"
               ? phase.error
               : phase.kind === "saved"
-                ? `${phase.crew.display_name}: face saved to their crew references. The frame stays out of the import.`
-                : `${phase.crew.display_name}: saving their face…`
+                ? (phase.undoError ??
+                  `${phase.crew.display_name}: face saved to their crew references. The frame stays out of the import.`)
+                : phase.kind === "undoing"
+                  ? `Removing this face from ${phase.crew.display_name}…`
+                  : `${phase.crew.display_name}: saving their face…`
           }
           className={`absolute inset-x-1.5 bottom-1.5 z-10 flex items-start gap-1.5 px-2 py-1.5 text-[11px] leading-[1.25] shadow-sm ${
             phase.kind === "failed"
@@ -253,7 +286,24 @@ export function CrewFaceTag({
               {/* Wraps rather than truncates: on a 200px tile "Moved to crew
                   photos · Joey Nagoshiner" lost the name, which is the part
                   that tells three tags apart (seen live, 2026-09-02). */}
-              <span>Moved to crew photos · {phase.crew.display_name}</span>
+              <span className="min-w-0 flex-1">Moved to crew photos · {phase.crew.display_name}</span>
+              <button
+                type="button"
+                onClick={() => undo(phase.crew, phase.refId)}
+                title={`Not ${phase.crew.display_name}? Remove this face from them and put the frame back`}
+                className={`inline-flex shrink-0 items-center gap-1 font-medium transition-colors ${
+                  phase.undoError ? "text-amber-700 hover:text-amber-900" : "text-stone-500 hover:text-stone-900"
+                }`}
+              >
+                <Undo2 size={10} />
+                Undo
+              </button>
+            </>
+          )}
+          {phase.kind === "undoing" && (
+            <>
+              <Loader2 size={11} className="shrink-0 animate-spin text-stone-400" />
+              <span className="truncate">Undoing…</span>
             </>
           )}
           {phase.kind === "failed" && (

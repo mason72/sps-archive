@@ -4613,3 +4613,11 @@ app clients through one `R2_REQUEST_HANDLER`; within the hour it aborted a real 
   and goes silent; an unroutable address tests the connect phase only.
 - **A dependency upgrade can change what an option MEANS without a type error.** Pin the behavior with a
   test (`client.test.ts` asserts the handler has `socketTimeout` and no `requestTimeout`).
+
+## 187. A receipt with no undo turns a misclick into a database edit (2026-10-21)
+
+**What happened.** On the Money 2020 import review, Mason tagged a frame of Mike Walker as Erin Curdie. The tile showed "Moved to crew photos · Erin Curdie" and offered nothing else, so the only way back was a direct row edit. The fix was cheap because the server already had a single-reference DELETE (the crew panel uses it); only the tile never offered it.
+
+**How it was repaired.** Today's six new Erin references were scored against Mike's and Erin's older references (pgvector cosine, `1 - (a <=> b)`). One scored 0.65 to Mike and 0.01 to Erin; the other five scored about 0.71 to 0.74 to Erin. That row (`c1ddbadc…`) was MOVED to Mike rather than deleted, since the tag's intent (keep this crew face) was right and only the name was wrong. Nothing had auto-linked from it: `crew_persons` only changes on a human confirm, and matching reads references live.
+
+**Rule.** Any action that writes and then shows a receipt gets an Undo on that receipt, reversing exactly the row it made (keep the id the write returned). `CrewFaceTag` now does this: Undo deletes the reference, re-checks the tile, and brings the tag button back. Fixture: `/dev/crew-tag` (stubbed fetch, writes nothing).

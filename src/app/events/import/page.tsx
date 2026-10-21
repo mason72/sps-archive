@@ -1296,6 +1296,16 @@ export default function ImportFromSpsPage() {
                           return next;
                         });
                       }}
+                      onUntagged={() => {
+                        // Wrong name: the face is gone from them, so the frame
+                        // goes back in until the right name is picked.
+                        setCrewTagged((n) => Math.max(0, n - 1));
+                        setDeselected((prev) => {
+                          const next = new Set(prev);
+                          next.delete(img.id);
+                          return next;
+                        });
+                      }}
                     />
                   </div>
                 );
