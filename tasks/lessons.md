@@ -4674,6 +4674,17 @@ that we'll need to pull over."
   arrived, and the three curl cases (no header, malformed, web origin) print 403 with the
   extension case printing the keys. A guard added for a reviewer gets the same live proof as the
   code it guards; "curl got 403" proved only that curl got 403.
+- **The diagnostic settled the "Cloudflare challenge" in one tick.** With the HTTP status, matched
+  marker and gallery-markup flag on the line, benandgiddy read: HTTP 200, `challenge-platform` only,
+  53,213 chars, gallery markup present. A 200 gallery page carries Cloudflare's passive beacon; with
+  downloads switched off it has no `/download/auth/` link, and that pairing was the whole "challenge"
+  on 2026-10-14 and 2026-10-24. v1.3.8: a page with gallery markup is never a challenge. Two stops
+  of the whole queue, each for 20 collections with downloads off, from one over-broad regex.
+- **"Gated, no password armed" has a second meaning.** INFORMATICA 2024 and SJC Bubble Bash have no
+  password at all; the gate is `email_registration: 1`, which `unlock()` cannot post and Arm cannot
+  free, so they would have been deferred forever. The owner session sees them ungated; v1.3.9 added
+  the repair verb `ungate` and fronted both while Mason was signed in. Read the collection's gate
+  fields from the admin API before assuming the gate is a password.
 - **Live uploads blocked the push** (119 images in the last hour at 16:30Z), so the change was
   committed and held, per the SPS gate, even though it touches no app code (a push still deploys).
 
