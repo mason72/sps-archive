@@ -439,6 +439,28 @@ export default function ImportFromSpsPage() {
   }, [events, eventQuery]);
 
   /**
+   * The list reads as a to-do list (Mason, 2026-10-23): what still needs a
+   * decision on top, what is already in the archive below. An import in
+   * flight or one that stopped part-way is still work, so it stays on top
+   * even though its archive event exists. SPS's order (newest finished first)
+   * is kept inside each group.
+   */
+  const { todo, archived } = useMemo(() => {
+    const todo: SpsEventRow[] = [];
+    const archived: SpsEventRow[] = [];
+    for (const ev of visibleEvents) {
+      const settled =
+        ev.archiveEventId &&
+        ev.job?.status !== "running" &&
+        ev.job?.status !== "queued" &&
+        ev.job?.status !== "cancelled" &&
+        ev.job?.status !== "failed";
+      (settled ? archived : todo).push(ev);
+    }
+    return { todo, archived };
+  }, [visibleEvents]);
+
+  /**
    * Photos to drift past the elephant while the pull runs.
    *
    * Drawn from the manifest previews the review grid already fetched, and only
@@ -876,8 +898,26 @@ export default function ImportFromSpsPage() {
                     No SPS events match “{eventQuery}”.
                   </p>
                 ) : (
+                <>
+                {[
+                  { key: "todo", label: "To import", rows: todo },
+                  { key: "archived", label: "In the archive", rows: archived },
+                ].map((group) => (
+                  <section key={group.key} className="mb-10">
+                    <div className="flex flex-col gap-1 pb-3 sm:flex-row sm:items-baseline sm:justify-between">
+                      <h2 className="label-caps">
+                        {group.label}{" "}
+                        <span className="ml-1 text-stone-300">{group.rows.length}</span>
+                      </h2>
+                      {group.key === "todo" && group.rows.length === 0 && (
+                        <p className="text-[13px] text-stone-400">
+                          Everything finished on SPS is in the archive.
+                        </p>
+                      )}
+                    </div>
+                    {group.rows.length > 0 && (
                 <ul className="divide-y divide-stone-100 border-t border-b border-stone-100">
-                {visibleEvents.map((ev) => {
+                {group.rows.map((ev) => {
                   const busy =
                     ev.job?.status === "running" || ev.job?.status === "queued";
                   const resumable =
@@ -1043,6 +1083,10 @@ export default function ImportFromSpsPage() {
                   );
                 })}
                 </ul>
+                    )}
+                  </section>
+                ))}
+                </>
                 )}
               </>
             )}
