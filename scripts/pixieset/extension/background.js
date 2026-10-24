@@ -203,6 +203,17 @@ const REPAIRS = [
     front: ["oct2026metaeventphotos"],
   },
   {
+    id: "2026-10-24-ungate-email-registration-galleries",
+    // Deferred as "gated, no password armed", but neither has a password: both
+    // are gated by email registration (`email_registration: 1`, read from the
+    // admin API 2026-10-24), which `unlock()` cannot open and arming never will.
+    // With Mason's owner session in the Pixieset tab the gallery is not gated at
+    // all, so they go back in, at the front, while that session lasts. If it has
+    // expired when their turn comes they are simply deferred again.
+    ungate: ["informatica2024eventphotos", "sjcbubblebash-2026"],
+    front: ["informatica2024eventphotos", "sjcbubblebash-2026"],
+  },
+  {
     id: "2026-10-12-requeue-downloads-enabled",
     // Both were retired on 2026-10-11 23:55 as "bulk download switched off":
     // they joined the ledger after the 2026-08-15 pass that enabled downloads
@@ -330,8 +341,14 @@ function applyRepairs(s) {
     const front = (r.front || []).filter((slug) => s.jobs.includes(slug));
     const missing = (r.front || []).filter((slug) => !s.jobs.includes(slug));
     if (front.length) s.jobs = [...front, ...s.jobs.filter((j) => !front.includes(j))];
+    // Un-defer: a gated collection leaves `gated` so the head can reach it
+    // again. Arming is the usual way back and the only one for a password gate;
+    // this is for gates arming cannot open (email registration, where the
+    // owner session in the Pixieset tab is what gets through). Added 2026-10-24.
+    const ungate = (r.ungate || []).filter((slug) => (s.gated || []).includes(slug));
+    if (ungate.length) s.gated = s.gated.filter((slug) => !ungate.includes(slug));
     s.repairs.push(r.id);
-    applied.push({ id: r.id, count: back.length, setAside: aside.length, added: add.length, front: front.length, missing });
+    applied.push({ id: r.id, count: back.length, setAside: aside.length, added: add.length, front: front.length, ungated: ungate.length, missing });
   }
   return applied;
 }
@@ -339,6 +356,7 @@ function applyRepairs(s) {
 /** One line per applied repair, for the extension log. */
 function repairNote(r) {
   return `repair ${r.id}: ${r.count} collection(s) back in the queue` +
+    (r.ungated ? `, ${r.ungated} un-deferred` : "") +
     (r.setAside ? `, ${r.setAside} set aside until the disk can hold it` : "") +
     (r.added ? `, ${r.added} added to the queue` : "") +
     (r.front ? `, ${r.front} moved to the front` : "") +
