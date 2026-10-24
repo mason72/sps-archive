@@ -58,6 +58,16 @@ export interface SpsPullEvent {
    */
   coverUrl?: string | null;
   /**
+   * The client logo the host set for the SPS gallery header
+   * (`events.header_image_url`), as a public URL this server can GET with no
+   * session. Sent on the list AND on every manifest page since 2026-10-24, so
+   * a pulled gallery can start with it inserted in its mosaic cover instead
+   * of Mason uploading the same file again in Design > Cover. Optional because
+   * it post-dates the contract; null when the host never set one. It is the
+   * SPS header LOGO, not `coverUrl` (the event's cover art).
+   */
+  logoUrl?: string | null;
+  /**
    * Still live on SPS — being shot, or wrapped but not yet marked complete.
    * Importable ON PURPOSE since 2026-08-15 (the completed-only gate blocked
    * the "team is done, nobody pressed Complete" case), but the UI must badge

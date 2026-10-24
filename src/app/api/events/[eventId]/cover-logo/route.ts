@@ -2,13 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { getPresignedUploadUrl, getPresignedDownloadUrl } from "@/lib/r2/client";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { COVER_LOGO_EXTENSIONS, coverLogoKey } from "@/types/event-settings";
 
-const ALLOWED_TYPES: Record<string, string> = {
-  "image/png": "png",
-  "image/webp": "webp",
-  "image/jpeg": "jpg",
-  "image/svg+xml": "svg",
-};
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB — it's a logo, not a photo
 
 /**
@@ -46,7 +41,7 @@ export async function POST(
     }
 
     const { fileType, fileSize } = await request.json();
-    const ext = ALLOWED_TYPES[fileType as string];
+    const ext = COVER_LOGO_EXTENSIONS[fileType as string];
     if (!ext) {
       return NextResponse.json(
         { error: "Logo must be PNG, WebP, JPEG, or SVG" },
@@ -57,7 +52,7 @@ export async function POST(
       return NextResponse.json({ error: "Logo must be under 5MB" }, { status: 400 });
     }
 
-    const logoKey = `events/${eventId}/branding/cover-logo.${ext}`;
+    const logoKey = coverLogoKey(eventId, ext);
     const uploadUrl = await getPresignedUploadUrl(logoKey, fileType);
     return NextResponse.json({ uploadUrl, logoKey });
   } catch (error) {

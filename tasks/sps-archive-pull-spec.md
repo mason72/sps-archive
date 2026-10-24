@@ -129,9 +129,17 @@ re-walk idempotent, so this is a UI and job-resume question, not a schema one.
 ```json
 { "events": [
   { "id": "uuid", "name": "…", "slug": "…", "completedAt": "2026-08-01T…Z",
-    "imageCount": 5902, "archiveEnabled": true, "live": false }
+    "imageCount": 5902, "archiveEnabled": true, "live": false,
+    "coverUrl": "https://…|null", "logoUrl": "https://…|null" }
 ]}
 ```
+
+`logoUrl` (added 2026-10-24) is the host's gallery-header logo,
+`events.header_image_url` as stored: a public URL on SPS's photo CDN that the
+guest gallery draws with no session, so the puller GETs it server-side as is.
+Null when the host never set one. It is the client LOGO; `coverUrl` is the
+event's cover art for the import list. The puller copies it into the pulled
+gallery's mosaic cover (`sps-integration/pull-logo.ts`).
 
 ### `GET /events/{eventId}/manifest?offset=0`
 
@@ -141,7 +149,7 @@ remain; a short page is the terminator.
 ```json
 {
   "event": { "id": "…", "name": "…", "slug": "…", "date": "…", "completedAt": "…",
-             "imageCount": 5902, "archiveEnabled": true },
+             "imageCount": 5902, "archiveEnabled": true, "logoUrl": "https://…|null" },
   "images": [
     { "id": "uuid",
       "originalFilename": "JohnSmith_0142.jpg",
@@ -160,6 +168,9 @@ remain; a short page is the terminator.
 
 Notes that will bite if ignored:
 
+- **`event.logoUrl` rides on every page** (2026-10-24), same value as the list
+  route's, because the puller creates its archive event from the FIRST
+  manifest page, not from the list.
 - **`url` expires in 1 hour.** For `quality: "archive"` backed by a separate
   copy it is a presigned R2 GET; otherwise it is the public `original.jpg`.
   Re-fetch the manifest page rather than holding URLs across a long import.
