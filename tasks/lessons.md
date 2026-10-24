@@ -4683,3 +4683,37 @@ that we'll need to pull over."
 - "Exists" is not "current". Anything served stale-while-revalidate needs a three-state answer (missing / stale / fresh), and the UI that says "ready" must read the same answer the server acts on.
 - A probe for a race is run against the OLD code first; a positive run alone is indistinguishable from the autosave winning the race.
 - New galleries now start with a cover (`newGalleryCoverDefaults()`: mosaic, Insert, title below-left, title shown), applied at CREATION only through `withNewGalleryDefaults()`, never at read time: a read-time default would put covers on ~1,300 existing galleries, shares already sent included.
+
+## 190. "Full from Pixieset" was 34 collections short, and the STARVED emails were right (2026-10-24)
+
+Mason: "I think Pixeltrunk is full from Pixieset; should we unwind the notifications and updates?
+I'm still getting STARVED emails." Then, mid-check: "Doug did upload a new gallery there yesterday
+that we'll need to pull over."
+
+- **Read the ledger before unwinding the alarm that reads it.** `queue.json` said 1,337 of 1,371
+  ingested: 24 never requested, 9 deleted on Pixieset, 1 web-size only. The extension had stopped
+  itself on 2026-10-14 (three Cloudflare challenges at the first 2015 pet sitting) and the hourly
+  check had been sending exactly one STARVED a day since, as designed. The emails were not noise;
+  the lane was stopped with work queued. "I think it's done" is a claim about a durable record.
+- **A frozen inventory makes "migration complete" and "still an intake" collide.** The queue and the
+  extension's job list were built once (2026-08-12) and learn nothing by themselves, so Doug's new
+  gallery was invisible to every counter. New rule, now in the extension README: a post-inventory
+  gallery is added by hand (ledger entry under the lock, a named `add`+`front` repair, a manifest bump).
+- **Post-migration galleries keep their download PIN, and the extension had never sent one.** The
+  migration cleared all PINs first (`emit-pin-clear.mjs`), so the auth form was email-only for 1,337
+  collections; the 1,338th had `DownloadLoginForm[download_pin]`. Proven by GETting the auth form in
+  the browser and listing its inputs before changing code. Fix: the watcher serves gitignored
+  `data/pins.json` at `/pins`; the driver posts the PIN; a stay on the form retires as
+  `pin-required` / `pin-refused` (v1.3.3).
+- **A `chrome-extension://` page cannot be driven**: the navigate tool rewrote the scheme to
+  `https://chrome-extension//…`. The popup's Start became `data/resume.json` (`{"at":"<ISO>"}`),
+  carried in the brake body and honored once per value. Watch the alarm model when you add a
+  resume path: a stopped extension has no tick alarm, only the 20-minute heartbeat, so the resume
+  has to live where the heartbeat runs AND re-arm the tick alarm as Start does. The first draft
+  only did the tick half and would have cleared the stop without ever requesting anything.
+- **Both Chromes were signed out of Pixieset and the 1Password bridge returned `transport_error`
+  on both Macs**, so the admin API was out. The gallery was found anyway from the EXPOSURE calendar
+  ("DOUG | Meta Event Photography", 10-22) and Pixieset's own "Preview Photos … are ready" email,
+  which carries the gallery URL, the date and the download PIN. Check the inbox before asking.
+- **Live uploads blocked the push** (119 images in the last hour at 16:30Z), so the change was
+  committed and held, per the SPS gate, even though it touches no app code (a push still deploys).

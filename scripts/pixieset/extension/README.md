@@ -37,6 +37,35 @@ To let it handle password-gated collections, sign in to
 collections have one. Arming needs that session; *using* the passwords does not,
 so it survives the session expiring (~3.5h).
 
+## Download PINs, and "go" without the popup (v1.3.3, 2026-10-24)
+
+The migration cleared every collection's download PIN before it ran
+(`emit-pin-clear.mjs`), so for 1,337 collections the download-auth form was
+email only. A gallery that arrives AFTER that pass keeps its PIN, and Pixieset's
+form then has a second field, `DownloadLoginForm[download_pin]`. Two files in the
+gitignored `scripts/pixieset/data/` handle this and the restart that usually
+goes with it; the watcher serves both, so editing the file is the whole step:
+
+| File | Served as | What it does |
+|---|---|---|
+| `data/pins.json` — `{ "<slug>": "<PIN>" }` | `GET /pins` | The scheduler fetches it per drive and the offscreen driver sends the PIN with the form. A stay on the auth form after the POST retires the collection at once with a beacon reason the ledger keeps: `pin-required` (none on record) or `pin-refused`. Fix the file, then a named repair puts the slug back. |
+| `data/resume.json` — `{ "at": "<ISO time>" }` | `resumeAt` in the `/disk` body | A human's "go" after a deliberate stop (three Cloudflare challenges, "queue drained"). The extension resumes ONCE per distinct `at` (`s.resumedAt` remembers it), re-arms the tick alarm exactly as the popup's Start does, and resets the challenge count; the three-challenge limit itself is unchanged. Write a new time for the next "go". |
+
+Why a file and not the popup: nothing here can drive a `chrome-extension://`
+page, and a stopped extension fires only its 20-minute heartbeat, so that is
+where `resumeAt` is noticed (ticks check it too). The PIN values never reach the
+repo, a log line, a `note()` or the status snapshot; a `pin-refused` beacon says
+only that the PIN on record was refused.
+
+Adding a new gallery after the inventory, start to finish: find its collection
+id on the public gallery page (`collectionId` in the HTML), add a `queued` entry
+to `data/queue.json` under the lock (`withQueue` in `lib/store.mjs`), put its PIN
+in `data/pins.json` if the download form asks for one, add a repair with
+`add: [slug]` (and `front` if it should go first), bump `manifest.json`, and
+write `data/resume.json` if the extension is stopped. First done for
+`oct2026metaeventphotos` (Doug's Meta gallery, 59 previews; the rest of it is a
+later `requeue` repair once Doug finishes).
+
 ## How it survives what the tab could not
 
 A Manifest V3 service worker is killed whenever it goes idle, so a long-running

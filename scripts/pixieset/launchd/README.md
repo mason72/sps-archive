@@ -72,7 +72,7 @@ survive, tried ONCE per episode and recorded in `stall-state.json`:
 |---|---|---|
 | `STUCK` | `SIGTERM` the ingest child (or restart the ingest agent if none is running) | `ingest-loop.sh`'s own header: safe to kill at any moment. Bytes land before the row; a resume is idempotent by `(event, original_filename)`. The loop idles 5 min and retries the same collection. |
 | `BROKEN` | `launchctl kickstart -k` the agent that is down (or the watcher when its brake is silent) | it is what a reboot does |
-| `STARVED` | open Chrome if it is not running | the extension's alarm re-arms on `onStartup` |
+| `STARVED` | open Chrome if it is not running | the extension's alarm re-arms on `onStartup`. A Cloudflare stop is NOT auto-remedied on purpose; a human writes `scripts/pixieset/data/resume.json` (`{"at":"<ISO>"}`) and the extension resumes once per value (v1.3.3) |
 | `UNBACKED` | `launchctl kickstart` the machine-state sync now | it is the nightly job, a night early |
 | `SPINNING`, `FAILING` | none | code or data problems |
 
