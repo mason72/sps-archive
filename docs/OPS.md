@@ -236,6 +236,38 @@ both bitten on HDC 2026:
    opinion (lesson 67). Never blanket-delete pending rows: ~1% have their
    bytes and only missed the finalize call.
 
+## Clean prints for a framed booth event (added 2026-10-24)
+
+A framed booth event reaches SPS already framed: Capture One composites the
+overlay before upload, so the SPS pull brings framed `…_v2.jpg` exports, and
+even the rows it labels `sps_quality = 'archive'` carry the frame ("archive"
+means "the uploaded file, unchanged"). SPS keeps no clean or print copy.
+
+The clean versions live in Dropbox beside the framed set:
+`Two Dudes Photo Team Folder/_ARCHIVE/<year>/Photo Booth/<shoot>/Output/Prints`
+(`Output/Framed` is what SPS got, `Capture` holds the CR3 raws). Prints carry
+the SAME filenames as Framed, are larger (F1 Cash App: 4800x3200 against
+3000x2000), and the hot folder can hold strays from earlier shoots.
+
+To add them as a section:
+1. Match Prints to Framed by frame number (strip `_vN.jpg`) to build the list;
+   anything unmatched is a setup frame or a stray.
+2. Get real bytes. Dropbox files are online-only placeholders. On the laptop
+   on 2026-10-24 Dropbox would not download them (a `cp` sat at 0 bytes); the
+   Studio's Dropbox served each in about 3 s, so copy there and `rsync` back,
+   then compare sha256 lists.
+3. `npx tsx scripts/upload-folder-to-section.ts <eventId> <folder> --section "Prints" --list <file>`
+   (dry run), then add `--apply`. It uses the upload route's dedupe
+   (name + size; fresh / linked / duplicate per section), so the prints land as
+   new photos rather than linking to their framed twins. Do NOT use
+   `pixieset-ingest.ts`: it dedupes by filename alone and skips every print.
+4. Pass `--event-key-file` with a `vercel env pull` file (`umask 077`) so the
+   AI-index and focal-point sends reach Inngest, then delete the file. Without
+   it the AI sweep still indexes within 30 minutes, but focal points never run.
+
+First run: F1 Cash App // Oct 2026, 448 prints into "Prints" beside the
+391-photo "Overlay" section.
+
 ## Duplicate uploads — open (measured 2026-08-10)
 
 There is NO duplicate detection at ingest. Every presign mints a fresh UUID
