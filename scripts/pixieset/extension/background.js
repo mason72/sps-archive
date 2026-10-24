@@ -739,11 +739,14 @@ function resumeIfAsked(s, body) {
   if (s.running) return false;
   s.running = true; s.stoppedReason = null; s.challenges = 0;
   note(s, `resumed by data/resume.json (${at})`);
-  // A stopped extension has no tick alarm (stop/drain clear it, and start is
-  // what arms it), so a resume must arm it exactly as "start" does, or the
-  // heartbeat would clear the stop and nothing would ever request a collection.
-  chrome.alarms.clear(ALARM).then(() =>
-    chrome.alarms.create(ALARM, { delayInMinutes: 0.1, periodInMinutes: s.gapMinutes }));
+  // Make sure a tick alarm exists. "stop" by hand clears it; a Cloudflare stop
+  // or a drained queue leaves it ticking (the tick then returns at the
+  // `running` check). Arm it only when it is gone, as "start" would, so the
+  // heartbeat path cannot clear the stop and leave nothing to request, and the
+  // tick path does not schedule a second, redundant tick.
+  chrome.alarms.get(ALARM).then((a) => {
+    if (!a) chrome.alarms.create(ALARM, { delayInMinutes: 0.1, periodInMinutes: s.gapMinutes });
+  });
   return true;
 }
 

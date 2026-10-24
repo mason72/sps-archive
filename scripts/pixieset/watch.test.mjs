@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseDownloadName, parseBeacon, beaconError, scanBeacons, FIDELITY_ACCEPTED } from "./watch.mjs";
+import { parseDownloadName, parseBeacon, beaconError, scanBeacons, FIDELITY_ACCEPTED, pinsOnRecord, resumeAt } from "./watch.mjs";
 
 test("parses Pixieset's deterministic download name", () => {
   const p = parseDownloadName("nachisheadshots-photo-download-1of1.zip");
@@ -141,6 +141,21 @@ test("a download-PIN gate is a named retirement, not a generic failure (2026-10-
   assert.equal(ref.reason, "pin-refused");
   assert.match(beaconError(req), /pins\.json/);
   assert.match(beaconError(ref), /refused/);
+});
+
+test("pins.json and resume.json read as the extension needs them (2026-10-24)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "px-data-"));
+  // Nothing on record is an empty map and a null resume, never a throw.
+  assert.deepEqual(pinsOnRecord(dir), {});
+  assert.equal(resumeAt(dir), null);
+  // A PIN typed as a number is still the PIN; blanks and junk are dropped.
+  await writeFile(join(dir, "pins.json"), JSON.stringify({ a: "1234", b: 5678, c: "  ", d: null, e: " 90 " }));
+  assert.deepEqual(pinsOnRecord(dir), { a: "1234", b: "5678", e: "90" });
+  await writeFile(join(dir, "resume.json"), JSON.stringify({ at: "2026-10-24T16:34:12Z", by: "a human" }));
+  assert.equal(resumeAt(dir), "2026-10-24T16:34:12Z");
+  // A malformed file reads as "nothing on record", so a typo cannot crash the brake.
+  await writeFile(join(dir, "pins.json"), "{ not json");
+  assert.deepEqual(pinsOnRecord(dir), {});
 });
 
 test("the ledger's error says who retired it and why", () => {

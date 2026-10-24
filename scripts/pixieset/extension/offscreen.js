@@ -259,12 +259,18 @@ async function driveOne(slug, password, opts) {
       // "refused" from "none on record". Both retire the collection: a PIN gate
       // is not transient, and three identical requests would not change it.
       if (path.includes("/download/auth/")) {
+        if (!/download_pin/i.test(r.html)) {
+          // No PIN field, yet the form came back: not a PIN gate, so it stays
+          // phase "auth" and counts as an ordinary failed attempt (three, then
+          // retired as "failed"), never as "pin-required".
+          out.error = "stayed on the download form (no PIN field) — check the email field";
+          return out;
+        }
         out.phase = "pin";
-        const asksPin = /download_pin/i.test(r.html);
         out.pinTried = Boolean(opts.pin);
-        out.error = !asksPin
-          ? "stayed on the download form (no PIN field) — check the email field"
-          : opts.pin ? "download PIN refused" : "download PIN required, none on record (scripts/pixieset/data/pins.json)";
+        out.error = opts.pin
+          ? "download PIN refused"
+          : "download PIN required, none on record (scripts/pixieset/data/pins.json)";
         return out;
       }
 

@@ -570,9 +570,9 @@ function readBody(req, max) {
  * Both are read on every request, never cached: editing the file is the whole
  * operation, with nothing to restart.
  */
-function readDataJson(name, fallback) {
+function readDataJson(name, fallback, dir = DATA_DIR) {
   try {
-    const p = join(DATA_DIR, name);
+    const p = join(dir, name);
     if (!existsSync(p)) return fallback;
     const parsed = JSON.parse(readFileSync(p, "utf8"));
     return parsed && typeof parsed === "object" ? parsed : fallback;
@@ -580,14 +580,18 @@ function readDataJson(name, fallback) {
     return fallback;   // a malformed file reads as "nothing on record", never as a crash
   }
 }
-export function pinsOnRecord() {
-  const raw = readDataJson("pins.json", {});
+export function pinsOnRecord(dir = DATA_DIR) {
+  const raw = readDataJson("pins.json", {}, dir);
   const out = {};
-  for (const [slug, pin] of Object.entries(raw)) if (typeof pin === "string" && pin.trim()) out[slug] = pin.trim();
+  for (const [slug, pin] of Object.entries(raw)) {
+    // A PIN typed as a JSON number (9659 rather than "9659") is still the PIN.
+    const v = typeof pin === "number" && Number.isFinite(pin) ? String(pin) : typeof pin === "string" ? pin.trim() : "";
+    if (v) out[slug] = v;
+  }
   return out;
 }
-export function resumeAt() {
-  const v = readDataJson("resume.json", {}).at;
+export function resumeAt(dir = DATA_DIR) {
+  const v = readDataJson("resume.json", {}, dir).at;
   return typeof v === "string" && v ? v : null;
 }
 
@@ -612,7 +616,15 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
       return;
     }
     if (req.method === "GET" && req.url?.startsWith("/pins")) {
-      // Loopback only (the server binds 127.0.0.1); the extension is the one caller.
+      // Loopback only (the server binds 127.0.0.1), and the extension is the one
+      // caller: a browser page that reached loopback would carry an http(s)
+      // Origin, and curl carries none. Both get nothing.
+      const origin = req.headers.origin;
+      if (!(typeof origin === "string" && origin.startsWith("chrome-extension://"))) {
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "pins are served to the extension only" }));
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(pinsOnRecord()));
       return;
