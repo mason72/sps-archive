@@ -154,6 +154,18 @@ function pollBudget(expect, opts) {
   return Math.min(ceil, Math.max(floor, scaled));
 }
 
+/**
+ * The download-auth form's fields. Email always; the download PIN only when the
+ * scheduler handed one over (`opts.pin`, from the watcher's `/pins`). Sending an
+ * empty PIN field to a collection without a PIN is harmless, but omitting it
+ * keeps the request byte-identical to what 1,337 collections were fetched with.
+ */
+function authBody(opts) {
+  const fields = { "DownloadLoginForm[email]": opts.email, yt0: "" };
+  if (opts.pin) fields["DownloadLoginForm[download_pin]"] = String(opts.pin);
+  return new URLSearchParams(fields);
+}
+
 /** Drive one collection to a set of zip URLs. Returns data only — no downloads. */
 async function driveOne(slug, password, opts) {
   const t0 = Date.now();
@@ -197,8 +209,7 @@ async function driveOne(slug, password, opts) {
     if (!m) { out.phase = "nodl"; out.error = "downloads disabled on this collection"; return out; }
 
     out.phase = "auth";
-    let r = await POST(new URL(m[0], ORIGIN).href,
-      new URLSearchParams({ "DownloadLoginForm[email]": opts.email, yt0: "" }));
+    let r = await POST(new URL(m[0], ORIGIN).href, authBody(opts));
     let path = pathOf(r.url);
     let triedNew = false;
     let fileUrl = null;
@@ -221,8 +232,7 @@ async function driveOne(slug, password, opts) {
         path = pathOf(r.url);
         if (path.includes("/download/auth/")) {
           const m2 = r.html.match(/\/download\/auth\/[^"'\s\\]+/) || [r.url];
-          r = await POST(new URL(m2[0], ORIGIN).href,
-            new URLSearchParams({ "DownloadLoginForm[email]": opts.email, yt0: "" }));
+          r = await POST(new URL(m2[0], ORIGIN).href, authBody(opts));
           path = pathOf(r.url);
         }
         continue;
@@ -242,6 +252,21 @@ async function driveOne(slug, password, opts) {
       }
 
       if (path.includes("/download/file/")) { fileUrl = r.url; break; }
+
+      // Still on the auth form after posting it: Pixieset wants something we
+      // did not send. The only field that form has besides the email is the
+      // download PIN, so that is what this means, and whether we sent one tells
+      // "refused" from "none on record". Both retire the collection: a PIN gate
+      // is not transient, and three identical requests would not change it.
+      if (path.includes("/download/auth/")) {
+        out.phase = "pin";
+        const asksPin = /download_pin/i.test(r.html);
+        out.pinTried = Boolean(opts.pin);
+        out.error = !asksPin
+          ? "stayed on the download form (no PIN field) — check the email field"
+          : opts.pin ? "download PIN refused" : "download PIN required, none on record (scripts/pixieset/data/pins.json)";
+        return out;
+      }
 
       out.error = `unexpected path ${path}`;
       return out;

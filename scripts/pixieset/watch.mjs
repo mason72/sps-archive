@@ -49,7 +49,7 @@ import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { load, save, get, transition, withQueue } from "./lib/store.mjs";
+import { load, save, get, transition, withQueue, DATA_DIR } from "./lib/store.mjs";
 
 /**
  * Read `.env.local` for PIXIESET_STAGING, exactly as the ingest half does.
@@ -172,7 +172,7 @@ export function parseBeacon(text) {
   try { b = JSON.parse(text); } catch { return null; }
   if (!b || b.kind !== "px-retired") return null;
   if (typeof b.slug !== "string" || !b.slug) return null;
-  const reasons = ["gone", "no-download", "password-rejected", "failed"];
+  const reasons = ["gone", "no-download", "password-rejected", "pin-required", "pin-refused", "failed"];
   return {
     slug: b.slug,
     reason: reasons.includes(b.reason) ? b.reason : "failed",
@@ -188,6 +188,8 @@ export function beaconError(b) {
     gone: "deleted on Pixieset",
     "no-download": "bulk download switched off on the collection",
     "password-rejected": "gallery password refused",
+    "pin-required": "bulk download asks for a download PIN and none is on record (scripts/pixieset/data/pins.json)",
+    "pin-refused": "the download PIN on record was refused",
     failed: "the downloader gave up after repeated failures",
   }[b.reason];
   return `retired by the downloader: ${why}${b.detail ? ` — ${b.detail}` : ""}`;
@@ -548,6 +550,47 @@ function readBody(req, max) {
   });
 }
 
+/**
+ * Two small files the extension reads through this server (added 2026-10-24,
+ * when the first post-migration gallery arrived with a download PIN set):
+ *
+ *   data/pins.json    { "<slug>": "<download PIN>" } — the PIN a collection's
+ *                     bulk download asks for. The migration CLEARED every PIN
+ *                     before it ran (emit-pin-clear.mjs), so the extension never
+ *                     had to send one; a new gallery keeps its PIN, and this is
+ *                     how the extension learns it. `data/` is gitignored, so the
+ *                     values never reach the repo or the extension's source.
+ *   data/resume.json  { "at": "<ISO time>" } — a human saying "go" after the
+ *                     extension stopped itself (three Cloudflare challenges, or
+ *                     a drained queue). The extension resumes ONCE per distinct
+ *                     `at`; rewriting the file with a new time is the next "go".
+ *                     This replaces pressing Start in the popup, which no tool
+ *                     here can reach (chrome-extension:// pages cannot be driven).
+ *
+ * Both are read on every request, never cached: editing the file is the whole
+ * operation, with nothing to restart.
+ */
+function readDataJson(name, fallback) {
+  try {
+    const p = join(DATA_DIR, name);
+    if (!existsSync(p)) return fallback;
+    const parsed = JSON.parse(readFileSync(p, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;   // a malformed file reads as "nothing on record", never as a crash
+  }
+}
+export function pinsOnRecord() {
+  const raw = readDataJson("pins.json", {});
+  const out = {};
+  for (const [slug, pin] of Object.entries(raw)) if (typeof pin === "string" && pin.trim()) out[slug] = pin.trim();
+  return out;
+}
+export function resumeAt() {
+  const v = readDataJson("resume.json", {}).at;
+  return typeof v === "string" && v ? v : null;
+}
+
 export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATUS } = {}) {
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");   // the caller is an extension origin
@@ -568,6 +611,12 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
       }
       return;
     }
+    if (req.method === "GET" && req.url?.startsWith("/pins")) {
+      // Loopback only (the server binds 127.0.0.1); the extension is the one caller.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(pinsOnRecord()));
+      return;
+    }
     if (!req.url?.startsWith("/disk")) { res.writeHead(404).end(); return; }
     try {
       const free = await freeGB();
@@ -577,6 +626,8 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
         freeGB: free, floorGB: MIN_FREE_GB, stagedZips: staged, at: new Date().toISOString(),
         // Lets the extension notice its own code is stale and reload itself.
         manifestVersion: manifestVersion(),
+        // A human's "go" after a deliberate stop; see readDataJson above.
+        resumeAt: resumeAt(),
       }));
     } catch (e) {
       // No answer is better than a wrong one: the caller fails CLOSED on a

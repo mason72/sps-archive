@@ -132,6 +132,17 @@ test("an unknown reason degrades to failed rather than being trusted", () => {
   assert.equal(b.reason, "failed", "a reason we do not know is still a retirement");
 });
 
+test("a download-PIN gate is a named retirement, not a generic failure (2026-10-24)", () => {
+  // The extension's beacon says WHICH PIN problem it hit; the ledger must keep
+  // that, because the two fixes differ (add the PIN vs. check the PIN).
+  const req = parseBeacon(JSON.stringify({ kind: "px-retired", slug: "x", reason: "pin-required" }));
+  const ref = parseBeacon(JSON.stringify({ kind: "px-retired", slug: "x", reason: "pin-refused" }));
+  assert.equal(req.reason, "pin-required");
+  assert.equal(ref.reason, "pin-refused");
+  assert.match(beaconError(req), /pins\.json/);
+  assert.match(beaconError(ref), /refused/);
+});
+
 test("the ledger's error says who retired it and why", () => {
   const e = beaconError({ reason: "no-download", detail: "bulk download is switched off" });
   assert.match(e, /retired by the downloader/);

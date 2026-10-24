@@ -183,6 +183,17 @@ const REPAIRS = [
     front: ["paloaltoskobooth22023", "eastbaygamers"],
   },
   {
+    id: "2026-10-24-add-oct2026metaeventphotos",
+    // The first gallery to arrive AFTER the migration inventory (2026-08-12):
+    // Doug's "OCT 2026 / META EVENT PHOTOS", uploaded 2026-10-23 with 59
+    // previews (the rest follows within two weeks, as a later requeue). It is
+    // in queue.json by hand, and it keeps its download PIN, which the watcher
+    // now serves from data/pins.json. Fronted so the first request after the
+    // Cloudflare stop is a live client gallery, not a 2015 pet sitting.
+    add: ["oct2026metaeventphotos"],
+    front: ["oct2026metaeventphotos"],
+  },
+  {
     id: "2026-10-12-requeue-downloads-enabled",
     // Both were retired on 2026-10-11 23:55 as "bulk download switched off":
     // they joined the ledger after the 2026-08-15 pass that enabled downloads
@@ -216,6 +227,7 @@ const DEFAULTS = {
   email: "mason72@gmail.com",
   lastTickAt: null,
   stoppedReason: null,
+  resumedAt: null,     // the data/resume.json "go" this profile last honored
 };
 
 const load = async () => ({ ...DEFAULTS, ...((await chrome.storage.local.get(STATE))[STATE] ?? {}) });
@@ -697,6 +709,44 @@ async function brake() {
   } catch { return null; }
 }
 
+/**
+ * Download PINs on record, by slug, from the watcher's `/pins` (added
+ * 2026-10-24; the file behind it is gitignored). Empty when unreachable: a
+ * collection that needs a PIN then retires as "none on record", which is the
+ * honest reading, and a repair puts it back once the file has the PIN.
+ */
+const PINS_URL = "http://127.0.0.1:8788/pins";
+async function pinsOnRecord() {
+  try {
+    const res = await fetch(PINS_URL, { cache: "no-store" });
+    if (!res.ok) return {};
+    const body = await res.json();
+    return body && typeof body === "object" ? body : {};
+  } catch { return {}; }
+}
+
+/**
+ * A human said "go" (added 2026-10-24). The watcher's brake body carries
+ * `resumeAt` from data/resume.json; a value this profile has not seen clears a
+ * deliberate stop exactly once. It is the popup's Start button as a file,
+ * because nothing here can press the popup from outside Chrome. It does NOT
+ * raise the three-challenge limit: the count restarts, the limit stands.
+ */
+function resumeIfAsked(s, body) {
+  const at = body?.resumeAt;
+  if (typeof at !== "string" || !at || at === s.resumedAt) return false;
+  s.resumedAt = at;
+  if (s.running) return false;
+  s.running = true; s.stoppedReason = null; s.challenges = 0;
+  note(s, `resumed by data/resume.json (${at})`);
+  // A stopped extension has no tick alarm (stop/drain clear it, and start is
+  // what arms it), so a resume must arm it exactly as "start" does, or the
+  // heartbeat would clear the stop and nothing would ever request a collection.
+  chrome.alarms.clear(ALARM).then(() =>
+    chrome.alarms.create(ALARM, { delayInMinutes: 0.1, periodInMinutes: s.gapMinutes }));
+  return true;
+}
+
 /** Free GB from the watcher, or null if it cannot be reached. */
 async function freeGB() {
   const body = await brake();
@@ -718,8 +768,8 @@ async function freeGB() {
  * attempt). A download in flight is fine — Chrome owns the transfer, and
  * `settleInflight` reads it back from storage after any restart.
  */
-async function reloadIfStale(s) {
-  const body = await brake();
+async function reloadIfStale(s, body = null) {
+  body = body ?? await brake();
   const onDisk = body?.manifestVersion;
   const loaded = chrome.runtime.getManifest().version;
   if (!onDisk || onDisk === loaded || s.driving) return false;
@@ -919,7 +969,9 @@ async function tick() {
 
   for (const r of applyRepairs(s)) note(s, repairNote(r));
 
-  if (await reloadIfStale(s)) return;
+  const brakeBody = await brake();
+  if (await reloadIfStale(s, brakeBody)) return;
+  if (resumeIfAsked(s, brakeBody)) await saveAndAnnounce(s);
   if (!s.running) { await save(s); return; }
 
   // Prove the last request's bytes landed before asking for more. This also
@@ -1027,7 +1079,8 @@ async function tick() {
 
   let accepted;
   try {
-    accepted = await ask({ type: "drive", slug, token, password: s.passwords[slug], opts: { email: s.email, pollMinutes: DRIVE_POLL_MIN, pollMaxMinutes: DRIVE_POLL_MAX_MIN, pollMinutesPerK: DRIVE_POLL_MIN_PER_K } }, DRIVE_ACCEPT_MS);
+    const pin = (await pinsOnRecord())[slug] ?? null;
+    accepted = await ask({ type: "drive", slug, token, password: s.passwords[slug], opts: { email: s.email, pin, pollMinutes: DRIVE_POLL_MIN, pollMaxMinutes: DRIVE_POLL_MAX_MIN, pollMinutesPerK: DRIVE_POLL_MIN_PER_K } }, DRIVE_ACCEPT_MS);
   } catch (e) {
     accepted = { error: e };
   }
@@ -1099,6 +1152,17 @@ async function handleDriveResult(slug, token, r) {
       // it straight back, and a ledger row reading `failed` for work that is
       // merely waiting would be a lie with a long half-life.
     }
+    await saveAndAnnounce(s2);
+    return;
+  }
+
+  if (r.phase === "pin") {
+    // A download-PIN gate (2026-10-24). Not transient, so it retires at once
+    // with the reason on the beacon; the fix is a line in data/pins.json and a
+    // repair that puts the slug back.
+    s2.done.push(slug);
+    note(s2, `${slug}: ${r.error}`);
+    beacons.push({ slug, reason: r.pinTried ? "pin-refused" : "pin-required", detail: r.error });
     await saveAndAnnounce(s2);
     return;
   }
@@ -1226,7 +1290,11 @@ chrome.downloads.onChanged?.addListener((delta) => { serial(() => onPartChanged(
 /** Say we are alive (and what we are), and pick up newer code. Runs even when stopped. */
 async function heartbeat() {
   const s = await load();
-  if (await reloadIfStale(s)) return;
+  const body = await brake();
+  if (await reloadIfStale(s, body)) return;
+  // The heartbeat is the only alarm still firing after a deliberate stop, so it
+  // is where a human's "go" (data/resume.json) has to be noticed.
+  if (resumeIfAsked(s, body)) await save(s);
   announce(s);
 }
 
