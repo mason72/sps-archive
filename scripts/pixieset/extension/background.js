@@ -237,6 +237,7 @@ const DEFAULTS = {
   lastTickAt: null,
   stoppedReason: null,
   resumedAt: null,     // the data/resume.json "go" this profile last honored
+  armedAt: null,       // the data/arm.json "arm" this profile last honored
 };
 
 const load = async () => ({ ...DEFAULTS, ...((await chrome.storage.local.get(STATE))[STATE] ?? {}) });
@@ -761,6 +762,44 @@ function resumeIfAsked(s, body) {
   return true;
 }
 
+/**
+ * Sweep every collection's gallery password out of the admin API into
+ * `s.passwords` (needs Mason's session in the Pixieset tab). Shared by the
+ * popup's Arm button and the arm-by-file marker; mutates `s`, caller saves.
+ */
+async function armPasswords(s) {
+  const res = await ask({ type: "arm" });
+  if (res?.ok) {
+    s.passwords = res.map;
+    // Arming is the ONLY thing that can un-defer a gated collection, so it
+    // must actually do it — otherwise the deferral is permanent and the
+    // head-selection skip turns a livelock into a silent omission.
+    const freed = s.gated.filter((slug) => s.passwords[slug]);
+    s.gated = s.gated.filter((slug) => !s.passwords[slug]);
+    note(s, `armed ${Object.keys(res.map).length} passwords from ${res.total} collections`);
+    if (freed.length) note(s, `${freed.length} deferred collection(s) back in the queue`);
+    return { ok: true, count: Object.keys(res.map).length };
+  }
+  note(s, `arm failed: ${res?.error ?? "unknown"}`);
+  return { ok: false, error: res?.error };
+}
+
+/**
+ * "Arm passwords" as a file (2026-10-24), the same shape as resumeIfAsked:
+ * data/arm.json carries `at`; a value this profile has not seen runs one arm
+ * sweep. It needs the owner session in the Pixieset tab, so a human signs in
+ * first and then writes the file. Honored once per value whether or not the
+ * sweep succeeds, so a failed arm is one log line, not one per tick.
+ */
+async function armIfAsked(s, body) {
+  const at = body?.armAt;
+  if (typeof at !== "string" || !at || at === s.armedAt) return false;
+  s.armedAt = at;
+  note(s, `arm requested by data/arm.json (${at})`);
+  await armPasswords(s);
+  return true;
+}
+
 /** Free GB from the watcher, or null if it cannot be reached. */
 async function freeGB() {
   const body = await brake();
@@ -986,6 +1025,7 @@ async function tick() {
   const brakeBody = await brake();
   if (await reloadIfStale(s, brakeBody)) return;
   if (resumeIfAsked(s, brakeBody)) await saveAndAnnounce(s);
+  if (await armIfAsked(s, brakeBody)) await saveAndAnnounce(s);
   if (!s.running) { await save(s); return; }
 
   // Prove the last request's bytes landed before asking for more. This also
@@ -1309,6 +1349,7 @@ async function heartbeat() {
   // The heartbeat is the only alarm still firing after a deliberate stop, so it
   // is where a human's "go" (data/resume.json) has to be noticed.
   if (resumeIfAsked(s, body)) await save(s);
+  if (await armIfAsked(s, body)) await save(s);
   announce(s);
 }
 
@@ -1361,23 +1402,9 @@ chrome.runtime.onMessage.addListener((msg, _s, respond) => {
         respond({ ok: true });
         break;
       case "arm": {
-        const res = await ask({ type: "arm" });
-        if (res?.ok) {
-          s.passwords = res.map;
-          // Arming is the ONLY thing that can un-defer a gated collection, so it
-          // must actually do it — otherwise the deferral is permanent and the
-          // skip added above turns a livelock into a silent omission.
-          const freed = s.gated.filter((slug) => s.passwords[slug]);
-          s.gated = s.gated.filter((slug) => !s.passwords[slug]);
-          note(s, `armed ${Object.keys(res.map).length} passwords from ${res.total} collections`);
-          if (freed.length) note(s, `${freed.length} deferred collection(s) back in the queue`);
-          await save(s);
-          respond({ ok: true, count: Object.keys(res.map).length });
-        } else {
-          note(s, `arm failed: ${res?.error ?? "unknown"}`);
-          await save(s);
-          respond({ ok: false, error: res?.error });
-        }
+        const res = await armPasswords(s);
+        await save(s);
+        respond(res.ok ? { ok: true, count: res.count } : { ok: false, error: res.error });
         break;
       }
       case "driveResult":

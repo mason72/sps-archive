@@ -594,6 +594,11 @@ export function resumeAt(dir = DATA_DIR) {
   const v = readDataJson("resume.json", {}, dir).at;
   return typeof v === "string" && v ? v : null;
 }
+/** data/arm.json { "at": "<ISO>" }: a human asking for "Arm passwords" by file (needs the owner session in the Pixieset tab). */
+export function armAt(dir = DATA_DIR) {
+  const v = readDataJson("arm.json", {}, dir).at;
+  return typeof v === "string" && v ? v : null;
+}
 
 export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATUS } = {}) {
   const server = createServer(async (req, res) => {
@@ -648,6 +653,8 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
         manifestVersion: manifestVersion(),
         // A human's "go" after a deliberate stop; see readDataJson above.
         resumeAt: resumeAt(),
+        // A human's "Arm passwords" by file; honored once per value, like resumeAt.
+        armAt: armAt(),
       }));
     } catch (e) {
       // No answer is better than a wrong one: the caller fails CLOSED on a

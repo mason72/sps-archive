@@ -199,7 +199,16 @@ async function driveOne(slug, password, opts) {
     if (g.status !== 200) { out.error = `HTTP ${g.status}`; return out; }
 
     // A challenge must STOP the run, never be worked around.
-    if (/Just a moment|cf-mitigated|challenge-platform/i.test(g.html) && !/\/download\/auth\//.test(g.html)) {
+    // A real challenge is an interstitial: "Just a moment", or Cloudflare's
+    // mitigation marker, or the challenge script on a page that is NOT a
+    // gallery. A 200 gallery page carries `challenge-platform` as a passive
+    // beacon; with downloads switched off it also has no /download/auth/ link,
+    // and that pairing read as "challenged" for every pet sitting: three times
+    // on 2026-10-14 and again at 18:13-18:53Z 2026-10-24 (benandgiddy, HTTP 200,
+    // 53,213 chars, gallery markup present), stopping the whole queue each time.
+    const galleryPage = /PhotoCount|collectionId/i.test(g.html);
+    const challengeMarkers = /Just a moment|cf-mitigated/i.test(g.html) || (/challenge-platform/i.test(g.html) && !galleryPage);
+    if (challengeMarkers && !/\/download\/auth\//.test(g.html)) {
       out.phase = "challenged";
       // Say WHAT matched: a 200 gallery page can carry Cloudflare's detection
       // beacon (`challenge-platform`) without being a challenge, and a page with
@@ -208,8 +217,7 @@ async function driveOne(slug, password, opts) {
       // 2026-10-24, then as "downloads disabled" at 17:53Z; this line is how the
       // next one becomes a sentence instead of a hunt.
       const markers = ["Just a moment", "cf-mitigated", "challenge-platform"].filter((m) => new RegExp(m, "i").test(g.html));
-      const gallery = /PhotoCount|collectionId/i.test(g.html);
-      out.error = `Cloudflare challenge — stop, do not escalate (HTTP ${g.status}, matched ${markers.join("+")}, ${g.html.length} chars, ${gallery ? "gallery markup present" : "no gallery markup"})`;
+      out.error = `Cloudflare challenge — stop, do not escalate (HTTP ${g.status}, matched ${markers.join("+")}, ${g.html.length} chars, ${galleryPage ? "gallery markup present" : "no gallery markup"})`;
       return out;
     }
 
