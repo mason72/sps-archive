@@ -14,6 +14,7 @@
  */
 
 import type { createServiceClient } from "@/lib/supabase/server";
+import { readAllRows } from "@/lib/supabase/paged";
 import {
   countByEventKey,
   eventLabelKeys,
@@ -269,11 +270,11 @@ export async function buildPersonDetail(
   // un-merged common case (no alias rows know it).
   const groupSpellings = [...new Set([name, ...aliases.groupNames(key)])];
 
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select("id, name, event_date")
-    .eq("user_id", userId);
-  if (eventsError) throw eventsError;
+  // Paged: a bare select caps at 1,000 rows, and past 1,000 events whole
+  // galleries fell out of the index with no error (2026-10-23).
+  const events = await readAllRows(() =>
+    supabase.from("events").select("id, name, event_date").eq("user_id", userId)
+  );
 
   // Scoped to the caller's own events first (the ownership boundary), then
   // narrowed to a split card's events — an id outside the user's events can
@@ -469,11 +470,11 @@ export async function buildPeopleIndex(
   opts?: { onSplitError?: SplitErrorHandler }
 ): Promise<IndexedPerson[]> {
   const excluded = await loadExcludedPersonKeys(supabase, userId);
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select("id, name, event_date")
-    .eq("user_id", userId);
-  if (eventsError) throw eventsError;
+  // Paged: a bare select caps at 1,000 rows, and past 1,000 events whole
+  // galleries fell out of the index with no error (2026-10-23).
+  const events = await readAllRows(() =>
+    supabase.from("events").select("id, name, event_date").eq("user_id", userId)
+  );
 
   const eventById = new Map(
     (events ?? [])

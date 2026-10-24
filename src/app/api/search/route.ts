@@ -7,6 +7,7 @@ import { embedTexts } from "@/lib/ai-index/embed-text";
 export const maxDuration = 60;
 import { getPresignedDownloadUrl, getThumbnailKey } from "@/lib/r2/client";
 import { createServiceClient } from "@/lib/supabase/server";
+import { readAllRows } from "@/lib/supabase/paged";
 import { applyFaceCountRule, faceCountRule } from "@/lib/ai-index/face-count-query";
 import { coverUploadIdsAmong } from "@/lib/sections/gallery-members";
 
@@ -52,19 +53,28 @@ export async function GET(request: NextRequest) {
   try {
     // Resolve the caller's owned events. If a specific eventId was requested,
     // it must be one of them; otherwise search spans all the user's events.
-    const { data: ownedEvents, error: ownedErr } = await supabase
-      .from("events")
-      .select("id")
-      .eq("user_id", user!.id);
-    if (ownedErr) throw ownedErr;
-
-    let scopeEventIds = (ownedEvents ?? []).map((e) => e.id);
+    // Paged (readAllRows): a bare select caps at 1,000 rows, which past 1,000
+    // events made the newest galleries unsearchable and answered an in-event
+    // search of one of them with nothing (2026-10-23).
+    let scopeEventIds: string[];
     if (requestedEventId) {
-      if (!scopeEventIds.includes(requestedEventId)) {
+      const { data: owned, error: ownedErr } = await supabase
+        .from("events")
+        .select("id")
+        .eq("id", requestedEventId)
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (ownedErr) throw ownedErr;
+      if (!owned) {
         // Not the caller's event — reveal nothing (don't 404-oracle either).
         return NextResponse.json({ type: searchType, results: [], count: 0 });
       }
       scopeEventIds = [requestedEventId];
+    } else {
+      const ownedEvents = await readAllRows(() =>
+        supabase.from("events").select("id").eq("user_id", user!.id)
+      );
+      scopeEventIds = ownedEvents.map((e) => e.id);
     }
     if (scopeEventIds.length === 0) {
       return NextResponse.json({ type: searchType, results: [], count: 0 });

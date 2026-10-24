@@ -4,6 +4,7 @@ import { getSpsToken } from "@/lib/sps-integration/connection";
 import { listSpsEvents, SpsPullError } from "@/lib/sps-integration/pull-client";
 import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { readAllRows } from "@/lib/supabase/paged";
 
 /**
  * GET /api/sps/pull/events
@@ -33,14 +34,23 @@ export async function GET() {
     // getAuthUser hands back the SERVICE client (bypasses RLS), so this read is
     // scoped to the caller explicitly — without the filter this returns every
     // photographer's events (lessons #2 and #14).
-    const { data: archiveEvents, error: eventsError } = await supabase
-      .from("events")
-      .select("id, name, settings")
-      .eq("user_id", user!.id);
-    if (eventsError) throw eventsError;
+    //
+    // Only the LINKED rows, and paged. This used to read every event in one
+    // bare select, which PostgREST caps at 1,000 rows with no error; once the
+    // account passed 1,000 events (2026-10-05), every link made after the cap
+    // was invisible and the list offered Grafana, Meta, Stampli and both
+    // Stanford reunions as fresh imports again (2026-10-23). The filter makes
+    // the read 28 rows instead of 1,382; the paging makes the cap impossible.
+    const archiveEvents = await readAllRows(() =>
+      supabase
+        .from("events")
+        .select("id, name, settings")
+        .eq("user_id", user!.id)
+        .not("settings->>spsEventId", "is", null)
+    );
 
     const importedBySpsId = new Map<string, { id: string; name: string }>();
-    for (const ev of archiveEvents ?? []) {
+    for (const ev of archiveEvents) {
       const spsId = readSpsEventId(ev.settings as Record<string, unknown>);
       if (spsId) importedBySpsId.set(spsId, { id: ev.id, name: ev.name });
     }

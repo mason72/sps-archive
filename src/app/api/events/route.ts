@@ -5,6 +5,7 @@ import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveEventStatuses } from "@/lib/events/status";
 import { INTAKE_SECTION_NAME, CURATED_SECTION_NAME } from "@/lib/sections/intake";
 import type { Json } from "@/lib/supabase/database.types";
+import { readAllRows } from "@/lib/supabase/paged";
 import { withNewGalleryDefaults } from "@/types/event-settings";
 import type { CrewAssignment } from "@/lib/event-intel/apply-gig";
 
@@ -241,12 +242,15 @@ export async function GET(request: NextRequest) {
      */
     let types: string[] = [];
     {
-      const { data: typeRows } = await supabase
-        .from("events")
-        .select("event_type")
-        .eq("user_id", user!.id)
-        .not("event_type", "is", null);
-      types = [...new Set((typeRows ?? []).map((r) => r.event_type as string).filter(Boolean))].sort();
+      // Paged: past 1,000 typed events a bare select would drop types too.
+      const typeRows = await readAllRows(() =>
+        supabase
+          .from("events")
+          .select("event_type")
+          .eq("user_id", user!.id)
+          .not("event_type", "is", null)
+      );
+      types = [...new Set(typeRows.map((r) => r.event_type as string).filter(Boolean))].sort();
     }
 
     return NextResponse.json({

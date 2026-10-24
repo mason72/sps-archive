@@ -69,15 +69,18 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     // And one SPS event, one archive home — two rows claiming the same SPS id
     // would make the import list's "already imported" answer ambiguous.
-    const { data: siblings, error: sibErr } = await supabase
+    // Filtered on the key itself: reading every event and searching in memory
+    // was capped at 1,000 rows by PostgREST, so past that many events this
+    // check could miss a claim (2026-10-23).
+    const { data: claimed, error: sibErr } = await supabase
       .from("events")
-      .select("id, name, settings")
+      .select("id, name")
       .eq("user_id", user!.id)
-      .neq("id", event.id);
+      .eq("settings->>spsEventId", spsEventId)
+      .neq("id", event.id)
+      .limit(1)
+      .maybeSingle();
     if (sibErr) throw sibErr;
-    const claimed = (siblings ?? []).find(
-      (e) => readSpsEventId(e.settings as Record<string, unknown>) === spsEventId
-    );
     if (claimed) {
       return NextResponse.json(
         { error: `That SPS event is already linked to “${claimed.name}”.` },
@@ -114,14 +117,17 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (authError) return authError;
     const { spsEventId } = await params;
 
-    const { data: events, error: evErr } = await supabase
+    // Filtered on the key: the old read-everything-and-find was capped at
+    // 1,000 rows, so for an event past the cap this answered { ok: true } and
+    // unlinked nothing (2026-10-23).
+    const { data: linked, error: evErr } = await supabase
       .from("events")
       .select("id, settings")
-      .eq("user_id", user!.id);
+      .eq("user_id", user!.id)
+      .eq("settings->>spsEventId", spsEventId)
+      .limit(1)
+      .maybeSingle();
     if (evErr) throw evErr;
-    const linked = (events ?? []).find(
-      (e) => readSpsEventId(e.settings as Record<string, unknown>) === spsEventId
-    );
     if (!linked) return NextResponse.json({ ok: true });
 
     const settings = { ...((linked.settings as Record<string, unknown>) ?? {}) };

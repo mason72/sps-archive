@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { readAllRows } from "@/lib/supabase/paged";
 
 /**
  * GET /api/stats
@@ -11,15 +12,12 @@ export async function GET() {
     const { user, supabase, error: authError } = await getAuthUser();
     if (authError) return authError;
 
-    // 1. Get event IDs for this user
-    const { data: userEvents, error: eventsError } = await supabase
-      .from("events")
-      .select("id")
-      .eq("user_id", user!.id);
+    // 1. Get event IDs for this user — paged, or the count tops out at 1,000.
+    const userEvents = await readAllRows(() =>
+      supabase.from("events").select("id").eq("user_id", user!.id)
+    );
 
-    if (eventsError) throw eventsError;
-
-    const eventIds = (userEvents || []).map((e) => e.id);
+    const eventIds = userEvents.map((e) => e.id);
     const totalEvents = eventIds.length;
 
     if (totalEvents === 0) {

@@ -23,6 +23,7 @@ import { metroKeys, metroKey, metroLabel } from "./geo";
 import { rehireStanding, type RehireStanding } from "./roles";
 import { effectiveLastHired } from "./last-hired";
 import { enrichEvents } from "@/lib/events/enrich";
+import { readAllRows } from "@/lib/supabase/paged";
 
 type DB = ReturnType<typeof createServiceClient>;
 
@@ -203,12 +204,16 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
 
   // Events are scoped by ownership through their own user_id column; the intel
   // rows are a subset, and the difference is the backlog worth reporting.
-  const evRes = await anyDb
-    .from("events")
-    .select("id,name,sort_date,settings")
-    .eq("user_id", userId)
-    .order("sort_date", { ascending: false });
-  const eventRows = need<any>(evRes, "events");
+  // Paged (readAllRows keeps sort_date first and adds id as the tiebreaker):
+  // a bare select caps at 1,000 rows, so past that many events the oldest
+  // gigs silently left the intel index and the backlog count (2026-10-23).
+  const eventRows: any[] = await readAllRows(() =>
+    anyDb
+      .from("events")
+      .select("id,name,sort_date,settings")
+      .eq("user_id", userId)
+      .order("sort_date", { ascending: false })
+  );
 
   // Covers for the gig lists — Mason: "show the cover image next to each gig
   // for some color". Through the archive's own resolver, never re-derived.
