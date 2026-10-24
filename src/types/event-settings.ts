@@ -602,6 +602,29 @@ export function normalizeCoverSettings(raw: unknown): CoverSettings {
 }
 
 /**
+ * The image types a cover logo may be, and the extension each is stored
+ * under. ONE list for both ways a logo arrives: the Design > Cover upload
+ * (`/api/events/[eventId]/cover-logo`) and the SPS pull, which copies the
+ * host's gallery-header logo across (`sps-integration/pull-logo.ts`).
+ */
+export const COVER_LOGO_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/svg+xml": "svg",
+};
+
+/**
+ * Where an event's cover logo lives in R2. One logo per event, so the key is
+ * fixed apart from the extension: a new upload replaces the old in place and
+ * there is nothing to garbage-collect. `pinnedCoverLogoKey` below is the
+ * read-side twin — the prefix it checks is this shape.
+ */
+export function coverLogoKey(eventId: string, ext: string): string {
+  return `events/${eventId}/branding/cover-logo.${ext}`;
+}
+
+/**
  * The cover logo key is stored in owner-writable JSONB, so every sink that
  * dereferences it (presign for the gallery payload, R2 read in the raster
  * job) MUST pin it to this event's branding folder first — otherwise a

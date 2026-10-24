@@ -357,6 +357,47 @@ Binaries are stored at `events/{eventId}/originals/{filename}`. Importing from S
 
 ---
 
+### Pulled galleries arrive with the client logo in the cover (2026-10-24)
+
+A pulled gallery starts with the new-gallery cover (mosaic, Insert, title
+below-left) like any other, and the one thing that still took a hand was the
+logo: Insert with no `logoKey` draws a plain mosaic, so Mason uploaded the
+client logo in Design > Cover after every import. SPS already holds it per
+event as `events.header_image_url` (the gallery-header logo, a public URL on
+its photo CDN), and since 2026-10-24 its archive API sends it as `logoUrl` on
+`GET /events` and on every manifest page's `event` (the manifest matters: the
+archive event is created from the first manifest page, not from the list).
+
+`src/lib/sps-integration/pull-logo.ts` does the copy, called by `startSpsPull`
+once the event row and its intake section exist and BEFORE the pull job is
+queued, so nothing else is writing `settings` yet:
+
+- **Type from the bytes.** `classifyLogoBytes` uses `sniffImageMime` for
+  PNG/JPEG/WebP; SVG is text, so it is accepted only when the document opens
+  with an `<svg` root (after any XML prolog, comment or DOCTYPE) and the
+  content-type header does not say something else entirely. A GIF or TIFF is a
+  real image and still refused: the key's extension drives how the raster job
+  and the editor load it, and `COVER_LOGO_EXTENSIONS` is the accepted set.
+- **Bytes before the pointer.** `uploadToR2(coverLogoKey(eventId, ext))` runs
+  first; only then is `settings.cover.mosaic.logoKey` written, with the same
+  `settings` object that was inserted (no re-read, no race).
+- **Fail-soft by contract.** A logo that cannot be fetched, is over 5 MB, or
+  is not an accepted type is a `sps.pull-logo` system error and leaves
+  `logoKey` unset: the gallery has the plain mosaic it had before. The pull is
+  never failed for its branding. The fetch waits at most 10 s, because the
+  import click waits on it.
+- **One home for the key.** `COVER_LOGO_EXTENSIONS` and `coverLogoKey()` in
+  `src/types/event-settings.ts` are shared with the Design > Cover upload route
+  (`/api/events/[eventId]/cover-logo`); `pinnedCoverLogoKey` is their read-side
+  twin, so the IDOR pin and the writer agree on the shape.
+
+With the key set, the editor's live mosaic inserts the logo on first open and
+the email raster (`cover-raster`, requested by `coverRasterStatus` when it is
+missing or stale) composes with it. Probe:
+`npx tsx scripts/triage/sps-cover-logo-probe.ts --list` (does SPS send the
+field, read-only via the stored token) and `… <eventId> [--raster]` (does the
+row name a logo, is the object in R2, is the key pinned).
+
 ### Delivery recap (2026-10-09)
 
 What SPS knows about how an event's photos reached its guests, shown to the

@@ -43,6 +43,7 @@ import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
 import { describeError, reportSystemError } from "@/lib/monitoring/report";
 import { spsEventLinkPatch } from "./event-link";
+import { attachSpsCoverLogo } from "./pull-logo";
 import { withNewGalleryDefaults } from "@/types/event-settings";
 import type { Json } from "@/lib/supabase/database.types";
 import { getSpsToken, markSpsPullActivity } from "./connection";
@@ -253,6 +254,21 @@ export async function startSpsPull(
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "")}-${Date.now().toString(36)}`;
 
+  // One key, one home — see event-link.ts. A pulled event arrives already
+  // linked, which is the whole reason name matching never has to happen.
+  // A pulled event is a new gallery like any other, so it gets the same
+  // "Download All behind a PIN" start (2026-09-18) and the same mosaic cover
+  // with the logo inserted (2026-10-24); the logo itself is attached below,
+  // once the row exists to key it on.
+  const settings = withNewGalleryDefaults(
+    spsEventLinkPatch({
+      eventId: spsEvent.id,
+      eventName: spsEvent.name,
+      linkedAt: new Date().toISOString(),
+      source: "sps-import",
+    })
+  );
+
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({
@@ -261,18 +277,7 @@ export async function startSpsPull(
       slug,
       // SPS's `date` is the event's start_time; the archive column is a DATE.
       event_date: spsEvent.date ? spsEvent.date.slice(0, 10) : null,
-      // One key, one home — see event-link.ts. A pulled event arrives already
-      // linked, which is the whole reason name matching never has to happen.
-      // A pulled event is a new gallery like any other, so it gets the same
-      // "Download All behind a PIN" start (2026-09-18).
-      settings: withNewGalleryDefaults(
-        spsEventLinkPatch({
-          eventId: spsEvent.id,
-          eventName: spsEvent.name,
-          linkedAt: new Date().toISOString(),
-          source: "sps-import",
-        })
-      ) as Json,
+      settings: settings as Json,
     })
     .select("id")
     .single();
@@ -293,6 +298,17 @@ export async function startSpsPull(
     await supabase.from("events").delete().eq("id", event.id);
     throw sectionError;
   }
+
+  // The host's gallery-header logo, into the mosaic cover's Insert slot, so
+  // Mason never uploads it a second time. Before the job is queued, so nothing
+  // else is writing `settings` yet; fail-soft by contract (pull-logo.ts), a
+  // missing or broken logo leaves the plain mosaic the gallery had anyway.
+  await attachSpsCoverLogo(supabase, {
+    eventId: event.id,
+    spsEventId: spsEvent.id,
+    settings,
+    logoUrl: spsEvent.logoUrl,
+  });
 
   const { data: job, error: jobInsertError } = await supabase
     .from("sps_pull_jobs")
