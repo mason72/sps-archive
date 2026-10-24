@@ -2712,3 +2712,8 @@ standalone bulk "Add BTS" screen with autocomplete + create-new for venues
       real upload from phone-width browser; venue + client pages show the
       entry; guest gallery payload, search, ZIP, People index untouched
       (grep: no reader of intel_notes outside /api/intel + /intel pages).
+
+## Security currency (2026-10-24)
+- [x] Next 15.5.12 -> 15.5.28 and sharp 0.33 -> 0.35.5 (CVE-2026-96889 image optimizer RCE, libvips CVEs); raster.ts types.
+- [ ] **Next 15 left Maintenance LTS on 2026-10-21** (two years from its release; nextjs.org/support-policy). 15.5.28 is the last patched state we can expect. Plan the move to Next 16 (16.4.3 today): `next lint` is gone in 16 (the pre-push hook already notes it), middleware is renamed proxy, caching defaults change. Own session, build in a worktree, live-event check before the push.
+- [ ] protobufjs 8.0.0 (critical, arbitrary code execution) sits behind @opentelemetry / @grpc; the fix is a breaking bump of the OTel chain. Dependabot now has alerts on and will open the PR; review it rather than hand-bumping.

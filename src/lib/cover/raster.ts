@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   getObjectBuffer,
@@ -246,7 +246,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
       }
     });
 
-    const composites: sharp.OverlayOptions[] = [];
+    const composites: OverlayOptions[] = [];
     placed.forEach(({ rect }, i) => {
       const buf = tileBuffers[i];
       if (!buf) return;
@@ -283,7 +283,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
       if (m.overlay.blur) {
         canvas = await sharp(canvas).blur(m.overlay.blurAmount).toBuffer();
       }
-      const wash: sharp.OverlayOptions[] = [
+      const wash: OverlayOptions[] = [
         {
           // Same helper the solid cover uses, so one colour stays a flat wash
           // and 2+ become a gradient with identical angle maths to the CSS.
@@ -313,7 +313,7 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
         colorRectSvg(holeW, holeH, m.insert.fill, 1)
       ).png().toBuffer();
       const logo = await prepareLogo(m.logoKey, hole.logoH, holeW * 0.88);
-      const overlays: sharp.OverlayOptions[] = [
+      const overlays: OverlayOptions[] = [
         { input: fill, left: Math.round(hole.x), top: Math.round(hole.y) },
       ];
       if (logo) {
