@@ -1141,7 +1141,7 @@ async function handleDriveResult(slug, token, r) {
 
   if (r.phase === "challenged") {
     s2.challenges = (s2.challenges || 0) + 1;
-    note(s2, `${slug}: CLOUDFLARE CHALLENGE (${s2.challenges}/3)`);
+    note(s2, `${slug}: CLOUDFLARE CHALLENGE (${s2.challenges}/3) — ${String(r.error || "").replace(/^Cloudflare challenge — stop, do not escalate ?/, "")}`);
     if (s2.challenges >= 3) {
       s2.running = false;
       s2.stoppedReason = "Cloudflare challenged three times — stopped deliberately, do not work around it";

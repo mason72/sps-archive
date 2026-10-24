@@ -201,7 +201,15 @@ async function driveOne(slug, password, opts) {
     // A challenge must STOP the run, never be worked around.
     if (/Just a moment|cf-mitigated|challenge-platform/i.test(g.html) && !/\/download\/auth\//.test(g.html)) {
       out.phase = "challenged";
-      out.error = "Cloudflare challenge — stop, do not escalate";
+      // Say WHAT matched: a 200 gallery page can carry Cloudflare's detection
+      // beacon (`challenge-platform`) without being a challenge, and a page with
+      // downloads switched off has no /download/auth/ link to prove it benign.
+      // accalia-huskyhybrid read as "challenged" on 2026-10-14 (3x) and 17:33Z
+      // 2026-10-24, then as "downloads disabled" at 17:53Z; this line is how the
+      // next one becomes a sentence instead of a hunt.
+      const markers = ["Just a moment", "cf-mitigated", "challenge-platform"].filter((m) => new RegExp(m, "i").test(g.html));
+      const gallery = /PhotoCount|collectionId/i.test(g.html);
+      out.error = `Cloudflare challenge — stop, do not escalate (HTTP ${g.status}, matched ${markers.join("+")}, ${g.html.length} chars, ${gallery ? "gallery markup present" : "no gallery markup"})`;
       return out;
     }
 
