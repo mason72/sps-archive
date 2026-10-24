@@ -5,6 +5,10 @@ import {
   layoutMosaic,
   focalCropWindow,
   MOSAIC_TILE_AR,
+  pickMosaicPool,
+  mosaicLeadsNeeded,
+  orderEveryPhoto,
+  MOSAIC_POOL_CAP,
 } from "./mosaic";
 
 function img(name: string, n: number) {
@@ -334,5 +338,100 @@ describe("layoutMosaic — logo size", () => {
     expect(holeFor(undefined).logoH).toBeCloseTo(holeFor(1).logoH, 5);
     expect(holeFor(3).logoH).toBeCloseTo(holeFor(1).logoH, 5);
     expect(holeFor(0).logoH).toBeCloseTo(holeFor(0.25).logoH, 5);
+  });
+});
+
+describe("pickMosaicPool — one rule for the gallery and the raster (2026-10-24)", () => {
+  // Distinct people: "Name_01.jpg" parses to one stack per name.
+  const person = (name: string, n = 1) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `${name}-${i}`,
+      parsedName: name,
+      originalFilename: `${name}_${String(i + 1).padStart(2, "0")}.jpg`,
+    }));
+  const people = (count: number, shotsEach = 1) =>
+    Array.from({ length: count }, (_, i) => person(personName(i), shotsEach)).flat();
+
+  it("a chosen section wins at any size", () => {
+    const out = pickMosaicPool({
+      sectionId: "tiny",
+      sections: [
+        { id: "hl", images: people(40) },
+        { id: "tiny", images: people(4) },
+      ],
+      everyPhoto: people(100),
+      minLeads: mosaicLeadsNeeded(3),
+    });
+    expect(out.source).toBe("chosen");
+    expect(out.pool).toHaveLength(4);
+  });
+
+  it("a chosen section that is empty or unknown falls through to the automatic rule", () => {
+    const out = pickMosaicPool({
+      sectionId: "gone",
+      sections: [{ id: "hl", images: people(40) }],
+      everyPhoto: people(100),
+      minLeads: mosaicLeadsNeeded(3),
+    });
+    expect(out.source).toBe("section");
+    expect(out.sectionId).toBe("hl");
+  });
+
+  it("skips a one-photo Highlights and takes the first section that fills the band", () => {
+    const out = pickMosaicPool({
+      sections: [
+        { id: "hl", images: people(1) },
+        { id: "a-b", images: people(30, 3) }, // 90 photos, 30 leads ≥ 24
+      ],
+      everyPhoto: people(200),
+      minLeads: mosaicLeadsNeeded(3),
+    });
+    expect(out.source).toBe("section");
+    expect(out.sectionId).toBe("a-b");
+  });
+
+  it("counts LEADS, not photos: 90 shots of 20 people do not fill a 3-row band", () => {
+    const out = pickMosaicPool({
+      sections: [{ id: "a", images: people(20, 5) }],
+      everyPhoto: people(200),
+      minLeads: mosaicLeadsNeeded(3),
+    });
+    expect(out.source).toBe("all");
+  });
+
+  it("falls back to every photo, capped, in the order given", () => {
+    const all = people(600);
+    const out = pickMosaicPool({ sections: [], everyPhoto: all, minLeads: mosaicLeadsNeeded(2) });
+    expect(out.source).toBe("all");
+    expect(out.pool).toHaveLength(MOSAIC_POOL_CAP);
+    expect(out.pool[0]).toBe(all[0]);
+  });
+
+  it("caps a chosen section the same way", () => {
+    const out = pickMosaicPool({
+      sectionId: "big",
+      sections: [{ id: "big", images: people(700) }],
+      everyPhoto: [],
+      minLeads: mosaicLeadsNeeded(3),
+    });
+    expect(out.pool).toHaveLength(MOSAIC_POOL_CAP);
+  });
+
+  it("crossfade (minLeads Infinity) keeps chosen-section-else-every-photo", () => {
+    const out = pickMosaicPool({
+      sections: [{ id: "hl", images: people(40) }],
+      everyPhoto: people(10),
+      minLeads: Infinity,
+    });
+    expect(out.source).toBe("all");
+  });
+
+  it("orderEveryPhoto sorts by filename then id, whatever order it got", () => {
+    const rows = [
+      { id: "b", originalFilename: "B.jpg" },
+      { id: "z", originalFilename: "A.jpg" },
+      { id: "a", originalFilename: "A.jpg" },
+    ];
+    expect(orderEveryPhoto(rows).map((r) => r.id)).toEqual(["a", "z", "b"]);
   });
 });

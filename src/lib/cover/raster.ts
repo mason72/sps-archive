@@ -20,7 +20,7 @@ import {
   coverRasterKey,
   coverInputsHash,
   tileHashKey,
-  fetchMosaicPool,
+  fetchMosaicCoverPool,
   poolLeads,
 } from "@/lib/cover/pool";
 
@@ -186,7 +186,9 @@ export async function composeCoverRaster(eventId: string): Promise<string | null
       .toBuffer();
   } else if (cover.type === "mosaic" && cover.mosaic) {
     const m = cover.mosaic;
-    const leads = poolLeads(await fetchMosaicPool(eventId, m.sectionId));
+    const leads = poolLeads(
+      await fetchMosaicCoverPool(eventId, { sectionId: m.sectionId, rows: m.rows })
+    );
     if (leads.length === 0) return null;
     hash = coverInputsHash(cover, leads.map(tileHashKey));
 

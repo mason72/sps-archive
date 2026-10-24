@@ -9,6 +9,10 @@ import {
   orderTiles,
   selectCrossfadeImages,
   MOSAIC_TILE_AR,
+  MOSAIC_POOL_CAP,
+  mosaicLeadsNeeded,
+  orderEveryPhoto,
+  pickMosaicPool,
 } from "@/lib/cover/mosaic";
 
 interface CoverSectionProps {
@@ -46,33 +50,34 @@ export function CoverSection({
   // Resolve a cover's source section → its images, in section order.
   const sourceSectionId =
     type === "mosaic" ? s.coverMosaic?.sectionId : s.coverCrossfade?.sectionId;
+  const mosaicRows = s.coverMosaic?.rows ?? 3;
   const sectionImages = useMemo(() => {
     if (type !== "mosaic" && type !== "crossfade") return [];
+    // ONE rule, shared with the raster composer (pool.ts fetchMosaicCoverPool):
+    // chosen section at any size, else the first section with enough leads to
+    // fill the band, else every photo by filename. Candidates are cut to
+    // MOSAIC_POOL_CAP in their own order before the dedupe, exactly as the
+    // server cuts its link reads, so the two pools are the same 500 photos.
+    // Videos never tile a cover (poster frames read as random blurry shots);
+    // the server filters media_type the same way.
     const byId = new Map(images.map((img) => [img.id, img]));
-    const withImages = (sections ?? []).filter((sec) =>
-      sec.imageIds.some((id) => byId.has(id))
-    );
-    const section = withImages.find((sec) => sec.id === sourceSectionId);
-    const sectionPool = section
-      ? section.imageIds
-          .map((id) => byId.get(id))
-          .filter((x): x is GalleryImage => !!x)
-      : [];
-    // No configured section (or it isn't in this payload) means EVERY image —
-    // never "whichever section sorts first". That arbitrary fallback is the
-    // actual bug: a cover with no section chosen landed on a 1-image
-    // "Highlights", and since a mosaic sheds rows rather than repeating tiles,
-    // the cover rendered as one stretched photo.
-    //
-    // A section the photographer DID choose is honoured at any size — a
-    // deliberate 4-image cover section is a choice, not a fault, and silently
-    // swapping in the whole event would override it.
-    const pool = section ? sectionPool : images;
-    // Videos never tile a cover (poster frames read as random blurry shots).
-    // Must match the raster pool's media_type filter or the seeded
-    // arrangement desyncs between live cover and email/OG raster.
-    return pool.filter((img) => img.mediaType !== "video");
-  }, [type, images, sections, sourceSectionId]);
+    const candidates = (sections ?? []).map((sec) => ({
+      id: sec.id,
+      images: sec.imageIds
+        .slice(0, MOSAIC_POOL_CAP)
+        .map((id) => byId.get(id))
+        .filter((x): x is GalleryImage => !!x && x.mediaType !== "video"),
+    }));
+    const everyPhoto = orderEveryPhoto(images.filter((img) => img.mediaType !== "video"));
+    return pickMosaicPool({
+      sectionId: sourceSectionId,
+      sections: candidates,
+      everyPhoto,
+      // Crossfade keeps "chosen section, else every photo": no section
+      // auto-qualifies for it.
+      minLeads: type === "mosaic" ? mosaicLeadsNeeded(mosaicRows) : Infinity,
+    }).pool;
+  }, [type, images, sections, sourceSectionId, mosaicRows]);
 
   let layer: React.ReactNode = null;
   if (type === "mosaic" && s.coverMosaic) {

@@ -295,3 +295,100 @@ export function focalCropWindow(
     top: Math.round(clamp((focalY / 100) * scaledH - dstH / 2, 0, scaledH - dstH)),
   };
 }
+
+/* ─── The pool rule (2026-10-24) ────────────────────────────────────────────
+ *
+ * Which photos a mosaic cover draws from when the photographer has not
+ * chosen a section. ONE rule, run by the live gallery (CoverSection) and the
+ * raster composer (pool.ts), because they disagreed: the gallery tiled from
+ * every image in the event while the raster tiled from the first section
+ * with members, so the hero in the email and the hero on the gallery were
+ * different pictures (HR Tech 2026: 6,164 photos vs the 50 in Highlights).
+ *
+ *   1. A section the photographer CHOSE wins at any size (a four-photo cover
+ *      section is a choice, not a fault).
+ *   2. Else the first section, in section order, with enough leads to fill
+ *      the band at the requested density. A one-photo Highlights (the 2026-09
+ *      bug: one stretched photo) does not qualify and is skipped.
+ *   3. Else every photo, ordered by filename then id — an order both sides can
+ *      compute from what they hold (the grid's default sort, created_at, is
+ *      not in the gallery payload), and one the grid's sort setting cannot
+ *      reshuffle.
+ *
+ * Every candidate is CAPPED at MOSAIC_POOL_CAP in its own order before stacks
+ * are deduped, on both sides, so a 6,000-photo pool is the same 500 here and
+ * in the raster. Change any of this on both sides at once, or the raster hash
+ * (which is computed from the pool) drifts from the live cover for good.
+ */
+
+/** Candidates are cut to this many photos, in their own order, before dedupe. */
+export const MOSAIC_POOL_CAP = 500;
+
+/** Leads per row the band needs before a section counts as "fills the band". */
+export const MOSAIC_MIN_LEADS_PER_ROW = 8;
+
+export function mosaicLeadsNeeded(rows: number): number {
+  return Math.max(1, Math.round(rows)) * MOSAIC_MIN_LEADS_PER_ROW;
+}
+
+export type MosaicPoolSource = "chosen" | "section" | "all";
+
+export interface MosaicPoolCandidate<T> {
+  id: string;
+  /** Displayable, non-video images in the section's own order. */
+  images: T[];
+}
+
+/** The pool rule's input for "every photo": displayable, non-video, any order. */
+export function orderEveryPhoto<T extends { id: string; originalFilename: string }>(
+  images: T[]
+): T[] {
+  return images
+    .slice()
+    .sort((a, b) =>
+      a.originalFilename < b.originalFilename
+        ? -1
+        : a.originalFilename > b.originalFilename
+          ? 1
+          : a.id < b.id
+            ? -1
+            : a.id > b.id
+              ? 1
+              : 0
+    );
+}
+
+/** Does a capped candidate hold enough stack leads to fill the band? */
+export function mosaicCandidateFills<
+  T extends { parsedName: string | null; originalFilename: string },
+>(images: T[], minLeads: number): boolean {
+  return dedupeStackLeads(images.slice(0, MOSAIC_POOL_CAP)).length >= minLeads;
+}
+
+/**
+ * Pick the pool. `sections` in section order (empty ones are fine, they never
+ * qualify); `everyPhoto` already in the agreed order (orderEveryPhoto).
+ * Crossfade passes `minLeads: Infinity` so no section auto-qualifies and the
+ * old "chosen section, else every photo" behaviour is kept for it.
+ */
+export function pickMosaicPool<
+  T extends { parsedName: string | null; originalFilename: string },
+>(opts: {
+  sectionId?: string;
+  sections: MosaicPoolCandidate<T>[];
+  everyPhoto: T[];
+  minLeads: number;
+}): { pool: T[]; source: MosaicPoolSource; sectionId?: string } {
+  const chosen = opts.sectionId
+    ? opts.sections.find((s) => s.id === opts.sectionId && s.images.length > 0)
+    : undefined;
+  if (chosen) {
+    return { pool: chosen.images.slice(0, MOSAIC_POOL_CAP), source: "chosen", sectionId: chosen.id };
+  }
+  for (const s of opts.sections) {
+    if (s.images.length > 0 && mosaicCandidateFills(s.images, opts.minLeads)) {
+      return { pool: s.images.slice(0, MOSAIC_POOL_CAP), source: "section", sectionId: s.id };
+    }
+  }
+  return { pool: opts.everyPhoto.slice(0, MOSAIC_POOL_CAP), source: "all" };
+}

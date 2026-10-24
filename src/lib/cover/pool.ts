@@ -6,7 +6,13 @@ import {
 } from "@/lib/r2/client";
 import type { CoverSettings } from "@/types/event-settings";
 import { coverNeedsRaster, sanitizeCoverForEvent } from "@/types/event-settings";
-import { dedupeStackLeads, MOSAIC_LAYOUT_VERSION } from "@/lib/cover/mosaic";
+import {
+  dedupeStackLeads,
+  MOSAIC_LAYOUT_VERSION,
+  MOSAIC_POOL_CAP,
+  mosaicCandidateFills,
+  mosaicLeadsNeeded,
+} from "@/lib/cover/mosaic";
 import { inngest } from "@/lib/inngest/client";
 
 /**
@@ -30,6 +36,38 @@ export interface TileRow {
   /** Subject anchor (0–100) — face-derived or manual; crops center on it. */
   focal_x: number | null;
   focal_y: number | null;
+}
+
+const TILE_FIELDS =
+  "id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y";
+
+/**
+ * Displayable tile rows for a list of ids, in the ORDER of that list.
+ * Chunked: a PostgREST `in()` with 500 uuids is a ~18 KB GET and the fetch
+ * fails outright ("fetch failed"), which read as "section has no photos" and
+ * sent the cover rule past a section the photographer had chosen (eBay RCG
+ * MiniCon, 1,289-photo section, 2026-10-24). Videos never tile a cover.
+ */
+async function loadTileRows(
+  supabase: ReturnType<typeof createServiceClient>,
+  ids: string[]
+): Promise<TileRow[]> {
+  const byId = new Map<string, TileRow & { media_type: string | null }>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabase
+      .from("images")
+      .select(TILE_FIELDS)
+      .in("id", ids.slice(i, i + 100))
+      .eq("thumbnail_generated", true);
+    if (error) throw error;
+    for (const img of data ?? []) byId.set(img.id, img);
+  }
+  const rows: TileRow[] = [];
+  for (const id of ids) {
+    const img = byId.get(id);
+    if (img && img.media_type !== "video") rows.push(img);
+  }
+  return rows;
 }
 
 /** The section image rows a mosaic/crossfade would draw from, in section order. */
@@ -63,28 +101,85 @@ export async function fetchMosaicPool(
       .limit(500);
     if (!links || links.length === 0) continue;
 
-    const ids = links.map((l) => l.image_id);
     // Displayable = thumbnail exists — same gate as the public gallery
     // payload the live mosaic tiles from. Gating on processing_status
     // instead silently drops photos whose (hidden) AI step failed, and any
     // pool difference reorders the ENTIRE seeded arrangement, desyncing the
     // raster from the live cover.
-    const { data: images } = await supabase
-      .from("images")
-      .select(
-        "id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y"
-      )
-      .in("id", ids)
-      .eq("thumbnail_generated", true);
-    const byId = new Map((images ?? []).map((img) => [img.id, img]));
-    const rows: TileRow[] = [];
-    for (const id of ids) {
-      const img = byId.get(id);
-      if (img && img.media_type !== "video") rows.push(img);
-    }
+    const rows = await loadTileRows(supabase, links.map((l) => l.image_id));
     if (rows.length > 0) return rows;
   }
   return [];
+}
+
+/**
+ * The pool a MOSAIC COVER draws from — the server half of the one rule in
+ * mosaic.ts (`pickMosaicPool`): the chosen section at any size, else the
+ * first section with enough leads to fill the band, else every photo by
+ * filename then id. Each candidate is read in its own order and cut at
+ * MOSAIC_POOL_CAP before the dedupe, as the gallery cuts the payload's
+ * section ids. `fetchMosaicPool` above keeps its "first section with members"
+ * fallback for the callers that want a fallback FRAME (share cover, OG image,
+ * recap, focal targets); only the cover raster and its hash use this one.
+ */
+export async function fetchMosaicCoverPool(
+  eventId: string,
+  mosaic: { sectionId?: string; rows: number }
+): Promise<TileRow[]> {
+  const supabase = createServiceClient();
+  const minLeads = mosaicLeadsNeeded(mosaic.rows);
+
+  const { data: sections } = await supabase
+    .from("sections")
+    .select("id")
+    .eq("event_id", eventId)
+    .order("sort_order", { ascending: true });
+  const sectionIds = (sections ?? []).map((s) => s.id);
+
+  const loadSection = async (sid: string): Promise<TileRow[]> => {
+    // Same order as the gallery payload's link read (sort_order, then id),
+    // cut at the cap BEFORE the displayable filter, as the gallery cuts
+    // `sec.imageIds` before mapping them to loaded images.
+    const { data: links } = await supabase
+      .from("section_images")
+      .select("image_id")
+      .eq("section_id", sid)
+      .order("sort_order", { ascending: true })
+      .order("image_id", { ascending: true })
+      .limit(MOSAIC_POOL_CAP);
+    const ids = (links ?? []).map((l) => l.image_id);
+    return ids.length ? loadTileRows(supabase, ids) : [];
+  };
+
+  // 1. The chosen section, when it exists and has displayable photos.
+  if (mosaic.sectionId && sectionIds.includes(mosaic.sectionId)) {
+    const chosen = await loadSection(mosaic.sectionId);
+    if (chosen.length > 0) return chosen;
+  }
+  // 2. The first section that fills the band.
+  for (const sid of sectionIds) {
+    const rows = await loadSection(sid);
+    if (rows.length > 0 && mosaicCandidateFills(rows.map(asLead), minLeads)) return rows;
+  }
+  // 3. Every photo, by filename then id. Cover uploads are never photos
+  // (lesson 184) and never in a section, so only this branch must exclude
+  // them explicitly.
+  const { data: all, error: allErr } = await supabase
+    .from("images")
+    .select(TILE_FIELDS)
+    .eq("event_id", eventId)
+    .eq("thumbnail_generated", true)
+    .eq("is_cover_upload", false)
+    .neq("media_type", "video")
+    .order("original_filename", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(MOSAIC_POOL_CAP);
+  if (allErr) throw allErr;
+  return (all ?? []) as TileRow[];
+}
+
+function asLead(row: TileRow) {
+  return { ...row, parsedName: row.parsed_name, originalFilename: row.original_filename };
 }
 
 /** Pool rows → stack-deduped leads (adapts DB casing for the shared engine). */
@@ -177,7 +272,12 @@ export async function coverRasterStatus(
     // inputs are entirely inside settings).
     let currentHash: string;
     if (cover.type === "mosaic") {
-      const leads = poolLeads(await fetchMosaicPool(eventId, cover.mosaic?.sectionId));
+      const leads = poolLeads(
+        await fetchMosaicCoverPool(eventId, {
+          sectionId: cover.mosaic?.sectionId,
+          rows: cover.mosaic?.rows ?? 3,
+        })
+      );
       currentHash = coverInputsHash(cover, leads.map(tileHashKey));
     } else {
       currentHash = coverInputsHash(cover, []);

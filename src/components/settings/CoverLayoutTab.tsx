@@ -1184,7 +1184,7 @@ function SectionSelect({
         onChange={(e) => onChange(e.target.value || undefined)}
         className="w-full text-[12px] text-stone-700 px-2 py-2 border border-stone-200 rounded bg-white focus:outline-none focus:border-stone-900 transition-colors cursor-pointer"
       >
-        <option value="">First section (automatic)</option>
+        <option value="">Automatic (first section that fills the band)</option>
         {usable.map((s) => (
           <option key={s.id} value={s.id}>
             {s.name} ({s.imageCount})
