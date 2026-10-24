@@ -49,6 +49,7 @@ goes with it; the watcher serves both, so editing the file is the whole step:
 | File | Served as | What it does |
 |---|---|---|
 | `data/pins.json` — `{ "<slug>": "<PIN>" }` | `GET /pins` | The scheduler fetches it per drive and the offscreen driver sends the PIN with the form. A stay on the auth form after the POST retires the collection at once with a beacon reason the ledger keeps: `pin-required` (none on record) or `pin-refused`. Fix the file, then a named repair puts the slug back. |
+| `data/arm.json` — `{ "at": "<ISO time>" }` | `armAt` in the `/disk` body | The popup's **Arm passwords** as a file (v1.3.8): one sweep of the admin API per distinct `at`, needing the owner session in a Pixieset tab, so the owner signs in first and the file is written second. Honored once per value whether or not the sweep succeeds. |
 | `data/resume.json` — `{ "at": "<ISO time>" }` | `resumeAt` in the `/disk` body | A human's "go" after a deliberate stop (three Cloudflare challenges, "queue drained"). The extension resumes ONCE per distinct `at` (`s.resumedAt` remembers it), re-arms the tick alarm exactly as the popup's Start does, and resets the challenge count; the three-challenge limit itself is unchanged. Write a new time for the next "go". |
 
 Why a file and not the popup: nothing here can drive a `chrome-extension://`
@@ -65,6 +66,15 @@ in `data/pins.json` if the download form asks for one, add a repair with
 write `data/resume.json` if the extension is stopped. First done for
 `oct2026metaeventphotos` (Doug's Meta gallery, 59 previews; the rest of it is a
 later `requeue` repair once Doug finishes).
+
+**What a Cloudflare challenge is, and is not (v1.3.8).** An interstitial ("Just a
+moment", or the `cf-mitigated` marker, or the challenge script on a page with no
+gallery markup) stops the run after three in a row, as before. A 200 gallery page
+that merely carries the `challenge-platform` beacon is a gallery page; with no
+`/download/auth/` link it means downloads are switched off, and it retires as
+`no-download`. Every 2015 pet sitting read as "challenged" under the old test and
+stopped the queue twice (2026-10-14 and 2026-10-24); the challenge line now names
+the HTTP status, the matched marker and whether gallery markup was present.
 
 ## How it survives what the tab could not
 
