@@ -599,7 +599,7 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");   // the caller is an extension origin
     if (req.method === "OPTIONS") {
-      res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "content-type" }).end();
+      res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "content-type, x-px-extension" }).end();
       return;
     }
     if (req.method === "POST" && req.url?.startsWith("/status")) {
@@ -617,10 +617,18 @@ export function startDiskServer(port = DISK_PORT, { statusFile = EXTENSION_STATU
     }
     if (req.method === "GET" && req.url?.startsWith("/pins")) {
       // Loopback only (the server binds 127.0.0.1), and the extension is the one
-      // caller: a browser page that reached loopback would carry an http(s)
-      // Origin, and curl carries none. Both get nothing.
+      // caller. It names itself with `X-Px-Extension: <its runtime id>`; a web
+      // page that reached loopback cannot set that header without a preflight
+      // this server refuses, and curl does not send it. Chrome attaches NO
+      // Origin header to a plain GET from an extension service worker (measured
+      // 2026-10-24: an Origin check refused the extension and the first PIN'd
+      // gallery retired as "none on record"), so Origin is accepted but not required.
+      const ext = req.headers["x-px-extension"];
       const origin = req.headers.origin;
-      if (!(typeof origin === "string" && origin.startsWith("chrome-extension://"))) {
+      const fromExtension = (typeof ext === "string" && /^[a-p]{32}$/.test(ext))
+        || (typeof origin === "string" && origin.startsWith("chrome-extension://"));
+      if (!fromExtension) {
+        console.log(`pins refused: origin=${origin ?? "(none)"} x-px-extension=${ext ? "(present, malformed)" : "(none)"}`);
         res.writeHead(403, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "pins are served to the extension only" }));
         return;

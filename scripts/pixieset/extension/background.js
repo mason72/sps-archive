@@ -194,6 +194,15 @@ const REPAIRS = [
     front: ["oct2026metaeventphotos"],
   },
   {
+    id: "2026-10-24-requeue-oct2026metaeventphotos-pin",
+    // Retired "pin-required" at 16:52Z on the first run of v1.3.4: the watcher's
+    // /pins refused the extension because it checked for an Origin header that
+    // Chrome does not send on a plain GET from a service worker. The PIN was on
+    // record the whole time. Fixed by a header the extension sets itself.
+    requeue: ["oct2026metaeventphotos"],
+    front: ["oct2026metaeventphotos"],
+  },
+  {
     id: "2026-10-12-requeue-downloads-enabled",
     // Both were retired on 2026-10-11 23:55 as "bulk download switched off":
     // they joined the ledger after the 2026-08-15 pass that enabled downloads
@@ -718,7 +727,9 @@ async function brake() {
 const PINS_URL = "http://127.0.0.1:8788/pins";
 async function pinsOnRecord() {
   try {
-    const res = await fetch(PINS_URL, { cache: "no-store" });
+    // The watcher serves PINs only to a caller that names itself as this
+    // extension; Chrome sends no Origin on a plain GET from a service worker.
+    const res = await fetch(PINS_URL, { cache: "no-store", headers: { "X-Px-Extension": chrome.runtime.id } });
     if (!res.ok) return {};
     const body = await res.json();
     return body && typeof body === "object" ? body : {};

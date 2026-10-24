@@ -4715,5 +4715,28 @@ that we'll need to pull over."
   on both Macs**, so the admin API was out. The gallery was found anyway from the EXPOSURE calendar
   ("DOUG | Meta Event Photography", 10-22) and Pixieset's own "Preview Photos … are ready" email,
   which carries the gallery URL, the date and the download PIN. Check the inbox before asking.
+- **Chrome sends no Origin header on a plain GET from an extension service worker.** The
+  review asked for the loopback `/pins` route to admit only `Origin: chrome-extension://…`; the
+  first live run then retired the gallery as "PIN required, none on record" while the PIN sat in
+  the file, because the one caller the check was for never carried the header (v1.3.4, 16:52Z).
+  The caller now names itself with `X-Px-Extension: <runtime id>`, refusals are logged with what
+  arrived, and the three curl cases (no header, malformed, web origin) print 403 with the
+  extension case printing the keys. A guard added for a reviewer gets the same live proof as the
+  code it guards; "curl got 403" proved only that curl got 403.
 - **Live uploads blocked the push** (119 images in the last hour at 16:30Z), so the change was
   committed and held, per the SPS gate, even though it touches no app code (a push still deploys).
+
+## 191. The cover editor's live preview dropped every change made while it was loading, and the email cover called a stale raster "done" (2026-10-24)
+
+**What happened.** On HR Tech 2026 (6,164 photos) Mason turned on the cover, chose Mosaic, and the preview showed nothing until he changed the Logo setting; after uploading a logo the title would not show until he cycled "Show event title too" off and on; and the share page's email preview kept showing the Insert raster after he had switched to Overlay. Three symptoms, two causes.
+
+1. **The preview listener did `setGallery(g => g ? apply(g, next) : g)`.** Until the payload had loaded, `g` was null and the posted settings were discarded. On a 300-photo event the payload lands before a human can click; on a 6,000-photo event it takes seconds, and a logo upload reloads the frame and opens the window again. Every change made in that window vanished, and the next change re-sent the whole settings object, which is why "changing something else" fixed it. Proven both ways with one probe: reload the frame, post `rows: 4` 300 ms after its `load` event, count the rendered tile rows 14 s later. Old code rendered the saved 2; the fix rendered 4. Fix: keep the newest posted settings in a ref and apply them when the payload lands, and have the editor re-post its current settings on the frame's `load`.
+2. **`share-readiness` reported `coverComposing = (no raster object)`.** A raster composed from OLDER settings exists, so the page said "done" and showed it, while `resolveCoverRasterUrl` quietly enqueued a regeneration that the sent email then benefited from. Now `coverRasterStatus()` in `pool.ts` is the one place that answers missing / stale / fresh (and enqueues when not fresh); readiness reports composing for missing AND stale, and the share page's existing poll busts the image when it turns fresh.
+
+**Also found, not yet fixed: the live cover and the email raster draw from DIFFERENT pools when no section is chosen.** `CoverSection` (the gallery) uses EVERY image in payload order; `fetchMosaicPool` (the raster) uses the first section with members (for HR Tech: Highlights, 50 photos). The picker's label says "First section (automatic)", so the raster matches the label and the gallery does not. Each side's comment claims to mirror the other. The seeded arrangement is computed from the pool, so the email hero and the gallery hero are different pictures today. The fix is one shared rule on both sides (a section with enough leads, else every image, in one agreed order); it is a day's careful work because the raster hash must stay in step.
+
+**Rules.**
+- A message handler that needs state which may not exist yet must QUEUE, not drop. `cond ? apply : ignore` on a message is a race by construction; keep the latest in a ref and replay it when the state arrives.
+- "Exists" is not "current". Anything served stale-while-revalidate needs a three-state answer (missing / stale / fresh), and the UI that says "ready" must read the same answer the server acts on.
+- A probe for a race is run against the OLD code first; a positive run alone is indistinguishable from the autosave winning the race.
+- New galleries now start with a cover (`newGalleryCoverDefaults()`: mosaic, Insert, title below-left, title shown), applied at CREATION only through `withNewGalleryDefaults()`, never at read time: a read-time default would put covers on ~1,300 existing galleries, shares already sent included.
