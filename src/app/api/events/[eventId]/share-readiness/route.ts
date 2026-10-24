@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
-import { coverRasterKey } from "@/lib/cover/pool";
-import { getObjectMetadata } from "@/lib/r2/client";
+import { coverRasterStatus } from "@/lib/cover/pool";
 
 /**
  * GET /api/events/[eventId]/share-readiness
@@ -83,10 +82,13 @@ export async function GET(
     const cover = normalizeCoverSettings(
       ((event.settings ?? {}) as Record<string, unknown>).cover
     );
+    // Missing OR stale: a raster composed from older settings is still being
+    // replaced, and the preview must say so rather than show the old design
+    // as if it were current (2026-10-23).
     let coverComposing = false;
     if (cover.enabled && coverNeedsRaster(cover)) {
-      const meta = await getObjectMetadata(coverRasterKey(eventId)).catch(() => null);
-      coverComposing = meta === null;
+      const status = await coverRasterStatus(eventId, cover).catch(() => null);
+      coverComposing = status === "missing" || status === "stale";
     }
 
     return NextResponse.json({

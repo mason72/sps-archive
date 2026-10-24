@@ -175,11 +175,41 @@ export function newGalleryPinDefaults(): Pick<
   return { requirePinBulk: true, requirePinIndividual: false, downloadPin: generateDownloadPin() };
 }
 
-/** Merge the new-gallery PIN posture under whatever settings a creator sent. */
+/**
+ * The cover a NEW gallery starts with (Mason, 2026-10-23: "this should be the
+ * default"): a mosaic of the gallery's own photos with the client logo
+ * inserted, the title below it on the left, and the title shown even once a
+ * logo is added. Insert with no logo yet is a plain mosaic, so the cover is
+ * there from the first photo and the logo is the one thing left to add.
+ *
+ * CREATION-TIME ONLY, like the PIN below. A read-time default would put a
+ * cover on every one of the ~1,300 existing galleries that never chose one,
+ * including shares already in clients' inboxes.
+ */
+export function newGalleryCoverDefaults(): CoverSettings {
+  return {
+    enabled: true,
+    type: "mosaic",
+    mosaic: {
+      ...DEFAULT_MOSAIC_SETTINGS,
+      logoMode: "insert",
+      seed: Math.floor(Math.random() * 1e9),
+    },
+    hideTitle: false,
+    titlePosition: "below",
+    titleAlignment: "left",
+  };
+}
+
+/** Merge the new-gallery posture (PIN, cover) under whatever settings a creator sent. */
 export function withNewGalleryDefaults(settings: Record<string, unknown> | null | undefined): Record<string, unknown> {
   const base = settings ?? {};
   const sharing = (base.sharing ?? {}) as Partial<SharingSettings>;
-  return { ...base, sharing: { ...newGalleryPinDefaults(), ...sharing } };
+  return {
+    ...base,
+    sharing: { ...newGalleryPinDefaults(), ...sharing },
+    cover: base.cover ?? newGalleryCoverDefaults(),
+  };
 }
 
 export type CoverType = "image" | "mosaic" | "solid" | "crossfade";

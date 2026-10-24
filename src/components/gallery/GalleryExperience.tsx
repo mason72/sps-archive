@@ -312,6 +312,14 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
    * no round trip, no reload. Preview only, same origin only; a share page
    * never listens. See gallery-fields.ts for why.
    */
+  //
+  // The newest posted settings are kept in a ref and applied when the
+  // payload lands. Without that, anything posted while the preview was still
+  // loading was dropped: on a 6,000-photo event the first load takes seconds,
+  // and a logo upload reloads the frame, so "Use cover" + "Mosaic" clicked
+  // during that window showed nothing until an unrelated later change
+  // re-sent the whole settings object (HR Tech 2026, 2026-10-23).
+  const pendingPreviewSettings = useRef<EventSettings | null>(null);
   useEffect(() => {
     if (source.kind !== "preview") return;
     const onMessage = (e: MessageEvent) => {
@@ -319,6 +327,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       const data = e.data as { type?: string; settings?: EventSettings } | null;
       if (!data || data.type !== PREVIEW_SETTINGS_MESSAGE || !data.settings) return;
       const next = data.settings;
+      pendingPreviewSettings.current = next;
       setGallery((g) =>
         g ? { ...g, settings: applyPreviewSettings(g.settings ?? {}, next) } : g
       );
@@ -565,7 +574,15 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         return;
       }
 
-      setGallery(data);
+      // Settings the editor posted before this payload arrived win over the
+      // server's copy: they are newer, and the autosave may not have landed.
+      // (Only ever set in preview mode; the listener above is preview-only.)
+      const pending = pendingPreviewSettings.current;
+      setGallery(
+        pending
+          ? { ...data, settings: applyPreviewSettings(data.settings ?? {}, pending) }
+          : data
+      );
       setRequiresAuth(false);
 
       // Load favorites from localStorage

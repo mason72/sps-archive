@@ -2291,6 +2291,15 @@ export default function EventPage({
                     className="w-full h-full border-0"
                     style={{ minHeight: "60vh" }}
                     title="Gallery preview"
+                    // A fresh frame (first load, or the reload a new logo
+                    // triggers) starts from the SAVED settings; the editor's
+                    // unsaved ones are newer, so hand them over at once.
+                    onLoad={(e) =>
+                      e.currentTarget.contentWindow?.postMessage(
+                        { type: PREVIEW_SETTINGS_MESSAGE, settings: previewSettingsRef.current },
+                        window.location.origin
+                      )
+                    }
                   />
                 </div>
               </div>

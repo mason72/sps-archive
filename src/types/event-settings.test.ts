@@ -382,6 +382,38 @@ describe("new-gallery PIN default (2026-09-18)", () => {
     expect(resolveSharePins({ event: {} }).requirePinBulk).toBe(false);
   });
 
+  describe("new-gallery cover default (2026-10-23)", () => {
+    it("starts as a mosaic with the logo inserted, title below on the left and shown", () => {
+      const cover = normalizeCoverSettings(withNewGalleryDefaults(undefined).cover);
+      expect(cover.enabled).toBe(true);
+      expect(cover.type).toBe("mosaic");
+      expect(cover.mosaic?.logoMode).toBe("insert");
+      expect(cover.mosaic?.logoKey).toBeUndefined();
+      expect(cover.titlePosition).toBe("below");
+      expect(cover.titleAlignment).toBe("left");
+      // Explicit, so adding a logo later does not auto-hide the title.
+      expect(cover.hideTitle).toBe(false);
+      expect(coverShowsTitle(cover)).toBe(true);
+    });
+
+    it("varies the seed so two new galleries do not share one arrangement", () => {
+      const seeds = new Set(
+        Array.from({ length: 5 }, () => normalizeCoverSettings(withNewGalleryDefaults({}).cover).mosaic?.seed)
+      );
+      expect(seeds.size).toBeGreaterThan(1);
+    });
+
+    it("keeps a cover the creator sent", () => {
+      const out = withNewGalleryDefaults({ cover: { enabled: false, type: "image" } });
+      expect(normalizeCoverSettings(out.cover).enabled).toBe(false);
+    });
+
+    it("does NOT change the read-time default, so existing galleries keep no cover", () => {
+      expect(normalizeCoverSettings(undefined).enabled).toBe(false);
+      expect(normalizeCoverSettings({}).enabled).toBe(false);
+    });
+  });
+
   it("generates varied PINs in range", () => {
     const pins = new Set(Array.from({ length: 200 }, generateDownloadPin));
     expect(pins.size).toBeGreaterThan(100);

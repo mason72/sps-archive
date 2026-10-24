@@ -4635,3 +4635,51 @@ app clients through one `R2_REQUEST_HANDLER`; within the hour it aborted a real 
 **What happened.** Mason asked, after the php2shell CVEs, whether our routines checked for vulnerabilities and model currency "as a rule rather than reacting one by one". None did. Dependabot alerts were off on all 23 github.com repos, so GitHub had never been able to tell us about a vulnerable dependency. This app sat on Next 15.5.12 while 15.5.28 (2026-10-14) fixed an unauthenticated RCE in the Image Optimization API (CVE-2026-96889); BFF, tdp-website and FosterWealth had the same bug; spsv2 was on Next 14, a line that left support in October 2025, so no patch exists for it at all. Next 15 itself left maintenance three days before the question was asked. The sharp bump that came with the fix moved its types to an ESM module, so `sharp.OverlayOptions` became a named import in raster.ts; the build caught it.
 
 **Rule.** Vulnerability watching is infrastructure, not a reflex: Dependabot alerts + security-update PRs stay ON for every repo, and the Studio runs `claude-shared/tools/security-sweep.sh` every Monday (Dependabot alerts, framework and Node support status, prod-dependency audits, Supabase advisors, pinned Claude model ids against the deprecations page, Homebrew). A framework major has a support END date the day it ships (Next: two years after release); write that date into todo.md when adopting it, so the migration is a scheduled task and not a surprise. Global rule: `~/.claude/rules/security-currency.md`.
+## 190. "Full from Pixieset" was 34 collections short, and the STARVED emails were right (2026-10-24)
+
+Mason: "I think Pixeltrunk is full from Pixieset; should we unwind the notifications and updates?
+I'm still getting STARVED emails." Then, mid-check: "Doug did upload a new gallery there yesterday
+that we'll need to pull over."
+
+- **Read the ledger before unwinding the alarm that reads it.** `queue.json` said 1,337 of 1,371
+  ingested: 24 never requested, 9 deleted on Pixieset, 1 web-size only. The extension had stopped
+  itself on 2026-10-14 (three Cloudflare challenges at the first 2015 pet sitting) and the hourly
+  check had been sending exactly one STARVED a day since, as designed. The emails were not noise;
+  the lane was stopped with work queued. "I think it's done" is a claim about a durable record.
+- **A frozen inventory makes "migration complete" and "still an intake" collide.** The queue and the
+  extension's job list were built once (2026-08-12) and learn nothing by themselves, so Doug's new
+  gallery was invisible to every counter. New rule, now in the extension README: a post-inventory
+  gallery is added by hand (ledger entry under the lock, a named `add`+`front` repair, a manifest bump).
+- **Post-migration galleries keep their download PIN, and the extension had never sent one.** The
+  migration cleared all PINs first (`emit-pin-clear.mjs`), so the auth form was email-only for 1,337
+  collections; the 1,338th had `DownloadLoginForm[download_pin]`. Proven by GETting the auth form in
+  the browser and listing its inputs before changing code. Fix: the watcher serves gitignored
+  `data/pins.json` at `/pins`; the driver posts the PIN; a stay on the form retires as
+  `pin-required` / `pin-refused` (v1.3.3).
+- **A `chrome-extension://` page cannot be driven**: the navigate tool rewrote the scheme to
+  `https://chrome-extension//…`. The popup's Start became `data/resume.json` (`{"at":"<ISO>"}`),
+  carried in the brake body and honored once per value. Watch the alarm model when you add a
+  resume path: a stopped extension has no tick alarm, only the 20-minute heartbeat, so the resume
+  has to live where the heartbeat runs AND re-arm the tick alarm as Start does. The first draft
+  only did the tick half and would have cleared the stop without ever requesting anything.
+- **Both Chromes were signed out of Pixieset and the 1Password bridge returned `transport_error`
+  on both Macs**, so the admin API was out. The gallery was found anyway from the EXPOSURE calendar
+  ("DOUG | Meta Event Photography", 10-22) and Pixieset's own "Preview Photos … are ready" email,
+  which carries the gallery URL, the date and the download PIN. Check the inbox before asking.
+- **Live uploads blocked the push** (119 images in the last hour at 16:30Z), so the change was
+  committed and held, per the SPS gate, even though it touches no app code (a push still deploys).
+
+## 191. The cover editor's live preview dropped every change made while it was loading, and the email cover called a stale raster "done" (2026-10-24)
+
+**What happened.** On HR Tech 2026 (6,164 photos) Mason turned on the cover, chose Mosaic, and the preview showed nothing until he changed the Logo setting; after uploading a logo the title would not show until he cycled "Show event title too" off and on; and the share page's email preview kept showing the Insert raster after he had switched to Overlay. Three symptoms, two causes.
+
+1. **The preview listener did `setGallery(g => g ? apply(g, next) : g)`.** Until the payload had loaded, `g` was null and the posted settings were discarded. On a 300-photo event the payload lands before a human can click; on a 6,000-photo event it takes seconds, and a logo upload reloads the frame and opens the window again. Every change made in that window vanished, and the next change re-sent the whole settings object, which is why "changing something else" fixed it. Proven both ways with one probe: reload the frame, post `rows: 4` 300 ms after its `load` event, count the rendered tile rows 14 s later. Old code rendered the saved 2; the fix rendered 4. Fix: keep the newest posted settings in a ref and apply them when the payload lands, and have the editor re-post its current settings on the frame's `load`.
+2. **`share-readiness` reported `coverComposing = (no raster object)`.** A raster composed from OLDER settings exists, so the page said "done" and showed it, while `resolveCoverRasterUrl` quietly enqueued a regeneration that the sent email then benefited from. Now `coverRasterStatus()` in `pool.ts` is the one place that answers missing / stale / fresh (and enqueues when not fresh); readiness reports composing for missing AND stale, and the share page's existing poll busts the image when it turns fresh.
+
+**Also found, not yet fixed: the live cover and the email raster draw from DIFFERENT pools when no section is chosen.** `CoverSection` (the gallery) uses EVERY image in payload order; `fetchMosaicPool` (the raster) uses the first section with members (for HR Tech: Highlights, 50 photos). The picker's label says "First section (automatic)", so the raster matches the label and the gallery does not. Each side's comment claims to mirror the other. The seeded arrangement is computed from the pool, so the email hero and the gallery hero are different pictures today. The fix is one shared rule on both sides (a section with enough leads, else every image, in one agreed order); it is a day's careful work because the raster hash must stay in step.
+
+**Rules.**
+- A message handler that needs state which may not exist yet must QUEUE, not drop. `cond ? apply : ignore` on a message is a race by construction; keep the latest in a ref and replay it when the state arrives.
+- "Exists" is not "current". Anything served stale-while-revalidate needs a three-state answer (missing / stale / fresh), and the UI that says "ready" must read the same answer the server acts on.
+- A probe for a race is run against the OLD code first; a positive run alone is indistinguishable from the autosave winning the race.
+- New galleries now start with a cover (`newGalleryCoverDefaults()`: mosaic, Insert, title below-left, title shown), applied at CREATION only through `withNewGalleryDefaults()`, never at read time: a read-time default would put covers on ~1,300 existing galleries, shares already sent included.

@@ -140,40 +140,66 @@ export function coverInputsHash(cover: CoverSettings, tileIds: string[]): string
  * (section re-curated, settings changed out-of-band), a refresh is enqueued
  * while the stale raster still serves (stale-while-revalidate).
  */
+export type CoverRasterStatus =
+  /** No raster for these settings yet (first render, or a failed job). */
+  | "missing"
+  /** A raster exists but was composed from OLDER settings or tiles. */
+  | "stale"
+  | "fresh";
+
+/**
+ * Where the stored raster stands against the CURRENT settings and tile pool,
+ * enqueueing a (debounced) regeneration whenever it is not fresh. `null`
+ * means these settings need no raster at all.
+ *
+ * "Stale" is reported as its own state on purpose: the share page used to
+ * ask only "does a raster exist?", so a cover changed from Insert to Overlay
+ * kept showing the Insert raster in the email preview with no hint that a
+ * newer one was on its way (Mason, 2026-10-23: "the preview is almost always
+ * wrong although it's usually right in the email that's sent" — right by
+ * send time because the job had finished by then).
+ */
+export async function coverRasterStatus(
+  eventId: string,
+  rawCover: CoverSettings
+): Promise<CoverRasterStatus | null> {
+  // Same sanitization the composer applies — the two hash computations must
+  // see identical settings or a bogus logoKey loops regeneration forever.
+  const cover = sanitizeCoverForEvent(eventId, rawCover);
+  if (!coverNeedsRaster(cover)) return null;
+  const meta = await getObjectMetadata(coverRasterKey(eventId));
+
+  let status: CoverRasterStatus;
+  if (meta === null) {
+    status = "missing";
+  } else {
+    // Staleness probe: recompute the tile pool hash only for mosaic (solid's
+    // inputs are entirely inside settings).
+    let currentHash: string;
+    if (cover.type === "mosaic") {
+      const leads = poolLeads(await fetchMosaicPool(eventId, cover.mosaic?.sectionId));
+      currentHash = coverInputsHash(cover, leads.map(tileHashKey));
+    } else {
+      currentHash = coverInputsHash(cover, []);
+    }
+    status = meta["inputs-hash"] === currentHash ? "fresh" : "stale";
+  }
+
+  if (status !== "fresh") {
+    await inngest
+      .send({ name: "cover/raster.generate", data: { eventId } })
+      .catch(() => {});
+  }
+  return status;
+}
+
 export async function resolveCoverRasterUrl(
   eventId: string,
   rawCover: CoverSettings,
   expiresIn = 3600
 ): Promise<string | null> {
-  // Same sanitization the composer applies — the two hash computations must
-  // see identical settings or a bogus logoKey loops regeneration forever.
-  const cover = sanitizeCoverForEvent(eventId, rawCover);
-  if (!coverNeedsRaster(cover)) return null;
-  const key = coverRasterKey(eventId);
-  const meta = await getObjectMetadata(key);
-
-  if (meta === null) {
-    // Nothing rendered yet (pre-pipeline covers, or a failed job) — enqueue.
-    await inngest
-      .send({ name: "cover/raster.generate", data: { eventId } })
-      .catch(() => {});
-    return null;
-  }
-
-  // Staleness probe: recompute the tile pool hash only for mosaic (solid's
-  // inputs are entirely inside settings).
-  let currentHash: string;
-  if (cover.type === "mosaic") {
-    const leads = poolLeads(await fetchMosaicPool(eventId, cover.mosaic?.sectionId));
-    currentHash = coverInputsHash(cover, leads.map(tileHashKey));
-  } else {
-    currentHash = coverInputsHash(cover, []);
-  }
-  if (meta["inputs-hash"] !== currentHash) {
-    await inngest
-      .send({ name: "cover/raster.generate", data: { eventId } })
-      .catch(() => {});
-  }
-
-  return getPresignedDownloadUrl(key, expiresIn);
+  const status = await coverRasterStatus(eventId, rawCover);
+  // Stale still serves (stale-while-revalidate); missing has nothing to serve.
+  if (status === null || status === "missing") return null;
+  return getPresignedDownloadUrl(coverRasterKey(eventId), expiresIn);
 }
