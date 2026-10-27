@@ -8,6 +8,8 @@ import { SectionedGallery } from "@/components/gallery/SectionedGallery";
 import { StackModal } from "@/components/gallery/StackModal";
 import { ShareLinkDialog } from "@/components/gallery/ShareLinkDialog";
 import { buildDisplayStacks, buildStacks, stackPersonName, type GalleryStack } from "@/lib/gallery/stacks";
+import { searchByName } from "@/lib/gallery/name-search";
+import { DidYouMean } from "@/components/gallery/DidYouMean";
 import { stripMediaExtension } from "@/lib/upload/media";
 import { downloadGateKind } from "@/lib/gallery/download-gate";
 import { CoverSection } from "@/components/gallery/CoverSection";
@@ -446,20 +448,33 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   }, [gallery]);
 
   // ─── Guest search: names first, then visual ───
-  // Name/filename matching stays instant and local. When it comes up empty
-  // (guests describe photos, they don't know filenames), fall through to the
-  // share-scoped semantic endpoint — which returns ONLY ids, resolved against
-  // the payload's already-visible images, so nothing outside the share can
-  // ever render.
-  const nameMatches = useMemo(() => {
-    if (!gallery || !searchQuery.trim()) return [];
-    const q = searchQuery.toLowerCase();
-    return gallery.images.filter(
-      (img) =>
-        (img.parsedName && img.parsedName.toLowerCase().includes(q)) ||
-        img.originalFilename.toLowerCase().includes(q)
-    );
-  }, [gallery, searchQuery]);
+  // Name/filename matching stays instant and local, and forgives a typo
+  // (searchByName: "Stacey" finds the "stacy chen" a guest typed at the
+  // booth). When it comes up empty (guests describe photos, they don't know
+  // filenames), fall through to the share-scoped semantic endpoint — which
+  // returns ONLY ids, resolved against the payload's already-visible images,
+  // so nothing outside the share can ever render.
+  const nameSearch = useMemo(
+    () =>
+      gallery && searchQuery.trim()
+        ? searchByName(gallery.images, searchQuery, (img) => img)
+        : null,
+    [gallery, searchQuery]
+  );
+  // A typo-tolerant match can catch a visual word ("blue" is one letter from
+  // "Blum"), so the guest can set it aside for this query and read the photos.
+  const [visualQuery, setVisualQuery] = useState<string | null>(null);
+  // Only ever a FUZZY match is set aside: an exact one is what was asked for,
+  // and a stale choice must not hide it when the same words come back.
+  const visualForced =
+    visualQuery !== null &&
+    visualQuery === searchQuery.trim() &&
+    nameSearch?.kind === "fuzzy";
+  const nameMatches = useMemo(
+    () => (visualForced ? [] : (nameSearch?.items ?? [])),
+    [nameSearch, visualForced]
+  );
+  const nameSuggestions = nameSearch?.kind === "fuzzy" ? nameSearch.suggestions : [];
 
   const [semanticResult, setSemanticResult] = useState<{
     query: string;
@@ -1589,6 +1604,19 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
         {searchQuery.trim() ? (
           filteredImages.length > 0 ? (
             <>
+              {nameSuggestions.length > 0 && (
+                <DidYouMean
+                  query={visualForced ? undefined : searchQuery.trim()}
+                  names={nameSuggestions}
+                  colors={colors}
+                  onPick={setSearchQuery}
+                  onSearchPhotos={
+                    !visualForced && gallery.settings?.guestSearch !== false
+                      ? () => setVisualQuery(searchQuery.trim())
+                      : undefined
+                  }
+                />
+              )}
               {semanticActive && (
                 <p
                   className="text-center mb-6 text-[11px] uppercase tracking-[0.14em]"
@@ -1631,12 +1659,23 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               />
             </div>
           ) : (
-            <p
-              className="text-center py-16 text-[14px] italic"
-              style={{ color: colors.secondary }}
-            >
-              No photos match &ldquo;{searchQuery}&rdquo;
-            </p>
+            <div className="py-16">
+              <p
+                className="text-center text-[14px] italic"
+                style={{ color: colors.secondary }}
+              >
+                No photos match &ldquo;{searchQuery}&rdquo;
+              </p>
+              {nameSuggestions.length > 0 && (
+                <DidYouMean
+                  names={nameSuggestions}
+                  colors={colors}
+                  onPick={setSearchQuery}
+                  showAll
+                  className="mt-3"
+                />
+              )}
+            </div>
           )
         ) : selfieMatches ? (
           <GalleryGrid

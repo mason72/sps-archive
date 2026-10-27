@@ -8,6 +8,7 @@ import { FaceRings, usePersonFaces } from "./FaceOutline";
 import { ArrowRight, Users, X } from "lucide-react";
 import { Lightbox } from "@/components/lightbox/Lightbox";
 import type { ImageData } from "@/types/image";
+import { foldName } from "@/lib/people/name-text";
 
 /** Fixed-overlay modals must not let the page scroll behind them. */
 function useBodyScrollLock() {
@@ -275,7 +276,8 @@ export function PeopleView({
   // Search → the people IN the matching photos (plus any name match, which
   // covers a hand-named person whose filenames say something else). Each card
   // reports how many of their photos matched.
-  const q = (searchQuery ?? "").trim().toLowerCase();
+  // Accent-folded like the photo search, so "jose" finds a cluster named José.
+  const q = foldName((searchQuery ?? "").trim());
   const matchSet = matchingImageIds ? new Set(matchingImageIds) : null;
   const scored = people.map((p) => ({
     person: p,
@@ -283,7 +285,7 @@ export function PeopleView({
   }));
   const visible = q
     ? scored.filter(
-        (s) => s.matchCount > 0 || (s.person.name ?? "").toLowerCase().includes(q)
+        (s) => s.matchCount > 0 || foldName(s.person.name ?? "").includes(q)
       )
     : scored;
 

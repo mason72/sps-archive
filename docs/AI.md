@@ -199,6 +199,66 @@ barely register, so the 60% cut at 0.069 dropped every two-person frame.
 Describe the scene ("people posing together"), not the category noun. The
 modal's example chips say so.
 
+### Names forgive a typo before the AI is asked (2026-10-26)
+
+A client searched Money 2020 USA for "Stacey Chen" and got "No photos
+match". Her 10 photos were stored as "stacy chen", the spelling the guest
+typed at the booth check-in. "stac" matched (it is inside both spellings);
+"stace" did not, so the box fell through to the AI search, which reads what a
+photo shows and cannot read a name. Booth-typed names are routinely off
+("AINSLEY JOHSNTON" sat in the same gallery), and clients search from a
+correctly spelled attendee list, so this is the normal case, not an edge.
+
+`searchByName` (`src/lib/gallery/name-search.ts`) is now the one matcher for
+the guest gallery box and the editor box:
+- **Exact first**: the whole query inside the folded name or inside the
+  folded filename (the old rule, field by field, kept whole), or every query
+  word a NAME FORM, in any order ("chen stacy"): it starts a word, or, with
+  punctuation dropped, EQUALS neighbouring words of one field joined
+  ("obrien" → O'Brien, "maryann" → Mary-Ann); the query with spaces dropped
+  counts too ("de la cruz" → Delacruz). Four review rounds measured why each
+  limit is there: as loose substrings "old man" found Harold Bowman; joins
+  that merely started a word gave "bench" → Ben Chen and "dog" → Do Gia Bao;
+  joining across fields gave "gray" → Lang + Raymond; dropping separators in
+  digits gave "1020" → every photo of a 10-20 shoot. A false exact hit is the
+  worst failure here, because it hides the AI search with no link through.
+  A digit word in a phrase must be 3+ digits (a frame number), since every
+  SPS filename carries 26, 10 and 20. Full-width letters fold to normal ones.
+- **Fuzzy only when exact finds nothing**: every query word close to a word of
+  the PERSON's name, or to two or three neighbouring words joined ("delacruz")
+  (`personNameFromParts`, never the raw filename, so frame numbers cannot
+  match). One edit at 5–8 letters, two at 9+, a swapped pair is one edit; a
+  3–4 letter word gets one edit only inside a phrase of two or more words
+  ("stacy chan", "jon smith"), since every word must land on the same person.
+  The first letter must match (C and K count as one). The word still being
+  typed, at 6+ letters, is also compared to the start of longer name words.
+  Only Latin-script words take edits (NFD splits Hangul into jamo, so a
+  letter count is wrong there). Only the closest tier is kept.
+- **The limits are measured.** On a 3,000-photo, 1,000-person test gallery the
+  first cut (fuzzy from 4 letters, any first letter, start-of-word compare on
+  every word) turned 34 of 141 common visual searches into strangers' names
+  ("blue" → Bauer, "band" → 60 photos). The final rules leave 3 there and 13
+  of 232 on a second gallery: lone 5–8 letter words one letter from a surname
+  ("apron" / Aaron, "coffee" / Coffey). Closing those would also stop "stacy"
+  finding a stored "stacey", so the "Search the photos instead" link carries
+  them. NEW exact matches on visual words must stay at 0; the script counts
+  both. Re-measure before loosening anything:
+  `npx tsx scripts/triage/name-search-false-positives.ts` (offline, same
+  gallery every run).
+- **On screen** (`DidYouMean`): the fuzzy photos show at once under "No exact
+  match for 'stacey'. Did you mean Stacy Chen?". A name click searches it
+  exactly. "Search the photos instead" runs the AI for that query, because a
+  description can land one letter from a name ("blue" / "Blum"). If the AI
+  then finds nothing, the empty state still offers the names.
+- The AI search no longer fires while any name match is showing, so typing a
+  name never flashes the elephant loader.
+
+Not changed: `/api/search?type=filename` (archive-wide `/search`, the Smart
+section modal) is still SQL `ilike`, and the /people board filter is still a
+folded substring. Both are owner-only; a typo there needs `pg_trgm` or the same
+matcher over the index, not this client-side one. The editor's People view
+name filter now folds accents ("jose" finds José).
+
 ### "Group" is a face count, not a concept (2026-08-21)
 
 Mason: "can we cheat the index and let it recognize a group as any image with

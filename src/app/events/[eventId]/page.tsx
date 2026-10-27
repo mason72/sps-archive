@@ -61,6 +61,8 @@ import {
 } from "@/lib/cover/gallery-fields";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildDisplayStacks } from "@/lib/gallery/stacks";
+import { searchByName } from "@/lib/gallery/name-search";
+import { DidYouMean } from "@/components/gallery/DidYouMean";
 import {
   looksLikePersonName,
   normalizeNameKey,
@@ -379,24 +381,35 @@ export default function EventPage({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
-  // ─── Client-side, section-scoped filename search ───
-  // Matches the server's filename search (original_filename / parsed_name,
-  // case-insensitive substring) but over the loaded images, so results carry
-  // real thumbnails/dimensions and the scope is just the active section.
+  // ─── Client-side, section-scoped name search ───
+  // The same matcher as the guest gallery (searchByName: original_filename /
+  // parsed_name, every word, accent- and case-folded, then typo-tolerant on
+  // the person's name when nothing matches exactly) over the loaded images,
+  // so results carry real thumbnails/dimensions and the scope is just the
+  // active section.
   const trimmedQuery = searchQuery.trim();
   const isSearching = trimmedQuery.length > 0;
-  const nameSearchResults = useMemo<ImageData[] | null>(() => {
+  const nameSearch = useMemo(() => {
     if (!isSearching) return null;
-    const q = trimmedQuery.toLowerCase();
     const base = activeSection
       ? allImages.filter((img) => img.sectionIds?.includes(activeSection))
       : allImages;
-    return base.filter(
-      (img) =>
-        (img.originalFilename ?? "").toLowerCase().includes(q) ||
-        (img.parsedName ?? "").toLowerCase().includes(q)
-    );
+    return searchByName(base, trimmedQuery, (img) => img);
   }, [isSearching, trimmedQuery, activeSection, allImages]);
+  // "Search the photos instead": set aside a typo-tolerant name match for
+  // this query, because a description can land one letter from a name.
+  const [visualQuery, setVisualQuery] = useState<string | null>(null);
+  // Only ever a FUZZY match is set aside: an exact one is what was asked for,
+  // and a stale choice (say, from another section) must not hide it.
+  const visualForced =
+    visualQuery !== null && visualQuery === trimmedQuery && nameSearch?.kind === "fuzzy";
+  const nameSearchResults = useMemo<ImageData[] | null>(
+    () => (nameSearch ? (visualForced ? [] : nameSearch.items) : null),
+    [nameSearch, visualForced]
+  );
+  const nameSuggestions = nameSearch?.kind === "fuzzy" ? nameSearch.suggestions : [];
+  /** The results on screen are a typo-tolerant name match ("3 close matches"). */
+  const nameIsFuzzy = nameSuggestions.length > 0 && !visualForced;
 
   // ─── Visual search fallback (event-scoped) ───
   // Names first — instant and local. When a query matches no filename, fall
@@ -2406,8 +2419,8 @@ export default function EventPage({
                   {images.length === 0
                     ? "No matches in this section. "
                     : activeSection
-                    ? `${images.length} in this section. `
-                    : `${images.length} ${images.length === 1 ? "match" : "matches"}. `}
+                    ? `${images.length} ${nameIsFuzzy ? `close ${images.length === 1 ? "match" : "matches"} ` : ""}in this section. `
+                    : `${images.length} ${nameIsFuzzy ? "close " : ""}${images.length === 1 ? "match" : "matches"}. `}
                   {images.length > 0 && (
                     <>
                       <button
@@ -2910,6 +2923,18 @@ export default function EventPage({
                     )}
                   </p>
                 )}
+              {/* Above the view switch: the People view narrows by the same
+                  results, so a typo-tolerant match must say so there too. */}
+              {isSearching && nameSuggestions.length > 0 && !(viewMode === "intel" && hasIntel) && (
+                <DidYouMean
+                  query={visualForced ? undefined : trimmedQuery}
+                  names={nameSuggestions}
+                  onPick={setSearchQuery}
+                  onSearchPhotos={
+                    visualForced ? undefined : () => setVisualQuery(trimmedQuery)
+                  }
+                />
+              )}
               {viewMode === "intel" && hasIntel ? (
                 <EventIntelPanel eventId={eventId} />
               ) : viewMode === "people" ? (
