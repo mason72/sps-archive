@@ -224,6 +224,28 @@ const REPAIRS = [
     requeue: ["paloaltoskobooth22023", "eastbaygamers"],
     front: ["paloaltoskobooth22023", "eastbaygamers"],
   },
+  {
+    id: "2026-10-26-add-wedding-galleries",
+    // Forty wedding and couple galleries that were trashed in the 2026-08-11
+    // triage (the "criteria drift" in tasks/pixieset-migration.md: personal
+    // events were trashed late in the session) and so never reached jobs.json.
+    // Kept on 2026-10-26 for wedding content for the wedding photo-booth brand
+    // (Mason). In queue.json by hand; 37 carry a download PIN (data/pins.json),
+    // 20 had a gallery password on 2026-08-12, which arming covers. The 13
+    // explicit weddings come first, then the 27 couple sessions, oldest first.
+    add: [
+      "maiandmikeswedding", "alinicksbigday", "carneroswedding", "carolinesbigday",
+      "anjelicasbigday", "weinsteinwedding", "moraleswedding", "finewedding",
+      "dentwedding", "luigiandtrevorgetengaged", "natashaandsilvanowedding",
+      "hazelsbigday", "evanandsonyasweddinglittlerockar",
+      "paulandnicole", "kymshawnyountvilleca", "robertandloren", "eduardoandalexandria",
+      "kseniyadavid", "nayomiandalan", "lisaandanthony", "allegraelliott", "aimeescott",
+      "turaluigi", "imeealbert", "kerryanneranjit", "hasiajames", "stephaniebrian",
+      "lanemegan", "ketingandshengkun", "nicolettejoseph", "lanamikhael", "jeffdavid",
+      "nataleekasra", "hollyandkathleen", "alexsamir", "carlandvanessa", "maritasean",
+      "caitlinandchris", "annievincentjul152023", "poojaandvishal",
+    ],
+  },
 ];
 
 const DEFAULTS = {
