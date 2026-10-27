@@ -172,6 +172,18 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Benefits grid — image N fills tile N" },
   { key: "benefits/drop-in-sessions", label: "Benefits — Drop-In Sessions", kind: "ordered", service: "drop-in-sessions", positions: 6, path: "/services/drop-in-sessions",
     description: "Benefits grid — image N fills tile N" },
+  // Big Night (the wedding photo-booth brand, bignightbooth.com) reads these
+  // through the same API and key. Absolute paths, because the page is on the
+  // other site. Until a scene has images the site falls back to the TDP
+  // photo-booth scenes above, so filling one is publication, nothing else.
+  { key: "bignight/hero", label: "Big Night — Hero strip", kind: "pool", service: "photo-booth", path: "https://bignightbooth.com/",
+    description: "The rolling photo strip under the wordmark on the Big Night home page (color, 10 at a time, weddings first)" },
+  { key: "bignight/classic", label: "Big Night — Classic prints", kind: "pool", service: "photo-booth", path: "https://bignightbooth.com/#gallery",
+    description: "The pile of prints in the Classic section and the Classic booth strip (color, portrait crops read best)" },
+  { key: "bignight/black-tie", label: "Big Night — Black Tie", kind: "pool", service: "photo-booth", path: "https://bignightbooth.com/#black-tie",
+    description: "The black band's big frame plus four small ones, and the Black Tie booth strip (shown in B&W)" },
+  { key: "bignight/social", label: "Big Night — Social feed", kind: "pool", service: "photo-booth", path: "https://bignightbooth.com/api/social/feed",
+    description: "Release-cleared photos the social bot may post; everything here is public the moment it lands" },
   { key: "how-it-works", label: "How It Works — Steps", kind: "ordered", service: "headshot-booth", positions: 3, path: "/services/headshot-booth",
     description: "How it works — the three step photos, above the BTS mosaic",
     positionLabels: ["They sign in.", "They step on set.", "They get their photos."] },
@@ -299,6 +311,8 @@ export function sceneUsageHint(scene: SceneDef): string {
 
 /** Absolute URL of the page this scene renders on (live marketing site). */
 export function sceneUrl(scene: SceneDef): string {
+  // Scenes on another site carry an absolute URL as their path.
+  if (/^https?:\/\//.test(scene.path)) return scene.path;
   const base = (
     process.env.NEXT_PUBLIC_MARKETING_URL || "https://twodudesphoto.com"
   ).replace(/\/$/, "");
