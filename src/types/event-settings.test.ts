@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  activeCoverLogoKey,
+  coverLogoKey,
   normalizeCoverSettings,
   pinnedCoverLogoKey,
   sanitizeCoverForEvent,
@@ -20,6 +22,14 @@ describe("pinnedCoverLogoKey", () => {
     expect(
       pinnedCoverLogoKey(EVENT, `events/${EVENT}/branding/cover-logo.png`)
     ).toBe(`events/${EVENT}/branding/cover-logo.png`);
+  });
+
+  it("accepts the versioned keys the Design upload mints", () => {
+    const key = coverLogoKey(EVENT, "webp", "mh4x2k1");
+    expect(key).toBe(`events/${EVENT}/branding/cover-logo.mh4x2k1.webp`);
+    expect(pinnedCoverLogoKey(EVENT, key)).toBe(key);
+    // The SPS pull still writes the unversioned shape.
+    expect(coverLogoKey(EVENT, "png")).toBe(`events/${EVENT}/branding/cover-logo.png`);
   });
 
   it("rejects arbitrary bucket keys (the JSONB IDOR class)", () => {
@@ -418,5 +428,15 @@ describe("new-gallery PIN default (2026-09-18)", () => {
     const pins = new Set(Array.from({ length: 200 }, generateDownloadPin));
     expect(pins.size).toBeGreaterThan(100);
     for (const p of pins) expect(Number(p)).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe("activeCoverLogoKey", () => {
+  it("is the logo the cover shows, and nothing when it shows none", () => {
+    const k = "events/e/branding/cover-logo.png";
+    expect(activeCoverLogoKey(normalizeCoverSettings({ type: "mosaic", mosaic: { logoMode: "insert", logoKey: k } }))).toBe(k);
+    expect(activeCoverLogoKey(normalizeCoverSettings({ type: "mosaic", mosaic: { logoMode: "none", logoKey: k } }))).toBeUndefined();
+    expect(activeCoverLogoKey(normalizeCoverSettings({ type: "solid", solid: { logoKey: k } }))).toBe(k);
+    expect(activeCoverLogoKey(normalizeCoverSettings({ type: "image", mosaic: { logoMode: "insert", logoKey: k } }))).toBeUndefined();
   });
 });

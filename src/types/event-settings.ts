@@ -615,13 +615,35 @@ export const COVER_LOGO_EXTENSIONS: Record<string, string> = {
 };
 
 /**
- * Where an event's cover logo lives in R2. One logo per event, so the key is
- * fixed apart from the extension: a new upload replaces the old in place and
- * there is nothing to garbage-collect. `pinnedCoverLogoKey` below is the
+ * Where an event's cover logo lives in R2. `pinnedCoverLogoKey` below is the
  * read-side twin — the prefix it checks is this shape.
+ *
+ * The Design > Cover upload passes a `version` (2026-10-26), so every upload
+ * is a NEW key. With one fixed key per extension, replacing a WebP with
+ * another WebP left `logoKey` unchanged: nothing downstream could tell the
+ * logo had changed — the editor preview kept the old one, and the email
+ * raster's staleness hash (settings, not bytes) kept serving it. A superseded
+ * logo is left in place (deleting it at presign time would break the live
+ * gallery until the new settings save); `purgeEventOwnedFiles` removes the
+ * whole branding folder when the event is deleted.
  */
-export function coverLogoKey(eventId: string, ext: string): string {
-  return `events/${eventId}/branding/cover-logo.${ext}`;
+export function coverLogoKey(eventId: string, ext: string, version?: string): string {
+  return version
+    ? `events/${eventId}/branding/cover-logo.${version}.${ext}`
+    : `events/${eventId}/branding/cover-logo.${ext}`;
+}
+
+/**
+ * The logo key a cover actually SHOWS, or undefined. One rule for the
+ * gallery payload, the Design panel and the editor's live preview: a mosaic
+ * shows its logo unless the mode is "none"; a solid always shows its logo.
+ * Raw (unpinned) — anything that dereferences it pins it first.
+ */
+export function activeCoverLogoKey(cover: CoverSettings): string | undefined {
+  if (cover.type === "mosaic") {
+    return cover.mosaic?.logoMode !== "none" ? cover.mosaic?.logoKey : undefined;
+  }
+  return cover.type === "solid" ? cover.solid?.logoKey : undefined;
 }
 
 /**

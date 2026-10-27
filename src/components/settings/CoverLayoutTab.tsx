@@ -13,6 +13,7 @@ import type {
   TitleAlignment,
 } from "@/types/event-settings";
 import {
+  activeCoverLogoKey,
   DEFAULT_MOSAIC_SETTINGS,
   DEFAULT_SOLID_SETTINGS,
   DEFAULT_CROSSFADE_SETTINGS,
@@ -59,12 +60,7 @@ export function CoverLayoutTab({
   const crossfade = cover.crossfade ?? DEFAULT_CROSSFADE_SETTINGS;
   const resolvedCoverUrl = coverImageUrl || uploadedPreviewUrl || undefined;
 
-  const activeLogoKey =
-    type === "mosaic" && mosaic.logoMode !== "none"
-      ? mosaic.logoKey
-      : type === "solid"
-        ? solid.logoKey
-        : undefined;
+  const activeLogoKey = activeCoverLogoKey(cover);
 
   const handleCoverUpload = async (file: File) => {
     if (!eventId) return;

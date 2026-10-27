@@ -1,5 +1,5 @@
 import type { CoverSettings } from "@/types/event-settings";
-import { pinnedCoverLogoKey } from "@/types/event-settings";
+import { activeCoverLogoKey, pinnedCoverLogoKey } from "@/types/event-settings";
 import type { GallerySettings } from "@/types/gallery";
 import { getPresignedDownloadUrl } from "@/lib/r2/client";
 import { coverGalleryFieldsSync } from "./gallery-fields";
@@ -15,14 +15,7 @@ export async function coverGalleryFields(
   cover: CoverSettings,
   eventId: string
 ): Promise<Partial<GallerySettings>> {
-  const logoKey = pinnedCoverLogoKey(
-    eventId,
-    cover.type === "mosaic" && cover.mosaic?.logoMode !== "none"
-      ? cover.mosaic?.logoKey
-      : cover.type === "solid"
-        ? cover.solid?.logoKey
-        : undefined
-  );
+  const logoKey = pinnedCoverLogoKey(eventId, activeCoverLogoKey(cover));
   const logoUrl = logoKey
     ? await getPresignedDownloadUrl(logoKey, 14400)
     : undefined;

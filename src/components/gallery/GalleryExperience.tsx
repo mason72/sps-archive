@@ -17,8 +17,11 @@ import { PassingPhotos } from "@/components/brand/passing-photos";
 import { toast } from "sonner";
 import { pixelBurstAt } from "@/hooks/usePixelBurst";
 import type { GalleryData, GalleryImage, GalleryBranding } from "@/types/gallery";
-import { applyPreviewSettings, PREVIEW_SETTINGS_MESSAGE } from "@/lib/cover/gallery-fields";
-import type { EventSettings } from "@/types/event-settings";
+import {
+  applyPreviewSettings,
+  PREVIEW_SETTINGS_MESSAGE,
+  type PreviewSettingsMessage,
+} from "@/lib/cover/gallery-fields";
 
 /* ─── Font class mappings ─── */
 const HEADING_FONT_CLASS: Record<string, string> = {
@@ -316,20 +319,21 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   // The newest posted settings are kept in a ref and applied when the
   // payload lands. Without that, anything posted while the preview was still
   // loading was dropped: on a 6,000-photo event the first load takes seconds,
-  // and a logo upload reloads the frame, so "Use cover" + "Mosaic" clicked
+  // and a new cover photo reloads the frame, so "Use cover" + "Mosaic" clicked
   // during that window showed nothing until an unrelated later change
-  // re-sent the whole settings object (HR Tech 2026, 2026-10-23).
-  const pendingPreviewSettings = useRef<EventSettings | null>(null);
+  // re-sent the whole settings object (HR Tech 2026, 2026-10-23). The logo
+  // URL the editor minted rides along in the same ref.
+  const pendingPreviewSettings = useRef<Omit<PreviewSettingsMessage, "type"> | null>(null);
   useEffect(() => {
     if (source.kind !== "preview") return;
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
-      const data = e.data as { type?: string; settings?: EventSettings } | null;
+      const data = e.data as Partial<PreviewSettingsMessage> | null;
       if (!data || data.type !== PREVIEW_SETTINGS_MESSAGE || !data.settings) return;
-      const next = data.settings;
-      pendingPreviewSettings.current = next;
+      const { settings: next, logoUrl } = data;
+      pendingPreviewSettings.current = { settings: next, logoUrl };
       setGallery((g) =>
-        g ? { ...g, settings: applyPreviewSettings(g.settings ?? {}, next) } : g
+        g ? { ...g, settings: applyPreviewSettings(g.settings ?? {}, next, logoUrl) } : g
       );
     };
     window.addEventListener("message", onMessage);
@@ -580,7 +584,10 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       const pending = pendingPreviewSettings.current;
       setGallery(
         pending
-          ? { ...data, settings: applyPreviewSettings(data.settings ?? {}, pending) }
+          ? {
+              ...data,
+              settings: applyPreviewSettings(data.settings ?? {}, pending.settings, pending.logoUrl),
+            }
           : data
       );
       setRequiresAuth(false);

@@ -12,8 +12,8 @@ const MAX_SIZE = 5 * 1024 * 1024; // 5MB — it's a logo, not a photo
  * Presigned PUT for the per-event CLIENT logo used by mosaic/solid covers
  * (distinct from the photographer's branding logo). Deliberately NOT the
  * photo upload path: no images row, no thumbnails, no reconciler — a logo is
- * a branding asset, not a gallery photo. Fixed-ish key (one logo per event,
- * new extension replaces in place) so there's nothing to garbage-collect.
+ * a branding asset, not a gallery photo. Every upload gets its own versioned
+ * key, so a replacement always changes `logoKey` (see `coverLogoKey`).
  */
 export async function POST(
   request: NextRequest,
@@ -52,7 +52,7 @@ export async function POST(
       return NextResponse.json({ error: "Logo must be under 5MB" }, { status: 400 });
     }
 
-    const logoKey = coverLogoKey(eventId, ext);
+    const logoKey = coverLogoKey(eventId, ext, Date.now().toString(36));
     const uploadUrl = await getPresignedUploadUrl(logoKey, fileType);
     return NextResponse.json({ uploadUrl, logoKey });
   } catch (error) {

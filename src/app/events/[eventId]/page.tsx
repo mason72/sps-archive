@@ -54,7 +54,11 @@ import { EventIntelPanel } from "@/components/events/EventIntelPanel";
 import { EventCrewConfirm } from "@/components/events/EventCrewConfirm";
 import { useIntelAccess } from "@/lib/event-intel/use-intel-access";
 import type { ImageData, StackData } from "@/types/image";
-import { PREVIEW_SETTINGS_MESSAGE, previewNeedsReload } from "@/lib/cover/gallery-fields";
+import {
+  PREVIEW_SETTINGS_MESSAGE,
+  previewNeedsReload,
+  type PreviewSettingsMessage,
+} from "@/lib/cover/gallery-fields";
 import { deriveDisplayImages } from "@/lib/gallery/derive-display";
 import { buildDisplayStacks } from "@/lib/gallery/stacks";
 import {
@@ -67,7 +71,11 @@ import { shuffleSeeded, sortImages, type GallerySortMode } from "@/lib/gallery/s
 import { orderBySectionManual, orderByPrimarySection } from "@/lib/gallery/order-manual";
 import { findIntakeSectionId } from "@/lib/sections/intake";
 import type { EventSettings } from "@/types/event-settings";
-import { DEFAULT_EVENT_SETTINGS } from "@/types/event-settings";
+import {
+  activeCoverLogoKey,
+  DEFAULT_EVENT_SETTINGS,
+  normalizeCoverSettings,
+} from "@/types/event-settings";
 import { ImageGridSkeleton, EventSidebarSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import confetti from "canvas-confetti";
 
@@ -131,6 +139,9 @@ function mostCommon<T>(values: Array<T | null | undefined>): T | null {
   }
   return best;
 }
+
+/** The cover-logo GET signs for 60 min; re-mint well before that. */
+const PREVIEW_LOGO_URL_TTL_MS = 50 * 60 * 1000;
 
 export default function EventPage({
   params,
@@ -577,11 +588,52 @@ export default function EventPage({
   // mosaic redrew. Mason, on the logo-spacing slider: "it takes seconds to
   // reload after every tiny adjustment". Now the settings are POSTED into
   // the loaded preview at once and it re-renders from the payload it holds.
-  // A reload remains only for what the preview cannot mint itself: a new
-  // cover photo or logo file needs a signed URL from the server, so that
-  // change still waits for the save and reloads.
+  // A reload remains only for a new cover PHOTO, whose signed URL the
+  // preview cannot get any other way; it waits for the save, then reloads.
+  // A new LOGO does not reload: this page mints its signed URL and posts it
+  // with the settings (gallery-fields.ts, previewNeedsReload, says why).
   const settingsKeyRef = useRef(JSON.stringify(eventSettings));
   const previewSettingsRef = useRef(eventSettings);
+  // `at` is when it was minted: the GET signs for 60 min, so a URL is used
+  // only while it is under PREVIEW_LOGO_URL_TTL_MS old. Past that, the
+  // payload's own URL (fresh on every frame load) wins, and the key's next
+  // appearance mints a new one.
+  const previewLogoRef = useRef<{ key: string; url: string; at: number } | null>(null);
+  // A reload, once owed, stays owed until it runs. The old timer was cleared
+  // by the NEXT settings change, and that change (a slider nudge, a mode
+  // click) needed no reload of its own, so the reload never happened.
+  const previewReloadOwed = useRef(false);
+
+  const schedulePreviewReload = useCallback(() => {
+    previewReloadOwed.current = true;
+    clearTimeout(previewRefreshTimer.current);
+    previewRefreshTimer.current = setTimeout(() => {
+      previewReloadOwed.current = false;
+      if (previewIframeRef.current) {
+        previewIframeRef.current.src = `/gallery/preview/${eventId}?t=${Date.now()}`;
+      }
+    }, 1200);
+  }, [eventId]);
+  useEffect(() => () => clearTimeout(previewRefreshTimer.current), []);
+
+  const postPreviewSettings = useCallback(() => {
+    const settings = previewSettingsRef.current;
+    const logo = previewLogoRef.current;
+    const message: PreviewSettingsMessage = {
+      type: PREVIEW_SETTINGS_MESSAGE,
+      settings,
+      // Only the URL for the key these settings show; a stale one would
+      // put the previous logo back.
+      logoUrl:
+        logo &&
+        logo.key === activeCoverLogoKey(normalizeCoverSettings(settings.cover)) &&
+        Date.now() - logo.at < PREVIEW_LOGO_URL_TTL_MS
+          ? logo.url
+          : undefined,
+    };
+    previewIframeRef.current?.contentWindow?.postMessage(message, window.location.origin);
+  }, []);
+
   useEffect(() => {
     const key = JSON.stringify(eventSettings);
     if (key === settingsKeyRef.current) return;
@@ -589,21 +641,45 @@ export default function EventPage({
     const prev = previewSettingsRef.current;
     previewSettingsRef.current = eventSettings;
     if (sidebarPanel !== "design") return;
-    const frame = previewIframeRef.current;
-    if (previewNeedsReload(prev, eventSettings)) {
-      clearTimeout(previewRefreshTimer.current);
-      previewRefreshTimer.current = setTimeout(() => {
-        if (previewIframeRef.current) {
-          previewIframeRef.current.src = `/gallery/preview/${eventId}?t=${Date.now()}`;
-        }
-      }, 1200);
-      return () => clearTimeout(previewRefreshTimer.current);
+    if (previewReloadOwed.current || previewNeedsReload(prev, eventSettings)) {
+      // Each later change pushes the reload back, so it lands after the
+      // debounced save of the LAST change; the frame's onLoad then posts
+      // the newest settings anyway.
+      schedulePreviewReload();
+      return;
     }
-    frame?.contentWindow?.postMessage(
-      { type: PREVIEW_SETTINGS_MESSAGE, settings: eventSettings },
-      window.location.origin
-    );
-  }, [eventId, eventSettings, sidebarPanel]);
+    postPreviewSettings();
+  }, [eventSettings, sidebarPanel, schedulePreviewReload, postPreviewSettings]);
+
+  // Mint a signed URL for each new logo key and hand it to the preview.
+  // Every upload is a new key (coverLogoKey), so this fires on a replace too.
+  const previewLogoKey = activeCoverLogoKey(normalizeCoverSettings(eventSettings.cover));
+  useEffect(() => {
+    const held = previewLogoRef.current;
+    if (
+      !previewLogoKey ||
+      (held?.key === previewLogoKey && Date.now() - held.at < PREVIEW_LOGO_URL_TTL_MS)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/events/${eventId}/cover-logo?key=${encodeURIComponent(previewLogoKey)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { url?: string } | null) => {
+        if (cancelled) return;
+        if (!d?.url) throw new Error("no url");
+        previewLogoRef.current = { key: previewLogoKey, url: d.url, at: Date.now() };
+        postPreviewSettings();
+      })
+      // Could not mint one: fall back to a reload, which reads the logo
+      // from the saved settings once the save has landed.
+      .catch(() => {
+        if (!cancelled) schedulePreviewReload();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, previewLogoKey, postPreviewSettings, schedulePreviewReload]);
 
   // Live upload-session state: suppresses the empty state mid-upload, feeds
   // the Sort modal's mid-upload preview, and arms the sort nudge. (The visual
@@ -2291,15 +2367,10 @@ export default function EventPage({
                     className="w-full h-full border-0"
                     style={{ minHeight: "60vh" }}
                     title="Gallery preview"
-                    // A fresh frame (first load, or the reload a new logo
-                    // triggers) starts from the SAVED settings; the editor's
-                    // unsaved ones are newer, so hand them over at once.
-                    onLoad={(e) =>
-                      e.currentTarget.contentWindow?.postMessage(
-                        { type: PREVIEW_SETTINGS_MESSAGE, settings: previewSettingsRef.current },
-                        window.location.origin
-                      )
-                    }
+                    // A fresh frame (first load, or the reload a new cover
+                    // photo triggers) starts from the SAVED settings; the
+                    // editor's unsaved ones are newer, so hand them over at once.
+                    onLoad={postPreviewSettings}
                   />
                 </div>
               </div>

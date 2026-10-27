@@ -62,16 +62,23 @@ export function coverGalleryFieldsSync(
  * verdict, sort, sharing) and replaces the design fields — cover, fonts,
  * colours, grid — from the new settings. Photo-cover fit/padding ride along
  * only while the server-signed photo URL exists.
+ *
+ * `logoUrl` is the signed URL the EDITOR minted for the settings' current
+ * logo key (it asks `GET /api/events/[id]/cover-logo`). It wins over the one
+ * the payload holds, because the payload's is for whatever logo was SAVED
+ * when the frame loaded — and is lost entirely once the cover type passes
+ * through one without a logo (Mosaic → Photo → Mosaic).
  */
 export function applyPreviewSettings(
   prev: GallerySettings,
-  next: EventSettings
+  next: EventSettings,
+  logoUrl?: string
 ): GallerySettings {
   const cover = normalizeCoverSettings(next.cover);
   const prevLogoUrl = prev.coverMosaic?.logoUrl ?? prev.coverSolid?.logoUrl;
   const out: GallerySettings = {
     ...prev,
-    ...coverGalleryFieldsSync(cover, prevLogoUrl),
+    ...coverGalleryFieldsSync(cover, logoUrl ?? prevLogoUrl),
     headingFont: next.typography?.headingFont ?? prev.headingFont,
     bodyFont: next.typography?.bodyFont ?? prev.bodyFont,
     colorPrimary: next.color?.primary ?? prev.colorPrimary,
@@ -96,16 +103,24 @@ export function applyPreviewSettings(
 /** The message the editor posts into its preview iframe. */
 export const PREVIEW_SETTINGS_MESSAGE = "pixeltrunk:preview-settings" as const;
 
+export type PreviewSettingsMessage = {
+  type: typeof PREVIEW_SETTINGS_MESSAGE;
+  settings: EventSettings;
+  /** Signed URL for the settings' active logo key, once the editor has one. */
+  logoUrl?: string;
+};
+
 /**
  * Does this settings change need a server round trip? Only a NEW cover photo
- * or logo file does — those are signed URLs the preview cannot mint.
+ * does — its signed URL is one the preview cannot get any other way.
+ *
+ * A new LOGO used to reload too (the preview waited 1.2 s, then read the
+ * SAVED settings). That lost the logo twice over (Stripe Sessions 2026,
+ * 2026-10-26): the 600 ms debounced save could land after the reload read
+ * the settings, and any change inside the 1.2 s cancelled the reload for
+ * good. The editor now mints the logo's URL itself and posts it
+ * (`PreviewSettingsMessage.logoUrl`), so a logo never waits on the save.
  */
 export function previewNeedsReload(prev: EventSettings, next: EventSettings): boolean {
-  const a = normalizeCoverSettings(prev.cover);
-  const b = normalizeCoverSettings(next.cover);
-  return (
-    a.imageId !== b.imageId ||
-    a.mosaic?.logoKey !== b.mosaic?.logoKey ||
-    a.solid?.logoKey !== b.solid?.logoKey
-  );
+  return normalizeCoverSettings(prev.cover).imageId !== normalizeCoverSettings(next.cover).imageId;
 }
