@@ -351,13 +351,20 @@ function Ready({ data }: { data: RecapPayload }) {
   const register = useParallax(reduced);
   const [heroRef, heroSeen] = useInView<HTMLElement>(0.1);
   const r = data.recap;
-  const leadNumber = r && r.guests > 0 ? r.guests : r?.photos || data.archive.photos;
-  const shown = useCountUp(leadNumber, heroSeen, reduced);
+  // Null when nothing is known (no snapshot and a failed archive count): the
+  // hero then drops its number rather than claim 0.
+  const leadNumber: number | null = r && r.guests > 0 ? r.guests : r?.photos || data.archive.photos || null;
+  const shown = useCountUp(leadNumber ?? 0, heroSeen, reduced);
   const median = r ? formatSeconds(r.lastFrameToSend.medianSec) : null;
   const open = r ? recapOpenRate(r) : null;
   const when = dateRange(r, data.eventDate);
-  const perGuest = r && r.guests > 0 ? Math.round(data.archive.photos / r.guests) : null;
-  const namedShare = data.archive.photos > 0 ? data.archive.named / data.archive.photos : 0;
+  // The archive count can be unknown (a failed read is null, never 0); then
+  // the finished-photos figure falls back to SPS's own frame count, which is
+  // what the email card shows, and the share-based lines go quiet.
+  const finished = data.archive.photos ?? (r?.photos || null);
+  const perGuest = r && r.guests > 0 && finished ? Math.round(finished / r.guests) : null;
+  const namedShare =
+    data.archive.photos && data.archive.named !== null ? data.archive.named / data.archive.photos : null;
   const leadsWith = r && r.guests > 0;
 
   return (
@@ -373,13 +380,17 @@ function Ready({ data }: { data: RecapPayload }) {
         <section ref={heroRef} className="grid items-center gap-10 py-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] md:py-16">
           <div className="min-w-0">
             <div className={EYEBROW}>{when ?? data.eventName}</div>
-            <div className="font-editorial mt-4 text-[clamp(84px,15vw,172px)] leading-[0.88] tracking-[-0.04em] text-stone-900 tabular-nums">
-              {formatCount(shown)}
-            </div>
+            {leadNumber !== null && (
+              <div className="font-editorial mt-4 text-[clamp(84px,15vw,172px)] leading-[0.88] tracking-[-0.04em] text-stone-900 tabular-nums">
+                {formatCount(shown)}
+              </div>
+            )}
             <h1 className="font-editorial mt-5 text-[clamp(22px,3vw,32px)] leading-[1.15] text-stone-900" style={{ textWrap: "balance" }}>
               {leadsWith
                 ? "people walked away with a finished gallery."
-                : "finished photos, delivered on site."}
+                : leadNumber !== null
+                  ? "finished photos, delivered on site."
+                  : "Finished photos, delivered on site."}
             </h1>
             <p className="mt-4 max-w-[44ch] text-[15px] leading-relaxed text-stone-600">
               Every frame was lit, shot, culled and named on site. Nobody needed retouching.
@@ -391,9 +402,9 @@ function Ready({ data }: { data: RecapPayload }) {
 
         {r && (
           <section className="grid gap-8 border-y border-stone-200 py-8 sm:grid-cols-3">
-            <Stat value={formatCount(data.archive.photos)} label="finished photos" sub={perGuest ? `about ${perGuest} per guest` : undefined} />
+            {finished !== null && <Stat value={formatCount(finished)} label="finished photos" sub={perGuest ? `about ${perGuest} per guest` : undefined} />}
             {median ? <Stat value={median} label="median from last frame to inbox" sub={r.lastFrameToSend.p90Sec ? `9 in 10 within ${formatSeconds(r.lastFrameToSend.p90Sec)}` : undefined} /> : <Stat value={formatCount(r.linksSent)} label="galleries sent" />}
-            {open !== null ? <Stat value={`${open}%`} label="of guests opened their gallery" sub={`${formatCount(r.totalOpens)} opens in all`} /> : <Stat value={formatCount(data.archive.named)} label="photos carrying a name" />}
+            {open !== null ? <Stat value={`${open}%`} label="of guests opened their gallery" sub={`${formatCount(r.totalOpens)} opens in all`} /> : data.archive.named !== null && <Stat value={formatCount(data.archive.named)} label="photos carrying a name" />}
           </section>
         )}
 
@@ -431,14 +442,16 @@ function Ready({ data }: { data: RecapPayload }) {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="border border-stone-200 p-5">
               <div className="font-editorial text-lg text-stone-900">Finished, not raw</div>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">{formatCount(data.archive.photos)} photos, lit so nobody needs retouching, culled on the spot. No blinks, no duplicates, no &ldquo;finals to follow.&rdquo;</p>
+              <p className="mt-2 text-sm leading-relaxed text-stone-600">{finished !== null ? `${formatCount(finished)} photos` : "Every photo"}, lit so nobody needs retouching, culled on the spot. No blinks, no duplicates, no &ldquo;finals to follow.&rdquo;</p>
             </div>
             <div className="border border-stone-200 p-5">
               <div className="font-editorial text-lg text-stone-900">Named and searchable</div>
               <p className="mt-2 text-sm leading-relaxed text-stone-600">
-                {namedShare >= 0.95
-                  ? "Every photo carries the person's name, so a guest finds themselves in one search, in a year."
-                  : `${Math.round(namedShare * 100)}% of photos carry the person's name, so a guest finds themselves by searching for it.`}
+                {namedShare === null
+                  ? "Photos carry the person's name, so a guest finds themselves by searching for it."
+                  : namedShare >= 0.95
+                    ? "Every photo carries the person's name, so a guest finds themselves in one search, in a year."
+                    : `${Math.round(namedShare * 100)}% of photos carry the person's name, so a guest finds themselves by searching for it.`}
               </p>
             </div>
             <div className="border border-stone-200 p-5">

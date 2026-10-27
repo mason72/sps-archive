@@ -429,7 +429,21 @@ the buyer had seen a line item, never the delivery.
   `GET /api/recap/[slug]` (`resolveRecap()`), share-gated like the gallery
   (same slug, `gallery_auth_<slug>` cookie, expiry). Lead frames come through
   the share's scope and the cover's stack-deduped pool. Writes nothing; not a
-  gallery view.
+  gallery view. Its "finished photos" and "carrying a name" counts are
+  DISTINCT PHOTOS, keyed by `original_filename` (`photo-count.ts`), not rows:
+  F1 Cash App keeps each frame twice (framed "Overlay" beside clean "Prints")
+  and the page said 896 for 448 frames (2026-10-26). Measured that day, every
+  same-name group in an event is one picture in two versions (same capture
+  time), so the name is a safe key; a nameless row counts on its own.
+- **Hand-editing a snapshot.** When SPS's numbers are wrong for a reason the
+  archive cannot see (F1: Joey deleted and re-uploaded the photos a day later,
+  so capture times moved to the re-upload, every original gallery became
+  untimeable, and test re-sends landed on Saturday), recount from SPS's
+  `share_links` filtered to the shooting day (aggregates only), set
+  `lastFrameToSend` to nulls and 0 (the speed tile hides), null the capture
+  window (the date falls back to `event_date`), and write `events.recap`. Back
+  up the old value first. A Refresh on the share page's recap panel then
+  OVERWRITES the edit with SPS's numbers again.
 - **Paste-ready cards.** `GET /api/recap/[slug]/card/{wide|square}` renders a
   PNG with `next/og` (satori) on demand: no raster job, nothing stored, same
   gate. Fonts fetched once per instance from Google (`card-fonts.ts`);

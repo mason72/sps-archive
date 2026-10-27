@@ -67,7 +67,8 @@ export async function GET(
 
   const cookie = request.cookies.get(`gallery_auth_${slug}`)?.value;
   const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-  const resolved = await resolveRecap(slug, cookie, origin, 4);
+  // No archive counts on a card, so the count read is skipped.
+  const resolved = await resolveRecap(slug, cookie, origin, 4, false);
   if (resolved.kind === "gone") return NextResponse.json({ error: "Not found" }, { status: resolved.status });
   if (resolved.kind === "locked") return NextResponse.json({ error: "Locked" }, { status: 401 });
   const p = resolved.payload;

@@ -4,6 +4,10 @@ import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
 import { fetchMosaicPool, poolLeads, type TileRow } from "@/lib/cover/pool";
 import { normalizeRecap } from "./normalize";
+import { countDistinctPhotos, idChunks, readPhotoCountRows, type PhotoCount } from "./photo-count";
+
+/** How long the page waits for the archive photo count before calling it unknown. */
+const COUNT_DEADLINE_MS = 6000;
 import type { SpsRecap } from "./types";
 
 /**
@@ -47,10 +51,13 @@ export interface RecapPayload {
   recap: SpsRecap | null;
   recapFetchedAt: string | null;
   archive: {
-    /** Photos in this share's scope, as the archive holds them today. */
-    photos: number;
-    /** Of those, carrying the person's name (searchable by name). */
-    named: number;
+    /**
+     * Distinct photos in this share's scope (versions of one frame count
+     * once). Null when the read failed or was skipped: unknown, never 0.
+     */
+    photos: number | null;
+    /** Of those, carrying the person's name (searchable by name). Null as above. */
+    named: number | null;
     sections: number;
     /** AI renders in scope. */
     aiRenders: number;
@@ -118,7 +125,9 @@ export async function resolveRecap(
   slug: string,
   authCookie: string | undefined,
   appOrigin: string,
-  leadCount = 12
+  leadCount = 12,
+  /** The paste-ready card shows no archive counts, so it skips the read. */
+  countPhotos = true
 ): Promise<RecapResolution> {
   const supabase = createServiceClient();
 
@@ -153,43 +162,66 @@ export async function resolveRecap(
     ? await getPresignedDownloadUrl(recapSettings.clientLogoKey, 86400)
     : null;
 
-  // Archive facts, in scope. Two counts, one filter.
-  // Photos, never a cover upload (a client logo; lesson 184).
-  let photosQuery = supabase
-    .from("images")
-    .select("id", { count: "exact", head: true })
-    .eq("event_id", event.id)
-    .eq("thumbnail_generated", true)
-    .eq("is_cover_upload", false);
-  let namedQuery = supabase
-    .from("images")
-    .select("id", { count: "exact", head: true })
-    .eq("event_id", event.id)
-    .eq("thumbnail_generated", true)
-    .eq("is_cover_upload", false)
-    .not("parsed_name", "is", null);
-  if (selected) {
-    const ids = [...selected];
-    photosQuery = photosQuery.in("id", ids);
-    namedQuery = namedQuery.in("id", ids);
-  }
-  const [{ count: photos }, { count: named }, { count: sections }] = await Promise.all([
-    photosQuery,
-    namedQuery,
-    supabase.from("sections").select("id", { count: "exact", head: true }).eq("event_id", event.id),
+  // Archive facts, in scope. Photos, not rows: one frame kept as two versions
+  // (F1's framed export beside its clean print) is one photo (photo-count.ts).
+  // Started here and awaited last, so it runs beside the lead and AI reads. A
+  // failed read is logged and shown as unknown, never as 0 and never as a dead
+  // page: the delivery numbers above it come from the snapshot and still hold.
+  const countPromise: Promise<PhotoCount | null> = countPhotos
+    ? readPhotoCountRows((ids) => {
+        let q = supabase
+          .from("images")
+          .select("id, original_filename, parsed_name")
+          .eq("event_id", event.id)
+          .eq("thumbnail_generated", true)
+          // Never a cover upload (a client logo; lesson 184).
+          .eq("is_cover_upload", false);
+        if (ids) q = q.in("id", ids);
+        return q;
+      }, selected)
+        .then(countDistinctPhotos)
+        .catch((err: unknown) => {
+          // The event id, never the slug: the slug is the share's credential.
+          // PostgREST throws a plain {message, …} object, not an Error.
+          const message = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
+          console.error("Recap photo count failed for event", event.id, message);
+          return null;
+        })
+    : Promise.resolve(null);
+  // A read that hangs must not hold the page until the function times out:
+  // past the deadline the count is unknown, like a failed read.
+  const countOrDeadline = Promise.race([
+    countPromise,
+    new Promise<null>((resolve) => {
+      const t = setTimeout(() => {
+        console.error("Recap photo count timed out for event", event.id);
+        resolve(null);
+      }, COUNT_DEADLINE_MS);
+      void countPromise.finally(() => clearTimeout(t));
+    }),
   ]);
+  const sectionsPromise = supabase
+    .from("sections")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", event.id);
 
   // Lead frames: the share's own pool, stack-deduped, first N, presigned. A
   // selection share's pool IS its picks (the section pool may hold none of
   // them, which showed a recap with no faces on Oktane's curated share).
   let pool: TileRow[];
   if (selected) {
-    const { data: picked } = await supabase
-      .from("images")
-      .select("id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y")
-      .in("id", [...selected])
-      .eq("thumbnail_generated", true);
-    pool = ((picked ?? []) as (TileRow & { media_type: string | null })[]).filter((t) => t.media_type !== "video");
+    const picked: (TileRow & { media_type: string | null })[] = [];
+    for (const chunk of idChunks([...selected])) {
+      const { data, error } = await supabase
+        .from("images")
+        .select("id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y")
+        .in("id", chunk)
+        .eq("thumbnail_generated", true);
+      // A failed chunk leaves fewer lead frames, not a dead page; say so in the log.
+      if (error) console.error("Recap lead read failed for event", event.id, error.message);
+      picked.push(...((data ?? []) as (TileRow & { media_type: string | null })[]));
+    }
+    pool = picked.filter((t) => t.media_type !== "video");
   } else {
     pool = await fetchMosaicPool(event.id, share.section_id ?? undefined);
   }
@@ -206,19 +238,34 @@ export async function resolveRecap(
   );
 
   // AI renders, in scope, spread evenly so the strip shows eight different looks.
-  let aiQuery = supabase
-    .from("images")
-    .select("id, r2_key, width, height, focal_x, focal_y")
-    .eq("event_id", event.id)
-    .eq("thumbnail_generated", true)
-    .not("sps_source_image_id", "is", null)
-    .neq("media_type", "video")
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(1000);
-  if (selected) aiQuery = aiQuery.in("id", [...selected]);
-  const { data: aiRows } = await aiQuery;
-  const aiAll = aiRows ?? [];
+  // A hand-picked set is read in id chunks and re-sorted, so the order and the
+  // 1,000 cap are the same as one query over the whole set would give.
+  type AiRow = { id: string; r2_key: string; width: number | null; height: number | null; focal_x: number | null; focal_y: number | null; created_at: string };
+  const readAi = async (ids: string[] | null): Promise<AiRow[]> => {
+    let q = supabase
+      .from("images")
+      .select("id, r2_key, width, height, focal_x, focal_y, created_at")
+      .eq("event_id", event.id)
+      .eq("thumbnail_generated", true)
+      .not("sps_source_image_id", "is", null)
+      .neq("media_type", "video");
+    if (ids) q = q.in("id", ids);
+    const { data, error } = await q
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(1000);
+    if (error) console.error("Recap AI read failed for event", event.id, error.message);
+    return (data ?? []) as AiRow[];
+  };
+  let aiAll: AiRow[];
+  if (selected) {
+    aiAll = [];
+    for (const chunk of idChunks([...selected])) aiAll.push(...(await readAi(chunk)));
+    aiAll.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    aiAll = aiAll.slice(0, 1000);
+  } else {
+    aiAll = await readAi(null);
+  }
   const aiWant = Math.min(8, aiAll.length);
   const aiStep = aiWant ? Math.max(1, Math.floor(aiAll.length / aiWant)) : 1;
   const aiPicked = Array.from({ length: aiWant }, (_, i) => aiAll[i * aiStep]).filter(Boolean);
@@ -233,6 +280,8 @@ export async function resolveRecap(
     }))
   );
 
+  const [counted, { count: sections }] = await Promise.all([countOrDeadline, sectionsPromise]);
+
   return {
     kind: "ok",
     payload: {
@@ -244,7 +293,7 @@ export async function resolveRecap(
       photographer,
       recap: normalizeRecap(event.recap),
       recapFetchedAt: event.recap_fetched_at,
-      archive: { photos: photos ?? 0, named: named ?? 0, sections: sections ?? 0, aiRenders: aiAll.length },
+      archive: { photos: counted?.photos ?? null, named: counted?.named ?? null, sections: sections ?? 0, aiRenders: aiAll.length },
       leads,
       aiLeads,
       galleryUrl: `${appOrigin.replace(/\/$/, "")}/gallery/${slug}`,
