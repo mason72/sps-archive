@@ -94,7 +94,10 @@ export interface GallerySettings {
   favoriteMilestones?: boolean;
   /** Guest semantic search enabled for this gallery (default true). */
   guestSearch?: boolean;
-  /** Guest selfie search enabled for this gallery (opt-in, default false). */
+  /**
+   * "Find my photos" offered: the owner's toggle (default ON) AND the gallery
+   * has faces. Resolved server-side by `selfieSearchAvailable()`.
+   */
   selfieSearch?: boolean;
   /** "All" tab across sections in the guest nav (opt-in, default false). */
   showAllPhotos?: boolean;

@@ -5,7 +5,7 @@ import { ElephantWalk } from "@/components/brand/ElephantWalk";
 import { Camera, ImageUp, X } from "lucide-react";
 
 /**
- * FindMyPhotos — guest selfie search modal (opt-in per event).
+ * FindMyPhotos — guest selfie search modal (on by default per event).
  *
  * Camera capture (getUserMedia) with a file-upload fallback; the image is
  * downscaled client-side to 800px JPEG before upload, embedded in memory
@@ -30,6 +30,17 @@ export function FindMyPhotos({
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Wake the face detector the moment the sheet opens. A cold GPU takes ~24 s
+  // (measured 2026-10-28) and a warm one about a second, so this lets the
+  // load run while the guest lines up the selfie. Fire and forget: the
+  // server skips it when the detector is already warm, and a failed ping
+  // only means the search pays the cold start itself.
+  useEffect(() => {
+    fetch(`${apiBase}/selfie-search/warm`, { method: "POST", keepalive: true }).catch(
+      () => {}
+    );
+  }, [apiBase]);
 
   // Fixed overlay: freeze the page behind the modal.
   useEffect(() => {

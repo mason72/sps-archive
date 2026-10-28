@@ -417,7 +417,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
-  // Selfie search (opt-in per event): matched image ids, or null when idle.
+  // Selfie search (on by default per event): matched image ids, or null when idle.
   const [selfieOpen, setSelfieOpen] = useState(false);
   const [selfieMatches, setSelfieMatches] = useState<string[] | null>(null);
   // Active section (reported up from SectionedGallery) for the header label.

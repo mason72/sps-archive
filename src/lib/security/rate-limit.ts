@@ -51,7 +51,13 @@ export type RateLimitScope =
   | "waitlist"
   | "guest-list"
   | "guest-share"
-  | "image-download";
+  | "image-download"
+  /**
+   * Guest selfie warm-up pings. Deliberately left on the default credential
+   * budget (5 per 15 min per IP and gallery): one ping per opened sheet is
+   * the legitimate use, and each one keeps a GPU awake for ten minutes.
+   */
+  | "selfie-warm";
 
 const DEFAULT_BUDGET = { max: AUTH_ATTEMPT_MAX, windowSeconds: AUTH_ATTEMPT_WINDOW_SECONDS };
 

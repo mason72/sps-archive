@@ -309,10 +309,13 @@ const MAX_UPLOAD_B64 = 8 * 1024 * 1024;
  * generated here rather than kept as a base64 constant nobody can eyeball.
  *
  * Metered as `ai_embed_selfie`, because that is what it costs: real GPU
- * seconds on that endpoint. Two-thirds of a cent for a cold start.
+ * seconds on that endpoint. Two-thirds of a cent for a cold start. The row
+ * carries `metadata.warm` ("crew", "guest" or "preview") so the ledger can tell a ping
+ * from a real search; a gallery ping also names the gallery it was for.
  */
 export async function warmFaceDetector(
-  userId: string
+  userId: string,
+  { eventId, source = "crew" }: { eventId?: string; source?: "crew" | "guest" | "preview" } = {}
 ): Promise<{ ok: boolean; seconds: number }> {
   const sharp = (await import("sharp")).default;
   const frame = await sharp({
@@ -337,9 +340,11 @@ export async function warmFaceDetector(
   const seconds = secondsSince(started);
   await recordUsage({
     userId,
+    eventId,
     kind: "ai_embed_selfie",
     quantity: seconds,
     unit: "seconds",
+    metadata: { warm: source },
   });
   return { ok: Boolean(res?.ok), seconds };
 }

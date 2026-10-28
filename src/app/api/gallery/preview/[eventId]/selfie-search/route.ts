@@ -12,10 +12,10 @@ export const runtime = "nodejs";
  * uses (`matchSelfie`), gated on ownership instead of the share.
  *
  * No share scope to intersect (a preview is the whole event) and no
- * `selfieSearch` toggle check: that setting decides what GUESTS get, and a
- * photographer testing the feature before switching it on for a client is
- * exactly who needs it to answer. The selfie is still embedded in memory and
- * never stored.
+ * `selfieSearch` toggle check: the preview payload already shows the button
+ * only when a guest would see it (`selfieSearchAvailable`, since 2026-10-28),
+ * and ownership is the gate that matters here. The selfie is still embedded
+ * in memory and never stored.
  */
 export async function POST(
   request: NextRequest,

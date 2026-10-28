@@ -51,7 +51,15 @@ snapshot face removed). Calibration: `scripts/triage/auto-confirm-margin.ts`
   `ai_embed_selfie`). The class now idles **600s** before reclaim (was 120s;
   ~8¢ of idle T4 per burst at most), and `POST /api/crew/faces/warm` wakes it —
   the import review fires that on open so the load overlaps the scrolling.
-  A ~30s `ai_embed_selfie` row with no faces is the warm ping, not a slow tag.
+  Guests get the same: opening "Find my photos" POSTs
+  `/api/gallery/[slug]/selfie-search/warm` (preview twin under
+  `/api/gallery/preview/[eventId]/…`), skipped when any `ai_embed_selfie` row
+  is under 8 minutes old, rate-limited 5 per 15 min per IP and gallery
+  (2026-10-28; cold measured 24 s on production). Warm pings carry
+  `metadata.warm` = crew / guest / preview, so from that date a real search
+  or tag is a row WITHOUT it (older warm pings carry no marker). Containers take one input at a time, so a search that lands mid-cold-start
+  waits for that container (or Modal starts a second one): the warm-up shortens
+  the wait, it cannot remove it for a guest who shoots within seconds.
 - Deploy: `~/.venvs/modal-cli/bin/modal deploy modal/ai_pipeline.py`.
 - Gotcha: fixed-res SigLIP-2 checkpoints are `model_type: siglip` — use
   `AutoImageProcessor`/`AutoTokenizer`/`SiglipTextModel`, never `AutoProcessor`
@@ -178,7 +186,13 @@ Badge states: `/dev/status`.
   Read the flag ONLY via `selfieSearchEnabled()` (`src/types/event-settings.ts`):
   absent means on, and only an explicit `false` opts out. A `=== true` read
   would have left every pre-existing event dark forever, since events store
-  `{}` and the defaults live entirely at read time.
+  `{}` and the defaults live entirely at read time. Whether the BUTTON shows
+  is one step wider: `selfieSearchAvailable()` (`src/lib/faces/selfie-availability.ts`)
+  = that flag AND the gallery has at least one face (2–4 ms, fails open). Both
+  gallery payloads, the guest selfie route and both warm routes read it, so a
+  product shoot with no people never shows a button that can only find
+  nothing. The owner preview payload did not set `selfieSearch` at all until
+  2026-10-28, so the button had never appeared in a preview.
 
 ### Names first, then the AI — on BOTH sides (2026-08-21)
 

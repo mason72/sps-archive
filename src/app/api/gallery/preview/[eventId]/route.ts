@@ -5,6 +5,7 @@ import { DEFAULT_BRANDING } from "@/types/user-profile";
 import { DEFAULT_EVENT_SETTINGS, normalizeCoverSettings } from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
 import type { GalleryBranding, GallerySettings } from "@/types/gallery";
+import { selfieSearchAvailable } from "@/lib/faces/selfie-availability";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
 
@@ -209,6 +210,14 @@ export async function GET(
         (((event.settings as Record<string, unknown>)?.sharing ?? {}) as {
           showAllPhotos?: boolean;
         }).showAllPhotos === true,
+      // Was missing until 2026-10-28, so "Find my photos" never showed in a
+      // preview at all. Same resolver as the guest payload: the preview shows
+      // the button exactly when a guest would see it.
+      selfieSearch: await selfieSearchAvailable(
+        supabase,
+        eventId,
+        (eventSettings.sharing ?? {}) as { selfieSearch?: boolean }
+      ),
     };
 
     // Generate presigned URL for cover image if cover is enabled

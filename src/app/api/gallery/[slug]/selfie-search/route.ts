@@ -3,7 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { checkAuthRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveShareImageScope, shareScopeIdFilter } from "@/lib/gallery/share-scope";
-import { selfieSearchEnabled } from "@/types/event-settings";
+import { selfieSearchAvailable } from "@/lib/faces/selfie-availability";
 import { matchSelfie } from "@/lib/faces/selfie-match";
 
 export const runtime = "nodejs";
@@ -19,9 +19,9 @@ export const runtime = "nodejs";
  * so sunglasses-at-the-party still gets the dance-floor shots. Falls back to
  * direct face hits when no person wins the vote.
  *
- * ON by default per event, enforced here through `selfieSearchEnabled()` —
- * the same predicate the guest payload uses to decide whether to render the
- * button, so the endpoint can never be open behind a hidden button or shut
+ * ON by default per event, enforced here through `selfieSearchAvailable()`
+ * (the toggle, plus "the gallery has faces") — the same predicate the guest
+ * payload uses to decide whether to render the button, so the endpoint can never be open behind a hidden button or shut
  * behind a visible one. Same share gates as guest search + a strict rate limit.
  */
 
@@ -75,8 +75,11 @@ export async function POST(
 
     const sharing = ((event.settings ?? {}) as { sharing?: { selfieSearch?: boolean } })
       .sharing;
-    if (!selfieSearchEnabled(sharing)) {
-      return NextResponse.json({ error: "Selfie search is not enabled" }, { status: 403 });
+    // Same answer the payload used to decide whether to show the button:
+    // switched on AND the gallery has faces, so a faceless product shoot
+    // never pays for a GPU round trip that can only find nothing.
+    if (!(await selfieSearchAvailable(supabase, share.event_id, sharing))) {
+      return NextResponse.json({ error: "Selfie search is not available" }, { status: 403 });
     }
     if (!process.env.MODAL_AI_SELFIE_URL) {
       return NextResponse.json({ error: "Not configured" }, { status: 503 });

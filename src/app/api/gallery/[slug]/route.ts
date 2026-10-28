@@ -8,10 +8,10 @@ import type { GalleryBranding, GallerySettings } from "@/types/gallery";
 import {
   DEFAULT_EVENT_SETTINGS,
   normalizeCoverSettings,
-  selfieSearchEnabled,
   guestSharingEnabled,
 } from "@/types/event-settings";
 import { coverGalleryFields } from "@/lib/cover/payload";
+import { selfieSearchAvailable } from "@/lib/faces/selfie-availability";
 import { logActivity } from "@/lib/analytics/log";
 import { getOptionalUserId } from "@/lib/auth/helpers";
 import { detectStackable } from "@/lib/gallery/stackable";
@@ -391,7 +391,11 @@ export async function GET(
       guestSearch:
         ((eventSettings.sharing ?? {}) as { guestSearch?: boolean })
           .guestSearch !== false,
-      selfieSearch: selfieSearchEnabled(
+      // The toggle AND "this gallery has faces": one resolver, shared with
+      // the search and warm-up routes so the button and its endpoint agree.
+      selfieSearch: await selfieSearchAvailable(
+        supabase,
+        share.event_id,
         (eventSettings.sharing ?? {}) as { selfieSearch?: boolean }
       ),
       // Opt-in (default off): an "All" tab across sections in the guest nav.
