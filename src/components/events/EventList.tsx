@@ -270,7 +270,9 @@ export function EventList() {
   }
 
   // Error state
-  if (loadError && events.length === 0) {
+  // Whole-page only with no search or filter; a failed search says so in the
+  // grid below, so the search field stays to retry or change it.
+  if (loadError && events.length === 0 && !hasFilters) {
     return (
       <div className="px-8 md:px-16 py-20">
         <div className="flex flex-col items-center justify-center text-center py-16 border border-dashed border-stone-200">
@@ -286,8 +288,11 @@ export function EventList() {
     );
   }
 
-  // Empty state — first-time user
-  if (events.length === 0) {
+  // Empty state — first-time user. Only with no search or filter: `events` is
+  // the server's filtered page, so a search with no matches is also empty, and
+  // taking this branch then replaced the whole page (search field included)
+  // with "No events yet". The no-matches state lives in the grid below.
+  if (events.length === 0 && !hasFilters) {
     return (
       <div className="px-8 md:px-16 py-20">
         <div className="flex flex-col items-center justify-center text-center py-16 border border-dashed border-stone-200">
@@ -383,7 +388,21 @@ export function EventList() {
       </div>
 
       {/* ─── Event grid ─── */}
-      {filteredEvents.length === 0 && hasFilters ? (
+      {filteredEvents.length === 0 && hasFilters && loadError ? (
+        <div className={`py-16 text-center ${MEASURE}`}>
+          <p className="font-editorial text-xl text-stone-300 italic mb-2">
+            Couldn&apos;t search right now
+          </p>
+          <p className="text-[13px] text-stone-400">
+            <button
+              onClick={loadEvents}
+              className="text-stone-600 hover:text-stone-900 underline transition-colors"
+            >
+              Try again
+            </button>
+          </p>
+        </div>
+      ) : filteredEvents.length === 0 && hasFilters ? (
         <div className={`py-16 text-center ${MEASURE}`}>
           <p className="font-editorial text-xl text-stone-300 italic mb-2">
             No matching events
