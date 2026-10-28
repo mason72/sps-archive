@@ -119,6 +119,9 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Actor + theatrical mini-gallery on the Drop-In page (hidden until 3+ images)" },
   { key: "samples/headshots", label: "Headshot Samples", kind: "pool", path: "/services/headshot-booth",
     description: "Finished-headshot mosaic on Headshot Booth, Office Headshots, and Drop-In pages (hidden until 3+ images)" },
+  // Holiday party season page (added 2026-10-28): the finished-work mosaic.
+  { key: "samples/holiday-party", label: "Holiday Party Samples", kind: "pool", service: "photo-booth", path: "/services/holiday-party",
+    description: "Finished-photo mosaic on the Holiday Party Booth page (hidden until 3+ images)" },
 
   // ── Slots: homepage angled services row (one image each) ────────────────
   { key: "slot/slice-1", label: "Slice 01 — Headshot Booth", kind: "slot", rotates: true, service: "headshot-booth", path: "/",
@@ -152,6 +155,8 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Service-page hero carousel at the top of the page" },
   { key: "slot/hero/drop-in-sessions", label: "Hero — Drop-In Sessions", kind: "slot", rotates: true, service: "drop-in-sessions", path: "/services/drop-in-sessions",
     description: "Service-page hero carousel at the top of the page" },
+  { key: "slot/hero/holiday-party", label: "Hero — Holiday Party Booth", kind: "slot", rotates: true, service: "photo-booth", path: "/services/holiday-party",
+    description: "Service-page hero carousel at the top of the Holiday Party Booth page" },
 
   // ── Slot: social link-preview image (Open Graph) ─────────────────────────
   { key: "slot/og", label: "OG / Link Preview", kind: "slot", path: "/",
@@ -172,6 +177,8 @@ export const SITE_SCENES: SceneDef[] = [
     description: "Benefits grid — image N fills tile N" },
   { key: "benefits/drop-in-sessions", label: "Benefits — Drop-In Sessions", kind: "ordered", service: "drop-in-sessions", positions: 6, path: "/services/drop-in-sessions",
     description: "Benefits grid — image N fills tile N" },
+  { key: "benefits/holiday-party", label: "Benefits — Holiday Party Booth", kind: "ordered", service: "photo-booth", positions: 6, path: "/services/holiday-party",
+    description: "Benefits grid on the Holiday Party Booth page — image N fills tile N" },
   // Fountain of Booth (the wedding photo-booth brand, fountainofbooth.com; keys keep the bignight/ prefix) reads these
   // through the same API and key. Absolute paths, because the page is on the
   // other site. Until a scene has images the site falls back to the TDP
@@ -187,6 +194,8 @@ export const SITE_SCENES: SceneDef[] = [
     positionLabels: ["Pick a date and a look", "We show up early and lit", "Everyone leaves with the photos"] },
   { key: "bignight/social", label: "Fountain of Booth — Social feed", kind: "pool", service: "photo-booth", path: "https://fountainofbooth.com/api/social/feed",
     description: "Release-cleared photos the social bot may post; everything here is public the moment it lands" },
+  { key: "bignight/holiday", label: "Society of Booth — Holiday parties", kind: "pool", service: "photo-booth", path: "https://societyofbooth.com/holiday-parties",
+    description: "Holiday party page strip on societyofbooth.com and fountainofbooth.com (shows 6; falls back to Classic until 3+ images)" },
   { key: "how-it-works", label: "How It Works — Steps", kind: "ordered", service: "headshot-booth", positions: 3, path: "/services/headshot-booth",
     description: "How it works — the three step photos, above the BTS mosaic",
     positionLabels: ["They sign in.", "They step on set.", "They get their photos."] },
@@ -222,6 +231,7 @@ const POSITION_LABELS: Record<string, string[]> = {
   "benefits/video": ["Event recaps", "Behind the scenes", "Brand content", "Social-first cuts", "Same crew, same bar", "Fast delivery"],
   "benefits/office-headshots": ["Real people, real best", "Done by lunch", "12–20 per hour", "A standing cadence", "One consistent look", "Three home regions"],
   "benefits/drop-in-sessions": ["Your session, your pace", "Multiple looks", "Finished fast", "Retouching, optional", "The Studio WC", "Bring a friend"],
+  "benefits/holiday-party": ["A photographer, not a kiosk", "Studio light in any ballroom", "Backdrops for the theme", "Prints as party favors", "On every phone in seconds", "Every office, one look"],
   "about-values": ["People first", "No shortcuts", "Keep it fun", "Easy to work with"],
   "portrait/styles": ["Traditional", "Editorial B&W", "Environmental"],
   "portrait/categories": ["White (Super White)", "Light gray", "Dark", "Color", "Gels"],
@@ -241,6 +251,7 @@ const PINNED: Record<string, number> = {
   "slot/hero/video": 4,
   "slot/hero/office-headshots": 4,
   "slot/hero/drop-in-sessions": 4,
+  "slot/hero/holiday-party": 4,
   "slot/slice-1": 1,
   "slot/slice-2": 1,
   "slot/slice-3": 1,
