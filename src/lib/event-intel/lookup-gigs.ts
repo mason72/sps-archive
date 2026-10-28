@@ -65,12 +65,16 @@ export async function fetchGigsInWindow({ from, to }: GigWindow): Promise<Gig[]>
   const timeMin = `${from}T00:00:00Z`;
   const timeMax = `${to}T23:59:59Z`;
 
+  // The calendars are independent reads, so they go out together: a sequential
+  // loop made every lookup the SUM of the calendars (1.5–3.6 s measured
+  // 2026-10-28) and the share page waits on this for its contact chips.
+  const keys = Object.keys(CALENDARS) as CalendarKey[];
+  const lists = await Promise.all(keys.map((cal) => listEvents(cal, { timeMin, timeMax })));
   const crewed = [];
   const studio = [];
-  for (const cal of Object.keys(CALENDARS) as CalendarKey[]) {
-    const evs = await listEvents(cal, { timeMin, timeMax });
-    if (STUDIO_CALENDARS.has(cal)) studio.push(...evs);
-    else crewed.push(...evs);
+  for (const [i, cal] of keys.entries()) {
+    if (STUDIO_CALENDARS.has(cal)) studio.push(...lists[i]);
+    else crewed.push(...lists[i]);
   }
 
   const gigs = groupIntoGigs(crewed);

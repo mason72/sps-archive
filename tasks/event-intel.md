@@ -886,3 +886,26 @@ fields) and a pill that filters the fields (a step before every row).
   thumbnail wrapper stretched with the row (flex default) while the 4:3 box
   inside it did not, and the badge was anchored to the wrapper. Fixed with
   `self-start` and by overlaying inside the box.
+
+## Share-email recipient suggestions (2026-10-28)
+
+Mason: "when I go to share can it suggest the point of contact's email so I don't have to go dig it up?"
+Built as click-to-add chips under the share page's Recipients box (`RecipientSuggestions`), fed by
+`GET /api/events/[eventId]/share-contacts` (`getIntelUser()`, so Event Intel accounts only) and
+`loadShareContacts()` / `rankShareContacts()` in `src/lib/event-intel/share-contacts.ts`.
+
+- **The point of contact is the email in the calendar entry's DESCRIPTION.** Measured on the 40 most
+  recent calendar-linked galleries: 33 had one, and of the 29 that had been emailed, 23 went to exactly
+  that address. Calendar ATTENDEES are not a source: they were nearly all other photographers.
+- **Second source: the client's past recipients.** Recipients of earlier share emails whose domain belongs
+  to the client (linked payer org, the calendar contact's domain, or a stored org whose name leads the
+  calendar's client field: "Appfolio SB" → Appfolio). Newest three. This is what covers an entry with no
+  address in it (Appfolio Goleta → the San Diego gallery's recipient).
+- **Already-sent addresses are marked "Sent", not hidden**, and ours (twodudesphoto, simplephotoshare,
+  pixeltrunk), the crew roster's and the account's own address are never suggested.
+- **It needs `event_intel.calendar_event_ids`.** Only the create screen's gig picker and
+  `scripts/match-calendar.ts` write it; nothing schedules the script. A gallery created any other way
+  (a script, an SPS import made without the picker) has no calendar link and gets only the history
+  source until someone runs `npx tsx scripts/match-calendar.ts --event <id> --apply`.
+- `fetchGigsInWindow` now reads the calendars in parallel (it was their sum, 1.5 to 3.6 s); the chips
+  load after the page, so a slow calendar never blocks composing.

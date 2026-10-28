@@ -17,6 +17,7 @@ import { interpolateTemplate } from "@/lib/email/interpolate";
 import { normalizeRecap, recapPassesFloor } from "@/lib/recap/normalize";
 import type { SpsRecap } from "@/lib/recap/types";
 import { RecapPanel, type RecapState } from "@/components/recap/RecapPanel";
+import { RecipientSuggestions } from "@/components/email/RecipientSuggestions";
 import { readSpsEventId } from "@/lib/sps-integration/event-link";
 import { toast } from "sonner";
 import {
@@ -494,6 +495,13 @@ function ShareComposePage() {
                         <p className="text-[11px] text-stone-400 mt-1">
                           Separate multiple addresses with commas
                         </p>
+                        <RecipientSuggestions
+                          eventId={eventId}
+                          recipients={recipients}
+                          onAdd={(email) =>
+                            setRecipients((prev) => (prev.trim() ? `${prev.trim().replace(/[,;]\s*$/, "")}, ${email}` : email))
+                          }
+                        />
                       </div>
 
                       <div>

@@ -27,7 +27,11 @@ type Db = any;
  * `twodudesphoto.com` is ours and must be excluded or it becomes our own
  * biggest client; the consumer mail hosts carry no company signal at all.
  */
-const NOT_A_PAYER = /twodudesphoto|gmail|hotmail|yahoo|outlook|icloud|me\.com|att\.net/;
+const NOT_A_PAYER =
+  /(?:^|\.)twodudesphoto\.com$|^(?:gmail|googlemail|hotmail|yahoo|outlook|icloud|aol|live|msn)\.[a-z.]+$|^me\.com$|^att\.net$/;
+// ANCHORED, to the whole domain (2026-10-28). It was a bare substring match,
+// so `me\.com` rejected acme.com, chime.com and welcome.com, and `att\.net`
+// rejected matt.net: real clients that then got no payer link.
 
 /** Distinct payer domains implied by a set of contact addresses. */
 export function payerDomains(emails: string[]): string[] {

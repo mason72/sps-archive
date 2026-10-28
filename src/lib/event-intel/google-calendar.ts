@@ -156,8 +156,11 @@ export async function listEvents(
     if (timeMax) params.set("timeMax", timeMax);
     if (pageToken) params.set("pageToken", pageToken);
 
+    // A deadline, so one dead socket cannot hold a lookup (and the share page's
+    // "Looking up contacts…") until the function itself times out.
     const res = await fetch(`${API}/calendars/${encodeURIComponent(id)}/events?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
       const detail = await res.text();
