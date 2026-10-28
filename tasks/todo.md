@@ -1,5 +1,63 @@
 # Pixeltrunk - Build Plan
 
+## Wedding transfer 2026-10-26 (done 2026-10-28 02:10, Studio local)
+
+Mason, 2026-10-26: bring the 40 wedding and couple galleries trashed in the 2026-08-11 Pixieset triage into Pixeltrunk, for the wedding photo-booth brand. 13 explicit weddings, 27 couple sessions.
+
+- [x] Verdicts trash -> keep for all 40 in `scripts/triage/data/decisions.json` (gitignored; backup `decisions.backup-2026-10-26-pre-weddings.json` beside it).
+- [x] 40 queue entries under `withQueue`; 37 download PINs into `data/pins.json` (Natasha & Silvano, Holly & Kathleen, Carl & Vanessa had none, and needed none).
+- [x] Extension v1.3.10, REPAIRS `2026-10-26-add-wedding-galleries` (`ff9456b`); `resume.json`; no `arm.json` needed (the 282 armed passwords covered every password gallery).
+- [x] All 40 ingested, 16,267 photos, 39.39 GB. 39 pass the landed check plus an 8-of-8 sha256 round-trip; Mai & Mike passes the landed check only (its ZIP was released before the byte check was in place).
+- [x] `event_type = wedding` on the 13 weddings (same column write as the sidebar's PATCH); the 27 couple sessions stay untyped.
+- Cloudflare challenges: 0. Gates hit: 0. One slow ZIP (Eduardo & Alexandria, 35 min) retried by the extension on its own.
+- Two pauses on the 80 GB disk floor: the Dropbox file provider was filling the Studio about 10 GB/h. Mason emptied the Trash, then paused Dropbox, and free space held at ~90 GB. **Dropbox sync on the Studio is still paused**; resuming it is Mason's call (lesson 194).
+- `high_res=0` in the inventory was wrong: Paul & Nicole and Mai & Mike came back at 5,472 px; Kym & Shawn at 3,648 px (camera resolution of its year).
+- Follow-up idea, not built: let `ingest-loop.sh` run (or hand off to) the sha256 verify before it releases a ZIP, so the byte check is part of the lane.
+
+| Gallery | Slug | State | Photos landed / inventory | Verify | GB |
+|---|---|---|---|---|---|
+| Paul & Nicole  | paulandnicole | ingested | 611 / 611 | PASS (8/8 sha256) | 2.40 |
+| Mai & Mike's Wedding | maiandmikeswedding | ingested | 371 / 371 | PASS-landed-only (landed only) | 1.51 |
+| Kym + Shawn \| Yountville, CA | kymshawnyountvilleca | ingested | 471 / 471 | PASS (8/8 sha256) | 1.38 |
+| Robert & Loren | robertandloren | ingested | 263 / 263 | PASS (8/8 sha256) | 0.48 |
+| Eduardo & Alexandria | eduardoandalexandria | ingested | 526 / 526 | PASS (8/8 sha256) | 1.22 |
+| Kseniya + David | kseniyadavid | ingested | 321 / 321 | PASS (8/8 sha256) | 0.60 |
+| Nayomi & Alan | nayomiandalan | ingested | 361 / 361 | PASS (8/8 sha256) | 0.78 |
+| Lisa & Anthony | lisaandanthony | ingested | 339 / 339 | PASS (8/8 sha256) | 1.24 |
+| Allegra + Elliott | allegraelliott | ingested | 360 / 360 | PASS (8/8 sha256) | 0.97 |
+| Aimee + Scott | aimeescott | ingested | 246 / 246 | PASS (8/8 sha256) | 0.36 |
+| Tura + Luigi | turaluigi | ingested | 286 / 286 | PASS (8/8 sha256) | 0.39 |
+| Imee + Albert | imeealbert | ingested | 281 / 281 | PASS (8/8 sha256) | 0.40 |
+| Kerry Anne + Ranjit | kerryanneranjit | ingested | 307 / 307 | PASS (8/8 sha256) | 0.44 |
+| Hasia + James | hasiajames | ingested | 389 / 389 | PASS (8/8 sha256) | 0.97 |
+| Stephanie + Brian | stephaniebrian | ingested | 522 / 522 | PASS (8/8 sha256) | 0.77 |
+| Lane + Megan | lanemegan | ingested | 598 / 598 | PASS (8/8 sha256) | 1.29 |
+| Keting & Shengkun | ketingandshengkun | ingested | 182 / 182 | PASS (8/8 sha256) | 0.38 |
+| Ali + Nick's Big Day | alinicksbigday | ingested | 546 / 546 | PASS (8/8 sha256) | 2.99 |
+| Nicolette + Joseph | nicolettejoseph | ingested | 240 / 240 | PASS (8/8 sha256) | 0.45 |
+| Carneros Wedding | carneroswedding | ingested | 218 / 218 | PASS (8/8 sha256) | 0.28 |
+| Caroline's Big Day | carolinesbigday | ingested | 248 / 248 | PASS (8/8 sha256) | 0.35 |
+| Anjelica's Big Day | anjelicasbigday | ingested | 176 / 176 | PASS (8/8 sha256) | 0.18 |
+| Weinstein Wedding | weinsteinwedding | ingested | 205 / 205 | PASS (8/8 sha256) | 0.29 |
+| Lana + Mikhael | lanamikhael | ingested | 223 / 223 | PASS (8/8 sha256) | 0.28 |
+| Jeff + David | jeffdavid | ingested | 594 / 594 | PASS (8/8 sha256) | 0.72 |
+| Samadhi + George | moraleswedding | ingested | 319 / 319 | PASS (8/8 sha256) | 0.38 |
+| Natalee + Kasra | nataleekasra | ingested | 425 / 425 | PASS (8/8 sha256) | 1.22 |
+| Fine Wedding | finewedding | ingested | 235 / 235 | PASS (8/8 sha256) | 0.45 |
+| Dent Wedding | dentwedding | ingested | 268 / 268 | PASS (8/8 sha256) | 0.55 |
+| Luigi and Trevor Get Engaged! | luigiandtrevorgetengaged | ingested | 393 / 393 | PASS (8/8 sha256) | 0.59 |
+| Holly & Kathleen | hollyandkathleen | ingested | 146 / 146 | PASS (8/8 sha256) | 0.23 |
+| Alex + Samir | alexsamir | ingested | 171 / 171 | PASS (8/8 sha256) | 0.36 |
+| Carl & Vanessa | carlandvanessa | ingested | 82 / 82 | PASS (8/8 sha256) | 0.13 |
+| Natasha & Silvano Wedding | natashaandsilvanowedding | ingested | 418 / 418 | PASS (8/8 sha256) | 3.34 |
+| Marita + Sean | maritasean | ingested | 249 / 249 | PASS (8/8 sha256) | 0.63 |
+| Caitlin & Chris | caitlinandchris | ingested | 402 / 402 | PASS (8/8 sha256) | 0.94 |
+| Annie + Vincent // Jul 15 2023 | annievincentjul152023 | ingested | 642 / 642 | PASS (8/8 sha256) | 2.89 |
+| Pooja & Vishal | poojaandvishal | ingested | 807 / 807 | PASS (8/8 sha256) | 3.08 |
+| Samonte - Buenviaje Wedding | hazelsbigday | ingested | 243 / 243 | PASS (8/8 sha256) | 0.85 |
+| Evan & Sonya's Wedding, Little Rock AR | evanandsonyasweddinglittlerockar | ingested | 533 / 533 | PASS (8/8 sha256) | 2.64 |
+
+
 ## Phone pass + import follow-ups (2026-10-17)
 
 Shipped: phone nav, editor/gallery/settings at 390px, URL-driven import, review fixes

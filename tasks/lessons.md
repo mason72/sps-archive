@@ -4727,3 +4727,22 @@ that we'll need to pull over."
 - Never make a consumer wait on a save to learn something the producer already knows. The editor had the key; it could mint the URL itself.
 - A storage key that is stable across content changes makes every settings-derived cache and hash blind to the change. Version the key at write time.
 - A preview of a local file (`blob:`) is not evidence the server has it. Check the stored record before blaming the file.
+
+## 194. The verify script wanted a ZIP the ingest loop had already deleted, and the disk brake was right about a drain nobody had measured (2026-10-27)
+
+Bringing 40 trashed wedding and couple galleries back from Pixieset (the "Wedding transfer 2026-10-26" in `tasks/todo.md`).
+
+**What happened.**
+- The brief named `scripts/pixieset/verify-pixieset-ingest.ts`; the script lives at `scripts/verify-pixieset-ingest.ts`. A wrong path in a brief fails as `ERR_MODULE_NOT_FOUND`, which reads like a broken install.
+- That script does its sha256 round-trip against the staged ZIP, read from `$HOME/pixieset-staging/{verified,ingested}`. `ingest-loop.sh` releases (unlinks) each ZIP seconds after its own landed check, so the first gallery (Mai & Mike) could only be verified by row counts. Fix used for the other 39: hardlink each ZIP while it sits in `verified/` (a second name for the same file, no extra disk), point the verifier at the hold with a `HOME` override, and drop the link after a PASS.
+- A zsh `(N)` glob that matched nothing left `ls` with no arguments, which listed the working directory, so a "still staged?" test always answered yes and the verifier never ran. Test the array length (`(( ${#arr} > 0 ))`), never the exit status of `ls $glob`.
+- The extension's 80 GB start floor stopped the run twice (03:55Z and 15:35 local). Free disk fell about 10 GB an hour while every ZIP of this batch was already released. The writer was the Dropbox file provider (`fileproviderd` at ~97% CPU for 12 days); when Mason paused Dropbox its CPU went to 0 and free space climbed from 82 to 93 GB within minutes, then held for the rest of the run. Emptying the Trash bought 40 minutes; pausing Dropbox fixed it.
+- One ZIP request (Eduardo & Alexandria) sat "being requested" for 35 minutes; the extension gave up (attempt 1/3) and the retry landed in one minute. No intervention was needed.
+- `decisions.json` is gitignored, so the trash-to-keep flips cannot be committed; the backup beside it (`decisions.backup-2026-10-26-pre-weddings.json`) is the record.
+- `high_res=0` in the Pixieset inventory did not mean small files: Paul & Nicole and Mai & Mike came back at 5,472 px on the long edge.
+
+**Rules.**
+- A verify step that needs the staged artifact must run before the release, or hold its own hardlink. Better: give `ingest-loop.sh` a hook (or a `--keep-for-verify` flag) so the byte check is part of the lane, not a sidecar.
+- When the disk brake fires and the batch's own files are already gone, measure what else is writing before freeing space: `ps -Ao pcpu,comm | sort -nr | head` and two `df -m` samples a minute apart. The cheapest fix is often pausing the writer, not deleting files.
+- Brief paths are claims. `ls` the script before quoting it.
+- Glob emptiness is tested by array length, never by `ls` exit status.
