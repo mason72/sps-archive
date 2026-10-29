@@ -4746,3 +4746,18 @@ Bringing 40 trashed wedding and couple galleries back from Pixieset (the "Weddin
 - When the disk brake fires and the batch's own files are already gone, measure what else is writing before freeing space: `ps -Ao pcpu,comm | sort -nr | head` and two `df -m` samples a minute apart. The cheapest fix is often pausing the writer, not deleting files.
 - Brief paths are claims. `ls` the script before quoting it.
 - Glob emptiness is tested by array length, never by `ls` exit status.
+
+## 195. The import screen could not offer the Guidewire job, and had no place to type a venue or a client (2026-10-29)
+
+Mason, importing Guidewire Connections from SPS: "I can't enter a client if they don't exist", "I can't type in a venue either", and the "[GLAM] Guidewire Connections" calendar entry could not be picked, only its set-up. He guessed the all-day flag. It was not: other all-day GLAM entries were offered fine.
+
+**What happened.**
+- `classifyGig` called an entry a job only with crew names in the title, or with attendees AND a location. "[GLAM] Guidewire Connections // LV (TWO TEAMS)" had 8 invited crew but no names in the title and no location, so it was "unknown", and `groupIntoGigs` drops unknowns. Only the set-up entry (matched by the word "Set Up") survived.
+- For a title with no crew segment, `parseGig` took segment 1 as the client. That is right for nothing in two years of calendar: "Client // City" put the CITY in the client field ("Twilio SKO // Las Vegas" was client "Las Vegas"). Different days of one job ("Docusign // Chicago (Day 1)", "(Day 2)") became different clients and never grouped. Crew-first titles had the same split from "(Day N)" and headcounts ("Hilton (8 TEAMS)").
+- Measured on 588 entries from 2024-10 to 2026-12 (old parser vs new, side by side): 168 readings changed, and the picker's gig count went from 451 to 335 because multi-day jobs and set-up days now group. Every changed row was read by hand before shipping; two regressions in the first draft ("3 TEAMS | MSFT Event" read as client "3 TEAMS") were caught that way and fixed.
+- The card showed venue and client as read-only text. `VenuePicker` and `ClientPicker` already existed on /intel; the card now shows them where the calendar is silent, and the payload carries `venueId` / `orgIds`, owner-checked in `applyGigIntel` because both routes run on the service client.
+
+**Rules.**
+- A parser change is measured against the real calendar, old and new side by side, before it ships: `scratchpad`-style diff of `parseGig` over two years, every changed row read. A unit test only proves the case someone thought of.
+- A read-only field fed by a lookup needs an editable fallback for when the lookup is empty. "The calendar named none" with nothing to do about it is a dead end.
+- An id that arrives in a request body and is written through the service client is filtered by owner before use (`venueId`, `orgIds`, like `crewId` before them), with a test that fails when the filter is removed.

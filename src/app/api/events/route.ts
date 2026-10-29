@@ -304,6 +304,8 @@ export async function POST(request: NextRequest) {
         crew?: CrewAssignment[];
         orgDomains?: string[];
         orgNames?: Record<string, string>;
+        venueId?: string | null;
+        orgIds?: string[];
         calendarEventIds?: string[];
       };
     };
@@ -376,7 +378,7 @@ export async function POST(request: NextRequest) {
      * replacing what a human just chose.
      */
     let intelWarnings: string[] = [];
-    if (data && intel && (intel.venue || intel.crew?.length || intel.orgDomains?.length)) {
+    if (data && intel && (intel.venue || intel.venueId || intel.crew?.length || intel.orgDomains?.length || intel.orgIds?.length)) {
       try {
         const { applyGigIntel } = await import("@/lib/event-intel/apply-gig");
         const result = await applyGigIntel(supabase, {
@@ -386,6 +388,8 @@ export async function POST(request: NextRequest) {
           crew: intel.crew ?? [],
           orgDomains: intel.orgDomains ?? [],
           orgNames: intel.orgNames,
+          venueId: typeof intel.venueId === "string" ? intel.venueId : null,
+          orgIds: Array.isArray(intel.orgIds) ? intel.orgIds.filter((x): x is string => typeof x === "string") : [],
           calendarEventIds: intel.calendarEventIds ?? [],
           confirmed: true,
           // The human who created the event signs the crew ratings that came

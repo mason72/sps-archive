@@ -664,3 +664,88 @@ describe("accented names", () => {
     expect(isCompanyShoot("Crème Brûlée Co Headshots")).toBe(true);
   });
 });
+
+describe("no-crew titles and booked tags (2026-10-29)", () => {
+  // EXPOSURE, 2026-10-26/27. The import screen offered only the set-up day:
+  // the job entry read as "unknown" (no crew names, no location) and its client
+  // as "LV (TWO TEAMS)", so it neither counted nor grouped.
+  const setUp = {
+    id: "a",
+    summary: "Guidewire Connections Set Up ",
+    attendees: [{ email: "joey@example.com" }],
+    start: { dateTime: "2026-10-26T20:00:00-07:00" },
+  };
+  const job = {
+    id: "b",
+    summary: "[GLAM] Guidewire Connections // LV (TWO TEAMS) ",
+    attendees: [{ email: "joey@example.com" }, { email: "stretch@example.com" }],
+    start: { date: "2026-10-27" },
+  };
+
+  it("a booked tag with invited crew is a job, even with no location", () => {
+    expect(classifyGig(job)).toBe("gig");
+  });
+
+  it("a booked tag alone, with nobody invited, is still not a job", () => {
+    expect(classifyGig({ ...job, attendees: [] })).toBe("unknown");
+  });
+
+  it("a hold or cancelled tag is not a booking", () => {
+    expect(classifyGig({ ...job, summary: "[HOLD] Guidewire Connections // LV" })).toBe("unknown");
+    expect(classifyGig({ ...job, summary: "[Cancelled] Guidewire Connections // LV" })).toBe("unknown");
+  });
+
+  it("reads 'Client // City' with the client first, and drops the bracketed note from the city", () => {
+    const g = parseGig(job);
+    expect(g.client).toBe("Guidewire Connections");
+    expect(g.city).toBe("LV");
+  });
+
+  it("groups the job with its own set-up day", () => {
+    const gigs = groupIntoGigs([setUp, job]);
+    expect(gigs).toHaveLength(1);
+    expect(gigs[0].events.map((e) => e.id)).toEqual(["a", "b"]);
+  });
+
+  it("a leading headcount is neither crew nor client", () => {
+    // EXPOSURE, 2025-04-08.
+    expect(parseGig({ summary: "3 TEAMS | MSFT Event (Day 1) " }).client).toBe("MSFT Event");
+  });
+
+  it("headcounts inside the name are not the client's name", () => {
+    expect(parseGig({ summary: "[GLAM] Hilton (8 TEAMS) // Orlando" }).client).toBe("Hilton");
+    expect(parseGig({ summary: "[GLAM]  TWO TEAMS College Board // Boston" }).client).toBe("College Board");
+    expect(parseGig({ summary: "[GLAM] (FIVE HEADSHOT BOOTHS) Service Now // Las Vegas" }).client).toBe("Service Now");
+  });
+
+  it("the days of one job are one gig", () => {
+    // EXPOSURE, 2024-11-21/22: "(Day 1)" and "(Day 2)" read as two clients, so
+    // the picker offered each day alone, with only that day's crew.
+    const gigs = groupIntoGigs([
+      { summary: "JOEY, JUSTIN, EMBER | AMP 2024 (Day 1)", start: { date: "2024-11-21" } },
+      { summary: "JOEY, JUSTIN, EMBER | AMP 2024 (Day 2)", start: { date: "2024-11-22" } },
+    ]);
+    expect(gigs).toHaveLength(1);
+    expect(gigs[0].client).toBe("AMP 2024");
+  });
+
+  it("a crew title still takes the segment after the crew", () => {
+    expect(parseGig({ summary: "JOEY & CHRIS | Stanford Event" }).client).toBe("Stanford Event");
+  });
+
+  it("a first segment of only set-up or generic words is a label, not the client (review, 2026-10-29)", () => {
+    expect(parseGig({ summary: "Set Up | Axos Bank" }).client).toBe("Axos Bank");
+    expect(parseGig({ summary: "[GLAM] Headshots // Axos Bank" }).client).toBe("Axos Bank");
+  });
+
+  it("a hold, inquiry or pending word anywhere in the title is not a booking", () => {
+    const people = [{ email: "joey@example.com" }];
+    expect(classifyGig({ summary: "[GLAM] HOLD Guidewire // LV", attendees: people })).toBe("unknown");
+    expect(classifyGig({ summary: "[PENDING] Guidewire // LV", attendees: people })).toBe("unknown");
+  });
+
+  it("never eats half of a bracket", () => {
+    expect(parseGig({ summary: "[GLAM] Hilton (8 TEAMS) // Orlando" }).client).toBe("Hilton");
+    expect(parseGig({ summary: "JOEY | Guidewire // LV (TWO TEAMS)" }).city).toBe("LV");
+  });
+});

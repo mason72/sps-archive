@@ -79,6 +79,8 @@ export interface CrewAssignment {
   note?: string | null;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface ApplyGigInput {
   userId: string;
   eventId: string;
@@ -105,6 +107,15 @@ export interface ApplyGigInput {
    * already exist: their names are curated and renames belong to /intel.
    */
   orgNames?: Record<string, string>;
+  /**
+   * A venue a human PICKED on the card because the calendar named none
+   * (2026-10-29). An existing row id: the picker creates a new venue at pick
+   * time. Wins over `venue`. Checked against the owner, since the id comes
+   * from a request body and this runs on the service client.
+   */
+  venueId?: string | null;
+  /** Clients a human picked on the card, as existing org ids. Same ownership check. */
+  orgIds?: string[];
   calendarEventIds?: string[];
   /**
    * Did a HUMAN say this gallery is this gig?
@@ -140,8 +151,20 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
 
   // ── venue ──
   let venueId: string | null = null;
-  const parsed: ParsedVenue | null =
-    typeof input.venue === "string" ? parseVenue(input.venue) : (input.venue ?? null);
+  if (input.venueId && UUID.test(input.venueId)) {
+    const { data: own, error: ownErr } = await db
+      .from("venues")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("id", input.venueId)
+      .maybeSingle();
+    if (ownErr) warnings.push(`venue pick: ${ownErr.message}`);
+    else if (own) venueId = own.id;
+    else warnings.push("venue pick: no such venue for this account");
+  }
+  const parsed: ParsedVenue | null = venueId
+    ? null
+    : typeof input.venue === "string" ? parseVenue(input.venue) : (input.venue ?? null);
 
   if (parsed && (parsed.name || parsed.street)) {
     const key = venueKey(parsed);
@@ -332,6 +355,8 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
 
   // ── payer ──
   let orgsLinked = 0;
+  /** Every org to link, deduped: a picked client can also be a contact's domain. */
+  const linkIds = new Set<string>();
   for (const domain of input.orgDomains ?? []) {
     const clean = domain.trim().toLowerCase();
     if (!clean || NOT_A_PAYER.test(clean)) continue;
@@ -365,11 +390,31 @@ export async function applyGigIntel(db: Db, input: ApplyGigInput): Promise<Apply
       orgId = made.id;
     }
 
+    linkIds.add(orgId!);
+  }
+
+  // Picked clients: only ids this account owns are linked.
+  // A non-uuid would make Postgres refuse the whole `in()` and drop every good id with it.
+  const picked = [...new Set((input.orgIds ?? []).filter((id) => UUID.test(id)))];
+  if (picked.length) {
+    const { data: owned, error: pickErr } = await db
+      .from("organizations")
+      .select("id")
+      .eq("user_id", userId)
+      .in("id", picked);
+    if (pickErr) warnings.push(`client pick: ${pickErr.message}`);
+    else {
+      for (const o of owned ?? []) linkIds.add(o.id);
+      if ((owned ?? []).length < picked.length) warnings.push("client pick: not every client belongs to this account");
+    }
+  }
+
+  for (const orgId of linkIds) {
     const { error: eoErr } = await db.from("event_orgs").upsert(
       { event_id: eventId, org_id: orgId, user_id: userId, role: "payer" },
       { onConflict: "event_id,org_id,role" }
     );
-    if (eoErr) warnings.push(`event_org ${clean}: ${eoErr.message}`);
+    if (eoErr) warnings.push(`event_org ${orgId}: ${eoErr.message}`);
     else orgsLinked++;
   }
 

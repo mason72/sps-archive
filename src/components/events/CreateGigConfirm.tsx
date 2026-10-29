@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 import { formatLastHired } from "@/lib/event-intel/last-hired";
 import { crew as crewRegistry, useRegistry, type KnownCrew } from "@/components/intel/registry-cache";
+import { VenuePicker } from "@/components/intel/VenuePicker";
+import { ClientPicker } from "@/components/intel/ClientPicker";
+import type { ComboValue } from "@/components/intel/Combobox";
 
 /**
  * Looking a gig up while you name the event — and confirming it before the
@@ -81,6 +84,10 @@ export interface GigIntelPayload {
    * this field exists to let Mason fix in place, 2026-08-28).
    */
   orgNames?: Record<string, string>;
+  /** A venue picked on the card when the calendar named none. */
+  venueId?: string | null;
+  /** Clients picked on the card, beside any the contact emails found. */
+  orgIds?: string[];
   calendarEventIds: string[];
 }
 
@@ -296,6 +303,15 @@ export function GigConfirmCard({
    * a different gig reseeds — the exact contract picks already hold.
    */
   const [orgNames, setOrgNames] = useState<Record<string, string>>({});
+  /**
+   * What the human filled in where the calendar was silent (2026-10-29: "I
+   * can't enter a client if they don't exist", "I can't type in a venue
+   * either"). Both pickers hand back a real row, made at pick time, so the
+   * payload carries ids. Cleared when a different gig is picked.
+   */
+  const [pickedVenue, setPickedVenue] = useState<ComboValue | null>(null);
+  const [pickedClients, setPickedClients] = useState<ComboValue[]>([]);
+  const [addingClient, setAddingClient] = useState(false);
 
   /**
    * Faces beside the names — "is this the Nicole I think it is?", asked at the
@@ -365,6 +381,9 @@ export function GigConfirmCard({
       setTemps([]);
       setExtras([]);
       setAddingTemp(false);
+      setPickedVenue(null);
+      setPickedClients([]);
+      setAddingClient(false);
     }
     setOrgNames((prev) => {
       const seed: Record<string, string> = {};
@@ -432,12 +451,15 @@ export function GigConfirmCard({
 
     return {
       venue: gig.venue?.raw ?? null,
+      // Same test the card uses to show the picker, so a pick is never shown and then dropped.
+      venueId: venueLabel(gig.venue) ? null : (pickedVenue?.id ?? null),
       crew,
       orgDomains: gig.orgs.map((o) => o.domain),
       orgNames: namedOrgs,
+      orgIds: pickedClients.map((c) => c.id),
       calendarEventIds: gig.calendarEventIds,
     };
-  }, [gig, picks, extras, temps, orgNames]);
+  }, [gig, picks, extras, temps, orgNames, pickedVenue, pickedClients]);
 
   useEffect(() => { onChange(payload); }, [payload, onChange]);
 
@@ -598,8 +620,17 @@ export function GigConfirmCard({
         <div className="px-5 py-4">
           <dt className="label-caps mb-1.5 text-stone-400">Venue</dt>
           <dd className="text-[14px] text-stone-700">
-            {venue ?? <span className="text-stone-400">The calendar named none</span>}
-            {gig.venue?.city && <span className="text-stone-400"> · {gig.venue.city}</span>}
+            {venue ? (
+              <>
+                {venue}
+                {gig.venue?.city && <span className="text-stone-400"> · {gig.venue.city}</span>}
+              </>
+            ) : (
+              <>
+                <p className="mb-2 text-[12px] text-stone-400">The calendar named none. Add it here.</p>
+                <VenuePicker value={pickedVenue} onChange={setPickedVenue} />
+              </>
+            )}
           </dd>
         </div>
 
@@ -855,9 +886,10 @@ export function GigConfirmCard({
         <div className="px-5 py-4">
           <dt className="label-caps mb-1.5 text-stone-400">Client</dt>
           <dd className="text-[14px] text-stone-700">
-            {gig.orgs.length === 0 ? (
-              <span className="text-stone-400">No onsite contact in the entry</span>
-            ) : (
+            {gig.orgs.length === 0 && pickedClients.length === 0 && (
+              <p className="mb-2 text-[12px] text-stone-400">No onsite contact in the entry. Add the client here.</p>
+            )}
+            {gig.orgs.length > 0 &&
               gig.orgs.map((o) =>
                 o.orgId ? (
                   // An existing org's name is already curated — renaming it
@@ -890,7 +922,38 @@ export function GigConfirmCard({
                     </span>
                   </span>
                 )
-              )
+              )}
+            {pickedClients.map((c) => (
+              <span key={c.id} className="mr-4 inline-flex items-baseline gap-2">
+                {c.name}
+                <button
+                  type="button"
+                  onClick={() => setPickedClients((list) => list.filter((x) => x.id !== c.id))}
+                  aria-label={`Remove ${c.name}`}
+                  className="text-[11px] text-stone-400 transition-colors hover:text-stone-800"
+                >
+                  remove
+                </button>
+              </span>
+            ))}
+            {(gig.orgs.length === 0 && pickedClients.length === 0) || addingClient ? (
+              <div className="mt-1">
+                <ClientPicker
+                  value={null}
+                  onChange={(v) => {
+                    if (v) setPickedClients((list) => (list.some((x) => x.id === v.id) ? list : [...list, v]));
+                    setAddingClient(false);
+                  }}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAddingClient(true)}
+                className="mt-2 block text-[12px] text-stone-400 underline-offset-4 transition-colors hover:text-stone-800 hover:underline"
+              >
+                + Another client
+              </button>
             )}
           </dd>
         </div>

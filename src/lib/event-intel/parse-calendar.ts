@@ -114,6 +114,20 @@ function looksLikeCrewSegment(raw: string): boolean {
   return upperRatio > 0.8;
 }
 
+/** "3 TEAMS", "(FIVE HEADSHOT BOOTHS)", "ONE TEAM": a headcount of booths or teams. */
+const COUNT_WORDS = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:headshot\s+)?(?:teams?|booths?)`;
+const TEAM_COUNT = new RegExp(String.raw`\(\s*${COUNT_WORDS}\s*\)|\b${COUNT_WORDS}\b`, "i");
+const TEAM_COUNT_ONLY = new RegExp(`^\\s*(?:${TEAM_COUNT.source})\\s*$`, "i");
+
+function stripTeamCount(client: string): string {
+  return client.replace(new RegExp(TEAM_COUNT.source, "gi"), " ").replace(/\s+/g, " ").trim();
+}
+
+/** A trailing note in brackets is not part of the city: "LV (TWO TEAMS)" → "LV". */
+function cityOf(seg: string): string {
+  return seg.replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
 /** Cities appear as their own trailing segment, e.g. "… // Scottsdale". */
 function looksLikeCitySegment(seg: string): boolean {
   if (!seg) return false;
@@ -246,9 +260,22 @@ export function classifyGig(ev: CalendarEventLike): GigKind {
   const hasVenue = !!(ev.location ?? "").trim();
   // Weak admin words only win when nothing suggests a job.
   if (ADMIN_WEAK.test(title) && !hasCrew && !hasPeople && !hasVenue) return "admin";
-  if (hasCrew || (hasPeople && hasVenue)) return "gig";
+  /**
+   * A booked team tag stands in for the venue. "[GLAM] Guidewire Connections //
+   * LV (TWO TEAMS)" (2026-10-27) had eight invited crew, no crew names in the
+   * title and no location, so it read as "unknown" and was dropped before
+   * grouping: the import screen offered only its set-up day. The tag is how the
+   * team marks a booked job, so tag plus people is a job. Hold and cancel tags
+   * are not bookings, wherever the word sits in the title.
+   */
+  const booked = BOOKED_TAG.test(title) && !NOT_BOOKED.test(title);
+  if (hasCrew || (hasPeople && (hasVenue || booked))) return "gig";
   return "unknown";
 }
+
+/** A leading team tag ("[GLAM]", "[SLAM]") or BOOKED / CONFIRMED. */
+const BOOKED_TAG = /^\s*(?:\[[^\]]+\]|BOOKED\b|CONFIRMED\b)/i;
+const NOT_BOOKED = /\b(?:hold|tentative|cancel+ed|postponed|inquiry|pending|tbd|quote)\b/i;
 
 const stripStatus = (t: string) => t.replace(STATUS_PREFIX, "");
 
@@ -280,18 +307,36 @@ export function parseGig(ev: CalendarEventLike): ParsedGig {
       if (segments.length >= 2) client = segments[1];
       // A third segment is the city by convention; a two-word Title Case tail
       // after the client is the giveaway.
-      if (segments.length >= 3 && looksLikeCitySegment(segments[segments.length - 1])) {
-        city = segments[segments.length - 1];
+      const crewTail = cityOf(segments[segments.length - 1]);
+      if (segments.length >= 3 && looksLikeCitySegment(crewTail)) {
+        city = crewTail;
       }
     } else {
       // No crew in the title — the whole thing is the job name.
-      client = segments.length > 1 ? segments[1] : segments[0];
       notes.push("no crew segment in the title; attendees are the only crew signal");
-      if (segments.length >= 2 && looksLikeCitySegment(segments[segments.length - 1])) {
-        city = segments[segments.length - 1];
-      }
+      // "3 TEAMS | MSFT Event": a headcount leads, and it is neither crew nor client.
+      const rest = segments.length > 1 && TEAM_COUNT_ONLY.test(segments[0]) ? segments.slice(1) : segments;
+      const tail = cityOf(rest[rest.length - 1]);
+      const tailIsCity = rest.length >= 2 && looksLikeCitySegment(tail);
+      if (tailIsCity) city = tail;
+      /**
+       * "Client // City" has the client FIRST. Taking segment 1 regardless named
+       * 50 of two years' entries after their city ("Twilio SKO // Las Vegas" was
+       * client "Las Vegas"; "Docusign // Chicago (Day 1)" and "(Day 2)" were two
+       * clients, so the days never grouped), and the Guidewire job "LV (TWO
+       * TEAMS)", so it never joined its own set-up day (2026-10-29).
+       */
+      // ...unless that first segment is nothing but set-up or generic words
+      // ("Set Up | Axos Bank", "Headshots // Axos Bank"): then it is a label,
+      // and the client is the segment after it, as it always was.
+      const firstIsName = normaliseClient(rest[0]) !== "";
+      client =
+        tailIsCity && rest.length === 2 && firstIsName ? rest[0] : rest.length > 1 ? rest[1] : rest[0];
     }
   }
+  // "Hilton (8 TEAMS)", "TWO TEAMS College Board", "Service Now (Day 2)": the headcount
+  // and the day are not the client's name, and left in they split one job into three.
+  if (client) client = stripTeamCount(client).replace(/\s*\(day \d+\)\s*$/i, "").trim() || client;
   // A city that is also the client segment is not a city.
   if (city && city === client) city = null;
 

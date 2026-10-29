@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
         crew?: CrewAssignment[];
         orgDomains?: string[];
         orgNames?: Record<string, string>;
+        venueId?: string | null;
+        orgIds?: string[];
         calendarEventIds?: string[];
       };
     } | null;
@@ -114,7 +116,7 @@ export async function POST(request: NextRequest) {
     if (
       !result.resumed &&
       body.intel &&
-      (body.intel.venue || body.intel.crew?.length || body.intel.orgDomains?.length)
+      (body.intel.venue || body.intel.venueId || body.intel.crew?.length || body.intel.orgDomains?.length || body.intel.orgIds?.length)
     ) {
       try {
         const { applyGigIntel } = await import("@/lib/event-intel/apply-gig");
@@ -125,6 +127,8 @@ export async function POST(request: NextRequest) {
           crew: body.intel.crew ?? [],
           orgDomains: body.intel.orgDomains ?? [],
           orgNames: body.intel.orgNames,
+          venueId: typeof body.intel.venueId === "string" ? body.intel.venueId : null,
+          orgIds: Array.isArray(body.intel.orgIds) ? body.intel.orgIds.filter((x): x is string => typeof x === "string") : [],
           calendarEventIds: body.intel.calendarEventIds ?? [],
           confirmed: true,
           // See the events route: the signer is the real session, because the
