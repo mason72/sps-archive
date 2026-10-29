@@ -105,8 +105,8 @@ export function EmailPreview({
               Your cover design is being composed
             </span>
             <span className="text-[11px] leading-relaxed text-stone-400">
-              It will appear here in about a minute — and the sent email always
-              shows the finished cover.
+              It will appear here in about a minute. If you send before then,
+              sending waits for it.
             </span>
           </div>
         ) : (

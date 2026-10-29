@@ -54,8 +54,9 @@ function buildChecklist(data: ReadinessData, eventId: string): ChecklistItem[] {
     });
   }
 
-  // Cover raster still composing — the email hero self-heals (durable
-  // redirect), so this warns rather than blocks.
+  // Cover raster still composing. A warning, not a block: the send route
+  // waits for a missing cover (waitForCoverRaster), because the recipient's
+  // mail proxy keeps whatever frame it fetches first.
   if (data.coverComposing) {
     items.push({
       label: "cover",

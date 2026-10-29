@@ -4762,3 +4762,18 @@ Mason, importing Guidewire Connections from SPS: "I can't enter a client if they
 - A parser change is measured against the real calendar, old and new side by side, before it ships: `scratchpad`-style diff of `parseGig` over two years, every changed row read. A unit test only proves the case someone thought of.
 - A read-only field fed by a lookup needs an editable fallback for when the lookup is empty. "The calendar named none" with nothing to do about it is a dead end.
 - An id that arrives in a request body and is written through the service client is filtered by owner before use (`venueId`, `orgIds`, like `crewId` before them), with a test that fails when the filter is removed.
+
+## 196. The share email went out 32 seconds before its mosaic cover existed, and Gmail kept the fallback for good (2026-10-29)
+
+Philadelphia Executive Summit (SPS import, new-gallery mosaic cover). Mason: the mosaic "worked great, but it didn't carry through into the email."
+
+**What happened (measured).** Pull finished 17:05:25Z; the email was sent 17:22:17Z; the mosaic raster was first written 17:22:49Z. Nothing composed the raster when the import finished: the first request for it was the send itself (`resolveShareCoverUrl` → `coverRasterStatus` enqueues on missing). The hero is a redirect, `/api/gallery/<slug>/cover`, so the design assumed it "self-heals" and the share page promised "the sent email always shows the finished cover". The recipient opened within the 32 s; Gmail's image proxy fetches a hero once and keeps it, so the single fallback photo is now that email's cover permanently.
+
+**Fix.** The SPS pull enqueues `cover/raster.generate` in a `compose-cover` step after it finishes. The send route waits (bounded, `waitForCoverRaster`, up to 55 s) for a MISSING raster on a full share; stale still serves the previous composition and is not waited for. The hero URL carries `?v=<send time>`, so a resend is fetched fresh rather than served the proxy's old copy. The preview copy no longer promises what a redirect cannot deliver.
+
+**Rules.**
+- "The URL redirects to the current image" is not "the reader sees the current image". Mail proxies (Gmail, Apple Mail Privacy Protection) fetch once and cache. Anything embedded in an email must be final at send time.
+- A derived artifact a send depends on is built when its inputs settle (import finish, cover save), not on first request.
+- The existing Philadelphia email cannot be repaired; a resend from the share page now carries a new hero URL.
+- A trailing debounce whose period is LONGER than a poll that re-sends the same event never fires until its timeout. The raster job debounced 15 s; the share page's readiness poll re-sent every 10 s while composing, so with the page open the job only ran at the 2-minute cap (and "ready in about a minute" was never true there). Period is now 5 s. Any job debounced on an event that a status poll re-sends: period < poll interval, or the poll must not re-send.
+- The send also waits on a STALE raster, not only a missing one: a stale mosaic in a sent email is the same permanent mistake. "Done" is the stored hash EQUALLING the current inputs hash, never "differs from the old one": a compose already in flight, an older overlapping run landing late, or a failed read would each end a differs-from wait on the wrong picture (third review, same day).

@@ -682,7 +682,12 @@ export const coverRaster = inngest.createFunction(
     // staleness probe fires on EVERY email open — an email blast against a
     // drifted raster would otherwise push the job back forever, serving the
     // stale mosaic to the entire blast.
-    debounce: { key: "event.data.eventId", period: "15s", timeout: "2m" },
+    //
+    // PERIOD must stay SHORTER than the share page's 10 s readiness poll: each
+    // poll re-sends this event while the cover is not fresh, so a 15 s period
+    // was reset forever and the job only ran at the 2 m timeout, after the
+    // send route's wait had given up (review of lesson 196, 2026-10-29).
+    debounce: { key: "event.data.eventId", period: "5s", timeout: "2m" },
   },
   { event: "cover/raster.generate" },
   async ({ event, step }) => {

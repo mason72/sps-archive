@@ -293,6 +293,79 @@ export async function coverRasterStatus(
   return status;
 }
 
+/**
+ * The inputs hash a raster composed NOW would carry, or null when nothing
+ * would be written (no raster for these settings, or a mosaic with no tiles:
+ * `composeCoverRaster` returns without writing). The same computation
+ * `coverRasterStatus` compares against.
+ */
+async function currentRasterHash(eventId: string, cover: CoverSettings): Promise<string | null> {
+  if (!coverNeedsRaster(cover)) return null;
+  if (cover.type !== "mosaic") return coverInputsHash(cover, []);
+  const leads = poolLeads(
+    await fetchMosaicCoverPool(eventId, { sectionId: cover.mosaic?.sectionId, rows: cover.mosaic?.rows ?? 3 })
+  );
+  return leads.length ? coverInputsHash(cover, leads.map(tileHashKey)) : null;
+}
+
+/**
+ * Wait, bounded, until the stored raster matches the cover's CURRENT inputs.
+ *
+ * For the email composer. A sent email's hero is fetched once by the
+ * recipient's mail proxy (Gmail keeps that copy for good), so "the durable
+ * redirect will serve the finished cover later" is false for anyone who opens
+ * within the composing window (Philadelphia Executive Summit, 2026-10-29: sent
+ * 32 s before the raster existed). Missing AND stale are both waited on: a
+ * stale mosaic mailed is the same permanent mistake.
+ *
+ * Done means the stored hash EQUALS the current one, not merely differs from
+ * the old one: a compose already in flight, an older overlapping run landing
+ * late, or a failed read must never end the wait on the wrong picture.
+ *
+ * Returns null when there is nothing to wait for (no raster for these
+ * settings, or nothing to tile), "fresh" on a match, else the last state
+ * seen ("missing" / "stale"). Every R2 read is capped at 5 s and the loop
+ * never starts an iteration it cannot finish by the deadline.
+ */
+export async function waitForCoverRaster(
+  eventId: string,
+  rawCover: CoverSettings,
+  {
+    timeoutMs = 45_000,
+    intervalMs = 3_000,
+    headCapMs = 5_000,
+  }: { timeoutMs?: number; intervalMs?: number; headCapMs?: number } = {}
+): Promise<CoverRasterStatus | null> {
+  const headWithin = (key: string) => headCapped(key, headCapMs);
+  const cover = sanitizeCoverForEvent(eventId, rawCover);
+  const target = await currentRasterHash(eventId, cover);
+  if (target === null) return null;
+
+  const key = coverRasterKey(eventId);
+  const deadline = Date.now() + timeoutMs;
+  let meta = await headWithin(key);
+  if (meta?.["inputs-hash"] === target) return "fresh";
+
+  // One request, at the start; the debounce coalesces it with any poll's.
+  await inngest.send({ name: "cover/raster.generate", data: { eventId } }).catch(() => {});
+
+  while (Date.now() + intervalMs + headCapMs <= deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const next = await headWithin(key);
+    if (next) meta = next; // a failed read changes nothing
+    if (meta?.["inputs-hash"] === target) return "fresh";
+  }
+  return meta ? "stale" : "missing";
+}
+
+/** A HEAD that gives up after `capMs`: one hung socket must not spend the send's whole budget. */
+async function headCapped(key: string, capMs: number): Promise<Record<string, string> | null> {
+  return Promise.race([
+    getObjectMetadata(key),
+    new Promise<null>((r) => setTimeout(() => r(null), capMs)),
+  ]);
+}
+
 export async function resolveCoverRasterUrl(
   eventId: string,
   rawCover: CoverSettings,

@@ -333,6 +333,39 @@ export const spsPull = inngest.createFunction(
 
     if (!summary) return { jobId, status: "cancelled" };
 
+    /**
+     * Compose the email cover NOW, while nobody is waiting on it.
+     *
+     * Philadelphia Executive Summit, 2026-10-29: the pull finished at 10:05,
+     * the share email went out at 10:22, and the mosaic raster was first
+     * written at 10:22:49, 32 seconds AFTER the send, because the send was
+     * the first thing to ask for it. The recipient opened at once, Gmail's
+     * image proxy kept the fallback photo, and that copy never changes.
+     */
+    //
+    // Best effort: the import is finished whatever happens here, and a throw
+    // would fail the run after the job already reads "completed" (skipping
+    // the partial-import report below). The send route waits as a backstop.
+    await step.run("compose-cover", async () => {
+      try {
+        const supabase = createServiceClient();
+        const { normalizeCoverSettings, coverNeedsRaster } = await import("@/types/event-settings");
+        const { data: ev, error } = await supabase
+          .from("events")
+          .select("settings")
+          .eq("id", snapshot.event_id)
+          .maybeSingle();
+        if (error) throw error;
+        const cover = normalizeCoverSettings(((ev?.settings ?? {}) as Record<string, unknown>).cover);
+        if (!coverNeedsRaster(cover)) return false;
+        await inngest.send({ name: "cover/raster.generate", data: { eventId: snapshot.event_id } });
+        return true;
+      } catch (err) {
+        await reportSystemError("sps-pull:compose-cover", err, { eventId: snapshot.event_id });
+        return false;
+      }
+    });
+
     // A partial import is a real outcome, not a silent one. The count is what
     // the sweep could not bring over, never the failure counter: that counts
     // attempts, and a photo that failed once and landed on the second try is

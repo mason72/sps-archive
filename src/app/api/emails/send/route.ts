@@ -4,10 +4,16 @@ import { recordUsage } from "@/lib/usage/record";
 import { renderEmailShell } from "@/lib/email/shell";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveShareCoverUrl } from "@/lib/cover/resolve-share-cover";
+import { waitForCoverRaster } from "@/lib/cover/pool";
+import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
+import { resolveShareImageScope } from "@/lib/gallery/share-scope";
 import { hashToken, readGuestList } from "@/lib/guest-list/store";
 import { normalizeRecap, recapPassesFloor } from "@/lib/recap/normalize";
 import type { SpsRecap } from "@/lib/recap/types";
 import { timingSafeEqual } from "node:crypto";
+
+// Room for waitForCoverRaster (45 s, every R2 read capped at 5 s) plus the send itself.
+export const maxDuration = 90;
 
 // node:crypto + Buffer below. This is the default, but the guest-list token
 // comparison makes it a requirement rather than an accident.
@@ -219,11 +225,34 @@ export async function POST(request: NextRequest) {
         .single();
       eventName = event?.name ?? null;
       if (verifiedGalleryUrl && verifiedSlug && verifiedShare) {
+        // A composed cover that does not exist yet is waited for, because the
+        // first open fixes the hero for good in Gmail (waitForCoverRaster).
+        // Only full shares show the raster; a selection never waits on one.
+        const cover = normalizeCoverSettings(
+          ((event?.settings ?? {}) as Record<string, unknown>).cover
+        );
+        if (
+          verifiedShare.event_id === eventId &&
+          coverNeedsRaster(cover) &&
+          resolveShareImageScope(verifiedShare).kind === "event"
+        ) {
+          const status = await waitForCoverRaster(verifiedShare.event_id, cover).catch(() => null);
+          if (status === "missing" || status === "stale") {
+            await reportSystemError(
+              "emails/send:cover-not-ready",
+              new Error(`Composed cover still ${status} after the wait; sent with what was there`),
+              { eventId: verifiedShare.event_id }
+            );
+          }
+        }
         const resolved = await resolveShareCoverUrl(verifiedShare, 600).catch(
           () => null
         );
         if (resolved) {
-          coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover`;
+          // Versioned per send: mail proxies cache by URL, so a later resend
+          // (after a cover change, or this fix) must not be served the old copy.
+          // The route reads only the slug; the query is ignored there.
+          coverImageUrl = `${new URL(verifiedGalleryUrl).origin}/api/gallery/${verifiedSlug}/cover?v=${Date.now().toString(36)}`;
         }
       }
 
