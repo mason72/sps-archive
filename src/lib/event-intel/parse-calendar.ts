@@ -120,8 +120,29 @@ const TEAM_COUNT = new RegExp(String.raw`\(\s*${COUNT_WORDS}\s*\)|\b${COUNT_WORD
 const TEAM_COUNT_ONLY = new RegExp(`^\\s*(?:${TEAM_COUNT.source})\\s*$`, "i");
 
 function stripTeamCount(client: string): string {
-  return client.replace(new RegExp(TEAM_COUNT.source, "gi"), " ").replace(/\s+/g, " ").trim();
+  return client
+    // A word count is a headcount only when shouted or bracketed: "TWO TEAMS College
+    // Board" yes, "One Team Summit" (a client's own name) no. Digits always are.
+    .replace(new RegExp(TEAM_COUNT.source, "gi"), (m) =>
+      /\d/.test(m) || m.trim().startsWith("(") || m === m.toUpperCase() ? " " : m
+    )
+    // "Hilton (8 TEAMS, 2 PRINTERS)" keeps "(2 PRINTERS)", never "( , 2 PRINTERS)".
+    .replace(/\(\s*[,+&/]\s*/g, "(")
+    .replace(/\s*[,+&/]\s*\)/g, ")")
+    .replace(/\(\s*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
+
+/** A segment made only of words like these labels the job; it never names the client. */
+function isLabelOnly(seg: string): boolean {
+  const words = seg.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  return !words.length || words.every((w) => COMMON_GIG_WORD.has(w) || LABEL_EXTRA.has(w));
+}
+const LABEL_EXTRA = new Set([
+  "gala", "team", "teams", "executive", "set", "up", "load", "in", "strike", "teardown",
+  "breakdown", "night", "dinner", "day", "sko",
+]);
 
 /** A trailing note in brackets is not part of the city: "LV (TWO TEAMS)" → "LV". */
 function cityOf(seg: string): string {
@@ -266,7 +287,8 @@ export function classifyGig(ev: CalendarEventLike): GigKind {
    * title and no location, so it read as "unknown" and was dropped before
    * grouping: the import screen offered only its set-up day. The tag is how the
    * team marks a booked job, so tag plus people is a job. Hold and cancel tags
-   * are not bookings, wherever the word sits in the title.
+   * are not bookings, wherever the word sits; a [PENDING], [TBD], [QUOTE] or [CXL] tag
+   * is not one either ("venue TBD" later in a booked title is still a booking).
    */
   const booked = BOOKED_TAG.test(title) && !NOT_BOOKED.test(title);
   if (hasCrew || (hasPeople && (hasVenue || booked))) return "gig";
@@ -275,7 +297,8 @@ export function classifyGig(ev: CalendarEventLike): GigKind {
 
 /** A leading team tag ("[GLAM]", "[SLAM]") or BOOKED / CONFIRMED. */
 const BOOKED_TAG = /^\s*(?:\[[^\]]+\]|BOOKED\b|CONFIRMED\b)/i;
-const NOT_BOOKED = /\b(?:hold|tentative|cancel+ed|postponed|inquiry|pending|tbd|quote)\b/i;
+const NOT_BOOKED =
+  /\b(?:hold|tentative|cancel+ed|postponed|inquiry)\b|^\s*\[[^\]]*\b(?:pending|tbd|quote|cxl)\b[^\]]*\]/i;
 
 const stripStatus = (t: string) => t.replace(STATUS_PREFIX, "");
 
@@ -315,7 +338,9 @@ export function parseGig(ev: CalendarEventLike): ParsedGig {
       // No crew in the title — the whole thing is the job name.
       notes.push("no crew segment in the title; attendees are the only crew signal");
       // "3 TEAMS | MSFT Event": a headcount leads, and it is neither crew nor client.
-      const rest = segments.length > 1 && TEAM_COUNT_ONLY.test(segments[0]) ? segments.slice(1) : segments;
+      let rest = segments.length > 1 && TEAM_COUNT_ONLY.test(segments[0]) ? segments.slice(1) : segments;
+      // "Guidewire // LV // (TWO TEAMS)": a trailing headcount is not the city either.
+      while (rest.length > 1 && TEAM_COUNT_ONLY.test(rest[rest.length - 1])) rest = rest.slice(0, -1);
       const tail = cityOf(rest[rest.length - 1]);
       const tailIsCity = rest.length >= 2 && looksLikeCitySegment(tail);
       if (tailIsCity) city = tail;
@@ -329,9 +354,18 @@ export function parseGig(ev: CalendarEventLike): ParsedGig {
       // ...unless that first segment is nothing but set-up or generic words
       // ("Set Up | Axos Bank", "Headshots // Axos Bank"): then it is a label,
       // and the client is the segment after it, as it always was.
-      const firstIsName = normaliseClient(rest[0]) !== "";
+      //
+      // And only across "//". The calendar's convention is "Client // City";
+      // "Holiday Party | Acme Corp" is a label then the client, and a short
+      // Title Case client looks exactly like a city (second review, 2026-10-29).
+      const firstIsName = normaliseClient(rest[0]) !== "" && !isLabelOnly(rest[0]);
+      const lastSep = /(\/\/|\|)(?!.*(?:\/\/|\|))/.exec(title)?.[1];
       client =
-        tailIsCity && rest.length === 2 && firstIsName ? rest[0] : rest.length > 1 ? rest[1] : rest[0];
+        tailIsCity && rest.length === 2 && firstIsName && lastSep === "//"
+          ? rest[0]
+          : rest.length > 1 ? rest[1] : rest[0];
+      // The segment that became the client is not also the city.
+      if (city && rest.length === 2 && client === rest[1]) city = null;
     }
   }
   // "Hilton (8 TEAMS)", "TWO TEAMS College Board", "Service Now (Day 2)": the headcount

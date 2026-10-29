@@ -226,6 +226,8 @@ export async function GET(
  * the calendar backfill will never overwrite it again. That is the whole point
  * of the column: a guess the machine may revise, versus a fact it may not.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
@@ -258,6 +260,10 @@ export async function PATCH(
       wouldRebook?: string | null;
       note?: string | null;
       eventNotes?: string;
+      /** Link an existing client to this event. */
+      addOrgId?: string;
+      /** Unlink one client role from this event. */
+      removeOrg?: { orgId?: string; role?: string };
     };
 
     /**
@@ -340,6 +346,35 @@ export async function PATCH(
         }
         throw error;
       }
+      return NextResponse.json({ ok: true });
+    }
+
+    /**
+     * Attach or detach a client (2026-10-29). Until then the panel could only
+     * SHOW clients the calendar's contact emails had found, so an event whose
+     * entry named no onsite contact could never get one. The org id is input:
+     * checked against the owner before it is linked.
+     */
+    if (typeof body.addOrgId === "string") {
+      if (!UUID.test(body.addOrgId)) return NextResponse.json({ error: "Client not found" }, { status: 400 });
+      const { data: o, error: oErr } = await db
+        .from("organizations").select("id").eq("id", body.addOrgId).eq("user_id", user!.id).maybeSingle();
+      if (oErr) throw oErr;
+      if (!o) return NextResponse.json({ error: "Client not found" }, { status: 400 });
+      const { error } = await db.from("event_orgs").upsert(
+        { event_id: eventId, org_id: o.id, user_id: user!.id, role: "payer" },
+        { onConflict: "event_id,org_id,role" }
+      );
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
+    if (body.removeOrg?.orgId) {
+      if (!UUID.test(body.removeOrg.orgId)) return NextResponse.json({ error: "Client not found" }, { status: 400 });
+      const { error } = await db.from("event_orgs").delete()
+        .eq("event_id", eventId).eq("user_id", user!.id)
+        .eq("org_id", body.removeOrg.orgId).eq("role", body.removeOrg.role ?? "payer");
+      if (error) throw error;
       return NextResponse.json({ ok: true });
     }
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cleanRehire } from "@/lib/event-intel/roles";
 import { CrewAvatar, type CrewAvatarFace } from "@/components/crew/CrewAvatar";
 import { NotesLog } from "@/components/intel/NotesLog";
+import { ClientPicker } from "@/components/intel/ClientPicker";
 
 /**
  * The rehire ladder's offer list — mirrors REHIRE_LADDER in roles.ts (the
@@ -116,8 +117,13 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
     } catch (e) {
-      setData(before);            // put it back — never keep a rejected change
-      setError(e instanceof Error ? e.message : "Save failed");
+      // Re-read what the server holds rather than restoring the snapshot: a
+      // save that succeeded meanwhile (add B while removing A) would otherwise
+      // vanish from the panel while it stays saved.
+      setData(before);            // put it back at once — never keep a rejected change
+      const msg = e instanceof Error ? e.message : "Save failed";
+      await load();
+      setError(msg);
     }
   };
 
@@ -355,8 +361,35 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
             >
               {o.name}
               <span className="text-stone-400">{o.role.replace(/_/g, " ")}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${o.name}`}
+                onClick={() =>
+                  save({ removeOrg: { orgId: o.orgId, role: o.role } }, (d) => ({
+                    ...d,
+                    orgs: d.orgs.filter((x) => !(x.orgId === o.orgId && x.role === o.role)),
+                  }))
+                }
+                className="text-stone-400 transition-colors hover:text-stone-800"
+              >
+                ×
+              </button>
             </span>
           ))}
+        </div>
+        {/* The only way a client reached this panel was a contact email on the
+            calendar entry; an entry without one left nothing to do (2026-10-29). */}
+        <div className="mt-3 max-w-sm">
+          <ClientPicker
+            value={null}
+            onChange={(v) => {
+              if (!v || data.orgs.some((o) => o.orgId === v.id && o.role === "payer")) return;
+              save({ addOrgId: v.id }, (d) => ({
+                ...d,
+                orgs: [...d.orgs, { orgId: v.id, name: v.name, role: "payer" }],
+              }));
+            }}
+          />
         </div>
       </section>
 

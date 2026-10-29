@@ -749,3 +749,44 @@ describe("no-crew titles and booked tags (2026-10-29)", () => {
     expect(parseGig({ summary: "JOEY | Guidewire // LV (TWO TEAMS)" }).city).toBe("LV");
   });
 });
+
+describe("second review edges (2026-10-29)", () => {
+  it("'Label | Client' keeps the client after the bar", () => {
+    for (const [title, client] of [
+      ["Holiday Party | Acme Corp", "Acme Corp"],
+      ["Executive Headshots | Axos Bank", "Axos Bank"],
+      ["Reception | Hilton", "Hilton"],
+      ["Photo Booth | Acme Corp", "Acme Corp"],
+      ["Awards Gala // Hilton", "Hilton"],
+      ["Team Headshots // Twilio", "Twilio"],
+    ]) {
+      expect(parseGig({ summary: title }).client, title).toBe(client);
+    }
+  });
+
+  it("a headcount sharing a bracket leaves the rest of the bracket tidy", () => {
+    expect(parseGig({ summary: "[GLAM] Hilton (8 TEAMS, 2 PRINTERS) // Orlando" }).client).toBe("Hilton (2 PRINTERS)");
+  });
+
+  it("a trailing headcount segment is neither city nor client", () => {
+    const g = parseGig({ summary: "[GLAM] Guidewire // LV // (TWO TEAMS)" });
+    expect(g.client).toBe("Guidewire");
+    expect(g.city).toBe("LV");
+  });
+
+  it("a client named with a count word keeps its name", () => {
+    expect(parseGig({ summary: "One Team Summit // Denver" }).client).toBe("One Team Summit");
+  });
+
+  it("'venue TBD' in a booked title is still a booking; a [CXL] tag is not", () => {
+    const people = [{ email: "joey@example.com" }];
+    expect(classifyGig({ summary: "[GLAM] Acme // LV (venue TBD)", attendees: people })).toBe("gig");
+    expect(classifyGig({ summary: "[CXL] Acme // LV", attendees: people })).toBe("unknown");
+  });
+
+  it("a three-part no-crew title keeps its city", () => {
+    const g = parseGig({ summary: "Photo Booth | Acme Summit | Denver" });
+    expect(g.client).toBe("Acme Summit");
+    expect(g.city).toBe("Denver");
+  });
+});
