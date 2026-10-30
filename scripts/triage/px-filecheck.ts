@@ -7,7 +7,11 @@
  * than one source. This asks the stricter question the delete actually depends on:
  * is EVERY file in this archive present in that event?
  *
- *   npx tsx scripts/triage/px-filecheck.ts <eventId> <zip> [<zip> ...]
+ *   npx tsx scripts/triage/px-filecheck.ts [--allow-absent <json>] <eventId> <zip> [<zip> ...]
+ *
+ * `--allow-absent` names "filename|size" entries the event need not hold: the
+ * ingest passes the frames its twin check left in the event that already had
+ * them. The release sweep passes nothing.
  *
  * Exits non-zero if anything is missing, so it can gate a delete.
  *
@@ -21,6 +25,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { JPEG } from "../pixieset/plan-entries";
 
 for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
@@ -44,8 +49,18 @@ for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
 const key = (name: string) => name.normalize("NFC").toLowerCase();
 
 async function main() {
-  const eventId = process.argv[2];
-  const zips = process.argv.slice(3);
+  const args = process.argv.slice(2);
+  const allowAt = args.indexOf("--allow-absent");
+  const allowed = new Set<string>();
+  if (allowAt !== -1) {
+    for (const k of JSON.parse(fs.readFileSync(args[allowAt + 1], "utf8")) as string[]) {
+      const cut = k.lastIndexOf("|");
+      allowed.add(`${key(k.slice(0, cut))}|${k.slice(cut + 1)}`);
+    }
+    args.splice(allowAt, 2);
+  }
+  const eventId = args[0];
+  const zips = args.slice(1);
   if (!eventId || !zips.length) {
     console.error("usage: px-filecheck.ts <eventId> <zip> [<zip> ...]");
     process.exit(2);
@@ -72,7 +87,9 @@ async function main() {
       if (!l.trim()) continue;
       const [full, size] = JSON.parse(l) as [string, number];
       const name = (full.trim().split("/").pop() || "").trim();
-      if (!/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) continue;
+      // The ingest imports JPEGs only (plan-entries.ts JPEG); anything else in
+      // the archive was never going to have a row, so it cannot pin the ZIP.
+      if (!JPEG.test(name)) continue;
       const k = key(name);
       inZip.set(k, (inZip.get(k) ?? new Set()).add(size));
     }
@@ -111,7 +128,7 @@ async function main() {
   for (const [name, sizes] of inZip) {
     for (const size of sizes) {
       files++;
-      if (have.has(`${name}|${size}`)) continue;
+      if (have.has(`${name}|${size}`) || allowed.has(`${name}|${size}`)) continue;
       if (sizes.size === 1 && sizeless.has(name)) continue;
       missing.push(sizes.size > 1 ? `${name} (${size} bytes)` : name);
     }

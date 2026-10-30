@@ -537,13 +537,13 @@ async function main() {
    * `.order()` on a UNIQUE column, because `range()` is OFFSET/LIMIT and
    * Postgres guarantees no row order without one.
    */
-  const existingRows: ExistingRow[] = [];
+  const existingRows: (ExistingRow & { thumbnail_generated: boolean | null })[] = [];
   if (eventId) {
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
       const { data: rows, error: rowsErr } = await supabase
         .from("images")
-        .select("id,original_filename,file_size,r2_key")
+        .select("id,original_filename,file_size,r2_key,thumbnail_generated")
         .eq("event_id", eventId)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
@@ -574,6 +574,7 @@ async function main() {
     );
   }
   let todo: [string, (typeof match.todo)[number]][] = match.todo.map((p) => [p.key, p]);
+  const ghostRows = new Set(existingRows.filter((r) => !r.thumbnail_generated).map((r) => r.id));
   const bytesEstimate = collection.bytes ?? 0;
   console.log(`to ingest  : ${n(todo.length)} image(s)${bytesEstimate ? ` · archive is ${mb(bytesEstimate)}` : ""}\n`);
 
@@ -590,6 +591,8 @@ async function main() {
    * must never look like a frame that failed to land.
    */
   let twinSkipped = 0;
+  /** "name|size" of frames skipped as already delivered elsewhere: absences the file check allows. */
+  const twinAbsent: string[] = [];
   if (todo.length) {
     const { findTwinsToSkip } = await import("./pixieset/twin-skip");
     const scan = await findTwinsToSkip({
@@ -601,6 +604,7 @@ async function main() {
       log: (line) => console.log(line),
     });
     if (scan.skip.size) {
+      for (const [key, p] of todo) if (scan.skip.has(key)) twinAbsent.push(`${p.base}|${p.size}`);
       todo = todo.filter(([key]) => !scan.skip.has(key));
       // In bytes, like contentCount: a content leaves the count only when no
       // photo still headed for the event carries it.
@@ -629,7 +633,13 @@ async function main() {
     simulated: SectionLink[] = [],
   ): Promise<SectionLink[]> => {
     if (!versioned.length || !eventId) return [];
-    const idOf = (p: PlannedPhoto) => match.existing.get(p.key) ?? extra.get(p.key);
+    // A stored version with no thumbnail is a ghost tile; it never replaces the
+    // visible one in a set, on this run or a later one.
+    const idOf = (p: PlannedPhoto) => {
+      const stored = match.existing.get(p.key);
+      if (stored) return ghostRows.has(stored) ? undefined : stored;
+      return extra.get(p.key);
+    };
     // Only real ids are read back; a dry run's "new:" placeholders exist only in `simulated`.
     const imageIds = [...new Set(versioned.flat().map(idOf).filter((id): id is string => !!id && !id.startsWith("new:")))];
     const sids = [...new Set(setOrder.map(sectionIdOf).filter((id): id is string => !!id))];
@@ -701,7 +711,9 @@ async function main() {
   }
 
   if (!todo.length) {
-    console.log("nothing new to import — every photo is already in the archive.");
+    console.log(match.unmatched.length
+      ? `nothing to upload — ${n(match.unmatched.length)} filename(s) matched no stored version and were left for a human (above).`
+      : "nothing new to import — every photo is already in the archive.");
     if (APPLY) {
       // A re-run after a partial failure may still owe the version-link fix.
       const wrong = await versionLinksToRemove((set) => existingSections.get(set), new Map());
@@ -1073,7 +1085,7 @@ async function main() {
     // A count can balance while a version is missing (an unrelated row stands in
     // for it), so the delete also needs: no name left unmatched, and the same
     // per-file (name, size) proof the release sweep runs.
-    const fileProof = release.ok && !match.unmatched.length ? await fileCheck(eventId, zips) : null;
+    const fileProof = !KEEP_ZIP && release.ok && !match.unmatched.length ? await fileCheck(eventId, zips, twinAbsent) : null;
     if (KEEP_ZIP) {
       console.log("archive kept (--keep-zip)");
     } else if (release.ok && match.unmatched.length) {
@@ -1105,14 +1117,27 @@ async function main() {
 }
 
 
-/** px-filecheck, the release sweep's per-file proof, as a verdict. Exit 0 = every (name, size) present. */
-async function fileCheck(eventId: string, zips: string[]): Promise<{ ok: boolean; detail: string }> {
+/**
+ * px-filecheck, the release sweep's per-file proof, as a verdict. Exit 0 = every
+ * (name, size) present, except the twin-skipped frames this run deliberately left
+ * in the event that already holds them. Five minutes at most: it runs after
+ * markIngested, so a hung socket here would freeze the loop silently (2026-09-09).
+ * A timeout reads as "not proven" and keeps the archive.
+ */
+async function fileCheck(eventId: string, zips: string[], allowAbsent: string[]): Promise<{ ok: boolean; detail: string }> {
+  const allowFile = path.join(os.tmpdir(), `px-allow-${process.pid}.json`);
   try {
-    const { stdout } = await run("npx", ["tsx", "scripts/triage/px-filecheck.ts", eventId, ...zips], { maxBuffer: 1 << 28 });
+    fs.writeFileSync(allowFile, JSON.stringify(allowAbsent));
+    const { stdout } = await run("npx", ["tsx", "scripts/triage/px-filecheck.ts", "--allow-absent", allowFile, eventId, ...zips], {
+      maxBuffer: 1 << 28,
+      timeout: 300_000,
+    });
     return { ok: true, detail: stdout.trim().split("\n")[0] };
   } catch (err) {
     const e = err as { stdout?: string };
-    return { ok: false, detail: (e.stdout ?? pgMessage(err)).trim().split("\n")[0] };
+    return { ok: false, detail: (e.stdout || pgMessage(err)).trim().split("\n")[0] };
+  } finally {
+    fs.rmSync(allowFile, { force: true });
   }
 }
 
