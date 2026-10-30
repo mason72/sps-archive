@@ -37,6 +37,21 @@ const HEARTBEAT_MINUTES = 20;
  * — so the ONLY sanctioned way to put a collection back is a named repair that
  * says why, in code, where the next reader can see it.
  */
+/** The 42 collections the same-name collapse cost (repair 2026-10-29 below). */
+const SAME_NAME_REPULL = [
+  "aislinactingheadshots",
+  "spie2017", "rsac2015", "kiaportraitstudioatdad20summit", "kiamom", "cema", "microsoftfuturesseries2014",
+  "babycurryshower", "tracedatateamheadshots", "pureaccelerate2019", "eonelascreeningsevent",
+  "bighealthheadshotsjan2019", "jasonterhunesheadshots", "ivanasbridalshower", "blueshieldontarioreign",
+  "ebayinterns2025", "ivanashane", "hitachivantaragajen", "teamcurry2019", "nataleekasra",
+  "costargroupexecutiveportraits", "ypolunarnewyear2024", "pceffundraiser", "atfortmasonsurprisesabound_11zz0437h",
+  "moveworksportraitsjun2021", "dockersalwayson", "carolsparkcitynewyearseveevent", "oaklandasfanfest",
+  "chimefeb2026", "wonderwedding", "redoakholidayparty2022", "stephencurryseason36episode1",
+  "nafemstaffheadshots", "chime", "moveworkscioandfounderportraits", "puppiesandgolf",
+  "ayeshas30thbday", "moveworksstaffportraits", "lucidmotors", "commercetoolsnrf",
+  "twitteroneteam2020", "moveworksemployeeheadshots",
+];
+
 const REPAIRS = [
   {
     id: "2026-09-08-requeue-lost-downloads",
@@ -244,6 +259,27 @@ const REPAIRS = [
       "lanemegan", "ketingandshengkun", "nicolettejoseph", "lanamikhael", "jeffdavid",
       "nataleekasra", "hollyandkathleen", "alexsamir", "carlandvanessa", "maritasean",
       "caitlinandchris", "annievincentjul152023", "poojaandvishal",
+    ],
+  },
+  {
+    id: "2026-10-29-requeue-same-name-collapse",
+    // The ingest kept one file per filename until 2026-10-29, so these 42 lost
+    // either distinct photos that shared a camera name (the six after Aislin)
+    // or every rendition but one (BW / Color / Retouched). The archives were
+    // deleted after ingest, so Pixieset is the only copy (memory
+    // pixieset-same-name-collapse). They are `ingested`, so a re-download is
+    // staged in verified/ without changing state: nothing imports it until
+    // `pixieset-ingest.ts <id>` is run by hand, dry run first. Aislin (0.2 GB)
+    // leads as the pilot; then the six with lost photos; then smallest first.
+    // 122.4 GB in all. Six were fetched before jobs.json was seeded (the 2014-15
+    // pilots, Natalee + Kasra, Ivana's Bridal Shower) and may not be in `jobs`,
+    // where a requeue alone would never reach them; `add` appends only what is
+    // missing, so it is listed in full.
+    requeue: SAME_NAME_REPULL,
+    add: SAME_NAME_REPULL,
+    front: [
+      "aislinactingheadshots",
+      "spie2017", "rsac2015", "kiaportraitstudioatdad20summit", "kiamom", "cema", "microsoftfuturesseries2014",
     ],
   },
 ];
