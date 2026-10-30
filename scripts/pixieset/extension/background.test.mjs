@@ -129,10 +129,15 @@ async function loadBackground(chrome) {
   return { tick, tickOnly: mod.tick, applyRepairs: mod.applyRepairs, afterReload: mod.afterReload, heartbeat: mod.heartbeat, onPartChanged: mod.onPartChanged };
 }
 
+// Every repair written so far counts as applied: a real one would otherwise run on
+// these made-up queues. Tests of a repair pass their own `repairs`.
+const allBut = (id) => ALL_REPAIRS.filter((r) => r !== id);
+const ALL_REPAIRS = [...fs.readFileSync(new URL("./background.js", import.meta.url), "utf8").matchAll(/^\s+id: "(\d{4}-\d{2}-\d{2}-[^"]+)"/gm)].map((m) => m[1]);
+
 const base = (over = {}) => ({
   running: true, jobs: [], done: [], gated: [], noDownload: [], gone: [],
   passwords: {}, results: [], log: [], attempts: {}, challenges: 0, gapMinutes: 20,
-  inflight: null, driving: null, repairs: ["2026-09-08-requeue-lost-downloads"], ...over,
+  inflight: null, driving: null, repairs: ALL_REPAIRS, ...over,
 });
 
 test("a deferred collection leaves the head of the queue", async () => {
@@ -269,7 +274,7 @@ test("a repair moves named collections to the head of the queue, and never adds 
   // ffdc2015 and foothillsteamphotos were downloaded before the extension ran,
   // so the 09-14 requeue had nothing to undo: they sat 1,132nd and 1,133rd of
   // 1,136 remaining, months away, with Pixieset their only copy.
-  const h = harness(base({ jobs: ["x", "foothillsteamphotos", "y", "ffdc2015", "z"], done: ["x"], repairs: [] }));
+  const h = harness(base({ jobs: ["x", "foothillsteamphotos", "y", "ffdc2015", "z"], done: ["x"], repairs: allBut("2026-09-15-front-portrait-originals") }));
   const { applyRepairs } = await loadBackground(h.chrome);
   const s = { ...h.state() };
   const r = applyRepairs(s).find((a) => a.id === "2026-09-15-front-portrait-originals");
@@ -277,7 +282,7 @@ test("a repair moves named collections to the head of the queue, and never adds 
   assert.equal(r.front, 2);
   assert.deepEqual(r.missing, []);
 
-  const h2 = harness(base({ jobs: ["x", "ffdc2015"], repairs: [] }));
+  const h2 = harness(base({ jobs: ["x", "ffdc2015"], repairs: allBut("2026-09-15-front-portrait-originals") }));
   const { applyRepairs: apply2 } = await loadBackground(h2.chrome);
   const s2 = { ...h2.state() };
   const r2 = apply2(s2).find((a) => a.id === "2026-09-15-front-portrait-originals");
@@ -332,7 +337,7 @@ test("a repair can set a collection aside without retiring it, and the queue mov
   const hung = { slug: "servicenowsko26", at: new Date(Date.now() - 20 * 60_000).toISOString() };
   // The 09-24 repair later requeues it and clears that set-aside; mark it applied
   // so this tests the 09-13 set-aside on its own.
-  const h = harness(base({ jobs: ["servicenowsko26", "next"], driving: hung, repairs: ["2026-09-08-requeue-lost-downloads", "2026-09-24-requeue-servicenowsko26"] }), { freeGB: 158, drive: () => ({ phase: "nodl" }) });
+  const h = harness(base({ jobs: ["servicenowsko26", "next"], driving: hung, repairs: allBut("2026-09-13-set-aside-servicenowsko26") }), { freeGB: 158, drive: () => ({ phase: "nodl" }) });
   const { tick } = await loadBackground(h.chrome);
   await tick();
   assert.deepEqual(h.asked, ["next"]);
@@ -826,7 +831,7 @@ test("the disk gate counts only the parts still missing", async () => {
 test("the 09-24 repair puts servicenowsko26 back at the head of the queue", async () => {
   // With the set-aside size it may still carry: a requeue that leaves it would
   // skip the slug at the head forever, since only a drive clears one.
-  const h = harness(base({ jobs: ["a", "servicenowsko26", "b"], done: ["a", "servicenowsko26"], attempts: { servicenowsko26: 3 }, tooBig: { servicenowsko26: 100 }, repairs: [] }));
+  const h = harness(base({ jobs: ["a", "servicenowsko26", "b"], done: ["a", "servicenowsko26"], attempts: { servicenowsko26: 3 }, tooBig: { servicenowsko26: 100 }, repairs: allBut("2026-09-24-requeue-servicenowsko26") }));
   const { applyRepairs } = await loadBackground(h.chrome);
   const s = { ...h.state() };
   const r = applyRepairs(s).find((x) => x.id === "2026-09-24-requeue-servicenowsko26");
@@ -906,4 +911,71 @@ test("a part Chrome refuses to start stays queued, and the parts already started
   f.ids.forEach((id) => { h.downloads[id] = { state: "in_progress" }; });
   await tick();
   assert.equal(h.state().inflight.queued.length, 2, "topped back up to six in flight");
+});
+
+// ------------------------------------------------------------ the file-list audit
+//
+// BYTE_AUDIT asks Pixieset to build an archive for its links and reads the table of
+// contents (zip-audit.ts): nothing is downloaded, and the links are the answer.
+
+const ok = (slug) => ({ ok: true, zips: [{ url: `https://s3/${slug}?sig=x`, name: `${slug}-photo-download-1of1.zip`, size: "1 GB" }], expect: 5 });
+
+test("an audit collection hands over its links and downloads nothing", async () => {
+  const h = harness(base({ jobs: ["audited", "next"], audit: ["audited"] }), { drive: ({ slug }) => ok(slug) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.deepEqual(h.asked, ["audited"]);
+  assert.ok(h.state().done.includes("audited"), "retired once the links are written");
+  assert.equal(h.state().inflight, null, "no download in flight");
+  assert.equal(h.requested.length, 1, "the one file handed to Chrome is the audit file");
+  assert.match(String(h.requested[0].filename ?? h.requested[0]), /px-audit-audited\.json/);
+  const file = h.blobs.find((b) => b.kind === "px-audit");
+  assert.equal(file.slug, "audited");
+  assert.equal(file.zips[0].url, "https://s3/audited?sig=x");
+  assert.equal(file.zips[0].name, "audited-photo-download-1of1.zip");
+  assert.equal(h.revoked.length, 1, "the blob is revoked");
+
+  await tick();
+  assert.deepEqual(h.asked, ["audited", "next"], "and the queue moves on");
+});
+
+test("an audit collection needs no disk: it is not set aside for size", async () => {
+  const h = harness(base({ jobs: ["big"], audit: ["big"] }), { freeGB: 90, drive: () => ({ ok: true, zips: [{ url: "u", name: "n", size: "500 GB" }], expect: 5 }) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.state().tooBig?.big, undefined);
+  assert.ok(h.state().done.includes("big"));
+});
+
+test("an ordinary collection beside it still downloads", async () => {
+  const h = harness(base({ jobs: ["plain"], audit: ["other"] }), { drive: ({ slug }) => ok(slug) });
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.equal(h.state().inflight?.slug, "plain");
+  assert.ok(!h.blobs.some((b) => b.kind === "px-audit"));
+});
+
+test("a file that cannot be written is a failed attempt, never a retired slug", async () => {
+  const h = harness(base({ jobs: ["audited"], audit: ["audited"] }), { drive: ({ slug }) => ok(slug) });
+  const realDownload = h.chrome.downloads.download;
+  h.chrome.downloads.download = async (o) => {
+    if (String(o.filename ?? "").startsWith("px-audit-")) throw new Error("disk full");
+    return realDownload(o);
+  };
+  const { tick } = await loadBackground(h.chrome);
+  await tick();
+  assert.ok(!h.state().done.includes("audited"));
+  assert.equal(h.state().attempts.audited, 1);
+});
+
+test("the audit repair runs the pilot and the owed re-pulls first", async () => {
+  const h = harness(base({ jobs: ["old1", "babycurryshower", "dandpalexs", "old2"], done: ["old1", "dandpalexs"], repairs: allBut("2026-10-30-byte-audit") }));
+  const { applyRepairs } = await loadBackground(h.chrome);
+  const s = { ...h.state() };
+  const r = applyRepairs(s).find((x) => x.id === "2026-10-30-byte-audit");
+  assert.ok(!r.missing.includes("dandpalexs"));
+  assert.equal(s.jobs[0], "dandpalexs", "the smallest audit leads as the pilot");
+  assert.ok(s.jobs.indexOf("babycurryshower") < s.jobs.indexOf("hiltonsummit"), "a re-pull still owed runs ahead of the audit");
+  assert.ok(!s.done.includes("dandpalexs"), "an audit slug is back in the queue");
+  assert.ok(s.audit.includes("dandpalexs") && !s.audit.includes("babycurryshower"), "a re-pull is not an audit");
 });

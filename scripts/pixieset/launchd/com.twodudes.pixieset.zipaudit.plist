@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twodudes.pixieset.zipaudit</string>
+
+  <!-- Reads the ZIP file lists the extension's BYTE_AUDIT asks for (lesson 197,
+       zip-audit.ts). Signed links age, so it runs often and exits when idle.
+       TEMPORARY: unload it once the audit's "finished" email has gone out. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/npx</string>
+    <string>tsx</string>
+    <string>scripts/pixieset/zip-audit.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/zip-audit.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/zip-audit.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

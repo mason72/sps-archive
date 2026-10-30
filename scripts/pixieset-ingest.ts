@@ -57,6 +57,7 @@ import {
   JPEG,
   distinctContent,
   matchExisting,
+  mergeSameImage,
   planEntries,
   wrongVersionLinks,
   type ExistingRow,
@@ -451,16 +452,17 @@ async function main() {
 
   const byZip = [];
   for (const z of zips) byZip.push({ zipPath: z, entries: await listEntries(z) });
-  const { photos, groups, setOrder } = planEntries(byZip);
+  const { photos, groups, setOrder, merged } = await mergeSameImage(planEntries(byZip), (p) => readEntry(p.zipPath, p.entry));
 
   const totalEntries = byZip.reduce((a, z) => a + z.entries.filter((e) => JPEG.test(e.name)).length, 0);
   const duplicates = totalEntries - photos.size;
   const versioned = [...groups.values()].filter((v) => v.length > 1);
   /** Distinct photographs by bytes alone; the landing check holds the event to it. */
-  const contentCount = distinctContent(byZip.flatMap((z) => z.entries));
+  const contentCount = distinctContent(byZip.flatMap((z) => z.entries)) - merged;
 
   console.log(`entries: ${n(totalEntries)} JPEGs across ${setOrder.length} set(s)`);
   console.log(`unique : ${n(photos.size)}${duplicates ? `  (${n(duplicates)} repeat the same bytes in another set — one image, several section links)` : ""}`);
+  if (merged) console.log(`same image: ${n(merged)} file(s) differ from another of the same name only in metadata — one photo, linked to each set`);
   if (versioned.length) {
     const extra = versioned.reduce((a, v) => a + v.length - 1, 0);
     console.log(`versions: ${n(versioned.length)} filename(s) carry different photos in different sets — ${n(extra)} extra image(s), same name, each linked to its own set`);

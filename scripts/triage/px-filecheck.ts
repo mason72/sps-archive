@@ -21,11 +21,15 @@
  * but one was missing, and this check would have released the only other copy.
  * Rows record the entry's uncompressed size in `file_size`. A row with no size
  * still vouches for its name, but only where the archive holds one size of it.
+ *
+ * One exception, proved by reading rather than allowed by list: a file whose image
+ * data is identical to a version that HAS its row differs only in metadata, and the
+ * ingest folded the two into one photo (plan-entries.ts `mergeSameImage`).
  */
 import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { JPEG } from "../pixieset/plan-entries";
+import { JPEG, jpegImageHash } from "../pixieset/plan-entries";
 
 for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
@@ -68,6 +72,8 @@ async function main() {
 
   /** name key → the distinct sizes the archive holds under it. */
   const inZip = new Map<string, Set<number>>();
+  /** "name key|size" → where to read that file, for the identical-image proof. */
+  const locate = new Map<string, { zip: string; entry: string }>();
   for (const z of zips) {
     // NEVER `unzip -Z1` here. Info-ZIP renders any byte it cannot print as `?`,
     // so `NaniNa\u2019ope_….jpg` comes back as `NaniNa???ope_….jpg` and can never match
@@ -92,6 +98,7 @@ async function main() {
       if (!JPEG.test(name)) continue;
       const k = key(name);
       inZip.set(k, (inZip.get(k) ?? new Set()).add(size));
+      if (!locate.has(`${k}|${size}`)) locate.set(`${k}|${size}`, { zip: z, entry: full });
     }
   }
 
@@ -123,17 +130,29 @@ async function main() {
     if (data.length < 1000) break;
   }
 
+  const readEntry = (at: { zip: string; entry: string }) =>
+    execFileSync("python3", ["-I", "-c", "import sys,zipfile\nsys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))", at.zip, at.entry], { maxBuffer: 1 << 30 });
+
   const missing: string[] = [];
   let files = 0;
+  let folded = 0;
   for (const [name, sizes] of inZip) {
     for (const size of sizes) {
       files++;
       if (have.has(`${name}|${size}`) || allowed.has(`${name}|${size}`)) continue;
       if (sizes.size === 1 && sizeless.has(name)) continue;
+      const stored = [...sizes].filter((other) => other !== size && have.has(`${name}|${other}`));
+      if (stored.length) {
+        const mine = jpegImageHash(readEntry(locate.get(`${name}|${size}`)!));
+        if (stored.some((other) => jpegImageHash(readEntry(locate.get(`${name}|${other}`)!)) === mine)) {
+          folded++;
+          continue;
+        }
+      }
       missing.push(sizes.size > 1 ? `${name} (${size} bytes)` : name);
     }
   }
-  console.log(`zip files: ${files}  |  event files: ${have.size + sizeless.size}  |  MISSING: ${missing.length}`);
+  console.log(`zip files: ${files}  |  event files: ${have.size + sizeless.size}  |  MISSING: ${missing.length}${folded ? `  |  same image as a stored version: ${folded}` : ""}`);
   if (missing.length) {
     console.log("first missing:", missing.slice(0, 10).join(", "));
     process.exit(1);

@@ -35,6 +35,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { openRepullSlugs } from "./repull-list";
 
 const APPLY = process.argv.includes("--apply");
 const STAGING = process.env.PIXIESET_STAGING || path.join(os.homedir(), "pixieset-staging");
@@ -118,6 +119,15 @@ function main() {
   const bySlug = new Map<string, Col>();
   for (const c of Object.values(queue.collections)) bySlug.set(c.slug, c);
 
+  /**
+   * The same-name re-pull (repull-runner.ts, lesson 197) stages fresh archives for
+   * collections the queue already calls `ingested`. Until the runner has imported
+   * one, the archive is the ONLY copy of its missing versions, and px-filecheck
+   * cannot always see that: two versions that share a name AND a size read as
+   * present. So an open re-pull is never released here (all 42 before the ledger exists).
+   */
+  const repullOpen = openRepullSlugs();
+
   const zipsBySlug = new Map<string, string[]>();
   for (const dir of [VERIFIED, INGESTED]) {
     if (!fs.existsSync(dir)) continue;
@@ -135,6 +145,10 @@ function main() {
     const gb = (bytes / 1073741824).toFixed(1);
     const col = bySlug.get(slug);
 
+    if (repullOpen.has(slug)) {
+      console.log(`  skip     ${slug} (${gb} GB) — waiting for the same-name re-pull runner`);
+      continue;
+    }
     // `verified` means the ingest has not run yet — those bytes are still needed.
     // Only a collection the queue believes is DONE can be a leak.
     if (!col || col.state !== "ingested" || !col.eventId) {

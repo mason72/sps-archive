@@ -24,7 +24,13 @@
  * convention (F1 Cash App's framed and clean prints, the upload route's
  * (event, original_filename, file_size) key, the recap's photo count), and it
  * keeps a person's B&W and color frames in one stack.
+ *
+ * One refinement, measured 2026-10-30 (`mergeSameImage`): a different CRC does not
+ * always mean a different picture. All 491 "versions" in Kia at Dad 2.0 differ only
+ * in about 110 bytes of EXIF metadata; the image data is identical. Same pixels,
+ * one photo.
  */
+import crypto from "node:crypto";
 import path from "node:path";
 
 /** One archive entry: unzip's spelling (to read it), the real name (to record it), and its bytes' fingerprint. */
@@ -78,15 +84,115 @@ export function planEntries(byZip: { zipPath: string; entries: ZipEntry[] }[]) {
     }
   }
 
-  // A version only needs a longer key when it has siblings.
+  return { photos: keyed(groups), groups, setOrder };
+}
+
+/** A version only needs a longer key when it has siblings. */
+function keyed(groups: Map<string, PlannedPhoto[]>) {
   const photos = new Map<string, PlannedPhoto>();
   for (const versions of groups.values()) {
     for (const v of versions) {
-      if (versions.length > 1) v.key = `${v.base}\u0000${fingerprint(v.crc, v.size)}`;
+      v.key = versions.length > 1 ? `${v.base}\u0000${fingerprint(v.crc, v.size)}` : v.base;
       photos.set(v.key, v);
     }
   }
-  return { photos, groups, setOrder };
+  return photos;
+}
+
+/**
+ * A hash of what decides how a JPEG looks: its tables, frame header, everything
+ * from the top-level start-of-scan on, plus the three kinds of "metadata" that
+ * change the picture (Adobe's colour transform in APP14, the ICC profile in APP2,
+ * the EXIF orientation). Other metadata is left out, and walking the segments is
+ * what skips an EXIF thumbnail, whose own start-of-scan sits inside APP1. A plain
+ * search for the marker stops in that thumbnail and calls identical photos
+ * different; a probe made exactly that mistake first. Anything that is not a
+ * well-formed JPEG hashes whole.
+ */
+export function jpegImageHash(b: Buffer): string {
+  const whole = () => crypto.createHash("sha1").update(b).digest("hex");
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return whole();
+  const h = crypto.createHash("sha1");
+  let p = 2;
+  while (p + 4 <= b.length) {
+    if (b[p] !== 0xff) return whole();
+    const marker = b[p + 1];
+    if (marker === 0xff) {
+      p += 1;
+      continue;
+    }
+    if (marker === 0xda) return h.update(b.subarray(p)).digest("hex");
+    const len = b.readUInt16BE(p + 2);
+    // DHT, DQT, DRI and every SOF, plus APP2 and APP14. Other APPn and COM do not change the picture.
+    const isApp = marker >= 0xe0 && marker <= 0xef;
+    if ((!isApp && marker !== 0xfe) || marker === 0xe2 || marker === 0xee) h.update(b.subarray(p, p + 2 + len));
+    if (marker === 0xe1) h.update(`orientation:${exifOrientation(b.subarray(p + 4, p + 2 + len))}`);
+    p += 2 + len;
+  }
+  return whole();
+}
+
+/** Tag 0x0112 from an APP1 payload, or 1 (upright) when there is none. Never throws. */
+function exifOrientation(app1: Buffer): number {
+  try {
+    if (app1.subarray(0, 6).toString("latin1") !== "Exif\0\0") return 1;
+    const tiff = app1.subarray(6);
+    const le = tiff.subarray(0, 2).toString("latin1") === "II";
+    const u16 = (o: number) => (le ? tiff.readUInt16LE(o) : tiff.readUInt16BE(o));
+    const u32 = (o: number) => (le ? tiff.readUInt32LE(o) : tiff.readUInt32BE(o));
+    const ifd = u32(4);
+    for (let i = 0; i < u16(ifd); i++) {
+      const e = ifd + 2 + i * 12;
+      if (u16(e) === 0x0112) return u16(e + 8);
+    }
+  } catch {
+    /* malformed EXIF: treated as upright, like every viewer */
+  }
+  return 1;
+}
+
+/**
+ * Fold versions whose image data is identical into one photo linked to all their
+ * sets. Only names with several versions are read, so a normal archive pays nothing.
+ * `merged` is how many versions went away: the landing check's count of distinct
+ * bytes must come down by the same number.
+ */
+export async function mergeSameImage(
+  plan: ReturnType<typeof planEntries>,
+  read: (photo: PlannedPhoto) => Promise<Buffer>,
+  concurrency = 6,
+) {
+  const work = [...plan.groups.values()].filter((v) => v.length > 1).flat();
+  const hashOf = new Map<PlannedPhoto, string>();
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (next < work.length) {
+        const v = work[next++];
+        hashOf.set(v, jpegImageHash(await read(v)));
+      }
+    }),
+  );
+
+  let merged = 0;
+  const groups = new Map<string, PlannedPhoto[]>();
+  for (const [base, versions] of plan.groups) {
+    const kept = new Map<string, PlannedPhoto>();
+    const out: PlannedPhoto[] = [];
+    for (const v of versions) {
+      const hash = hashOf.get(v);
+      const same = hash ? kept.get(hash) : undefined;
+      if (same) {
+        for (const set of v.sets) if (!same.sets.includes(set)) same.sets.push(set);
+        merged++;
+        continue;
+      }
+      if (hash) kept.set(hash, v);
+      out.push(v);
+    }
+    groups.set(base, out);
+  }
+  return { photos: keyed(groups), groups, setOrder: plan.setOrder, merged };
 }
 
 /**

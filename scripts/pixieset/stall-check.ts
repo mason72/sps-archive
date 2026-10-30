@@ -71,6 +71,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { jobProblem } from "./job-watch";
 import { createClient } from "@supabase/supabase-js";
 import { ledgerBackupState } from "./ledger-backup";
 
@@ -475,6 +476,8 @@ async function main() {
 
   const verified = by.verified || 0;
   const queued = by.queued || 0;
+  // Two 2026 shells with 0 photos sit `queued` for good; they would fire STARVED daily.
+  const queuedWork = rows.filter((r) => r.state === "queued" && (r as { photoCount?: number }).photoCount !== 0).length;
   const ingested = by.ingested || 0;
 
   let verdict: Verdict = "OK";
@@ -508,7 +511,7 @@ async function main() {
     headline = `${failedSince.length} collection(s) retired since the last successful ingest (${hoursSince === Infinity ? "never" : hoursSince.toFixed(1) + "h ago"}), nothing staged, nothing downloading:\n` +
       failedSince.slice(0, 6).map((f) => `  · ${f.slug} — ${String(f.error).slice(0, 140)}`).join("\n") +
       (failedSince.length > 6 ? `\n  · … and ${failedSince.length - 6} more` : "");
-  } else if (verified === 0 && queued > 0 && hoursSince > STARVED_HOURS) {
+  } else if (verified === 0 && queuedWork > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
     headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the extension ${extLine}` +
       (kept && kept.collections > 0
@@ -550,6 +553,41 @@ async function main() {
   return { verdict, headline, body, remedy: remedyFor(verdict, seen), remedyFor: (v: Verdict) => remedyFor(v, seen) };
 }
 
+/**
+ * The temporary same-name jobs (repull-runner.ts, zip-audit.ts) alert for themselves,
+ * which stops working the moment they hang or crash at startup. Watched from here
+ * until each says it has finished. Separate from the verdict: the migration can be
+ * healthy while one of these is dead. Emails at most daily.
+ */
+const TEMP_JOBS = [
+  { label: "com.twodudes.pixieset.repull", log: "repull.log", state: "repull-ledger.json" },
+  { label: "com.twodudes.pixieset.zipaudit", log: "zip-audit.log", state: "zip-audit.json" },
+];
+async function watchTempJobs(dry: boolean) {
+  const problems: string[] = [];
+  for (const job of TEMP_JOBS) {
+    let finished = false;
+    try {
+      finished = !!JSON.parse(fs.readFileSync(path.join("scripts", "pixieset", "data", job.state), "utf8")).finishedMailAt;
+    } catch { /* no state yet, or a corrupt one: keep watching */ }
+    if (finished) continue;
+    let launchctl: string | null = null;
+    try { launchctl = execFileSync("/bin/launchctl", ["list", job.label], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { /* not loaded */ }
+    let logMtimeMs: number | null = null;
+    try { logMtimeMs = fs.statSync(path.join(HOME, "pixieset-staging", "logs", job.log)).mtimeMs; } catch { /* no log */ }
+    const problem = jobProblem({ label: job.label, launchctl, logMtimeMs, maxQuietMs: 2 * 3_600_000, nowMs: Date.now() });
+    console.log(`job        ${job.label}: ${problem ?? "ok"}`);
+    if (problem) problems.push(problem);
+  }
+  if (!problems.length || dry) return;
+  const marker = path.join(HOME, "pixieset-staging", "logs", "temp-jobs-mailed.json");
+  try {
+    if (Date.now() - fs.statSync(marker).mtimeMs < RENOTIFY_HOURS * 3_600_000) return;
+  } catch { /* never mailed */ }
+  await send("Pixieset re-pull job is not running", `${problems.join("\n")}\n\nThese import the re-pulled galleries and read the ZIP file lists. Until they run, those galleries wait. Nothing is lost.\nLogs: ~/pixieset-staging/logs/`);
+  if (!process.exitCode) fs.writeFileSync(marker, new Date().toISOString());
+}
+
 async function send(subject: string, body: string) {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL;
@@ -564,6 +602,7 @@ async function send(subject: string, body: string) {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from: `Pixeltrunk Migration <${from}>`, to, subject, text: body }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     console.error(`resend failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
@@ -587,6 +626,8 @@ async function send(subject: string, body: string) {
   }
 
   console.log(r.body);
+  // A side job's problem must never cost the migration's own verdict and remedies.
+  try { await watchTempJobs(dry); } catch (err) { console.error(`temp-job watch failed: ${String(err).slice(0, 200)}`); }
 
   // `--heal <VERDICT>`: run that verdict's remedy by hand, whatever the live
   // verdict is. No email, no state. This is how each remedy was proven.

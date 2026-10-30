@@ -32,6 +32,91 @@ const HEARTBEAT = "px.heartbeat";
 const HEARTBEAT_MINUTES = 20;
 
 /**
+ * Read each of these archives' FILE LIST instead of downloading it (2026-10-30,
+ * lesson 197). Each has more ZIP entries than archive rows, or no gallery of its
+ * own, and most of that is the same photo repeated in a Highlights set: 3 TB to
+ * settle by download, a few MB by reading the table of contents. Pixieset still
+ * builds the archive, so the request is paced like any other; once the links
+ * arrive, `handleDriveResult` hands them to `scripts/pixieset/zip-audit.ts` in a
+ * `px-audit-<slug>.json` file and nothing is downloaded. Smallest first.
+ */
+const BYTE_AUDIT = [
+  "dandpalexs", "debevoiseandplimptonlauram", "joedebevoiseandplimptonllc", "caroylns", "priscillaandmatt", "masoodmojadedisheadshots",
+  "augustbardenhagensheadshots", "fionasearstudioheadshots", "meganschoettmersheadshots", "yichuansportraits", "nicklombardosheadshots", "myriadheadshots-1",
+  "anatcindyandmichelle", "newrelicexecutiveportraits", "constructionofexcellenceawards", "martinandvanegasapc", "mosaikrealestateoctober2021", "metaheadshotsoctober2022",
+  "nicosheadshots", "catchandreleaseheadshots", "myriad", "cafamilylawgroupheadshots", "conradjulietteandvivienne", "tamarabella",
+  "rsac2026chairmansreceptionphotoop", "mwise24mwisesignphotos", "jennysprom", "checkheadshots", "kellycrawfordhomes", "hitachiexecutiveheadshots",
+  "onflcwelcomereception", "ibmheadshots", "grammarlyaugust2024", "pwceventphotos", "precisionneuroscienceseptember2025", "costargroupdcaboard",
+  "davidsarrattdebevoiseandplimptonllp2", "pwcjune2023", "wekaexecutiveheadshots-1", "mosaikheadshots", "fmglobalheadshotsconcordca", "hazelsbigday",
+  "postmansko2026", "commercetoolselevateneonparty", "pgandeheadshots-2", "pageupskojuly2025", "wekaseptember2024", "purestoragenovember2022",
+  "ebayretailrevivalaustin", "levisstadiumeventsclientshowcase", "purestorageoctober2022", "assetmarknsmjanuary2023", "grammarlyheadshotsoct2024", "surefoxeventphotography",
+  "bayalarmheadshotsjanuary2023", "stripeconvergence2024anti-boothgiantllama", "myriadoctober", "inklingiicon2026", "hitachivantaraoctober2024", "atlassianchampions",
+  "stanfordtenyear", "purestoragesept2023", "onehines101", "magiccabinetaugust2024", "mviaawardsluncheon", "arcmenlopark",
+  "eastbaybrainandspine", "kendoheadshots", "bayalarmseptember2024", "sonyheadshots", "hargrovefebruary2023", "fms23",
+  "workdayheadshots-2", "twodudesanti-boothexperiencecema2024", "costargrouparlingtonheadshots", "appfolioofficeheadshots", "workdayheadshots", "nabilassupriseparty",
+  "camptellum", "plaidheadshots", "purestoragedx", "axosbankcea2023", "redoakrealtyholidayparty2025", "dentaquestmolinanationalsalesconference2024",
+  "hitachivantaraexecutivecommittee", "fmglobal-june-headshots", "oktacitytourwashingtondc", "wacaholidayparty2022", "grammarlyfebruary2024", "stmaryswinterfest",
+  "chimemarketingevent", "usfreeskiandsnowboardaprsparty", "purestorageheadshotsjune2024", "purestoragenovember2023", "101takesyououttotheballgame", "sfcasa",
+  "axoshqheadshots", "vandys50th", "purestorageseptember2024", "worldemployerbrandingweek", "altimeterenvironmentalportraits", "sieheadshotsmarch2025",
+  "9thannualhobarthohoholidayparty", "axosbank-2", "mko2024atlassian", "archeadshots", "salesforcestaffheadshots", "axosnabt",
+  "twiliovoxexecutiveportraits", "costarheadshots", "costargrouprva", "stripe111225", "purestoragejuly9th2024", "encorehqjuly2024",
+  "stanfords5threunion", "gartnerofficeheadshots", "purestoragenovember2024", "purestorageexecutivesummit", "hitachivantaraportraitsoctober2023", "myriadheadshotslasvegas",
+  "myriadncm2025", "internportraits2023", "creativesummit2024sony", "informatica2024eventphotos", "itschymtimephotobooth", "purestorageapril2025",
+  "docusigndlg", "googlegroveheadshots-1", "purestoragegls2024", "evanandsonyasweddinglittlerockar", "ciscoheadshots", "salesforcesuccessnowworldtournyc",
+  "wekasko", "fsionevoiceaxosbank", "sjcbubblebash-2026", "salesforceworldtourwashingtondc", "fms2024eventphotography", "axosclearingfsionevoice2024",
+  "purestorage-2", "axosbankdc2023", "annievincentjul152023", "axosbankheadshots-1", "plaidhq", "wekasko2022",
+  "asdmarketweek2023", "ruthjacksonorthapedic", "ebayheadshots-1", "wacaholidayparty2025", "workdayheadshots-1", "kendoknctc2a2024",
+  "greaternewyorkdentalconference", "playstationheadshots", "vision2024", "csxsfheadshots", "momentum2023nyc", "pgandeheadshots",
+  "twittervidcon2019", "purestoragefebruary2025", "assetmark", "purestoragegsonewhirebootcampjuly2024", "oldnavyleadershipconferenceheadshots", "ebayheadshots",
+  "evolve24axos", "natashaandsilvanowedding", "twiliosko2023", "adobejoyfest2025", "pgandeprocurement", "redhatsummit25",
+  "reifyhealth", "bridgebionationalsalesmeeting", "acxauthorsummitmay2025", "twiliovoxsummit", "poaconference2023", "zilloweventphotos",
+  "docusignsfheadshots311314", "wekask026", "hroeliteandsuperelitesummit24adp", "mycollection", "dandy", "ebayheadshots-2",
+  "f8magneticpreview", "paloaltonetworkssesummit23", "zendeskshowcasechicago", "atlassianeoheadshots", "agnesscottblday", "momentum2023",
+  "stripesessions2023", "docusign", "pharmingcompanyncm2024", "applovinholidayparty", "purestoragegls2023", "aonl2024inspiringleaders",
+  "atlassian", "docusignseattlejan2024", "atlassianalglounge", "collegeboardforum2024", "atlassianpsnhighlights", "collegeboard2026sdpsummit",
+  "hdc2022", "lucidsummerisintheair", "chimeheadshotsmay2025", "a16zjuneoffsite", "mangomintmm25", "hiltonglobalownersconference2022",
+  "oktane2022headshots", "hitachivantaraorlando", "purestoragesantaclaracampusheadshots", "svpxheadshots", "hgnadm2024", "myriadgeneticseventphotos",
+  "pdcsummit", "ebayhrfair", "encorecema", "docusignmomentum2024", "witaccelerate2024greatdane", "atlassianccshighlights",
+  "wallandceilingallianceholidayparty", "mpiwec2022headshots", "oktaleadershipsummit", "2025preparateconference", "au10tixmoney2020", "purestoragetalentshoot",
+  "storagepropreview", "chimeheadshots2026", "ironclad2026sko", "jrsimplotnationalsalesmeeting", "ebayheadshots-3", "docusignsf",
+  "purestorageofficeheadshots", "ironcladfy27skoheadshots", "collegeboardnasai2025", "appfolioofficeheadshotsgoleta", "stripedesignteamoctober2025", "gallagherre",
+  "asdmarketweek", "dataaisummit2023databricks", "pgandeconcord", "servicenowgovernmentforumheadshots", "appfolioxbutterflymx", "axosbankheadshots",
+  "6sensebreakthrough2023", "devorsa2024", "campcoalition-1", "purestoragegls2025", "powerofgallagher", "elevate2024headshots",
+  "stripe-apr2024", "collegeboardforum2025", "sutterwest", "docusignseattlenovember2024", "dentaquest-1", "mpiannualconference",
+  "andersenwindowsanddoorsnssm24", "pgandeheadshots-1", "evantamilwaukeeexecutivesummit24illumio", "stripeconvergence2024", "perkinelmerthewigwam", "asuragenheadshots",
+  "theproteinsocietyannualsymposium2025", "lumentownhall", "onestudyteam", "6sensebreakthrough24", "wekasko27eventphotos", "2024salessummitaxosbank",
+  "twilioglobalmarketingoffsite2023", "adobeendofyearholidayparty", "googlersac2024", "paloaltonetworksheadshots", "dandyyankeedentalconference2024", "stripesessions24",
+  "mwise24headshots", "pcmaconveningleaders", "ems2024", "linkedinholidayparty2016", "hiltontowne", "alis2024",
+  "headshotscema2024", "rsac-tenable", "gtechholidayparty2016", "moodyexceedance2024", "hdc2023", "dentaquest",
+  "googlersinwonderland", "wekasko27headshots", "mcapsacademyacceleratefebruary2024999", "datadogheadshotsnyc", "asuragenheadshots-1", "audibleacxatsovasthatsvoiceovercareerexpo",
+  "dentaquestcahp2023", "axosbank-3", "paloaltonetworkssko2023", "massmutualnaacp", "2025floridashrmconference", "gallagherorlando",
+  "wekasko26event", "collegeboardpreparate", "blackhat2024devo", "futurememorysummit2025", "servicenowsko26winnerscircle", "atlassianchampionsdinner",
+  "nafem2023", "msftmcaps2024-arc444zzz", "107thaaomsannualmeetingcourtesyportraits", "commercetoolselevate", "kinaxisignite23", "onestudyteamscrs2023",
+  "fms2025", "spiephotonicswest2024", "atlassianteam24", "collegeboardnasai", "twiliosko2024", "ironcladsko",
+  "amp2023", "oktaassemble24", "campcoalition", "oktaskofy26", "chipsglobalsummit2023", "shakeshackopsleadershipsummitheadshots",
+  "guardanteventphotos", "oktane2023", "amp2024", "globalcisoexecutivesummit2024", "49ersstateofthefranchise", "sutterwestselects",
+  "nsgcmyriad", "alis2023", "myriadnsgc2023", "vive2025", "money2020amsterdam", "partneraccelerateeventphotos",
+  "cahp2024", "adreamdeferredandhbcuconferencescollegeboard", "jpmorgan", "knowledge2023", "bobhrtechheadshots", "appfolioheadquartersheadshots",
+  "docusignmomentum26", "conveningleaders2025houstontx", "stripeheadshots", "randtechnologyelectronica", "twiliosko25", "collegeboardhbcu",
+  "money2020au10tix", "imex2024", "asdmarketweekemeraldx", "nsgcmyriad-1", "hdc2024", "webexone2023",
+  "mcapsaccelerateoctober2023", "biotechneamp", "docusigndreamforce", "sentineloneheadshotsskofy27", "kinexionslasvegas", "au10tixmoney2020asia",
+  "nssm2025andersenwindowsanddoors", "hoteldataconference-1", "collegeboardapannualconference", "appfolio2024", "hlth2024", "flashmemorysummit2023",
+  "globalfoodforumandamericasregionalmeetingjrsimplot", "rsacdevo", "ironcladckofy26", "atlassianofficeheadshotsgoleta", "msftaccelerateheadshots2023-arc", "alis2026",
+  "hiltonamericaownersconferencehilton", "bridgebionationalsalesmeeting2025", "emeraldxasdmarketweek2024", "vive2024", "rsacaccenture", "universe",
+  "bridgebionsm2026", "fms", "cahp2025dentaquest", "powerofgallagher-1", "rsac2025headshotscourtesyofwiz", "kinexions2023",
+  "alis2025", "apannualconferencegreen", "tylerconnect2024americanexpress", "hitachivantaraallphotos", "communitysummit", "githubrko24",
+  "msftaccelerate", "islandskofy27lasvegas", "aisacybercon2023", "theexchange2026andersenwindow", "scrs2024onestudyteam", "money2020au10tix-1",
+  "hibobheadshots", "myriadnsgcheadshots", "cemasummit2023", "mcapszzz", "hlth2025", "circleforward",
+  "hibobheadshotshrtech2023", "sentinelone", "atlassianheadhsots", "oktane2025", "googleclouddais2026", "autodeskotc25",
+  "atlassianteam25", "oreillyssoftwarearchitectureconfrence", "spie2023west", "epicorignite2024", "nsm2026guardanthealth", "oktasko",
+  "guidewireconnectionspwc", "webexone", "databricksaisummitprophecy", "nrf", "connect25schmidtfamilyfoundation", "stripesessions",
+  "mycollection-1", "hibob", "breakthrough2025", "sbgm2023marriott", "globalcioexecutiveportraitstudio", "hilton",
+  "jpmorgan2025", "hiltonasfs2023", "stripesessions2026", "docusign-booth2microsoftignite2024", "paloaltoskobooth22023", "servicenowsko2024",
+  "docusignignite", "rldatixvive2026", "atlassian-team26expo", "servicenowsko2025", "hiltonsummit", "servicenowsko26",
+  "perkinelmereventphotos", "debevoiseandplimptonchrisf", "debevoiseandplimptonelizabethc", "debevoiseandplimptonmichaeld", "debevoiseandplimptontarar", "eoybayareaawardscelebrationstepandrepeatandphotobooth",
+];
+
+/**
  * One-shot repairs, applied on load and recorded by id so a reload cannot run
  * them twice. `done` is append-only by design — a restart must resume, not redo
  * — so the ONLY sanctioned way to put a collection back is a named repair that
@@ -282,6 +367,22 @@ const REPAIRS = [
       "spie2017", "rsac2015", "kiaportraitstudioatdad20summit", "kiamom", "cema", "microsoftfuturesseries2014",
     ],
   },
+  {
+    id: "2026-10-30-byte-audit",
+    // File lists only, no downloads (BYTE_AUDIT above). A requeued slug keeps its
+    // old place in `jobs`, so most of the audit would otherwise run AHEAD of the
+    // unfinished re-pulls: name those. The three smallest audits go first as the
+    // pilot, then the re-pulls still owed when this shipped, then the audit.
+    requeue: BYTE_AUDIT,
+    add: BYTE_AUDIT,
+    audit: BYTE_AUDIT,
+    front: [
+      ...BYTE_AUDIT.slice(0, 3),
+      "babycurryshower", "bighealthheadshotsjan2019", "ivanasbridalshower", "blueshieldontarioreign",
+      "ivanashane", "nataleekasra", "atfortmasonsurprisesabound_11zz0437h", "dockersalwayson",
+      "oaklandasfanfest",
+    ],
+  },
 ];
 
 const DEFAULTS = {
@@ -403,6 +504,10 @@ function applyRepairs(s) {
     // again. Arming is the usual way back and the only one for a password gate;
     // this is for gates arming cannot open (email registration, where the
     // owner session in the Pixieset tab is what gets through). Added 2026-10-24.
+    // `audit` asks for the file list only; `unaudit` makes a slug downloadable again,
+    // which is how one the audit found short gets its re-pull.
+    if (r.audit) s.audit = [...new Set([...(s.audit || []), ...r.audit])];
+    if (r.unaudit) s.audit = (s.audit || []).filter((slug) => !r.unaudit.includes(slug));
     const ungate = (r.ungate || []).filter((slug) => (s.gated || []).includes(slug));
     if (ungate.length) s.gated = s.gated.filter((slug) => !ungate.includes(slug));
     s.repairs.push(r.id);
@@ -586,6 +691,25 @@ async function ask(msg, timeoutMs) {
  * Failure to write one is reported LOUDLY rather than swallowed. A beacon that
  * silently does not arrive is the same fail-open shape it was built to fix.
  */
+/** The links for one BYTE_AUDIT collection, for zip-audit.ts. Throws if it does not land. */
+async function writeAuditFile(slug, zips) {
+  const body = { kind: "px-audit", version: 1, slug, zips: zips.map((z) => ({ url: z.url, name: z.name ?? null, size: z.size ?? null })), at: new Date().toISOString() };
+  const minted = await ask({ type: "blob", text: JSON.stringify(body), mime: "application/json" });
+  if (!minted?.ok) throw new Error(minted?.error ?? "offscreen refused");
+  try {
+    const id = await chrome.downloads.download({ url: minted.url, filename: `px-audit-${slug}.json`, conflictAction: "uniquify" });
+    for (let i = 0; i < 10; i++) {
+      const state = (await chrome.downloads.search({ id }))[0]?.state;
+      if (state === "complete") return;
+      if (state === "interrupted") throw new Error("the download was interrupted");
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    throw new Error("the file did not land in time");
+  } finally {
+    await ask({ type: "revoke", url: minted.url }).catch(() => {});
+  }
+}
+
 async function writeBeacon(s, slug, reason, detail) {
   const body = {
     kind: "px-retired",
@@ -1302,6 +1426,20 @@ async function handleDriveResult(slug, token, r) {
     s2.done.push(slug);
     note(s2, `${slug}: downloads disabled`);
     beacons.push({ slug, reason: "no-download", detail: "bulk download is switched off on the collection" });
+    await saveAndAnnounce(s2);
+    return;
+  }
+
+  if (r.ok && r.zips?.length && (s2.audit || []).includes(slug)) {
+    // BYTE_AUDIT: the links are all it wanted. Written before the slug is retired,
+    // so a crash in between costs one repeat request, never a lost answer.
+    try {
+      await writeAuditFile(slug, r.zips);
+      s2.done.push(slug);
+      note(s2, `${slug}: file list handed to zip-audit · ${r.zips.length} part(s) · ${r.zips.map((z) => z.size).join("+")}`);
+    } catch (e) {
+      failedAttempt(s2, slug, `audit file not written: ${String(e?.message ?? e).slice(0, 80)}`);
+    }
     await saveAndAnnounce(s2);
     return;
   }

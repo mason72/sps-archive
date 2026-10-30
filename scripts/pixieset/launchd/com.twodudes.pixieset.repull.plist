@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twodudes.pixieset.repull</string>
+
+  <!-- The same-name re-pull (lesson 197, repull-runner.ts): imports each of the
+       42 re-downloaded collections as it lands, holds anything unclear and emails.
+       TEMPORARY: unload it once the ledger says 0 pending (it emails then). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/npx</string>
+    <string>tsx</string>
+    <string>scripts/pixieset/repull-runner.ts</string>
+    <string>--apply</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/masonfoster/Projects/SPS/sps-archive</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- StartInterval, not KeepAlive: a run EXITS when nothing is staged. launchd
+       never starts a second copy while one is still importing. -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/repull.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/masonfoster/pixieset-staging/logs/repull.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

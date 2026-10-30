@@ -36,6 +36,8 @@ A multi-week migration cannot depend on someone remembering to restart it.
 | `com.twodudes.pixieset.watch` | proves downloaded ZIPs, stages them | `~/pixieset-staging/logs/watch.log` |
 | `com.twodudes.pixieset.ingest` | staged archive → Pixeltrunk event | `~/pixieset-staging/logs/ingest.log` |
 | `com.twodudes.pixieset.stallcheck` | hourly pulse check, emails when wrong | `~/pixieset-staging/logs/stall-check.log` |
+| `com.twodudes.pixieset.repull` | TEMPORARY, every 15 min: imports the 42 same-name re-pulls as they land, holds and emails anything unclear (lesson 197, `repull-runner.ts`); unload when its ledger has 0 pending | `~/pixieset-staging/logs/repull.log` |
+| `com.twodudes.pixieset.zipaudit` | TEMPORARY, every 5 min: reads the ZIP file lists the extension's `BYTE_AUDIT` asks for and records a verdict per collection (`zip-audit.ts`); unload after its "finished" email. `npx tsx scripts/pixieset/zip-audit.ts --report` prints the tally | `~/pixieset-staging/logs/zip-audit.log` |
 
 The watcher and ingest are `RunAtLoad` + `KeepAlive`, so they start at login and come back if they
 die. **Verified by killing each and watching launchd respawn it with a new PID** —

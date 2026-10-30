@@ -9,7 +9,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   distinctContent,
+  jpegImageHash,
   matchExisting,
+  mergeSameImage,
   planEntries,
   wrongVersionLinks,
   type ExistingRow,
@@ -164,4 +166,110 @@ test("a one-version name whose stored row has other bytes is left for a human, n
   // A row with no recorded size still vouches for its name, as before.
   const legacy = await matchExisting(groups, [row("old", "IMG_1234.jpg", null)], noFetch);
   assert.equal(legacy.existing.get("IMG_1234.jpg"), "old");
+});
+
+// ── same pixels, different metadata ──────────────────────────────────────────
+
+const seg = (marker: number, payload: Buffer) => {
+  const len = Buffer.alloc(2);
+  len.writeUInt16BE(payload.length + 2);
+  return Buffer.concat([Buffer.from([0xff, marker]), len, payload]);
+};
+/** A minimal JPEG: metadata, one table, a frame header, and a scan. */
+const jpeg = (opts: { exif?: string; table?: number; scan?: string }) =>
+  Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xe1, Buffer.from(opts.exif ?? "exif")),
+    seg(0xdb, Buffer.from([opts.table ?? 1, 2, 3])),
+    seg(0xc0, Buffer.from([8, 0, 1, 0, 1])),
+    seg(0xda, Buffer.from([1, 2])),
+    Buffer.from(opts.scan ?? "scan-data"),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+
+test("metadata does not change the image hash; tables and scan data do", () => {
+  const base = jpegImageHash(jpeg({}));
+  assert.equal(jpegImageHash(jpeg({ exif: "other camera, other date" })), base);
+  assert.notEqual(jpegImageHash(jpeg({ table: 9 })), base);
+  assert.notEqual(jpegImageHash(jpeg({ scan: "other-scan" })), base);
+});
+
+test("a start-of-scan inside an EXIF thumbnail is not where the image starts", () => {
+  // The thumbnail's own SOS sits in APP1. A plain search for FF DA would hash from
+  // there, take in the metadata after it, and call these two identical photos different.
+  const thumb = (tail: string) => `thumb\xff\xdathumb-${tail}`;
+  const a = jpeg({ exif: thumb("taken friday") });
+  const b = jpeg({ exif: thumb("taken sunday") });
+  assert.equal(jpegImageHash(a), jpegImageHash(b));
+});
+
+test("colour transform, colour profile and rotation are part of the picture", () => {
+  const withSeg = (extra: Buffer) => {
+    const j = jpeg({});
+    return Buffer.concat([j.subarray(0, 2), extra, j.subarray(2)]);
+  };
+  const base = jpegImageHash(jpeg({}));
+  assert.notEqual(jpegImageHash(withSeg(seg(0xee, Buffer.from("Adobe-transform-1")))), base);
+  assert.notEqual(jpegImageHash(withSeg(seg(0xe2, Buffer.from("ICC_PROFILE-p3")))), base);
+
+  // EXIF: little-endian TIFF, one IFD entry, tag 0x0112.
+  const exif = (orientation: number, note = "") => {
+    const tiff = Buffer.alloc(26);
+    tiff.write("II", 0, "latin1");
+    tiff.writeUInt16LE(42, 2);
+    tiff.writeUInt32LE(8, 4);
+    tiff.writeUInt16LE(1, 8);
+    tiff.writeUInt16LE(0x0112, 10);
+    tiff.writeUInt16LE(3, 12);
+    tiff.writeUInt32LE(1, 14);
+    tiff.writeUInt16LE(orientation, 18);
+    return Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff, Buffer.from(note)]);
+  };
+  const shot = (o: number, note = "") => Buffer.concat([jpeg({}).subarray(0, 2), seg(0xe1, exif(o, note)), jpeg({}).subarray(2)]);
+  assert.notEqual(jpegImageHash(shot(6)), jpegImageHash(shot(1)));
+  assert.equal(jpegImageHash(shot(6, "date a")), jpegImageHash(shot(6, "date b")));
+});
+
+test("truncated and odd files never throw", () => {
+  const whole = jpeg({ exif: "Exif\0\0II" });
+  for (let n = 0; n <= whole.length; n++) jpegImageHash(whole.subarray(0, n));
+});
+
+test("something that is not a JPEG is compared whole", () => {
+  assert.notEqual(jpegImageHash(Buffer.from("not a jpeg, one")), jpegImageHash(Buffer.from("not a jpeg, two")));
+});
+
+const merging = (bytes: Record<number, Buffer>) => (p: PlannedPhoto) => Promise.resolve(bytes[p.crc]);
+
+test("versions with identical image data fold into one photo linked to both sets", async () => {
+  // The Kia shape: same size, different CRC, about 110 bytes of EXIF apart.
+  const plan = planEntries(zip(e("Day_1/2D_0308.jpg", 1, 6000), e("Day_Zero/2D_0308.jpg", 2, 6000)));
+  const m = await mergeSameImage(plan, merging({ 1: jpeg({ exif: "a" }), 2: jpeg({ exif: "b" }) }));
+  assert.equal(m.merged, 1);
+  assert.equal(m.photos.size, 1);
+  const [only] = m.photos.values();
+  assert.equal(only.key, "2D_0308.jpg");
+  assert.deepEqual(only.sets, ["Day_1", "Day_Zero"]);
+  // The stored row is that one photo: nothing to upload, no link to remove.
+  const match = await matchExisting(m.groups, [row("kept", "2D_0308.jpg", 6000)], noFetch);
+  assert.equal(match.todo.length, 0);
+  assert.equal(match.unmatched.length, 0);
+  assert.deepEqual(wrongVersionLinks(m.groups, () => "kept", (s) => s, [{ section_id: "Day_1", image_id: "kept" }, { section_id: "Day_Zero", image_id: "kept" }]), []);
+});
+
+test("really different versions stay apart, and only the same two of three fold", async () => {
+  const plan = planEntries(zip(e("Color/X.jpg", 1, 500), e("BW/X.jpg", 2, 400), e("Web/X.jpg", 3, 500)));
+  const m = await mergeSameImage(plan, merging({ 1: jpeg({ exif: "a" }), 2: jpeg({ scan: "bw-scan" }), 3: jpeg({ exif: "c" }) }));
+  assert.equal(m.merged, 1);
+  assert.deepEqual(m.groups.get("X.jpg")!.map((v) => v.sets), [["Color", "Web"], ["BW"]]);
+  assert.equal(m.photos.size, 2);
+});
+
+test("a name with one version is never read", async () => {
+  const plan = planEntries(zip(e("Color/Y.jpg", 1, 500), e("Highlights/Y.jpg", 1, 500)));
+  const m = await mergeSameImage(plan, () => {
+    throw new Error("should not read");
+  });
+  assert.equal(m.merged, 0);
+  assert.equal(m.photos.size, 1);
 });
