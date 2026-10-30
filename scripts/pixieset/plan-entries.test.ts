@@ -54,7 +54,7 @@ test("a single-version name is present by its name or its legacy spelling, exact
   const { groups } = planEntries([
     { zipPath: "/z", entries: [e("All_Photos/Ana.jpg", 1, 100), { entry: "All_Photos/Andreas Lo??cher.jpg", name: "All_Photos/Andreas Löcher.jpg", crc: 2, size: 200 }, e("All_Photos/New.jpg", 3, 300)] },
   ]);
-  const m = await matchExisting(groups, [row("r1", "Ana.jpg", 999), row("r2", "Andreas Lo??cher.jpg", 200)], noFetch);
+  const m = await matchExisting(groups, [row("r1", "Ana.jpg", 100), row("r2", "Andreas Lo??cher.jpg", 200)], noFetch);
   assert.deepEqual(m.todo.map((p) => p.base), ["New.jpg"]);
   assert.equal(m.existing.get("Ana.jpg"), "r1");
   assert.equal(m.unmatched.length, 0);
@@ -144,4 +144,24 @@ test("sections outside the archive's sets are never touched", () => {
     { section_id: "s-favorites", image_id: "B" },
   ];
   assert.deepEqual(wrongVersionLinks(plan.groups, idsBySet({ Color: "A", BW: "B" }), sectionIdOf, links), []);
+});
+
+test("two set names that land in one section never strip either version from it", () => {
+  const plan = planEntries(zip(e("Day_1/IMG_7.jpg", 1, 500), e("Day 1/IMG_7.jpg", 2, 400)));
+  const oneSection = () => "s-day1";
+  const links = [
+    { section_id: "s-day1", image_id: "A" },
+    { section_id: "s-day1", image_id: "B" },
+  ];
+  assert.deepEqual(wrongVersionLinks(plan.groups, idsBySet({ Day_1: "A", "Day 1": "B" }), oneSection, links), []);
+});
+
+test("a one-version name whose stored row has other bytes is left for a human, not counted present", async () => {
+  const { groups } = planEntries(zip(e("All_Photos/IMG_1234.jpg", 5, 700)));
+  const m = await matchExisting(groups, [row("sps", "IMG_1234.jpg", 900)], noFetch);
+  assert.deepEqual(m.unmatched, [{ base: "IMG_1234.jpg", rowIds: ["sps"] }]);
+  assert.equal(m.todo.length, 0);
+  // A row with no recorded size still vouches for its name, as before.
+  const legacy = await matchExisting(groups, [row("old", "IMG_1234.jpg", null)], noFetch);
+  assert.equal(legacy.existing.get("IMG_1234.jpg"), "old");
 });

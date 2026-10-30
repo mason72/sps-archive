@@ -221,12 +221,19 @@ async function listEntries(zipPath: string): Promise<ZipEntry[]> {
   real.forEach((r, i) => byGarble.set(garble(r), [...(byGarble.get(garble(r)) ?? []), i]));
   const out: ZipEntry[] = listed.map((entry, i) => {
     const at = sameLength ? i : byGarble.get(entry)?.length === 1 ? byGarble.get(entry)![0] : -1;
+    // A plain-ASCII name has nothing unzip could have mangled, so a positional
+    // partner that does not garble to it means the listings are out of step and
+    // the checksum beside it belongs to another file.
+    const plain = entry === garble(entry) && !entry.includes("?");
+    if (at !== -1 && plain && garble(real[at]) !== entry) {
+      throw new Error(`${path.basename(zipPath)}: "${entry}" pairs with "${real[at]}" in zipfile's listing — the two listings are out of step`);
+    }
     if (at === -1) {
       throw new Error(`${path.basename(zipPath)}: cannot pair "${entry}" with its checksum (unzip lists ${listed.length} entries, zipfile ${real.length})`);
     }
     const [, crc, size] = info[at];
     if (garble(real[at]) === entry) return { entry, name: real[at].normalize("NFC"), crc, size };
-    if (entry !== garble(entry) || entry.includes("?")) unproven++;
+    unproven++;
     return { entry, name: entry, crc, size };
   });
   if (!sameLength) console.warn(`  ⚠ ${path.basename(zipPath)}: unzip lists ${listed.length} entries, zipfile ${real.length} — paired by name`);
@@ -332,12 +339,18 @@ export async function publishGallery(
   resolveSharePins: ResolveSharePins,
   nanoid: (size?: number) => string
 ): Promise<void> {
-  const { data: existing } = await supabase
+  // ANY active share means published. `.maybeSingle()` errors on two (a guest's
+  // person link beside the full share), and the error was read as "none", so
+  // every re-run minted one more full share (review, 2026-10-29).
+  const { data: active, error: activeErr } = await supabase
     .from("shares")
     .select("id, slug")
     .eq("event_id", eventId)
     .eq("is_active", true)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (activeErr) throw activeErr;
+  const existing = active?.[0];
 
   if (existing) {
     console.log(`already published: /gallery/${existing.slug}`);
@@ -588,8 +601,14 @@ async function main() {
       log: (line) => console.log(line),
     });
     if (scan.skip.size) {
-      twinSkipped = scan.skip.size;
       todo = todo.filter(([key]) => !scan.skip.has(key));
+      // In bytes, like contentCount: a content leaves the count only when no
+      // photo still headed for the event carries it.
+      const fp = (p: PlannedPhoto) => `${p.crc >>> 0}:${p.size}`;
+      const all = [...photos.values()];
+      const needed = new Set(all.filter((p) => !scan.skip.has(p.key)).map(fp));
+      const skipped = new Set(all.filter((p) => scan.skip.has(p.key)).map(fp));
+      twinSkipped = [...skipped].filter((f) => !needed.has(f)).length;
       console.log(
         `already delivered: skipping ${n(scan.skip.size)} frame(s) already in "${scan.matchedEventName}"` +
         `${todo.length ? ` — ${n(todo.length)} new frame(s) remain` : " — nothing new in this collection"}\n`
@@ -850,7 +869,6 @@ async function main() {
         await abandon();
         throw linkErr;
       }
-      landed.set(key, id);
 
       // ── display work, then complete ──
       const displayUpdate: Record<string, unknown> = { processing_status: "complete" };
@@ -905,6 +923,10 @@ async function main() {
         .update(displayUpdate)
         .eq("id", id);
       if (updErr) throw updErr;
+      // Only a version that DISPLAYS may replace the old one in a set: a row
+      // with no thumbnail is a ghost tile, and the visible version it would
+      // replace is what the set's viewers have now.
+      if (displayUpdate.thumbnail_generated) landed.set(key, id);
 
       if (Object.keys(exifUpdate).length) {
         const { error: exifErr } = await supabase
@@ -1048,8 +1070,20 @@ async function main() {
      * (an unpublished gallery is one the client cannot open). Anything short of
      * that keeps the bytes.
      */
+    // A count can balance while a version is missing (an unrelated row stands in
+    // for it), so the delete also needs: no name left unmatched, and the same
+    // per-file (name, size) proof the release sweep runs.
+    const fileProof = release.ok && !match.unmatched.length ? await fileCheck(eventId, zips) : null;
     if (KEEP_ZIP) {
       console.log("archive kept (--keep-zip)");
+    } else if (release.ok && match.unmatched.length) {
+      fs.mkdirSync(INGESTED, { recursive: true });
+      for (const z of zips) fs.renameSync(z, path.join(INGESTED, path.basename(z)));
+      console.log(`archive KEPT in ${INGESTED} — ${n(match.unmatched.length)} filename(s) matched no version and were left alone`);
+    } else if (release.ok && fileProof && !fileProof.ok) {
+      fs.mkdirSync(INGESTED, { recursive: true });
+      for (const z of zips) fs.renameSync(z, path.join(INGESTED, path.basename(z)));
+      console.log(`archive KEPT in ${INGESTED} — ${fileProof.detail}`);
     } else if (release.ok) {
       let freed = 0;
       for (const z of zips) {
@@ -1070,6 +1104,17 @@ async function main() {
   }
 }
 
+
+/** px-filecheck, the release sweep's per-file proof, as a verdict. Exit 0 = every (name, size) present. */
+async function fileCheck(eventId: string, zips: string[]): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const { stdout } = await run("npx", ["tsx", "scripts/triage/px-filecheck.ts", eventId, ...zips], { maxBuffer: 1 << 28 });
+    return { ok: true, detail: stdout.trim().split("\n")[0] };
+  } catch (err) {
+    const e = err as { stdout?: string };
+    return { ok: false, detail: (e.stdout ?? pgMessage(err)).trim().split("\n")[0] };
+  }
+}
 
 /**
  * Did this collection actually land, as a visitor would see it?
@@ -1097,7 +1142,7 @@ export async function verifyLanded(
   const db = supabase as any;
   try {
     const head = () =>
-      db.from("images").select("*", { count: "exact", head: true }).eq("event_id", eventId);
+      db.from("images").select("*", { count: "exact", head: true }).eq("event_id", eventId).eq("is_cover_upload", false);
 
     const totalRes = await head();
     if (totalRes.error) throw totalRes.error;

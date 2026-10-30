@@ -156,8 +156,15 @@ export async function matchExisting(
 
     if (versions.length === 1) {
       const [v] = versions;
-      if (groupRows.length) existing.set(v.key, groupRows[0].id);
-      else todo.push(v);
+      // Present by name, as always, unless every row under the name records a
+      // DIFFERENT size: then the event holds another file of that name (an SPS
+      // pull, a merged event) and this one is not in it. Left for a human, like
+      // any name whose rows match no version.
+      const sized = groupRows.filter((r) => r.file_size != null);
+      if (!groupRows.length) todo.push(v);
+      else if (sized.length === groupRows.length && !sized.some((r) => r.file_size === v.size)) {
+        unmatched.push({ base, rowIds: groupRows.map((r) => r.id) });
+      } else existing.set(v.key, (groupRows.find((r) => r.file_size === v.size) ?? groupRows[0]).id);
       continue;
     }
 
@@ -222,16 +229,17 @@ export function wrongVersionLinks(
 
     for (const [i, v] of versions.entries()) {
       const imageId = ids[i]!;
-      const ownSections = v.sets.map(sectionIdOf).filter((s): s is string => !!s);
-      const keepsOne = ownSections.some((s) => linked.has(`${s}|${imageId}`));
+      // Compared as SECTION ids, never set names: "Day_1" and "Day 1" (or "BW"
+      // and "bw") are one section, and a version is never removed from it.
+      const ownSections = new Set(v.sets.map(sectionIdOf).filter((s): s is string => !!s));
+      const keepsOne = [...ownSections].some((s) => linked.has(`${s}|${imageId}`));
       if (!keepsOne) continue;
 
       for (const [j, other] of versions.entries()) {
         if (j === i) continue;
         for (const set of other.sets) {
-          if (v.sets.includes(set)) continue;
           const sid = sectionIdOf(set);
-          if (!sid || !linked.has(`${sid}|${imageId}`)) continue;
+          if (!sid || ownSections.has(sid) || !linked.has(`${sid}|${imageId}`)) continue;
           if (!linked.has(`${sid}|${ids[j]}`)) continue;
           out.push({ section_id: sid, image_id: imageId });
         }
