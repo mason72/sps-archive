@@ -21,11 +21,12 @@
  * failure mode — an object with no row — is invisible garbage rather than a
  * broken tile, which is the cheaper of the two.
  *
- * **A photo in two Pixieset sets becomes ONE image linked to TWO sections.**
- * `section_images` is a link table and this is exactly what it models. Storing
- * the bytes twice would double the R2 bill on the every-set branch and give the
- * photographer visible duplicates in "All Images". This is also why the
- * every-set resolver is safe: dedupe happens here, by filename, after extraction.
+ * **A photo in two Pixieset sets becomes ONE image linked to TWO sections** —
+ * when its BYTES are the same in both. `section_images` is a link table and this
+ * is exactly what it models. Two files that share a name but not their bytes (a
+ * BW and a Color rendition, or two cameras' `IMG_1234`) are two images under the
+ * same filename, each linked only to its own set. Until 2026-10-29 the dedupe was
+ * by filename alone and kept one of them; see scripts/pixieset/plan-entries.ts.
  *
  * **Sets become sections, except the default one.** A collection whose only set
  * is Pixieset's default "All Photos" lands in the archive's intake section
@@ -33,7 +34,9 @@
  * with real sets (Ceremony / Reception) keeps those names. The branch is logged,
  * because a silent resolver is how collections vanish.
  *
- * **Idempotent by (event, original_filename).** A partial run is safe to repeat.
+ * **Idempotent by (event, original_filename, bytes).** A partial run is safe to
+ * repeat. A name with one version is matched by name, as it always was; a name
+ * with several is matched by file size, or by the CRC of the stored object.
  * Note the difference from the SPS lane, which needs a UNIQUE INDEX because its
  * slices run concurrently under Inngest: this script is sequential and local, so
  * a pre-read is sufficient and no migration is required.
@@ -46,8 +49,21 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
+import zlib from "node:zlib";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+
+import {
+  JPEG,
+  distinctContent,
+  matchExisting,
+  planEntries,
+  wrongVersionLinks,
+  type ExistingRow,
+  type PlannedPhoto,
+  type SectionLink,
+  type ZipEntry,
+} from "./pixieset/plan-entries";
 
 const run = promisify(execFile);
 
@@ -97,8 +113,6 @@ const QUEUE_PATH = path.join("scripts", "pixieset", "data", "queue.json");
 
 /** Pixieset's default set name. Its presence alone is not an organisation scheme. */
 const DEFAULT_SET = /^all[ _]photos$/i;
-
-const JPEG = /\.(jpe?g)$/i;
 
 interface QueueCollection {
   id: string;
@@ -169,7 +183,8 @@ function zipsFor(slug: string): string[] {
  * Reading by `entry` and recording `name` keeps the proven read path and fixes
  * the record.
  */
-interface ZipEntry { entry: string; name: string }
+// ZipEntry lives in plan-entries.ts; it also carries the CRC-32 and size the
+// central directory records, which is what tells two same-named files apart.
 
 /** What `unzip -Z1` prints for a real name: every non-ASCII byte becomes `?`. */
 const garble = (s: string) =>
@@ -181,12 +196,14 @@ async function listEntries(zipPath: string): Promise<ZipEntry[]> {
 
   // Python's zipfile decodes names per the ZIP spec; it is the only listing that
   // round-trips (see scripts/triage/px-filecheck.ts for unzip's and bsdtar's failures).
+  // One JSON line per entry: [name, crc32, uncompressed size], in central-directory order.
   const { stdout: decoded } = await run(
     "python3",
-    ["-c", "import sys,zipfile\nfor n in zipfile.ZipFile(sys.argv[1]).namelist(): sys.stdout.write(n+chr(10))", zipPath],
+    ["-c", "import sys,json,zipfile\nfor i in zipfile.ZipFile(sys.argv[1]).infolist(): sys.stdout.write(json.dumps([i.filename,i.CRC,i.file_size])+chr(10))", zipPath],
     { maxBuffer: 256 * 1024 * 1024 },
   );
-  const real = decoded.split("\n").map((l) => l.trim()).filter(Boolean);
+  const info = decoded.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as [string, number, number]);
+  const real = info.map(([name]) => name.trim());
 
   // Both walk the central directory in order, but that is an assumption, so each
   // pair is PROVEN: the real name must garble to exactly what unzip printed. Any
@@ -195,13 +212,25 @@ async function listEntries(zipPath: string): Promise<ZipEntry[]> {
   // whole fix exists to prevent.
   const sameLength = real.length === listed.length;
   let unproven = 0;
+  // The CRC is now what separates two versions of a name, so every entry needs
+  // one. Equal-length listings pair by position, as names always have. When the
+  // lengths differ, an entry may take only the ONE zipfile record that garbles
+  // to its spelling; an entry with no such record stops the run, because a
+  // guessed checksum would decide which version of a photo is "already there".
+  const byGarble = new Map<string, number[]>();
+  real.forEach((r, i) => byGarble.set(garble(r), [...(byGarble.get(garble(r)) ?? []), i]));
   const out: ZipEntry[] = listed.map((entry, i) => {
-    if (sameLength && garble(real[i]) === entry) return { entry, name: real[i].normalize("NFC") };
+    const at = sameLength ? i : byGarble.get(entry)?.length === 1 ? byGarble.get(entry)![0] : -1;
+    if (at === -1) {
+      throw new Error(`${path.basename(zipPath)}: cannot pair "${entry}" with its checksum (unzip lists ${listed.length} entries, zipfile ${real.length})`);
+    }
+    const [, crc, size] = info[at];
+    if (garble(real[at]) === entry) return { entry, name: real[at].normalize("NFC"), crc, size };
     if (entry !== garble(entry) || entry.includes("?")) unproven++;
-    return { entry, name: entry };
+    return { entry, name: entry, crc, size };
   });
-  if (!sameLength) console.warn(`  ⚠ ${path.basename(zipPath)}: unzip lists ${listed.length} entries, zipfile ${real.length} — recording unzip's names`);
-  else if (unproven) console.warn(`  ⚠ ${path.basename(zipPath)}: ${unproven} name(s) could not be proven — recorded as unzip prints them`);
+  if (!sameLength) console.warn(`  ⚠ ${path.basename(zipPath)}: unzip lists ${listed.length} entries, zipfile ${real.length} — paired by name`);
+  if (unproven) console.warn(`  ⚠ ${path.basename(zipPath)}: ${unproven} name(s) could not be proven — recorded as unzip prints them`);
   return out.filter((e) => !e.entry.endsWith("/"));
 }
 
@@ -269,43 +298,6 @@ async function readEntry(zipPath: string, entry: string): Promise<Buffer> {
     encoding: "buffer",
   } as never);
   return stdout as unknown as Buffer;
-}
-
-/**
- * Plan the ingest: which photo lives where, and which sections it belongs to.
- *
- * Dedupe is by BASENAME, across every part and every set. Pixieset repeats a
- * photo's bytes in each set it belongs to, so a naive pass would upload the same
- * frame several times — and `photo_count` double-counts for precisely this
- * reason.
- */
-function planEntries(byZip: { zipPath: string; entries: ZipEntry[] }[]) {
-  const photos = new Map<
-    string,
-    // `legacy` is the name the pre-2026-09-11 ingest recorded (unzip's spelling),
-    // so a resumed collection recognises the rows it already wrote.
-    { zipPath: string; entry: string; legacy: string; sets: string[] }
-  >();
-  const setOrder: string[] = [];
-
-  for (const { zipPath, entries } of byZip) {
-    for (const { entry, name } of entries) {
-      if (!JPEG.test(name)) continue;
-      const slash = name.indexOf("/");
-      const set = slash === -1 ? "(root)" : name.slice(0, slash);
-      const base = path.basename(name);
-      if (!setOrder.includes(set)) setOrder.push(set);
-
-      const existing = photos.get(base);
-      if (existing) {
-        // Same photo, another set — a second section link, not a second upload.
-        if (!existing.sets.includes(set)) existing.sets.push(set);
-        continue;
-      }
-      photos.set(base, { zipPath, entry, legacy: path.basename(entry), sets: [set] });
-    }
-  }
-  return { photos, setOrder };
 }
 
 /** Pixieset writes folder names with underscores; the archive shows them to humans. */
@@ -381,7 +373,7 @@ export async function publishGallery(
 
 async function main() {
   const { createServiceClient } = await import("../src/lib/supabase/server");
-  const { buildImageKey, uploadToR2, deleteFromR2 } = await import("../src/lib/r2/client");
+  const { buildImageKey, uploadToR2, deleteFromR2, getObjectBuffer } = await import("../src/lib/r2/client");
   const { generateThumbnailsFromBuffer } = await import("../src/lib/thumbnails/generate");
   const { parseFilename, extractExif } = await import("../src/lib/upload/parse-filename");
   const { INTAKE_SECTION_NAME } = await import("../src/lib/sections/intake");
@@ -446,13 +438,20 @@ async function main() {
 
   const byZip = [];
   for (const z of zips) byZip.push({ zipPath: z, entries: await listEntries(z) });
-  const { photos, setOrder } = planEntries(byZip);
+  const { photos, groups, setOrder } = planEntries(byZip);
 
   const totalEntries = byZip.reduce((a, z) => a + z.entries.filter((e) => JPEG.test(e.name)).length, 0);
   const duplicates = totalEntries - photos.size;
+  const versioned = [...groups.values()].filter((v) => v.length > 1);
+  /** Distinct photographs by bytes alone; the landing check holds the event to it. */
+  const contentCount = distinctContent(byZip.flatMap((z) => z.entries));
 
   console.log(`entries: ${n(totalEntries)} JPEGs across ${setOrder.length} set(s)`);
-  console.log(`unique : ${n(photos.size)}${duplicates ? `  (${n(duplicates)} appear in more than one set — one image, several section links)` : ""}`);
+  console.log(`unique : ${n(photos.size)}${duplicates ? `  (${n(duplicates)} repeat the same bytes in another set — one image, several section links)` : ""}`);
+  if (versioned.length) {
+    const extra = versioned.reduce((a, v) => a + v.length - 1, 0);
+    console.log(`versions: ${n(versioned.length)} filename(s) carry different photos in different sets — ${n(extra)} extra image(s), same name, each linked to its own set`);
+  }
   for (const s of setOrder) {
     const count = [...photos.values()].filter((p) => p.sets.includes(s)).length;
     console.log(`   ${prettySet(s)} — ${n(count)}`);
@@ -525,29 +524,43 @@ async function main() {
    * `.order()` on a UNIQUE column, because `range()` is OFFSET/LIMIT and
    * Postgres guarantees no row order without one.
    */
-  let present = new Set<string>();
+  const existingRows: ExistingRow[] = [];
   if (eventId) {
     const PAGE = 1000;
-    let seen = 0;
     for (let from = 0; ; from += PAGE) {
       const { data: rows, error: rowsErr } = await supabase
         .from("images")
-        .select("id,original_filename")
+        .select("id,original_filename,file_size,r2_key")
         .eq("event_id", eventId)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
       if (rowsErr) throw rowsErr;
       if (!rows?.length) break;
-      for (const r of rows) if (r.original_filename) present.add(r.original_filename.normalize("NFC"));
-      seen += rows.length;
+      existingRows.push(...rows);
       if (rows.length < PAGE) break;
     }
-    console.log(`already in : ${n(present.size)} image(s)${seen !== present.size ? ` (${n(seen)} rows — ${n(seen - present.size)} DUPLICATE rows present)` : ""}`);
+    console.log(`already in : ${n(existingRows.length)} image row(s)`);
   }
 
   // A row written before 2026-09-11 carries unzip's garbled spelling; matching
   // on `legacy` too keeps a resumed collection from uploading those frames again.
-  let todo = [...photos.entries()].filter(([base, p]) => !present.has(base) && !present.has(p.legacy));
+  // A name with several versions is matched by bytes (plan-entries.ts); the CRC
+  // of the stored object is fetched only for rows whose size does not decide it.
+  let fingerprinted = 0;
+  const match = await matchExisting(groups, existingRows, async (row) => {
+    fingerprinted++;
+    const buf = await getObjectBuffer(row.r2_key);
+    return { crc: zlib.crc32(buf), size: buf.byteLength };
+  });
+  if (fingerprinted) console.log(`fingerprinted ${n(fingerprinted)} stored object(s) whose size did not settle which version they are`);
+  if (match.unmatched.length) {
+    console.log(
+      `⚠ ${n(match.unmatched.length)} filename(s) hold a stored photo that matches NONE of this archive's versions — ` +
+      `left exactly as they are, and the archive will be kept for a human: ` +
+      match.unmatched.slice(0, 5).map((u) => u.base).join(", ")
+    );
+  }
+  let todo: [string, (typeof match.todo)[number]][] = match.todo.map((p) => [p.key, p]);
   const bytesEstimate = collection.bytes ?? 0;
   console.log(`to ingest  : ${n(todo.length)} image(s)${bytesEstimate ? ` · archive is ${mb(bytesEstimate)}` : ""}\n`);
 
@@ -563,18 +576,20 @@ async function main() {
    * verifyLanded() checks before the archive is released, so a skipped twin
    * must never look like a frame that failed to land.
    */
+  let twinSkipped = 0;
   if (todo.length) {
     const { findTwinsToSkip } = await import("./pixieset/twin-skip");
     const scan = await findTwinsToSkip({
       supabase,
       userId,
       excludeEventId: eventId,
-      entries: todo.map(([base, p]) => ({ base, read: () => readEntry(p.zipPath, p.entry) })),
+      entries: todo.map(([key, p]) => ({ base: key, read: () => readEntry(p.zipPath, p.entry) })),
       extractExif,
       log: (line) => console.log(line),
     });
     if (scan.skip.size) {
-      todo = todo.filter(([base]) => !scan.skip.has(base));
+      twinSkipped = scan.skip.size;
+      todo = todo.filter(([key]) => !scan.skip.has(key));
       console.log(
         `already delivered: skipping ${n(scan.skip.size)} frame(s) already in "${scan.matchedEventName}"` +
         `${todo.length ? ` — ${n(todo.length)} new frame(s) remain` : " — nothing new in this collection"}\n`
@@ -582,9 +597,96 @@ async function main() {
     }
   }
 
+  /**
+   * The links a version must lose (plan-entries.ts `wrongVersionLinks`): the
+   * pre-2026-10-29 ingest linked the one surviving version into every set that
+   * carried its name. Read once here so a dry run can name them and an apply
+   * run removes exactly those. `extra` maps keys landed this run to their ids;
+   * `simulated` adds the links a dry run's uploads would create.
+   */
+  const versionLinksToRemove = async (
+    sectionIdOf: (set: string) => string | undefined,
+    extra: Map<string, string>,
+    simulated: SectionLink[] = [],
+  ): Promise<SectionLink[]> => {
+    if (!versioned.length || !eventId) return [];
+    const idOf = (p: PlannedPhoto) => match.existing.get(p.key) ?? extra.get(p.key);
+    // Only real ids are read back; a dry run's "new:" placeholders exist only in `simulated`.
+    const imageIds = [...new Set(versioned.flat().map(idOf).filter((id): id is string => !!id && !id.startsWith("new:")))];
+    const sids = [...new Set(setOrder.map(sectionIdOf).filter((id): id is string => !!id))];
+    const links: SectionLink[] = [];
+    if (sids.length) {
+      for (let i = 0; i < imageIds.length; i += 100) {
+        const chunk = imageIds.slice(i, i + 100);
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase
+            .from("section_images")
+            .select("section_id,image_id")
+            .in("image_id", chunk)
+            .in("section_id", sids)
+            .order("image_id", { ascending: true })
+            .order("section_id", { ascending: true })
+            .range(from, from + 999);
+          if (error) throw error;
+          links.push(...(data ?? []));
+          if ((data ?? []).length < 1000) break;
+        }
+      }
+    }
+    return wrongVersionLinks(groups, idOf, sectionIdOf, [...links, ...simulated]);
+  };
+
+  /** Remove exactly the named (section, image) pairs, one section at a time. */
+  const removeLinks = async (pairs: SectionLink[]) => {
+    const bySection = new Map<string, string[]>();
+    for (const l of pairs) bySection.set(l.section_id, [...(bySection.get(l.section_id) ?? []), l.image_id]);
+    let removed = 0;
+    for (const [sid, ids] of bySection) {
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100);
+        const { error, count } = await supabase
+          .from("section_images")
+          .delete({ count: "exact" })
+          .eq("section_id", sid)
+          .in("image_id", chunk);
+        if (error) throw error;
+        removed += count ?? 0;
+      }
+    }
+    return removed;
+  };
+
+  /** The sections this archive's sets already have, without creating any. */
+  const existingSections = new Map<string, string>();
+  if (eventId) {
+    for (const set of setOrder) {
+      const { data, error } = await supabase
+        .from("sections")
+        .select("id")
+        .eq("event_id", eventId)
+        .ilike("name", sectionNameFor(set))
+        .maybeSingle();
+      if (error) throw error;
+      if (data) existingSections.set(set, data.id);
+    }
+  }
+
+  if (!APPLY) {
+    const todoKeys = new Set(todo.map(([key]) => key));
+    const simulatedIds = new Map([...todoKeys].map((k) => [k, `new:${k}`]));
+    const simulated = todo.flatMap(([key, p]) =>
+      p.sets.map((set) => existingSections.get(set)).filter((sid): sid is string => !!sid).map((sid) => ({ section_id: sid, image_id: `new:${key}` }))
+    );
+    const wrong = await versionLinksToRemove((set) => existingSections.get(set), simulatedIds, simulated);
+    if (wrong.length) console.log(`would remove ${n(wrong.length)} link(s) that show one version in another version's set`);
+  }
+
   if (!todo.length) {
     console.log("nothing new to import — every photo is already in the archive.");
     if (APPLY) {
+      // A re-run after a partial failure may still owe the version-link fix.
+      const wrong = await versionLinksToRemove((set) => existingSections.get(set), new Map());
+      if (wrong.length) console.log(`version links: removed ${n(await removeLinks(wrong))} of ${n(wrong.length)} misplaced link(s)`);
       // Still publish: a collection ingested before publishing existed, or a
       // re-run after a partial failure, must not stay a draft just because
       // there were no NEW photos to move.
@@ -597,8 +699,8 @@ async function main() {
   if (!APPLY) {
     console.log("dry run — no event, no objects, no rows were created.");
     console.log(`sample of what would land:`);
-    for (const [base, p] of todo.slice(0, 5)) {
-      console.log(`   ${base}  →  sections: ${p.sets.map(sectionNameFor).join(", ")}`);
+    for (const [, p] of todo.slice(0, 5)) {
+      console.log(`   ${p.base} (${mb(p.size)})  →  sections: ${p.sets.map(sectionNameFor).join(", ")}`);
     }
     return;
   }
@@ -696,7 +798,9 @@ async function main() {
    * sharp's decoded raster (a 5760x3840 frame is ~66 MB raw), so the ceiling is
    * memory, not politeness. PIXIESET_CONCURRENCY tunes it.
    */
-  const importOne = async (base: string, plan: (typeof todo)[number][1], index: number) => {
+  const landed = new Map<string, string>();
+  const importOne = async (key: string, plan: (typeof todo)[number][1], index: number) => {
+    const base = plan.base;
     try {
       const buffer = await readEntry(plan.zipPath, plan.entry);
       if (buffer.byteLength < 1024) throw new Error("entry too small to be a photograph");
@@ -746,6 +850,7 @@ async function main() {
         await abandon();
         throw linkErr;
       }
+      landed.set(key, id);
 
       // ── display work, then complete ──
       const displayUpdate: Record<string, unknown> = { processing_status: "complete" };
@@ -838,8 +943,8 @@ async function main() {
     for (;;) {
       const i = cursor++;
       if (i >= todo.length) return;
-      const [base, plan] = todo[i];
-      await importOne(base, plan, i);
+      const [key, plan] = todo[i];
+      await importOne(key, plan, i);
     }
   };
   console.log(`  importing with ${CONCURRENCY} concurrent workers`);
@@ -877,6 +982,11 @@ async function main() {
    * at a call site is what broke the download PIN before; this script is now one
    * more of those places.
    */
+  // Each version only in its own sets. Groups with a version that failed to
+  // land are skipped by wrongVersionLinks and fixed on the rerun.
+  const wrong = await versionLinksToRemove((set) => sectionIds.get(set), landed);
+  if (wrong.length) console.log(`version links: removed ${n(await removeLinks(wrong))} of ${n(wrong.length)} misplaced link(s)`);
+
   if (!failed) await publishGallery(supabase, eventId, resolveSharePins, nanoid);
 
   // Settlement, once — both lanes debounce per event, and one send per photo is
@@ -914,7 +1024,7 @@ async function main() {
      * Backstop for anything that slips through anyway:
      * scripts/pixieset/release-sweep.ts, run every pass by ingest-loop.sh.
      */
-    const release = await verifyLanded(supabase, eventId, todo.length);
+    const release = await verifyLanded(supabase, eventId, todo.length, contentCount - twinSkipped);
     await markIngested(queue, collection, eventId);
 
     /**
@@ -973,7 +1083,15 @@ async function main() {
 export async function verifyLanded(
   supabase: SupabaseLike,
   eventId: string,
-  expected: number
+  expected: number,
+  /**
+   * Different photographs in the archive, counted from the ZIP's checksums alone
+   * (minus frames skipped as already delivered elsewhere). The event must hold at
+   * least that many images. `expected` is this run's upload count, which said
+   * nothing about the 73,615 entries the old filename dedupe never planned; this
+   * number is computed without the planner, so it cannot share its mistakes.
+   */
+  distinct = 0,
 ): Promise<{ ok: boolean; detail: string }> {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const db = supabase as any;
@@ -992,11 +1110,13 @@ export async function verifyLanded(
     const total = totalRes.count as number;
     const thumbed = thumbRes.count as number;
     const live = (shares ?? []).length > 0;
-    const ok = total >= expected && thumbed === total && live;
+    const ok = total >= expected && total >= distinct && thumbed === total && live;
 
     return {
       ok,
-      detail: `${total}/${expected} images · ${thumbed} with thumbnails · ${live ? "published" : "NOT published"}`,
+      detail:
+        `${total}/${expected} images · ${total >= distinct ? "" : "FEWER than "}${distinct} distinct photos in the archive · ` +
+        `${thumbed} with thumbnails · ${live ? "published" : "NOT published"}`,
     };
   } catch (err) {
     // A failed check is not a pass. Keep the archive and say why.

@@ -10,6 +10,13 @@
  *   npx tsx scripts/triage/px-filecheck.ts <eventId> <zip> [<zip> ...]
  *
  * Exits non-zero if anything is missing, so it can gate a delete.
+ *
+ * A file is (name, size), not the name alone (2026-10-29). Pixieset gives a photo's
+ * BW and Color renditions, and two cameras' `IMG_1234`, the same name in different
+ * sets; by name alone a rendition ZIP read as "fully present" while every version
+ * but one was missing, and this check would have released the only other copy.
+ * Rows record the entry's uncompressed size in `file_size`. A row with no size
+ * still vouches for its name, but only where the archive holds one size of it.
  */
 import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
@@ -44,7 +51,8 @@ async function main() {
     process.exit(2);
   }
 
-  const inZip = new Set<string>();
+  /** name key → the distinct sizes the archive holds under it. */
+  const inZip = new Map<string, Set<number>>();
   for (const z of zips) {
     // NEVER `unzip -Z1` here. Info-ZIP renders any byte it cannot print as `?`,
     // so `NaniNa\u2019ope_….jpg` comes back as `NaniNa???ope_….jpg` and can never match
@@ -57,22 +65,27 @@ async function main() {
     // stands in for bytes, it is not a character.
     const out = execFileSync(
       "python3",
-      ["-c", "import sys,zipfile\nfor n in zipfile.ZipFile(sys.argv[1]).namelist(): sys.stdout.write(n+chr(10))", z],
+      ["-c", "import sys,json,zipfile\nfor i in zipfile.ZipFile(sys.argv[1]).infolist(): sys.stdout.write(json.dumps([i.filename,i.file_size])+chr(10))", z],
       { encoding: "utf8", maxBuffer: 1 << 28 }
     );
     for (const l of out.split("\n")) {
-      const name = (l.trim().split("/").pop() || "").trim();
-      if (/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) inZip.add(key(name));
+      if (!l.trim()) continue;
+      const [full, size] = JSON.parse(l) as [string, number];
+      const name = (full.trim().split("/").pop() || "").trim();
+      if (!/\.(jpe?g|png|heic|webp|tiff?)$/i.test(name)) continue;
+      const k = key(name);
+      inZip.set(k, (inZip.get(k) ?? new Set()).add(size));
     }
   }
 
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const have = new Set<string>();
+  const sizeless = new Set<string>();
   // PostgREST truncates at 1,000 rows, so page explicitly rather than trusting one select.
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("images")
-      .select("id, original_filename")
+      .select("id, original_filename, file_size")
       .eq("event_id", eventId)
       // ORDER BY on a unique column is mandatory for any paged read (lesson 88):
       // .range() is OFFSET/LIMIT and Postgres defines no row order without it, so
@@ -84,12 +97,26 @@ async function main() {
     if (!data?.length) break;
     // `filename` is the R2 storage key (a UUID). The name that came off the camera —
     // and the only thing comparable to a ZIP entry — is `original_filename`.
-    for (const r of data) if (r.original_filename) have.add(key(String(r.original_filename)));
+    for (const r of data) {
+      if (!r.original_filename) continue;
+      const k = key(String(r.original_filename));
+      if (r.file_size == null) sizeless.add(k);
+      else have.add(`${k}|${r.file_size}`);
+    }
     if (data.length < 1000) break;
   }
 
-  const missing = [...inZip].filter((f) => !have.has(f));
-  console.log(`zip files: ${inZip.size}  |  event filenames: ${have.size}  |  MISSING: ${missing.length}`);
+  const missing: string[] = [];
+  let files = 0;
+  for (const [name, sizes] of inZip) {
+    for (const size of sizes) {
+      files++;
+      if (have.has(`${name}|${size}`)) continue;
+      if (sizes.size === 1 && sizeless.has(name)) continue;
+      missing.push(sizes.size > 1 ? `${name} (${size} bytes)` : name);
+    }
+  }
+  console.log(`zip files: ${files}  |  event files: ${have.size + sizeless.size}  |  MISSING: ${missing.length}`);
   if (missing.length) {
     console.log("first missing:", missing.slice(0, 10).join(", "));
     process.exit(1);
