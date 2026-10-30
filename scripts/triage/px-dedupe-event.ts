@@ -5,6 +5,10 @@
  *   npx tsx scripts/triage/px-dedupe-event.ts <eventId>            # DRY RUN
  *   npx tsx scripts/triage/px-dedupe-event.ts <eventId> --apply
  *
+ * ⚠️ Same filename is NOT same photo (lesson 197): versions share a name, so this now
+ * refuses unless every copy it would delete hashes identical to its keeper. For a
+ * gallery that holds versions, use scripts/dedupe-event.ts, which groups by name AND size.
+ *
  * Written 2026-08-21 for Twitch Masquerade Ball: the Pixieset ingest's
  * idempotency read was an unpaged PostgREST select capped at 1,000 rows, so 42
  * retry passes re-inserted every photo past the first thousand — 4,961 rows for
@@ -59,7 +63,8 @@ async function main() {
 
   // Import AFTER env is loaded: the R2 client reads credentials at module scope.
   const { createClient } = await import("@supabase/supabase-js");
-  const { deleteImageAssets } = await import("../../src/lib/r2/client");
+  const { deleteImageAssets, getObjectBuffer } = await import("../../src/lib/r2/client");
+  const { createHash } = await import("node:crypto");
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   const { data: ev, error: evErr } = await sb.from("events").select("id,name,cover_image_id").eq("id", eventId).single();
@@ -97,6 +102,17 @@ async function main() {
   console.log(`unique     ${byName.size}`);
   console.log(`to delete  ${dups.length}\n`);
   if (!dups.length) { console.log("no duplicates — nothing to do."); return; }
+
+  // ── Refuse if any "duplicate" is really another version of the photo ──────
+  const hashOf = async (r: Row) => createHash("sha256").update(await getObjectBuffer(r.r2_key!)).digest("hex");
+  const keeperHash = new Map<string, string>();
+  for (const { dup, keeper } of dups) {
+    if (!keeperHash.has(keeper.id)) keeperHash.set(keeper.id, await hashOf(keeper));
+    if ((await hashOf(dup)) !== keeperHash.get(keeper.id)) {
+      console.error(`REFUSING: ${dup.original_filename} has rows with different bytes, so these are versions. Use scripts/dedupe-event.ts.`);
+      process.exit(1);
+    }
+  }
 
   // ── Refuse if any duplicate is referenced by a human-made record ──────────
   const dupIds = dups.map((d) => d.dup.id);

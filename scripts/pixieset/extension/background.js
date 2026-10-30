@@ -122,6 +122,12 @@ const BYTE_AUDIT = [
  * — so the ONLY sanctioned way to put a collection back is a named repair that
  * says why, in code, where the next reader can see it.
  */
+const PET_SITTINGS = [
+  "accalia-huskyhybrid", "benandgiddy", "shaughn", "karat", "jacob", "kalineandbruce", "kiya",
+  "maggieandcharlie", "maxy", "sage", "sulley", "texas", "carlyanddusty", "cona", "crash", "dash",
+  "lexi", "riot", "tyler", "gnomeo",
+];
+
 /** The 42 collections the same-name collapse cost (repair 2026-10-29 below). */
 const SAME_NAME_REPULL = [
   "aislinactingheadshots",
@@ -381,6 +387,21 @@ const REPAIRS = [
       "babycurryshower", "bighealthheadshotsjan2019", "ivanasbridalshower", "blueshieldontarioreign",
       "ivanashane", "nataleekasra", "atfortmasonsurprisesabound_11zz0437h", "dockersalwayson",
       "oaklandasfanfest",
+    ],
+  },
+  {
+    id: "2026-10-30-requeue-pet-sittings",
+    // Mason approved switching bulk download on for the 20 January 2015 pet sittings
+    // (originals in ~/pixieset-staging/pixieset-download-settings-backup.json); done
+    // and read back 2026-10-30. They retired as "no-download". Behind the re-pulls
+    // still owed, ahead of the long audit. 360 photos, so a quick tail.
+    requeue: PET_SITTINGS,
+    add: PET_SITTINGS,
+    front: [
+      "babycurryshower", "bighealthheadshotsjan2019", "ivanasbridalshower",
+      "ivanashane", "nataleekasra", "atfortmasonsurprisesabound_11zz0437h", "dockersalwayson",
+      "oaklandasfanfest",
+      ...PET_SITTINGS,
     ],
   },
 ];

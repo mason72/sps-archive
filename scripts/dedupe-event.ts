@@ -7,10 +7,12 @@
  *   npx tsx scripts/dedupe-event.ts <eventId>            # report only
  *   npx tsx scripts/dedupe-event.ts <eventId> --apply    # delete
  *
- * A duplicate group is (event, original_filename, file_size) with more than
- * one row. Same name but a DIFFERENT size is a re-edit, not a duplicate — the
- * photographer re-exported that frame, and both versions are real. Those are
- * reported and never touched.
+ * A candidate group is (event, original_filename, file_size) with more than
+ * one row, and it only becomes a duplicate once every row's stored object hashes
+ * the same. Same name and size can be two real photos (Aislin's two crops were), so
+ * a group that fails the hash is reported and left alone. Same name but a DIFFERENT
+ * size is a re-edit, not a duplicate: the photographer re-exported that frame, and
+ * both versions are real. Those are reported and never touched.
  *
  * Which copy survives is not "the newest": it's whichever copy the rest of the
  * system already points at. A row can be an event's cover, a member of several
@@ -58,13 +60,17 @@ async function main() {
     created_at: string;
     processing_status: string | null;
     ai_indexed_at: string | null;
+    r2_key: string;
   };
   const rows: Row[] = [];
   for (let off = 0; ; off += 1000) {
     const { data, error } = await supabase
       .from("images")
-      .select("id, original_filename, file_size, created_at, processing_status, ai_indexed_at")
+      .select("id, original_filename, file_size, created_at, processing_status, ai_indexed_at, r2_key")
       .eq("event_id", eventId)
+      // A unique order, or a row can read twice and look like a duplicate of itself,
+      // and then the one copy is the one deleted.
+      .order("id", { ascending: true })
       .range(off, off + 999);
     if (error) throw error;
     if (!data?.length) break;
@@ -75,22 +81,28 @@ async function main() {
   // ── What points at each row ──
   const sectionCount = new Map<string, number>();
   const sectionsByImage = new Map<string, Set<string>>();
-  for (let off = 0; ; off += 1000) {
-    const { data, error } = await supabase
-      .from("section_images")
-      .select("image_id, section_id, sections!inner(event_id)")
-      .eq("sections.event_id", eventId)
-      .range(off, off + 999);
-    if (error) throw error;
-    if (!data?.length) break;
-    for (const r of data as { image_id: string; section_id: string }[]) {
-      sectionCount.set(r.image_id, (sectionCount.get(r.image_id) ?? 0) + 1);
-      sectionsByImage.set(
-        r.image_id,
-        (sectionsByImage.get(r.image_id) ?? new Set()).add(r.section_id)
-      );
+  // Section by section: a join ordered across the whole table times out.
+  const { data: eventSections, error: secErr } = await supabase.from("sections").select("id").eq("event_id", eventId);
+  if (secErr) throw secErr;
+  for (const section of (eventSections ?? []) as { id: string }[]) {
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await supabase
+        .from("section_images")
+        .select("image_id, section_id")
+        .eq("section_id", section.id)
+        .order("image_id", { ascending: true })
+        .range(off, off + 999);
+      if (error) throw error;
+      if (!data?.length) break;
+      for (const r of data as { image_id: string; section_id: string }[]) {
+        sectionCount.set(r.image_id, (sectionCount.get(r.image_id) ?? 0) + 1);
+        sectionsByImage.set(
+          r.image_id,
+          (sectionsByImage.get(r.image_id) ?? new Set()).add(r.section_id)
+        );
+      }
+      if (data.length < 1000) break;
     }
-    if (data.length < 1000) break;
   }
 
   const favorited = new Set<string>();
@@ -136,12 +148,21 @@ async function main() {
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
 
+  const { getObjectBuffer } = await import("../src/lib/r2/client");
+  const { createHash } = await import("node:crypto");
   const doomed: Row[] = [];
   /** survivor id → the section ids it must inherit from the copies it replaces. */
   const inherit = new Map<string, Set<string>>();
   let dupGroups = 0;
+  let sameSizeOnly = 0;
   for (const group of groups.values()) {
     if (group.length < 2) continue;
+    const hashes = new Set<string>();
+    for (const r of group) hashes.add(createHash("sha256").update(await getObjectBuffer(r.r2_key)).digest("hex"));
+    if (hashes.size > 1) {
+      sameSizeOnly += 1;
+      continue;
+    }
     dupGroups += 1;
     const ranked = [...group].sort((a, b) => score(b) - score(a));
     const keeper = ranked[0];
@@ -184,7 +205,8 @@ async function main() {
   );
 
   console.log(`rows:               ${rows.length.toLocaleString()}`);
-  console.log(`identical groups:   ${dupGroups.toLocaleString()}`);
+  console.log(`identical groups:   ${dupGroups.toLocaleString()} (every stored object hashed the same)`);
+  console.log(`same size, different bytes (kept): ${sameSizeOnly.toLocaleString()}`);
   console.log(`would delete:       ${doomed.length.toLocaleString()}`);
   console.log(`would remain:       ${(rows.length - doomed.length).toLocaleString()}`);
   console.log(`re-edits kept:      ${reEdits} filenames with differing bytes`);

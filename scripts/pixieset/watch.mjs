@@ -98,6 +98,11 @@ const ORPHAN_LOG = join(STAGING, "orphans.json");
  * test pins the list so it cannot grow by accident.
  */
 export const FIDELITY_ACCEPTED = {
+  sephoraxculturecon2023: {
+    width: 2133,
+    approved: "Mason 2026-10-30",
+    why: "1,926 frames at 2133x3200, about 7 MP. Pixieset offers nothing larger, and importing this is the only way the shoot survives cancelling Pixieset; a sharper copy found later can still replace it.",
+  },
   cemacovers: {
     width: 2400,
     approved: "Mason 2026-09-15",

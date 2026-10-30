@@ -167,7 +167,7 @@ test("the ledger's error says who retired it and why", () => {
 test("Web Size acceptances are named, exact and signed", () => {
   // Each entry waives the guard for ONE collection at ONE width. A new entry is
   // a human decision, so the list is pinned here and cannot grow by accident.
-  assert.deepEqual(Object.keys(FIDELITY_ACCEPTED), ["cemacovers"]);
+  assert.deepEqual(Object.keys(FIDELITY_ACCEPTED), ["sephoraxculturecon2023", "cemacovers"]);
   for (const [slug, a] of Object.entries(FIDELITY_ACCEPTED)) {
     assert.ok(Number.isInteger(a.width) && a.width > 0, `${slug}: an exact width`);
     assert.ok(a.why && a.approved, `${slug}: the reason and the approval are recorded`);

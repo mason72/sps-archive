@@ -5,6 +5,7 @@
  *   npx tsx scripts/pixieset-ingest.ts <collectionId> --apply    # writes to PRODUCTION
  *   npx tsx scripts/pixieset-ingest.ts --next                    # oldest verified collection
  *   npx tsx scripts/pixieset-ingest.ts <id> --apply --keep-zip   # don't reclaim the disk
+ *   npx tsx scripts/pixieset-ingest.ts <id> --apply --keep-twins # import frames another gallery already holds
  *
  * The last mile of the migration. `queue.mjs` decides what to fetch, `driver.js`
  * fetches it, `watch.mjs` proves the archive is intact and stages it — this turns
@@ -99,6 +100,8 @@ const argv = process.argv.slice(2);
 const APPLY = argv.includes("--apply");
 const KEEP_ZIP = argv.includes("--keep-zip");
 const NEXT = argv.includes("--next");
+/** Import versions even if another gallery holds them: a person's own gallery should show its own sets. */
+const KEEP_TWINS = argv.includes("--keep-twins");
 const flag = (name: string): string | null => {
   const i = argv.indexOf(`--${name}`);
   return i === -1 ? null : argv[i + 1] ?? null;
@@ -595,7 +598,7 @@ async function main() {
   let twinSkipped = 0;
   /** "name|size" of frames skipped as already delivered elsewhere: absences the file check allows. */
   const twinAbsent: string[] = [];
-  if (todo.length) {
+  if (todo.length && !KEEP_TWINS) {
     const { findTwinsToSkip } = await import("./pixieset/twin-skip");
     const scan = await findTwinsToSkip({
       supabase,
