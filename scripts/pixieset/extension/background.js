@@ -117,6 +117,48 @@ const BYTE_AUDIT = [
 ];
 
 /**
+ * The audit slugs whose first verdict flagged photos (138) or could not be read (3),
+ * read again by zip-audit.ts version 2 (2026-11-02). Version 1 compared names and
+ * bytes only, and 26,849 flagged photos were mostly a deleted duplicate's frames
+ * kept elsewhere, DAIS's SPS copy, and versions it could not tell from metadata
+ * copies. Its links were deleted with the verdicts, so Pixieset builds them again.
+ */
+const REAUDIT_V2 = [
+  "joedebevoiseandplimptonllc", "masoodmojadedisheadshots", "nicklombardosheadshots", "conradjulietteandvivienne",
+  "jennysprom", "precisionneuroscienceseptember2025", "costargroupdcaboard", "postmansko2026",
+  "commercetoolselevateneonparty", "pgandeheadshots-2", "pageupskojuly2025", "levisstadiumeventsclientshowcase",
+  "stripeconvergence2024anti-boothgiantllama", "inklingiicon2026", "sonyheadshots", "costargrouparlingtonheadshots",
+  "nabilassupriseparty", "redoakrealtyholidayparty2025", "stmaryswinterfest", "chimemarketingevent", "sfcasa",
+  "altimeterenvironmentalportraits", "sieheadshotsmarch2025", "9thannualhobarthohoholidayparty", "costarheadshots",
+  "costargrouprva", "stripe111225", "gartnerofficeheadshots", "purestoragenovember2024", "myriadncm2025",
+  "itschymtimephotobooth", "purestorageapril2025", "docusigndlg", "purestoragegls2024", "purestorage-2", "plaidhq",
+  "wacaholidayparty2025", "workdayheadshots-1", "csxsfheadshots", "pgandeheadshots", "purestoragefebruary2025",
+  "adobejoyfest2025", "pgandeprocurement", "redhatsummit25", "acxauthorsummitmay2025", "twiliovoxsummit",
+  "ebayheadshots-2", "agnesscottblday", "applovinholidayparty", "atlassianpsnhighlights",
+  "collegeboard2026sdpsummit", "chimeheadshotsmay2025", "a16zjuneoffsite", "mangomintmm25", "svpxheadshots",
+  "atlassianccshighlights", "wallandceilingallianceholidayparty", "oktaleadershipsummit", "2025preparateconference",
+  "storagepropreview", "chimeheadshots2026", "ebayheadshots-3", "docusignsf", "ironcladfy27skoheadshots",
+  "collegeboardnasai2025", "appfolioofficeheadshotsgoleta", "stripedesignteamoctober2025", "pgandeconcord",
+  "servicenowgovernmentforumheadshots", "campcoalition-1", "purestoragegls2025", "collegeboardforum2025",
+  "docusignseattlenovember2024", "pgandeheadshots-1", "stripeconvergence2024",
+  "theproteinsocietyannualsymposium2025", "adobeendofyearholidayparty", "hiltontowne", "wekasko27headshots",
+  "datadogheadshotsnyc", "audibleacxatsovasthatsvoiceovercareerexpo", "2025floridashrmconference",
+  "gallagherorlando", "collegeboardpreparate", "futurememorysummit2025", "servicenowsko26winnerscircle",
+  "107thaaomsannualmeetingcourtesyportraits", "commercetoolselevate", "collegeboardnasai", "oktaskofy26",
+  "guardanteventphotos", "amp2024", "49ersstateofthefranchise", "vive2025", "docusignmomentum26",
+  "conveningleaders2025houstontx", "stripeheadshots", "randtechnologyelectronica", "twiliosko25", "collegeboardhbcu",
+  "nsgcmyriad-1", "mcapsaccelerateoctober2023", "biotechneamp", "sentineloneheadshotsskofy27", "kinexionslasvegas",
+  "hoteldataconference-1", "collegeboardapannualconference", "rsacdevo", "ironcladckofy26",
+  "hiltonamericaownersconferencehilton", "rsacaccenture", "universe", "powerofgallagher-1",
+  "rsac2025headshotscourtesyofwiz", "apannualconferencegreen", "communitysummit", "islandskofy27lasvegas",
+  "money2020au10tix-1", "hlth2025", "sentinelone", "atlassianheadhsots", "oktane2025", "googleclouddais2026",
+  "autodeskotc25", "guidewireconnectionspwc", "databricksaisummitprophecy", "nrf", "stripesessions",
+  "mycollection-1", "hibob", "breakthrough2025", "globalcioexecutiveportraitstudio", "jpmorgan2025",
+  "stripesessions2026", "docusign-booth2microsoftignite2024", "paloaltoskobooth22023", "docusignignite",
+  "rldatixvive2026", "servicenowsko2025", "hiltonsummit", "servicenowsko26",
+];
+
+/**
  * One-shot repairs, applied on load and recorded by id so a reload cannot run
  * them twice. `done` is append-only by design — a restart must resume, not redo
  * — so the ONLY sanctioned way to put a collection back is a named repair that
@@ -388,6 +430,14 @@ const REPAIRS = [
       "ivanashane", "nataleekasra", "atfortmasonsurprisesabound_11zz0437h", "dockersalwayson",
       "oaklandasfanfest",
     ],
+  },
+  {
+    id: "2026-11-02-reaudit-v2",
+    // File lists again for the audit's flagged and unread galleries (REAUDIT_V2
+    // above). Still audits, so nothing is downloaded; each keeps its place in
+    // `jobs`, behind nothing new.
+    requeue: REAUDIT_V2,
+    audit: REAUDIT_V2,
   },
   {
     id: "2026-10-30-requeue-pet-sittings",

@@ -968,6 +968,17 @@ test("a file that cannot be written is a failed attempt, never a retired slug", 
   assert.equal(h.state().attempts.audited, 1);
 });
 
+test("the v2 re-audit puts a flagged audit back in the queue as an audit, and leaves a clean one done", async () => {
+  const h = harness(base({ jobs: ["dandpalexs", "universe", "next"], done: ["dandpalexs", "universe"], audit: ["dandpalexs", "universe"], repairs: allBut("2026-11-02-reaudit-v2") }));
+  const { applyRepairs } = await loadBackground(h.chrome);
+  const s = { ...h.state() };
+  applyRepairs(s);
+  assert.ok(!s.done.includes("universe"), "a flagged gallery is asked for again");
+  assert.ok(s.audit.includes("universe"), "and still only for its file list");
+  assert.ok(s.done.includes("dandpalexs"), "a gallery the first pass settled stays done");
+  assert.deepEqual(s.jobs, ["dandpalexs", "universe", "next"], "nothing is reordered");
+});
+
 test("the audit repair runs the pilot and the owed re-pulls first", async () => {
   const h = harness(base({ jobs: ["old1", "babycurryshower", "dandpalexs", "old2"], done: ["old1", "dandpalexs"], repairs: allBut("2026-10-30-byte-audit") }));
   const { applyRepairs } = await loadBackground(h.chrome);

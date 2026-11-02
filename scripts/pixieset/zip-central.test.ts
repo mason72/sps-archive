@@ -13,7 +13,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-import { httpRangeReader, readZipEntries } from "./zip-central";
+import { httpRangeReader, readEntryBytes, readZipEntries } from "./zip-central";
 
 let tmp: string;
 let server: http.Server;
@@ -81,9 +81,62 @@ test("a directory larger than the tail takes a second, exact request", async () 
   assert.equal(requests.length, 2);
 });
 
-test("a server that ignores Range is an error, never a guess", async () => {
+test("a server that ignores Range is an error, never a guess, and says what it offered", async () => {
   makeZip("plain.zip", 1);
-  await assert.rejects(readZipEntries(httpRangeReader(`${base}/plain.zip?norange`)), /expected 206/);
+  await assert.rejects(readZipEntries(httpRangeReader(`${base}/plain.zip?norange`)), /expected 206, got 200 \(accept-ranges none/);
+});
+
+const mixedZip = () => {
+  // A real JPEG-sized body, stored and deflated, plus a long local extra field.
+  const py = `
+import zipfile, sys, os
+out = sys.argv[1]
+body = os.urandom(200000) + b"x" * 300000
+with zipfile.ZipFile(out, "w") as z:
+    z.writestr(zipfile.ZipInfo("Color/IMG_1.jpg"), body, compress_type=zipfile.ZIP_STORED)
+    z.writestr(zipfile.ZipInfo("BW/IMG_1.jpg"), body[::-1], compress_type=zipfile.ZIP_DEFLATED)
+    zi = zipfile.ZipInfo("Extra/IMG_2.jpg"); zi.extra = b"\\xfe\\xca" + (6000).to_bytes(2, "little") + b"e" * 6000
+    z.writestr(zi, body[:1000], compress_type=zipfile.ZIP_STORED)
+sys.stdout.buffer.write(body)`;
+  const p = path.join(tmp, "mixed.zip");
+  const r = spawnSync("python3", ["-I", "-c", py, p], { maxBuffer: 1 << 26 });
+  assert.equal(r.status, 0, String(r.stderr));
+  return r.stdout as Buffer;
+};
+
+test("an entry's bytes come back exact, stored or deflated, with a long local header", async () => {
+  const body = mixedZip();
+  const read = httpRangeReader(`${base}/mixed.zip`);
+  const entries = await readZipEntries(read);
+  const by = (n: string) => entries.find((e) => e.name === n)!;
+  assert.equal(by("Color/IMG_1.jpg").method, 0);
+  assert.equal(by("BW/IMG_1.jpg").method, 8);
+  assert.deepEqual(await readEntryBytes(read, by("Color/IMG_1.jpg")), body);
+  assert.deepEqual(await readEntryBytes(read, by("BW/IMG_1.jpg")), Buffer.from(body).reverse());
+  assert.deepEqual(await readEntryBytes(read, by("Extra/IMG_2.jpg")), body.subarray(0, 1000));
+});
+
+test("a prefix read returns only the head, in one request for a stored entry", async () => {
+  const body = mixedZip();
+  const read = httpRangeReader(`${base}/mixed.zip`);
+  const entries = await readZipEntries(read);
+  requests = [];
+  const head = await readEntryBytes(read, entries.find((e) => e.name === "Color/IMG_1.jpg")!, 4096);
+  assert.deepEqual(head, body.subarray(0, 4096));
+  assert.equal(requests.length, 1);
+  const deflatedHead = await readEntryBytes(read, entries.find((e) => e.name === "BW/IMG_1.jpg")!, 4096);
+  assert.deepEqual(deflatedHead, Buffer.from(body).reverse().subarray(0, 4096));
+});
+
+test("bytes that do not match the file list's CRC are an error, never hashed", async () => {
+  mixedZip();
+  const read = httpRangeReader(`${base}/mixed.zip`);
+  const entries = await readZipEntries(read);
+  const e = entries.find((x) => x.name === "Color/IMG_1.jpg")!;
+  const zip = fs.readFileSync(path.join(tmp, "mixed.zip"));
+  zip[e.offset + 30 + Buffer.byteLength(e.entry) + 100] ^= 0xff; // one byte inside the photo
+  fs.writeFileSync(path.join(tmp, "mixed.zip"), zip);
+  await assert.rejects(readEntryBytes(read, e), /do not match the file list/);
 });
 
 test("a file that is not a ZIP is an error", async () => {
