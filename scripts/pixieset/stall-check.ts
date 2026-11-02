@@ -30,6 +30,10 @@
  *             eight minutes after a collection had finished. The images table
  *             is the durable record here (lesson 131: the log is silent by
  *             design during a run), so the check now reads it.
+ *   SILENT  — the extension believes it is running but has not reported for
+ *             EXT_SILENT_HOURS (it reports every 20 min tick): Chrome closed, or
+ *             its worker died. Added 2026-11-02, when Chrome was quit and the ZIP
+ *             audit sat idle under an OK verdict.
  *   STARVED — nothing staged, work still queued, and nothing has completed in
  *             STARVED_HOURS. This is not a bug: it means the DOWNLOAD half has
  *             not been run, and that needs Mason's Chrome. It is the exact state
@@ -52,6 +56,7 @@
  *              restart the ingest agent instead.
  *   BROKEN   → `launchctl kickstart -k` the agent that is down (or the watcher,
  *              when its brake is not answering).
+ *   SILENT,
  *   STARVED  → if Chrome is not running, open it; the extension's alarm
  *              re-arms on startup. Anything else needs a human: the email now
  *              carries the extension's own last word (see `extensionStatus`).
@@ -117,7 +122,7 @@ const RENOTIFY_HOURS = 24;
 const MAX_PASSES_PER_HOUR = num(process.env.PIXIESET_MAX_PASSES, 40);   // ~12 expected at a 5-minute idle; 40 is generous
 const BACKUP_STALE_HOURS = num(process.env.PIXIESET_BACKUP_STALE_HOURS, 48);   // nightly, so 48h is two missed runs
 
-type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "FAILING" | "STARVED" | "UNBACKED";
+type Verdict = "OK" | "BROKEN" | "SPINNING" | "STUCK" | "FAILING" | "SILENT" | "STARVED" | "UNBACKED";
 type Remedy = { name: string; run: () => string } | null;
 type StallState = {
   verdict: string;
@@ -301,6 +306,7 @@ function remedyFor(verdict: Verdict, seen: { down: string[]; brakeOk: boolean; c
         };
       }
       return { name: "restart the ingest agent (no ingest child was running)", run: () => kickstart(AGENT.ingest, true) };
+    case "SILENT":
     case "STARVED":
       if (!seen.chrome) {
         return {
@@ -511,6 +517,13 @@ async function main() {
     headline = `${failedSince.length} collection(s) retired since the last successful ingest (${hoursSince === Infinity ? "never" : hoursSince.toFixed(1) + "h ago"}), nothing staged, nothing downloading:\n` +
       failedSince.slice(0, 6).map((f) => `  · ${f.slug} — ${String(f.error).slice(0, 140)}`).join("\n") +
       (failedSince.length > 6 ? `\n  · … and ${failedSince.length - 6} more` : "");
+  } else if (ext && ext.running !== false && ext.ageHours > EXT_SILENT_HOURS) {
+    // Its own verdict since 2026-11-02. Silence used to surface only inside
+    // STARVED, which needs 36 h with queued downloads; once the downloads were
+    // done and the extension's job became the ZIP audit, a closed Chrome left
+    // the audit idle for 90 min under an OK verdict.
+    verdict = "SILENT";
+    headline = `the extension has not reported for ${ext.ageHours.toFixed(1)}h while believing it was running (it reports every 20 min). Chrome is ${chrome ? "running, so the extension's worker is dead: Reload it on chrome://extensions" : "NOT running"}.`;
   } else if (verified === 0 && queuedWork > 0 && hoursSince > STARVED_HOURS) {
     verdict = "STARVED";
     headline = `nothing staged and nothing completed in ${hoursSince.toFixed(0)}h — the extension ${extLine}` +
@@ -560,11 +573,12 @@ async function main() {
  * healthy while one of these is dead. Emails at most daily.
  */
 const TEMP_JOBS = [
-  { label: "com.twodudes.pixieset.repull", log: "repull.log", state: "repull-ledger.json" },
-  { label: "com.twodudes.pixieset.zipaudit", log: "zip-audit.log", state: "zip-audit.json" },
+  { label: "com.twodudes.pixieset.repull", name: "re-pull", log: "repull.log", state: "repull-ledger.json" },
+  { label: "com.twodudes.pixieset.zipaudit", name: "ZIP audit", log: "zip-audit.log", state: "zip-audit.json" },
 ];
 async function watchTempJobs(dry: boolean) {
   const problems: string[] = [];
+  const down: string[] = [];
   for (const job of TEMP_JOBS) {
     let finished = false;
     try {
@@ -577,14 +591,14 @@ async function watchTempJobs(dry: boolean) {
     try { logMtimeMs = fs.statSync(path.join(HOME, "pixieset-staging", "logs", job.log)).mtimeMs; } catch { /* no log */ }
     const problem = jobProblem({ label: job.label, launchctl, logMtimeMs, maxQuietMs: 2 * 3_600_000, nowMs: Date.now() });
     console.log(`job        ${job.label}: ${problem ?? "ok"}`);
-    if (problem) problems.push(problem);
+    if (problem) { problems.push(problem); down.push(job.name); }
   }
   if (!problems.length || dry) return;
   const marker = path.join(HOME, "pixieset-staging", "logs", "temp-jobs-mailed.json");
   try {
     if (Date.now() - fs.statSync(marker).mtimeMs < RENOTIFY_HOURS * 3_600_000) return;
   } catch { /* never mailed */ }
-  await send("Pixieset re-pull job is not running", `${problems.join("\n")}\n\nThese import the re-pulled galleries and read the ZIP file lists. Until they run, those galleries wait. Nothing is lost.\nLogs: ~/pixieset-staging/logs/`);
+  await send(`Pixieset ${down.join(" and ")} job${down.length > 1 ? "s are" : " is"} not running`, `${problems.join("\n")}\n\nThese import the re-pulled galleries and read the ZIP file lists. Until they run, those galleries wait. Nothing is lost.\nLogs: ~/pixieset-staging/logs/`);
   if (!process.exitCode) fs.writeFileSync(marker, new Date().toISOString());
 }
 
