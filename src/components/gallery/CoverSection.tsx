@@ -9,10 +9,7 @@ import {
   orderTiles,
   selectCrossfadeImages,
   MOSAIC_TILE_AR,
-  MOSAIC_POOL_CAP,
-  mosaicLeadsNeeded,
-  orderEveryPhoto,
-  pickMosaicPool,
+  galleryCoverPool,
 } from "@/lib/cover/mosaic";
 
 interface CoverSectionProps {
@@ -47,37 +44,12 @@ export function CoverSection({
   const type = s.coverType ?? "image";
   const titleOver = (s.titlePosition ?? "over") === "over" && s.coverShowsTitle !== false;
 
-  // Resolve a cover's source section → its images, in section order.
-  const sourceSectionId =
-    type === "mosaic" ? s.coverMosaic?.sectionId : s.coverCrossfade?.sectionId;
-  const mosaicRows = s.coverMosaic?.rows ?? 3;
-  const sectionImages = useMemo(() => {
-    if (type !== "mosaic" && type !== "crossfade") return [];
-    // ONE rule, shared with the raster composer (pool.ts fetchMosaicCoverPool):
-    // chosen section at any size, else the first section with enough leads to
-    // fill the band, else every photo by filename. Candidates are cut to
-    // MOSAIC_POOL_CAP in their own order before the dedupe, exactly as the
-    // server cuts its link reads, so the two pools are the same 500 photos.
-    // Videos never tile a cover (poster frames read as random blurry shots);
-    // the server filters media_type the same way.
-    const byId = new Map(images.map((img) => [img.id, img]));
-    const candidates = (sections ?? []).map((sec) => ({
-      id: sec.id,
-      images: sec.imageIds
-        .slice(0, MOSAIC_POOL_CAP)
-        .map((id) => byId.get(id))
-        .filter((x): x is GalleryImage => !!x && x.mediaType !== "video"),
-    }));
-    const everyPhoto = orderEveryPhoto(images.filter((img) => img.mediaType !== "video"));
-    return pickMosaicPool({
-      sectionId: sourceSectionId,
-      sections: candidates,
-      everyPhoto,
-      // Crossfade keeps "chosen section, else every photo": no section
-      // auto-qualifies for it.
-      minLeads: type === "mosaic" ? mosaicLeadsNeeded(mosaicRows) : Infinity,
-    }).pool;
-  }, [type, images, sections, sourceSectionId, mosaicRows]);
+  // The cover's photos: one rule, shared with the raster composer and with
+  // the first-screen payload (see galleryCoverPool).
+  const sectionImages = useMemo(
+    () => galleryCoverPool({ settings: s, images, sections })?.pool ?? [],
+    [s, images, sections]
+  );
 
   let layer: React.ReactNode = null;
   if (type === "mosaic" && s.coverMosaic) {

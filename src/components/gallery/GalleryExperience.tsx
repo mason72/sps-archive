@@ -350,6 +350,13 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     palette: string[];
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Bumped by every load, so an answer from an older load (a password retry,
+  // React's dev double-run) can never overwrite a newer one.
+  const loadGenRef = useRef(0);
+  // The second part of a two-part gallery failed twice: the page keeps what
+  // it has and says so where the missing photos would be.
+  const [restFailed, setRestFailed] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
@@ -433,6 +440,9 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
   // is one person, lead with their NAME and lay every frame out flat.
   const singlePerson = useMemo(() => {
     const imgs = gallery?.images ?? [];
+    // A first part holds one section of a big gallery, which can be one
+    // person's; the verdict waits for the whole set.
+    if (gallery?.partial) return null;
     if (imgs.length < 2) return null;
     // Only a set that STACKS can be one person. Without this gate a booth
     // export whose every file parses to the job's name ("Google Booth", 287
@@ -484,6 +494,14 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
 
   useEffect(() => {
     const q = searchQuery.trim();
+    // Names are matched against the payload, which on a two-part gallery is
+    // still the first screen: never call the name search empty, and never
+    // ask the visual search, until the rest lands (searchWaiting below). The
+    // effect re-runs when it does.
+    if (gallery?.partial && !restFailed) {
+      setSemanticLoading(false);
+      return;
+    }
     if (
       !gallery ||
       q.length < 3 ||
@@ -510,10 +528,19 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       }
     }, 450);
     return () => clearTimeout(timer);
-  }, [gallery, slug, searchQuery, nameMatches.length, semanticResult]);
+  }, [gallery, slug, searchQuery, nameMatches.length, semanticResult, restFailed]);
 
   const semanticActive =
     nameMatches.length === 0 && semanticResult?.query === searchQuery.trim();
+  // A search over the first part alone would answer from part of the gallery:
+  // "no matches" for a guest whose photos are in the rest, a "did you mean"
+  // for a near name while the exact one is still coming, or a person's
+  // landing-section photos without their others. Every search waits for the
+  // whole gallery, which is about a second behind the first screen.
+  const searchWaiting = !!gallery?.partial && !restFailed && !!searchQuery.trim();
+  // Same for a selfie match: its ids are resolved against the payload, so
+  // until the rest lands "Your photos" would count only the first screen's.
+  const selfieWaiting = !!gallery?.partial && !restFailed && !!selfieMatches;
 
   const filteredImages = useMemo(() => {
     if (!gallery || !searchQuery.trim()) return gallery?.images ?? [];
@@ -565,9 +592,61 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
     return list;
   }, [gallery, searchQuery, filteredImages, selfieMatches, selfieImages, sectionVisibleImages]);
 
+  /**
+   * The rest of a two-part gallery (src/lib/gallery/first-screen.ts). Only
+   * the photos and sections are taken from it: settings, branding and the
+   * cover were already final in the first part, and their signed URLs would
+   * otherwise change and reload the hero and logo. A photo already on screen
+   * keeps its object, so its tile neither re-renders nor reloads.
+   */
+  const fetchRest = useCallback(async (gen: number) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        // A deadline, so a hung request cannot hold search and the other tabs
+        // at "Searching…" until the platform kills it. The whole payload is
+        // about 2 MB compressed on the biggest galleries: 45 s is a very slow
+        // phone, not a normal one.
+        const res = await fetch(`${apiBase}?part=rest`, {
+          signal: AbortSignal.timeout(45_000),
+        });
+        if (!res.ok) throw new Error(`gallery rest ${res.status}`);
+        const rest = (await res.json()) as GalleryData;
+        if (!Array.isArray(rest.images) || rest.partial) {
+          throw new Error("gallery rest incomplete");
+        }
+        if (gen !== loadGenRef.current) return;
+        setGallery((prev) => {
+          if (!prev) return prev;
+          const shown = new Map(prev.images.map((img) => [img.id, img]));
+          return {
+            ...prev,
+            images: rest.images.map((img) => shown.get(img.id) ?? img),
+            sections: rest.sections,
+            partial: undefined,
+          };
+        });
+        return;
+      } catch {
+        if (gen !== loadGenRef.current) return;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1500));
+          if (gen !== loadGenRef.current) return;
+        }
+      }
+    }
+    if (gen !== loadGenRef.current) return;
+    setRestFailed(true);
+    toast.error("Some photos didn't load. Reload the page to see them all.");
+  }, [apiBase]);
+
   const fetchGallery = useCallback(async () => {
+    const gen = ++loadGenRef.current;
+    setRestFailed(false);
     try {
-      const res = await fetch(`${apiBase}`);
+      // The first screen first: on a big gallery the server sends the landing
+      // section and the cover's photos, marked `partial`, and the rest follows.
+      const res = await fetch(`${apiBase}?part=first`);
+      if (gen !== loadGenRef.current) return;
 
       if (res.status === 404) {
         setError("This gallery doesn't exist or has been removed.");
@@ -579,6 +658,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       }
 
       const data = await res.json();
+      if (gen !== loadGenRef.current) return;
 
       if (data.requiresAuth) {
         wasGatedRef.current = true;
@@ -610,12 +690,13 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
       // Load favorites from localStorage
       loadFavorites(data.shareId);
 
+      if (data.partial) void fetchRest(gen);
     } catch {
-      setError("Failed to load gallery.");
+      if (gen === loadGenRef.current) setError("Failed to load gallery.");
     } finally {
-      setIsLoading(false);
+      if (gen === loadGenRef.current) setIsLoading(false);
     }
-  }, [slug]);
+  }, [apiBase, fetchRest]);
 
   useEffect(() => {
     fetchGallery();
@@ -1525,7 +1606,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             noise. Full galleries keep the old threshold — measured on the live
             archive, no full share is under 25 photos, so this changes nothing
             for them. */}
-        {gallery.images.length > (gallery.curated ? 24 : 8) && (
+        {(gallery.partial?.imageCount ?? gallery.images.length) > (gallery.curated ? 24 : 8) && (
           <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 mb-8">
             {/* Search bar. Wraps above "Find my photos" before it squeezes:
                 side by side on a phone the box was ~160px. */}
@@ -1585,7 +1666,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               <ScanFace className="h-3 w-3" />
               Your photos
               <span style={{ color: colors.secondary }} className="tabular-nums">
-                {selfieImages.length}
+                {selfieWaiting ? "…" : selfieImages.length}
               </span>
             </span>
             <button
@@ -1613,7 +1694,15 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
 
         {/* When searching, show flat results; otherwise show sections */}
         {searchQuery.trim() ? (
-          filteredImages.length > 0 ? (
+          searchWaiting ? (
+            <p
+              role="status"
+              className="py-16 text-center text-[14px] italic"
+              style={{ color: colors.secondary }}
+            >
+              Searching all {gallery.partial?.imageCount.toLocaleString()} photos…
+            </p>
+          ) : filteredImages.length > 0 ? (
             <>
               {nameSuggestions.length > 0 && (
                 <DidYouMean
@@ -1688,6 +1777,14 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
               )}
             </div>
           )
+        ) : selfieWaiting ? (
+          <p
+            role="status"
+            className="py-16 text-center text-[14px] italic"
+            style={{ color: colors.secondary }}
+          >
+            Finding you in all {gallery.partial?.imageCount.toLocaleString()} photos…
+          </p>
         ) : selfieMatches ? (
           <GalleryGrid
             images={selfieImages}
@@ -1712,6 +1809,11 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           <SectionedGallery
             images={gallery.images}
             sections={gallery.sections}
+            incomplete={
+              gallery.partial
+                ? { imageCount: gallery.partial.imageCount, failed: restFailed }
+                : undefined
+            }
             allowDownload={allowDownload}
             allowFavorites={allowFavorites}
             favoriteIds={favoriteIds}

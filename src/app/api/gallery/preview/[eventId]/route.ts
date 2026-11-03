@@ -8,6 +8,8 @@ import type { GalleryBranding, GallerySettings } from "@/types/gallery";
 import { selfieSearchAvailable } from "@/lib/faces/selfie-availability";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
+import { readGalleryImageRows } from "@/lib/gallery/image-rows";
+import { firstScreenImageIds } from "@/lib/gallery/first-screen";
 
 /**
  * GET /api/gallery/preview/[eventId]
@@ -66,44 +68,31 @@ export async function GET(
       };
     }
 
-    // 3. Fetch all images for this event (paginated to avoid 1000-row limit)
-    const PREVIEW_IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y, is_cover_upload";
-    const PREVIEW_PAGE_SIZE = 1000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rawImages: any[] = [];
-    let previewOffset = 0;
-
-    // Determine sort order from event settings
+    // 3. Photos and sections, read together, through the same readers as the
+    // public gallery so Preview keeps matching what clients see: photos by
+    // readGalleryImageRows (parallel pages, `id` tiebreaker, throws on a
+    // failed page; the old loop here waited on each page in turn and paged
+    // over a non-unique order), sections and their links by loadSectionLinks
+    // (manual order, throws on a failed page).
     const gridSort = ((event.settings as Record<string, unknown>)?.grid as Record<string, unknown>)?.sortBy as string | undefined;
-
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      let pageQuery = supabase
-        .from("images")
-        .select(PREVIEW_IMG_FIELDS)
+    const readSections = async () => {
+      const { data, error } = await supabase
+        .from("sections")
+        .select("id, name, description, sort_mode, sort_seed")
         .eq("event_id", eventId)
-        // Display gate = thumbnail ready, not AI-pipeline complete. Keep this in
-        // lockstep with the public gallery route so Preview matches what clients
-        // see. (See gallery/[slug]/route.ts for the full rationale.)
-        .eq("thumbnail_generated", true);
-
-      if (gridSort === "filename") {
-        pageQuery = pageQuery.order("original_filename", { ascending: true });
-      } else if (gridSort === "date-taken") {
-        pageQuery = pageQuery.order("taken_at", { ascending: true, nullsFirst: false });
-      } else {
-        pageQuery = pageQuery.order("created_at", { ascending: true });
-      }
-
-      const { data, error: pageError } = await pageQuery
-        .range(previewOffset, previewOffset + PREVIEW_PAGE_SIZE - 1);
-
-      if (pageError) throw pageError;
-      if (!data || data.length === 0) break;
-      rawImages = rawImages.concat(data);
-      if (data.length < PREVIEW_PAGE_SIZE) break;
-      previewOffset += PREVIEW_PAGE_SIZE;
-    }
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const rows = data ?? [];
+      return { rows, links: await loadSectionLinks(supabase, rows.map((s) => s.id)) };
+    };
+    const [imageRows, sectionRead] = await Promise.all([
+      readGalleryImageRows(supabase, { eventId, gridSort }),
+      readSections(),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = imageRows;
+    const rawSections = sectionRead.rows;
+    const sectionImageRows = sectionRead.links;
 
     // 3b. Save cover image data before excluding from gallery grid.
     // Same rule as the public gallery: only an ACTIVE photo cover excludes
@@ -124,51 +113,6 @@ export async function GET(
     // used to reach the "All" tab, search and the mosaic tiles (lesson 184).
     // Filtered AFTER coverImageRow is captured, because a logo can BE the cover.
     rawImages = rawImages.filter((img) => !img.is_cover_upload);
-
-    // 3c. Sections and their links, through the same reader as the public
-    // gallery (manual order, throws on a failed page) so Preview keeps
-    // matching what clients see. The old loop had no ORDER BY, so paging could
-    // skip links and manual order was ignored.
-    const { data: rawSections, error: sectionsErr } = await supabase
-      .from("sections")
-      .select("id, name, description, sort_mode, sort_seed")
-      .eq("event_id", eventId)
-      .order("sort_order", { ascending: true });
-    if (sectionsErr) throw sectionsErr;
-    const sectionImageRows = await loadSectionLinks(
-      supabase,
-      (rawSections || []).map((s) => s.id)
-    );
-
-    // 4. Generate presigned URLs (grid thumbs via the presign memo + srcset
-    // pair, same as the live gallery)
-    const images = await Promise.all(
-      (rawImages || []).map(async (img) => {
-        const [thumbnailUrl, thumbnailLgUrl, originalUrl] = await Promise.all([
-          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
-          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
-          // Non-renderable originals (TIFF) fall back to the 800px JPEG so the
-          // preview lightbox shows them instead of a broken image.
-          getCachedDownloadUrl(getDisplayKey(img.r2_key), 14400),
-        ]);
-
-        return {
-          id: img.id,
-          thumbnailUrl,
-          thumbnailLgUrl,
-          originalUrl,
-          originalFilename: img.original_filename,
-          parsedName: img.parsed_name,
-          width: img.width,
-          height: img.height,
-          dominantColor: img.dominant_color ?? null,
-          takenAt: img.taken_at,
-          mediaType: img.media_type ?? "image",
-          focalX: img.focal_x ?? null,
-          focalY: img.focal_y ?? null,
-        };
-      })
-    );
 
     // 5. Build gallery settings from event settings
     const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
@@ -236,7 +180,7 @@ export async function GET(
       gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
-    // 6. Group the section links read in 3c into each section's imageIds.
+    // 6. Group the section links read in 3 into each section's imageIds.
     const imageIdSet = new Set((rawImages || []).map((img) => img.id));
 
     const sectionImageMap = new Map<string, string[]>();
@@ -258,6 +202,56 @@ export async function GET(
       }))
       .filter((s) => s.imageIds.length > 0);
 
+    // 6b. Which photos go out: the same two-part payload as the public
+    // gallery (`?part=first` then `?part=rest`; first-screen.ts), so the
+    // preview opens as fast as the gallery a guest gets.
+    const firstIds =
+      request.nextUrl.searchParams.get("part") === "first"
+        ? firstScreenImageIds({
+            images: rawImages.map((img) => ({
+              id: img.id as string,
+              parsedName: img.parsed_name as string | null,
+              originalFilename: img.original_filename as string,
+              mediaType: (img.media_type ?? "image") as string,
+            })),
+            sections: sections.length > 0 ? sections : undefined,
+            settings: gallerySettings,
+          })
+        : null;
+    const sentRows = firstIds
+      ? rawImages.filter((img) => firstIds.has(img.id))
+      : rawImages;
+
+    // 7. Sign the photos going out (grid thumbs via the presign memo + srcset
+    // pair, same as the live gallery)
+    const images = await Promise.all(
+      sentRows.map(async (img) => {
+        const [thumbnailUrl, thumbnailLgUrl, originalUrl] = await Promise.all([
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
+          // Non-renderable originals (TIFF) fall back to the 800px JPEG so the
+          // preview lightbox shows them instead of a broken image.
+          getCachedDownloadUrl(getDisplayKey(img.r2_key), 14400),
+        ]);
+
+        return {
+          id: img.id,
+          thumbnailUrl,
+          thumbnailLgUrl,
+          originalUrl,
+          originalFilename: img.original_filename,
+          parsedName: img.parsed_name,
+          width: img.width,
+          height: img.height,
+          dominantColor: img.dominant_color ?? null,
+          takenAt: img.taken_at,
+          mediaType: img.media_type ?? "image",
+          focalX: img.focal_x ?? null,
+          focalY: img.focal_y ?? null,
+        };
+      })
+    );
+
     const response = NextResponse.json({
       eventName: event.name,
       eventDate: event.event_date,
@@ -271,6 +265,7 @@ export async function GET(
       shareId: `preview-${eventId}`,
       branding,
       settings: gallerySettings,
+      ...(firstIds ? { partial: { imageCount: rawImages.length } } : {}),
     });
     // Prevent caching so the preview always reflects latest settings
     response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");

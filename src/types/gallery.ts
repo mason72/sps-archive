@@ -136,4 +136,11 @@ export interface GalleryData {
    * always renders the full event.
    */
   curated?: boolean;
+  /**
+   * Set on a first part (`?part=first`) that holds only the photos the first
+   * screen reads; `imageCount` is how many the whole gallery has. The page
+   * asks for `?part=rest` and replaces this payload with it. Absent means
+   * every photo is here. See src/lib/gallery/first-screen.ts.
+   */
+  partial?: { imageCount: number };
 }

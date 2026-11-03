@@ -19,6 +19,7 @@ import type { GalleryImage, GallerySection } from "@/types/gallery";
 export function SectionedGallery({
   images,
   sections,
+  incomplete,
   allowDownload,
   allowFavorites,
   favoriteIds,
@@ -84,6 +85,13 @@ export function SectionedGallery({
    * screen instead of the full gallery.
    */
   onVisibleImagesChange?: (images: GalleryImage[]) => void;
+  /**
+   * Set while `images` is only the first part of a two-part gallery
+   * (src/lib/gallery/first-screen.ts): the landing section is whole, other
+   * tabs may not be. `imageCount` is the whole gallery's; `failed` once the
+   * rest has stopped trying.
+   */
+  incomplete?: { imageCount: number; failed: boolean };
 }) {
   // Land on the first real section; "All" (when enabled) is a supplementary
   // view at the END of the nav, never the default.
@@ -129,8 +137,19 @@ export function SectionedGallery({
     [images]
   );
 
+  // A tab draws only once every photo it holds is here: a stacked or sorted
+  // grid built from part of a section would rearrange itself when the rest
+  // of the gallery landed. The landing section is always whole.
+  const tabReady =
+    !incomplete ||
+    (activeTab !== "all" &&
+      (sections.find((s) => s.id === activeTab)?.imageIds ?? []).every((id) =>
+        imageMap.has(id)
+      ));
+
   // Base set for the active tab.
   const tabImages = useMemo(() => {
+    if (!tabReady) return [];
     if (activeTab === "all") return images;
     return (
       sections
@@ -138,7 +157,7 @@ export function SectionedGallery({
         ?.imageIds.map((id) => imageMap.get(id))
         .filter((img): img is GalleryImage => !!img) ?? []
     );
-  }, [activeTab, images, sections, imageMap]);
+  }, [activeTab, images, sections, imageMap, tabReady]);
 
   // Apply favorites filter, then the chosen order. "Manual" uses the stored
   // per-section arrangement (tabImages already arrive in section.imageIds order;
@@ -195,20 +214,26 @@ export function SectionedGallery({
   // at all, filtering the tabs away would leave a bare toolbar — keep the
   // unfiltered tabs and let the grid show its "No favorites" message.
   const countsFollowFavorites = favoritesOnly && favoriteIds.size > 0;
+  // While the gallery is incomplete a section's ids are counted without
+  // their photos: the server already cut them to the displayable set, so the
+  // count is the one the tab will show once the rest lands.
   const sectionCounts = useMemo(() => {
     const counted = (ids: string[]) =>
       ids.filter(
         (id) =>
-          imageMap.has(id) && (!countsFollowFavorites || favoriteIds.has(id))
+          (!!incomplete || imageMap.has(id)) &&
+          (!countsFollowFavorites || favoriteIds.has(id))
       ).length;
     return new Map(sections.map((s) => [s.id, counted(s.imageIds)]));
-  }, [sections, imageMap, countsFollowFavorites, favoriteIds]);
+  }, [sections, imageMap, countsFollowFavorites, favoriteIds, incomplete]);
 
   const activeSection = sections.find((s) => s.id === activeTab);
 
+  // Favorites counted against an incomplete gallery would undercount; the
+  // "All" tab cannot be opened until it is whole anyway (tabReady).
   const allCount = countsFollowFavorites
     ? images.filter((img) => favoriteIds.has(img.id)).length
-    : images.length;
+    : (incomplete?.imageCount ?? images.length);
 
   const tabs: Array<{ id: string; label: string; count: number }> = [
     ...sections
@@ -461,7 +486,17 @@ export function SectionedGallery({
       )}
 
       {/* ─── Gallery grid ─── */}
-      {visibleImages.length > 0 ? (
+      {!tabReady ? (
+        <p
+          role="status"
+          className="py-16 text-center text-[14px] italic"
+          style={{ color: colors.secondary }}
+        >
+          {incomplete?.failed
+            ? "These photos didn't load. Reload the page to see them."
+            : "Loading photos…"}
+        </p>
+      ) : visibleImages.length > 0 ? (
         <GalleryGrid
           images={visibleImages}
           allowDownload={allowDownload}

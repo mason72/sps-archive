@@ -1,5 +1,6 @@
 import { buildStacks } from "@/lib/gallery/stacks";
 import { detectStackable } from "@/lib/gallery/stackable";
+import type { GallerySettings } from "@/types/gallery";
 
 /**
  * Mosaic cover engine — pure math, no DOM, no network.
@@ -391,4 +392,52 @@ export function pickMosaicPool<
     }
   }
   return { pool: opts.everyPhoto.slice(0, MOSAIC_POOL_CAP), source: "all" };
+}
+
+/**
+ * The pool a gallery's mosaic or crossfade cover draws from, read off the
+ * gallery payload, and where it came from. CoverSection renders the pool,
+ * and the first-screen payload (src/lib/gallery/first-screen.ts) reads the
+ * source to carry every photo this rule looks at; both must call THIS
+ * function, or the two can pick different tiles. Null for any other cover
+ * type, which draws no photos.
+ *
+ * Candidates are cut to MOSAIC_POOL_CAP in their own order before the
+ * dedupe, exactly as the raster composer (pool.ts fetchMosaicCoverPool) cuts
+ * its link reads, so the live cover and the email raster use the same 500
+ * photos. Videos never tile a cover (poster frames read as random blurry
+ * shots); the server filters media_type the same way.
+ */
+export function galleryCoverPool<
+  T extends {
+    id: string;
+    parsedName: string | null;
+    originalFilename: string;
+    mediaType?: string;
+  },
+>(opts: {
+  settings: Pick<GallerySettings, "coverType" | "coverMosaic" | "coverCrossfade">;
+  images: T[];
+  sections?: { id: string; imageIds: string[] }[];
+}): { pool: T[]; source: MosaicPoolSource; sectionId?: string } | null {
+  const { settings: s, images, sections } = opts;
+  const type = s.coverType ?? "image";
+  if (type !== "mosaic" && type !== "crossfade") return null;
+  const byId = new Map(images.map((img) => [img.id, img]));
+  const candidates = (sections ?? []).map((sec) => ({
+    id: sec.id,
+    images: sec.imageIds
+      .slice(0, MOSAIC_POOL_CAP)
+      .map((id) => byId.get(id))
+      .filter((x): x is T => !!x && x.mediaType !== "video"),
+  }));
+  const everyPhoto = orderEveryPhoto(images.filter((img) => img.mediaType !== "video"));
+  return pickMosaicPool({
+    sectionId: type === "mosaic" ? s.coverMosaic?.sectionId : s.coverCrossfade?.sectionId,
+    sections: candidates,
+    everyPhoto,
+    // Crossfade keeps "chosen section, else every photo": no section
+    // auto-qualifies for it.
+    minLeads: type === "mosaic" ? mosaicLeadsNeeded(s.coverMosaic?.rows ?? 3) : Infinity,
+  });
 }

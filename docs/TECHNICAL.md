@@ -282,14 +282,28 @@ Sharing & public galleries:
     Test: `download-core.owner.test.ts` asserts the ownership filter was asked for.
   - PIN shares: verify-pin returns an HMAC download token (4h, share-scoped); bulk
     URLs carry `?dt=<token>` so the PIN never lands in access logs.
-- `POST /api/gallery/[slug]/image-download` — one original, for the **per-image** PIN
-  (`require_pin_individual`). Body `{imageId, dt?, pin?}`; it runs the same
+- **The payload comes in two parts on a big gallery** (lesson 200,
+  `lib/gallery/first-screen.ts`). The page asks `GET /api/gallery/[slug]?part=first`: the
+  same payload holding only the photos the first screen reads (the landing section whole,
+  and every candidate the mosaic/crossfade pool rule examines), marked
+  `partial: { imageCount }`, or the whole payload unmarked when the gallery is under 600
+  photos, has no sections, is a selection share, or its first screen is over 60% of it.
+  Then `?part=rest`, whose photos and sections replace the first part's; settings and
+  branding stay from the first part. Only `part=first` (or a plain request) counts a view.
+  `GET /api/gallery/preview/[eventId]` takes the same `part` parameter. Both routes read
+  photos through `readGalleryImageRows` (`lib/gallery/image-rows.ts`). Parity on real
+  galleries: `npx tsx scripts/triage/first-screen-parity.ts --largest 40`.
+- `POST /api/gallery/[slug]/image-download` — one original, at the click, for every share
+  since lesson 199 (built for the **per-image** PIN, `require_pin_individual`, whose
+  shares alone carry its 300 per 10 min rate budget). Body `{imageId, dt?, pin?}`; it runs the same
   `authorizeShareDownload` as the ZIP with `kind:"individual"`, resolves the image
   through the same share-membership predicate, and returns a 10-minute presigned URL.
 
 **Originals in the guest payload — two separate questions.** `GET /api/gallery/[slug]`
-computes both, and they are deliberately NOT one flag:
-- `downloadWithheld = !allow_download || require_pin_individual` → omit `downloadUrl`.
+answers them separately, and they are deliberately NOT one flag:
+- Saving: the payload carries NO `downloadUrl` for any share (lesson 199). Download asks
+  `POST /image-download` at the click, which applies `allow_download`, the password
+  cookie and the per-image PIN through `authorizeShareDownload`.
 - `displayWithheld = require_pin_individual` → `originalUrl` and `settings.coverImageUrl`
   drop to the 800px rendition via `getWithheldDisplayKey()`.
 

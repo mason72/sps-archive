@@ -16,7 +16,8 @@ import { logActivity } from "@/lib/analytics/log";
 import { getOptionalUserId } from "@/lib/auth/helpers";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
-import { fetchPagesInWaves } from "@/lib/supabase/paged";
+import { readGalleryImageRows } from "@/lib/gallery/image-rows";
+import { firstScreenImageIds } from "@/lib/gallery/first-screen";
 import {
   resolveShareImageScope,
   shareScopeIsCurated,
@@ -187,89 +188,12 @@ export async function GET(
       };
     }
 
-    // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
-    const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y, is_cover_upload";
-    const IMG_PAGE = 1000;
-
-    // Determine sort order from event settings
+    // 5. Photos and sections, read together. Photos through the shared reader
+    // (parallel pages, throws on a failed one; image-rows.ts). Sections
+    // through loadSectionLinks, which pages in manual order and THROWS on a
+    // failed page; the old inline loop stopped at the first error, so a
+    // timeout quietly dropped photos out of their sections.
     const gridSort = (((event.settings as Record<string, unknown>)?.grid ?? {}) as Record<string, unknown>).sortBy as string | undefined;
-
-    // The share's displayable photos. One builder for the count and every
-    // page, so they can never filter differently.
-    const imagesQuery = (columns: string, options?: { count: "exact"; head: true }) => {
-      let q = supabase
-        .from("images")
-        .select(columns, options)
-        .eq("event_id", share.event_id)
-        // An image is displayable once its thumbnail exists — NOT once the AI
-        // pipeline finishes. processing_status tracks the (currently hidden)
-        // Modal AI step (CLIP/faces/aesthetic); when that step fails or is
-        // skipped, the photo is still fully viewable. Gating on
-        // processing_status='complete' silently hid every photo whose AI step
-        // failed, dropping whole sections from client galleries.
-        .eq("thumbnail_generated", true);
-      if (scope.kind === "images") {
-        q = q.in("id", scope.imageIds);
-      }
-      return q;
-    };
-
-    // Pages IN PARALLEL: the old loop waited on each 1,000-row page before
-    // asking for the next (1.5 to 1.8 s on Webex One, lesson 199). A gallery
-    // under 1,000 photos is still one round trip; a full first page asks for
-    // a count and then every other page at once. Complete only at a SHORT
-    // page, as before, so a photo added after the count is not lost. Each
-    // page ends its ORDER BY on `id`: filename and capture time are not
-    // unique, and offset paging over a non-unique order can repeat a photo on
-    // two pages and skip another.
-    const readImages = async () => {
-      const page = (i: number) => {
-        let q = imagesQuery(IMG_FIELDS);
-        // Apply sort order from event settings
-        if (gridSort === "filename") {
-          q = q.order("original_filename", { ascending: true });
-        } else if (gridSort === "date-taken") {
-          q = q.order("taken_at", { ascending: true, nullsFirst: false });
-        } else {
-          q = q.order("created_at", { ascending: true });
-        }
-        return q
-          .order("id", { ascending: true })
-          .range(i * IMG_PAGE, i * IMG_PAGE + IMG_PAGE - 1);
-      };
-      const first = await page(0);
-      if (first.error) throw first.error;
-      const pages: Awaited<ReturnType<typeof page>>[] = [first];
-      if ((first.data ?? []).length === IMG_PAGE) {
-        const counted = await imagesQuery("id", { count: "exact", head: true });
-        if (counted.error) throw counted.error;
-        const pageCount = Math.ceil((counted.count ?? 0) / IMG_PAGE);
-        pages.push(...(await fetchPagesInWaves(page, 1, pageCount)));
-        for (const res of pages) if (res.error) throw res.error;
-        while ((pages[pages.length - 1].data ?? []).length === IMG_PAGE) {
-          const next = await page(pages.length);
-          if (next.error) throw next.error;
-          pages.push(next);
-        }
-      }
-      // A photo added between the count and the pages can shift one row
-      // onto the next page; keep the first copy of any id.
-      const seen = new Set<string>();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return pages.flatMap((res): any[] => {
-        if (res.error) throw res.error;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return ((res.data ?? []) as any[]).filter((row) =>
-          seen.has(row.id) ? false : (seen.add(row.id), true)
-        );
-      });
-    };
-
-    // 5a'. Sections and their links, grouped into each section's imageIds in
-    // step 7. Read through loadSectionLinks, which pages in manual order and
-    // THROWS on a failed page; the old inline loop stopped at the first error,
-    // so a timeout quietly dropped photos out of their sections. Independent
-    // of the photo read, so the two run together.
     const readSections = async () => {
       const { data, error } = await supabase
         .from("sections")
@@ -281,7 +205,14 @@ export async function GET(
       return { rows, links: await loadSectionLinks(supabase, rows.map((s) => s.id)) };
     };
 
-    const [imageRows, sectionRead] = await Promise.all([readImages(), readSections()]);
+    const [imageRows, sectionRead] = await Promise.all([
+      readGalleryImageRows(supabase, {
+        eventId: share.event_id,
+        gridSort,
+        imageIds: scope.kind === "images" ? scope.imageIds : undefined,
+      }),
+      readSections(),
+    ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rawImages: any[] = imageRows;
     const rawSections = sectionRead.rows;
@@ -307,70 +238,6 @@ export async function GET(
     // used to reach the "All" tab, search and the mosaic tiles (lesson 184).
     // Filtered AFTER coverImageRow is captured, because a logo can BE the cover.
     rawImages = rawImages.filter((img) => !img.is_cover_upload);
-
-    // 5b. Generate presigned URLs (grid thumbnails at 400px + 800px for
-    // srcset, original for lightbox). Thumbnails use the presign memo so
-    // repeat visits within a session keep cache-friendly, stable URLs.
-    //
-    // Two separate questions, deliberately NOT one flag:
-    //
-    //  - May the guest SAVE an original? NO DOWNLOAD URL IS EVER IN THIS
-    //    PAYLOAD (2026-11-02, lesson 199). A guest's Download button asks
-    //    POST /api/gallery/[slug]/image-download at the click, which applies
-    //    allow_download, the password cookie and the per-image PIN through
-    //    authorizeShareDownload. That route was built for PIN-gated shares
-    //    (the PIN used to be enforced in the browser alone, so every original
-    //    sat presigned in this JSON, pre-alpha audit 2026-08-10); now every
-    //    share uses it, because signing a download URL for every photo was a
-    //    quarter of this payload's signing for a button most guests never
-    //    press. The client already fetched on click whenever the URL was
-    //    missing, so no screen changed.
-    //  - May the guest VIEW at full resolution? Only the PIN forces a step
-    //    down here. It has to: for a JPEG the display key IS the original key,
-    //    so a full-res lightbox would serve the very bytes the PIN withholds,
-    //    through a field that isn't named "download". A plain no-download
-    //    share keeps its full-res lightbox exactly as before — dropping every
-    //    proofing gallery to 800px is a visible quality regression, and the
-    //    presign is the real gate regardless.
-    const displayWithheld = share.require_pin_individual ?? false;
-
-    const images = await Promise.all(
-      (rawImages || []).map(async (img) => {
-        // null = no withheld-safe rendition exists (video), so the asset is
-        // omitted rather than leaked. See getWithheldDisplayKey.
-        const displayKey = displayWithheld
-          ? getWithheldDisplayKey(img.r2_key)
-          : getDisplayKey(img.r2_key);
-
-        const urls = await Promise.all([
-          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
-          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
-          // Lightbox/full view: web-viewable original, or the 800px JPEG for
-          // non-renderable formats (TIFF) and for withheld originals.
-          displayKey
-            ? getCachedDownloadUrl(displayKey, 14400)
-            : Promise.resolve(null),
-        ]);
-
-        const result: Record<string, unknown> = {
-          id: img.id,
-          thumbnailUrl: urls[0],
-          thumbnailLgUrl: urls[1],
-          ...(urls[2] ? { originalUrl: urls[2] } : {}),
-          originalFilename: img.original_filename,
-          parsedName: img.parsed_name,
-          width: img.width,
-          height: img.height,
-          dominantColor: img.dominant_color ?? null,
-          takenAt: img.taken_at,
-          mediaType: img.media_type ?? "image",
-          focalX: img.focal_x ?? null,
-          focalY: img.focal_y ?? null,
-        };
-
-        return result;
-      })
-    );
 
     // 6. Build gallery settings from event settings
     //
@@ -441,6 +308,118 @@ export async function GET(
       ),
     };
 
+    // 7. Group the section links read in 5 into each section's imageIds.
+    const imageIdSet = new Set((rawImages || []).map((img) => img.id));
+
+    // Group image IDs by section, filtering to images in this gallery
+    const sectionImageMap = new Map<string, string[]>();
+    for (const row of sectionImageRows) {
+      if (!imageIdSet.has(row.image_id)) continue;
+      const arr = sectionImageMap.get(row.section_id) || [];
+      arr.push(row.image_id);
+      sectionImageMap.set(row.section_id, arr);
+    }
+
+    const sections = (rawSections || [])
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        // Per-section order the photographer arranged (null = event default).
+        sortMode: s.sort_mode ?? null,
+        sortSeed: s.sort_seed ?? null,
+        imageIds: sectionImageMap.get(s.id) || [],
+      }))
+      .filter((s) => s.imageIds.length > 0);
+
+    // 7b. Which photos go out in this response. A guest's page asks for
+    // `?part=first` and then `?part=rest`: the first part is this same
+    // payload with only the photos the first screen reads (the landing
+    // section and the cover's candidates), so it draws before the whole
+    // gallery is signed and sent. Null = one part, everything goes now.
+    // The rule and why the first screen cannot change later: first-screen.ts.
+    const part = request.nextUrl.searchParams.get("part");
+    const firstIds =
+      part === "first" && !isSelectionShare
+        ? firstScreenImageIds({
+            images: rawImages.map((img) => ({
+              id: img.id as string,
+              parsedName: img.parsed_name as string | null,
+              originalFilename: img.original_filename as string,
+              mediaType: (img.media_type ?? "image") as string,
+            })),
+            sections: sections.length > 0 ? sections : undefined,
+            settings: gallerySettings,
+          })
+        : null;
+    const sentRows = firstIds
+      ? rawImages.filter((img) => firstIds.has(img.id))
+      : rawImages;
+
+    // 8. Sign the photos going out (grid thumbnails at 400px + 800px for
+    // srcset, original for lightbox). Thumbnails use the presign memo so
+    // repeat visits within a session keep cache-friendly, stable URLs.
+    //
+    // Two separate questions, deliberately NOT one flag:
+    //
+    //  - May the guest SAVE an original? NO DOWNLOAD URL IS EVER IN THIS
+    //    PAYLOAD (2026-11-02, lesson 199). A guest's Download button asks
+    //    POST /api/gallery/[slug]/image-download at the click, which applies
+    //    allow_download, the password cookie and the per-image PIN through
+    //    authorizeShareDownload. That route was built for PIN-gated shares
+    //    (the PIN used to be enforced in the browser alone, so every original
+    //    sat presigned in this JSON, pre-alpha audit 2026-08-10); now every
+    //    share uses it, because signing a download URL for every photo was a
+    //    quarter of this payload's signing for a button most guests never
+    //    press. The client already fetched on click whenever the URL was
+    //    missing, so no screen changed.
+    //  - May the guest VIEW at full resolution? Only the PIN forces a step
+    //    down here. It has to: for a JPEG the display key IS the original key,
+    //    so a full-res lightbox would serve the very bytes the PIN withholds,
+    //    through a field that isn't named "download". A plain no-download
+    //    share keeps its full-res lightbox exactly as before — dropping every
+    //    proofing gallery to 800px is a visible quality regression, and the
+    //    presign is the real gate regardless.
+    const displayWithheld = share.require_pin_individual ?? false;
+
+    const images = await Promise.all(
+      sentRows.map(async (img) => {
+        // null = no withheld-safe rendition exists (video), so the asset is
+        // omitted rather than leaked. See getWithheldDisplayKey.
+        const displayKey = displayWithheld
+          ? getWithheldDisplayKey(img.r2_key)
+          : getDisplayKey(img.r2_key);
+
+        const urls = await Promise.all([
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key)),
+          getCachedThumbnailUrl(getThumbnailKey(img.r2_key, "thumb-lg")),
+          // Lightbox/full view: web-viewable original, or the 800px JPEG for
+          // non-renderable formats (TIFF) and for withheld originals.
+          displayKey
+            ? getCachedDownloadUrl(displayKey, 14400)
+            : Promise.resolve(null),
+        ]);
+
+        const result: Record<string, unknown> = {
+          id: img.id,
+          thumbnailUrl: urls[0],
+          thumbnailLgUrl: urls[1],
+          ...(urls[2] ? { originalUrl: urls[2] } : {}),
+          originalFilename: img.original_filename,
+          parsedName: img.parsed_name,
+          width: img.width,
+          height: img.height,
+          dominantColor: img.dominant_color ?? null,
+          takenAt: img.taken_at,
+          mediaType: img.media_type ?? "image",
+          focalX: img.focal_x ?? null,
+          focalY: img.focal_y ?? null,
+        };
+
+        return result;
+      })
+    );
+
     // Generate presigned URL for cover image if cover is enabled. The hero is
     // an event photo like any other, so a PIN-gated share must not hand out
     // its full original either. (The public /cover route, which fronts emails
@@ -470,32 +449,8 @@ export async function GET(
       gallerySettings.coverImagePadding = cover.image?.padding;
     }
 
-    // 7. Group the section links read in 5a' into each section's imageIds.
-    const imageIdSet = new Set((rawImages || []).map((img) => img.id));
-
-    // Group image IDs by section, filtering to images in this gallery
-    const sectionImageMap = new Map<string, string[]>();
-    for (const row of sectionImageRows) {
-      if (!imageIdSet.has(row.image_id)) continue;
-      const arr = sectionImageMap.get(row.section_id) || [];
-      arr.push(row.image_id);
-      sectionImageMap.set(row.section_id, arr);
-    }
-
-    const sections = (rawSections || [])
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        // Per-section order the photographer arranged (null = event default).
-        sortMode: s.sort_mode ?? null,
-        sortSeed: s.sort_seed ?? null,
-        imageIds: sectionImageMap.get(s.id) || [],
-      }))
-      .filter((s) => s.imageIds.length > 0);
-
     /**
-     * 8. Increment view count + log activity (deferred until after response)
+     * 9. Increment view count + log activity (deferred until after response)
      *
      * THE OWNER'S OWN VISIT IS NOT A VIEW. Views are what
      * `src/lib/events/status.ts` reads as delivery evidence — a gallery counts
@@ -508,11 +463,14 @@ export async function GET(
      * pointing at the real share (Mason, 2026-08-15: "there's no other way to
      * click through to the actual public gallery"). Before that, the owner
      * route was the only way in and the question never arose.
+     *
+     * ONE VISIT IS ONE VIEW. The page asks for `?part=first` and then
+     * `?part=rest` (7b); only the first is counted.
      */
     const viewerId = await getOptionalUserId();
     const isOwnerViewing = !!event.user_id && viewerId === event.user_id;
 
-    if (!isOwnerViewing) {
+    if (!isOwnerViewing && part !== "rest") {
       after(async () => {
         const svc = createServiceClient();
         await svc.rpc("increment_share_views", { p_share_id: share.id });
@@ -545,6 +503,9 @@ export async function GET(
       // Read from the SAME scope resolver that decides what this share exposes,
       // so "is this curated" can never disagree with "what do you get".
       curated: shareScopeIsCurated(scope),
+      // Present only on a first part that holds fewer than every photo: the
+      // page then asks for `?part=rest` and swaps it in.
+      ...(firstIds ? { partial: { imageCount: rawImages.length } } : {}),
     });
   } catch (error) {
     console.error("Gallery error:", error);

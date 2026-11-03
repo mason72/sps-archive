@@ -25,6 +25,11 @@ const db = {
   queries: [] as { table: string; ops: QueryOp[] }[],
   /** Extra image rows linked to no section (a cover upload, or a lost photo). */
   extraImages: [] as Record<string, unknown>[],
+  /** Section rows and links, when a test needs more than the one default. */
+  sections: null as Record<string, unknown>[] | null,
+  links: null as { section_id: string; image_id: string }[] | null,
+  /** Every rpc() call by name: increment_share_views is a counted view. */
+  rpcs: [] as string[],
 };
 
 const IMAGE_ROWS = [
@@ -72,6 +77,7 @@ function resolveQuery(table: string, ops: QueryOp[]) {
     return { data: offset === 0 ? [...IMAGE_ROWS, ...db.extraImages] : [], error: null };
   }
   if (table === "sections") {
+    if (db.sections) return { data: db.sections, error: null };
     return {
       data: [{ id: "sec-1", name: "Everyone", description: null, sort_mode: null, sort_seed: null }],
       error: null,
@@ -82,7 +88,7 @@ function resolveQuery(table: string, ops: QueryOp[]) {
     const range = ops.find((o) => o.fn === "range");
     const offset = (range?.args[0] as number) ?? 0;
     return {
-      data: offset === 0 ? [{ section_id: "sec-1", image_id: "img-1" }] : [],
+      data: offset === 0 ? (db.links ?? [{ section_id: "sec-1", image_id: "img-1" }]) : [],
       error: null,
     };
   }
@@ -129,14 +135,19 @@ vi.mock("@/lib/supabase/server", () => ({
       db.tables.push(table);
       return makeBuilder(table);
     },
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (name: string) => {
+      db.rpcs.push(name);
+      return { data: null, error: null };
+    },
   }),
 }));
 
 vi.mock("next/server", async () => {
   const actual = await vi.importActual<typeof import("next/server")>("next/server");
-  // after() needs a request scope that vitest has no way to provide.
-  return { ...actual, after: (fn: () => unknown) => void fn };
+  // after() needs a request scope that vitest has no way to provide, so the
+  // deferred work runs at once; it starts synchronously, which is all the
+  // view-count test reads.
+  return { ...actual, after: (fn: () => unknown) => void fn() };
 });
 
 vi.mock("@/lib/r2/client", () => ({
@@ -171,8 +182,8 @@ const baseShare = {
   image_ids: null as string[] | null,
 };
 
-const call = () =>
-  GET(new NextRequest("https://app.test/api/gallery/abc123"), {
+const call = (query = "") =>
+  GET(new NextRequest(`https://app.test/api/gallery/abc123${query}`), {
     params: Promise.resolve({ slug: "abc123" }),
   });
 
@@ -182,6 +193,9 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     db.tables = [];
     db.queries = [];
     db.extraImages = [];
+    db.sections = null;
+    db.links = null;
+    db.rpcs = [];
   });
 
   it("serves the event's images for a full share", async () => {
@@ -313,5 +327,82 @@ describe("GET /api/gallery/[slug] — share scope", () => {
 
     expect(res.status).toBe(404);
     expect(db.tables).not.toContain("images");
+  });
+});
+
+describe("GET /api/gallery/[slug] — first screen, then the rest", () => {
+  // 900 photos: a 10-photo landing section, then an 890-photo one.
+  const big = () => {
+    db.share = { ...baseShare };
+    db.extraImages = Array.from({ length: 899 }, (_, k) => ({
+      ...IMAGE_ROWS[0],
+      id: `x-${k}`,
+      original_filename: `DSC_${String(k + 2).padStart(4, "0")}.jpg`,
+    }));
+    const ids = ["img-1", ...db.extraImages.map((r) => r.id as string)];
+    db.sections = [
+      { id: "sec-a", name: "A", description: null, sort_mode: null, sort_seed: null },
+      { id: "sec-b", name: "B", description: null, sort_mode: null, sort_seed: null },
+    ];
+    db.links = ids.map((id, i) => ({ section_id: i < 10 ? "sec-a" : "sec-b", image_id: id }));
+    return ids;
+  };
+
+  beforeEach(() => {
+    db.share = null;
+    db.tables = [];
+    db.queries = [];
+    db.extraImages = [];
+    db.sections = null;
+    db.links = null;
+    db.rpcs = [];
+  });
+
+  it("sends only the landing section on ?part=first, with every section id", async () => {
+    const ids = big();
+    const body = await (await call("?part=first")).json();
+
+    expect(body.partial).toEqual({ imageCount: 900 });
+    expect(body.images.map((i: { id: string }) => i.id)).toEqual(ids.slice(0, 10));
+    expect(body.sections.map((s: { imageIds: string[] }) => s.imageIds.length)).toEqual([10, 890]);
+  });
+
+  it("sends every photo, unmarked, on ?part=rest and on a plain request", async () => {
+    big();
+    for (const query of ["?part=rest", ""]) {
+      const body = await (await call(query)).json();
+      expect(body.partial).toBeUndefined();
+      expect(body.images).toHaveLength(900);
+    }
+  });
+
+  it("counts one view per visit: the first part, never the rest", async () => {
+    big();
+    await call("?part=first");
+    expect(db.rpcs).toEqual(["increment_share_views"]);
+    await call("?part=rest");
+    expect(db.rpcs).toEqual(["increment_share_views"]);
+    // Control: a plain load (an older page) is still a view.
+    await call();
+    expect(db.rpcs).toEqual(["increment_share_views", "increment_share_views"]);
+  });
+
+  it("never splits a selection share", async () => {
+    // A selection share carries no sections, so a first part would have no
+    // landing section to hold and nothing to wait on.
+    const ids = big();
+    db.share = { ...baseShare, share_type: "selection", image_ids: ids };
+    const body = await (await call("?part=first")).json();
+
+    expect(body.partial).toBeUndefined();
+    expect(body.images).toHaveLength(900);
+  });
+
+  it("sends a small gallery whole even when asked for the first part", async () => {
+    db.share = { ...baseShare };
+    const body = await (await call("?part=first")).json();
+
+    expect(body.partial).toBeUndefined();
+    expect(body.images).toHaveLength(1);
   });
 });
