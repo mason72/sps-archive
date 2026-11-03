@@ -17,8 +17,12 @@ const db = {
   share: null as Record<string, unknown> | null,
   /** Every table touched, in order. */
   tables: [] as string[],
-  /** Ops recorded per table (last query wins for repeated tables). */
-  ops: {} as Record<string, QueryOp[]>,
+  /**
+   * Every query issued, in order, with its own ops. A table can be read more
+   * than once (the image page loop, then the faces probe for selfie search),
+   * so a per-table map would let the later read hide the earlier one.
+   */
+  queries: [] as { table: string; ops: QueryOp[] }[],
   /** Extra image rows linked to no section (a cover upload, or a lost photo). */
   extraImages: [] as Record<string, unknown>[],
 };
@@ -86,7 +90,7 @@ function resolveQuery(table: string, ops: QueryOp[]) {
  */
 function makeBuilder(table: string) {
   const ops: QueryOp[] = [];
-  db.ops[table] = ops;
+  db.queries.push({ table, ops });
   const self: Record<string, unknown> = {};
   const proxy: unknown = new Proxy(self, {
     get(_target, prop) {
@@ -169,7 +173,7 @@ describe("GET /api/gallery/[slug] — share scope", () => {
   beforeEach(() => {
     db.share = null;
     db.tables = [];
-    db.ops = {};
+    db.queries = [];
     db.extraImages = [];
   });
 
@@ -235,8 +239,15 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     const res = await call();
 
     expect(res.status).toBe(200);
-    const inOp = db.ops.images?.find((o) => o.fn === "in");
-    expect(inOp?.args).toEqual(["id", ["img-1"]]);
+    // The image page read is the paged one (it carries .range()); other
+    // images queries, like the faces probe, answer yes/no and serve no rows.
+    const pageReads = db.queries.filter(
+      (q) => q.table === "images" && q.ops.some((o) => o.fn === "range")
+    );
+    expect(pageReads.length).toBeGreaterThan(0);
+    for (const q of pageReads) {
+      expect(q.ops.find((o) => o.fn === "in")?.args).toEqual(["id", ["img-1"]]);
+    }
   });
 
   it("serves nothing for a selection share with an empty id list", async () => {
