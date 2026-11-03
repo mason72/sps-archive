@@ -1,0 +1,48 @@
+# Hold the R2 URL signer to the AWS SDK's output, on every change that could
+# move either side.
+#
+# Why (lesson 198, 2026-11-02): src/lib/r2/presign.ts signs gallery URLs with
+# the bare SigV4 signer because getSignedUrl was the slowest part of a large
+# gallery load. Its URLs must stay byte-identical to getSignedUrl's, and
+# presign.test.ts proves that with the SDK as the oracle. But nothing ran that
+# test on its own: the pre-push hook only type-checks and lints, and Dependabot
+# bumps @aws-sdk/* on GitHub, where no local hook ever runs. An SDK release
+# that changed the URL shape would have left the copy behind in silence.
+# This runs the R2 tests whenever the lockfile or the R2 code changes, so that
+# bump goes red here instead.
+name: R2 signing
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "src/lib/r2/**"
+      - ".github/workflows/r2-signing.yml"
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "src/lib/r2/**"
+      - ".github/workflows/r2-signing.yml"
+  workflow_dispatch:
+
+# vitest runs the PR's own code, so the token gets nothing it could misuse.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # No install scripts: the tests need none, and a PR's scripts should
+      # not run with this job's token.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx vitest run src/lib/r2

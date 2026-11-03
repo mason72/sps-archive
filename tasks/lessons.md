@@ -4824,3 +4824,29 @@ Three checks, one assumption: a check fed by the thing it checks can only agree 
 - Before downloading a big archive to learn what is in it, try a Range request for its tail. Formats that index themselves at the end answer for almost nothing.
 - A probe that disagrees with a reviewer's direct observation is the first suspect. Test it on a known pair in each direction before believing a whole table from it.
 - "Absent here and not elsewhere" is only as good as the "elsewhere" check, and a deleted duplicate is exactly the case where names and events stop lining up. Before a total of "photos only on X" goes to anyone, sort it by gallery and read the three biggest.
+
+## 198. A gallery took 16 to 25 seconds to show its first photo, and the database was never slow (2026-11-02)
+
+Mason: "When I load a gallery in PT, it always takes like 20-30 seconds for images to appear." Measured on Webex One (8,248 photos): the guest link's payload arrived at 24.9 s and the first thumbnail 0.4 s later, so the browser, R2 and image sizes were never the problem. Every second was the server building one payload before answering.
+
+**Where the time went, measured phase by phase against production (laptop, `scripts/`-style probes):**
+- Editor (`GET /api/events/[id]`): **12.7 s** of 16.2 s reading section membership as `section_images` + `sections!inner(event_id)` filtered on `sections.event_id`, sequential 1,000-row pages at ~1.4 s each. The same SQL straight in Postgres: **11 ms**. PostgREST evaluates a filter on an embedded resource per page against the whole 1.7M-row table. Same trap as lesson 144 (faces through `images.event_id`), second instance, so it is now in the global platform gotchas.
+- Guest (`GET /api/gallery/[slug]`): signing 33,000 URLs (4 per photo) took 5.3 s on a laptop and more on a Vercel function. The SDK's `getSignedUrl` runs the whole S3 middleware stack per URL.
+- The signed-URL memo `clear()`ed itself past 20,000 entries; Webex One's guest load needs ~33,000, so the biggest galleries emptied it mid-request and never hit it.
+
+**Fixes.**
+1. The editor reads sections first and passes their ids to `loadSectionLinks` (what the guest gallery, preview and ZIP already used), concurrently with the image read. Parity probe on 7 galleries (Webex One, both WebexOnes, TDP Website with 56 sections and cross-event photos, RSAC, FM Headshots, TDP Work): identical per-section ordered lists; old 1.1 to 8.6 s, new 0.2 to 1.5 s. A dropped link turns the probe red. Even a 185-link gallery went 1.2 s to 0.2 s.
+2. `src/lib/r2/presign.ts`: the bare `@smithy/signature-v4` signer, **byte-identical to `getSignedUrl`** with the SDK as the test oracle (`presign.test.ts`, 49 cases incl. accents, `(AI)`, `'!*()`, `+&=?#`, attachments). 16,000 signs: 1,767 ms to 216 ms; 33,000 through `client.ts`: 679 ms. Live: identical URLs for real keys, thumbnails 200, downloads still `attachment`, a forged signature 403.
+3. The memo evicts its oldest tenth past 60,000 instead of clearing.
+
+**Two things that nearly went wrong.**
+- **My first benchmark compared truncated URLs.** The SDK adds `x-amz-checksum-mode=ENABLED` (its default response-checksum validation) and sends `X-Amz-Content-Sha256` as a HEADER the signer reads as the payload hash and then hoists. The full-string oracle test caught both; a "paths match" eyeball would have shipped URLs with different signatures, valid but cache-busting for every visitor once.
+- **`npm install <pkg> --package-lock-only` upgraded the package** (resolved 5.7.5, not the installed 5.6.1 I had tested) and a second try added 64 unrelated lockfile lines from a different npm version. The right change was one line in `package.json` and one in the lock's root block, proven with a real `npm ci` in a scratch folder.
+
+**The review round.** A fresh reviewer found nothing blocking and three things worth doing. (1) The byte-identity test ran nowhere on its own: the pre-push hook only type-checks and lints, and Dependabot bumps `@aws-sdk/*` on GitHub, so an SDK release that changed the URL shape would leave the copy behind silently. `.github/workflows/r2-signing.yml` now runs `vitest run src/lib/r2` on any lockfile or R2 change. (2) The SDK switches to path-style URLs for a bucket that cannot be a hostname label; the signer now throws for those instead of quietly signing a different URL. (3) The external-photo fetch (TDP Website's cross-event members) sent up to 1,000 ids per `.in()`; it is chunked at 100 now. Locally a 489-id request failed outright ("fetch failed") where 100-id chunks returned all 489, but `system_errors` holds no editor failure in production, so the limit looks specific to the local Node 25, not something users hit.
+
+**Rules.**
+- Before optimizing a slow page, read the resource timings: where the first image lands relative to the payload tells you whether to look at the client or the server.
+- Never filter a PostgREST read through an embedded resource on a big table; read the parent ids first and filter the child by them.
+- Anything signed per photo is signed thousands of times: use `getCachedThumbnailUrl` / `getCachedDownloadUrl` (now cheap), never `getSignedUrl` in a loop.
+- Still open: the guest payload signs a download URL for every photo up front (half its signing) and reads images sequentially (2.1 s on Webex One); and a first-screenful-first payload would make size irrelevant.

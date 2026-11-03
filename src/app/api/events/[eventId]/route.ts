@@ -7,6 +7,7 @@ import { inngest } from "@/lib/inngest/client";
 import { ensureWebsiteSections } from "@/lib/site/gallery";
 import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 import { reportSystemError } from "@/lib/monitoring/report";
+import { loadSectionLinks } from "@/lib/sections/gallery-members";
 
 // DELETE finishes its R2 cleanup in after(), which runs inside this budget. A
 // 6,000-photo event is ~24,000 object deletes, about a minute at 32 at a time.
@@ -100,22 +101,21 @@ export async function GET(
     const IMAGE_FIELDS =
       "id, r2_key, original_filename, aesthetic_score, sharpness_score, stack_id, stack_rank, parsed_name, processing_status, processing_error, width, height, created_at, taken_at, focal_x, focal_y, service, featured, media_type, duration_seconds, event_id, sps_source_image_id, is_cover_upload, events!event_id(name, city)";
     const PAGE_SIZE = 1000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rawImages: any[] = [];
 
     // Count first, then fetch every page IN PARALLEL. The old sequential
     // while-loop cost one round-trip per 1,000 rows — six of them, ~1s, on a
     // 5,787-image event, with each page waiting on the one before it for no
     // reason. One count plus N concurrent ranges is the same data in roughly
     // the time of a single page.
-    const { count: imageCount, error: countError } = await supabase
-      .from("images")
-      .select("id", { count: "exact", head: true })
-      .eq("event_id", eventId);
-    if (countError) throw countError;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const readImages = async (): Promise<any[]> => {
+      const { count: imageCount, error: countError } = await supabase
+        .from("images")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId);
+      if (countError) throw countError;
 
-    const pageCount = Math.ceil((imageCount ?? 0) / PAGE_SIZE);
-    if (pageCount > 0) {
+      const pageCount = Math.ceil((imageCount ?? 0) / PAGE_SIZE);
       const pages = await Promise.all(
         Array.from({ length: pageCount }, (_, i) =>
           supabase
@@ -132,21 +132,45 @@ export async function GET(
             .range(i * PAGE_SIZE, i * PAGE_SIZE + PAGE_SIZE - 1)
         )
       );
-      for (const page of pages) {
+      return pages.flatMap((page) => {
         if (page.error) throw page.error;
-        rawImages = rawImages.concat(page.data ?? []);
-      }
-    }
+        return page.data ?? [];
+      });
+    };
 
-    // 2b. Fetch section membership for ALL images in one grouped query, then
-    // attach each image's sectionIds to its payload. This lets the client
-    // filter by section purely in memory (no per-section-switch round-trip),
-    // which removes the fetch-then-filter race that showed "No images yet" on
-    // populated sections. (Paginated — an image can be in several sections.)
-    // Also accumulate each section's members in sort_order order (the manual
-    // arrangement) so the client can render the "Manual" sort. Ordering the
-    // whole query by (section_id, sort_order, image_id) keeps every section's
-    // subsequence correct across pagination.
+    // 2b. Section membership for ALL images, attached to each image's payload
+    // as sectionIds. This lets the client filter by section purely in memory
+    // (no per-section-switch round-trip), which removes the fetch-then-filter
+    // race that showed "No images yet" on populated sections. Each section's
+    // members also arrive in sort_order order (the manual arrangement) so the
+    // client can render the "Manual" sort.
+    //
+    // Read by SECTION ID through loadSectionLinks, never by joining sections
+    // and filtering on sections.event_id. PostgREST runs that join filter
+    // against the whole 1.7M-row section_images table on every 1,000-row page:
+    // 1.4 s a page, 12.7 s of a 16 s load on Webex One (8,248 photos), against
+    // 0.8 s for the same rows by section id (2026-11-02, lesson 198). The same
+    // SQL straight in Postgres takes 11 ms; the cost is the API's shape.
+    const readSections = async () => {
+      const { data, error } = await supabase
+        .from("sections")
+        .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta, sort_mode, sort_seed, highlights_auto_count, highlights_auto_filled_at")
+        .eq("event_id", eventId)
+        // created_at is a stable tiebreaker so equal sort_orders never shuffle
+        // between reloads.
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const rows = data ?? [];
+      return { rows, links: await loadSectionLinks(supabase, rows.map((s) => s.id)) };
+    };
+
+    // The two reads share nothing, so neither waits on the other.
+    const [imageRows, sectionRead] = await Promise.all([readImages(), readSections()]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = imageRows;
+    const rawSections = sectionRead.rows;
+
     // The cover image must never appear in the grid / sections, even if a
     // legacy cover still has a section link. Identify it from settings and skip
     // its membership rows below.
@@ -157,34 +181,16 @@ export async function GET(
 
     const sectionIdsByImage = new Map<string, string[]>();
     const orderedImageIdsBySection = new Map<string, string[]>();
-    {
-      let liOffset = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { data: links, error: linksError } = await supabase
-          .from("section_images")
-          .select("image_id, section_id, sort_order, sections!inner(event_id)")
-          .eq("sections.event_id", eventId)
-          .order("section_id", { ascending: true })
-          .order("sort_order", { ascending: true })
-          .order("image_id", { ascending: true })
-          .range(liOffset, liOffset + PAGE_SIZE - 1);
-        if (linksError) throw linksError;
-        if (!links || links.length === 0) break;
-        for (const link of links) {
-          // Drop any cover-image membership so it stays out of the gallery.
-          if (coverImageId && link.image_id === coverImageId) continue;
-          const arr = sectionIdsByImage.get(link.image_id);
-          if (arr) arr.push(link.section_id);
-          else sectionIdsByImage.set(link.image_id, [link.section_id]);
+    for (const link of sectionRead.links) {
+      // Drop any cover-image membership so it stays out of the gallery.
+      if (coverImageId && link.image_id === coverImageId) continue;
+      const arr = sectionIdsByImage.get(link.image_id);
+      if (arr) arr.push(link.section_id);
+      else sectionIdsByImage.set(link.image_id, [link.section_id]);
 
-          const ordered = orderedImageIdsBySection.get(link.section_id);
-          if (ordered) ordered.push(link.image_id);
-          else orderedImageIdsBySection.set(link.section_id, [link.image_id]);
-        }
-        if (links.length < PAGE_SIZE) break;
-        liOffset += PAGE_SIZE;
-      }
+      const ordered = orderedImageIdsBySection.get(link.section_id);
+      if (ordered) ordered.push(link.image_id);
+      else orderedImageIdsBySection.set(link.section_id, [link.image_id]);
     }
 
     // 2b'. A cover upload (a client logo, is_cover_upload) is never a gallery
@@ -205,13 +211,25 @@ export async function GET(
       const externalIds = [...sectionIdsByImage.keys()].filter(
         (id) => !localIds.has(id)
       );
-      for (let i = 0; i < externalIds.length; i += PAGE_SIZE) {
-        const { data: externals, error: extError } = await supabase
-          .from("images")
-          .select(IMAGE_FIELDS)
-          .in("id", externalIds.slice(i, i + PAGE_SIZE));
-        if (extError) throw extError;
-        rawImages = rawImages.concat(externals ?? []);
+      // 100 ids per request: an `.in()` list rides in the URL, and around 500
+      // uuids the request fails outright (platform gotcha, 2026-10-24). Up to
+      // 8 requests at a time; the chunks share nothing.
+      const ID_CHUNK = 100;
+      const IN_FLIGHT = 8;
+      for (let i = 0; i < externalIds.length; i += ID_CHUNK * IN_FLIGHT) {
+        const wave = externalIds.slice(i, i + ID_CHUNK * IN_FLIGHT);
+        const chunks = await Promise.all(
+          Array.from({ length: Math.ceil(wave.length / ID_CHUNK) }, (_, j) =>
+            supabase
+              .from("images")
+              .select(IMAGE_FIELDS)
+              .in("id", wave.slice(j * ID_CHUNK, (j + 1) * ID_CHUNK))
+          )
+        );
+        for (const { data: externals, error: extError } of chunks) {
+          if (extError) throw extError;
+          rawImages = rawImages.concat(externals ?? []);
+        }
       }
     }
 
@@ -300,18 +318,7 @@ export async function GET(
         .sort((a, b) => (a.stackRank ?? 999) - (b.stackRank ?? 999)),
     }));
 
-    // 5. Fetch sections with image counts
-    const { data: rawSections, error: sectionsError } = await supabase
-      .from("sections")
-      .select("id, name, is_auto, sort_order, created_at, site_scene_key, locked, job_meta, sort_mode, sort_seed, highlights_auto_count, highlights_auto_filled_at")
-      .eq("event_id", eventId)
-      // created_at is a stable tiebreaker so equal sort_orders never shuffle
-      // between reloads.
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (sectionsError) throw sectionsError;
-
+    // 5. Sections (read in step 2b) with image counts.
     // Image counts per section, computed from the membership we already loaded
     // (no per-section count query — replaces the old N+1).
     const sectionCounts = new Map<string, number>();

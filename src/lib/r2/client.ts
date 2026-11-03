@@ -12,6 +12,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 import { PassThrough } from "node:stream";
+import { createR2GetPresigner } from "./presign";
 
 /**
  * TIMEOUTS for every R2 client in the app, because a socket that dies
@@ -44,15 +45,36 @@ import { PassThrough } from "node:stream";
  */
 export const R2_REQUEST_HANDLER = { connectionTimeout: 10_000, socketTimeout: 120_000 };
 
-const R2 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
+/**
+ * The app's S3 client settings, in one place. presign.test.ts builds its SDK
+ * oracle from this same function, so a setting that changes what getSignedUrl
+ * emits (responseChecksumValidation, forcePathStyle, …) changes the oracle
+ * too, and the byte-identity test goes red instead of comparing against a
+ * stale copy.
+ */
+export function r2ClientConfig(env: {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}) {
+  return {
+    region: "auto",
+    endpoint: `https://${env.accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: env.accessKeyId,
+      secretAccessKey: env.secretAccessKey,
+    },
+    requestHandler: R2_REQUEST_HANDLER,
+  };
+}
+
+const R2 = new S3Client(
+  r2ClientConfig({
+    accountId: process.env.R2_ACCOUNT_ID!,
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-  requestHandler: R2_REQUEST_HANDLER,
-});
+  })
+);
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
 
@@ -198,8 +220,40 @@ export async function getPresignedDownloadUrl(
  * validity remaining, and the browser cache holds within a session.
  *
  * Use for immutable grid assets only; downloads should stay freshly signed.
+ *
+ * Signed by presign.ts (the bare SigV4 signer, byte-identical to getSignedUrl
+ * and ~8x faster), because a gallery payload signs thousands of these per
+ * load (lesson 198).
  */
+const presignGet = createR2GetPresigner({
+  accountId: process.env.R2_ACCOUNT_ID!,
+  bucket: BUCKET,
+  accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+});
+
+/**
+ * Per-instance memo of signed URLs, oldest out first. It used to CLEAR itself
+ * past 20,000 entries, and one guest load of Webex One signs ~33,000, so the
+ * biggest galleries emptied it during every request and never hit it at all.
+ * 60,000 entries is roughly 45 MB of strings at ~700 bytes each; past that the
+ * first-inserted tenth goes. That is mostly entries from older signing
+ * windows, but on a busy instance it can be current ones, which only costs a
+ * re-sign.
+ */
+const SIGNED_URL_MEMO_MAX = 60_000;
 const signedUrlMemo = new Map<string, string>();
+
+function rememberSignedUrl(memoKey: string, url: string): void {
+  if (signedUrlMemo.size >= SIGNED_URL_MEMO_MAX) {
+    let drop = SIGNED_URL_MEMO_MAX / 10;
+    for (const k of signedUrlMemo.keys()) {
+      signedUrlMemo.delete(k);
+      if (--drop <= 0) break;
+    }
+  }
+  signedUrlMemo.set(memoKey, url);
+}
 
 export async function getCachedThumbnailUrl(
   key: string,
@@ -207,18 +261,15 @@ export async function getCachedThumbnailUrl(
 ): Promise<string> {
   const windowMs = (expiresIn * 1000) / 2;
   const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
-  const memoKey = `${signingDate.getTime()}:${key}`;
+  // expiresIn is part of the URL, so it is part of the key; the "t:" and
+  // "d:" prefixes keep the two shapes of key from ever colliding.
+  const memoKey = `t:${signingDate.getTime()}:${expiresIn}:${key}`;
 
   const memoized = signedUrlMemo.get(memoKey);
   if (memoized) return memoized;
 
-  const url = await getSignedUrl(
-    R2,
-    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
-    { expiresIn, signingDate }
-  );
-  if (signedUrlMemo.size > 20000) signedUrlMemo.clear(); // crude bound
-  signedUrlMemo.set(memoKey, url);
+  const url = await presignGet(key, { expiresIn, signingDate });
+  rememberSignedUrl(memoKey, url);
   return url;
 }
 
@@ -237,24 +288,18 @@ export async function getCachedDownloadUrl(
 ): Promise<string> {
   const windowMs = (expiresIn * 1000) / 2;
   const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
-  const memoKey = `${signingDate.getTime()}:${expiresIn}:${filename ?? ""}:${key}`;
+  // JSON, because a filename may itself contain ":".
+  const memoKey = `d:${signingDate.getTime()}:${expiresIn}:${JSON.stringify([filename ?? null, key])}`;
 
   const memoized = signedUrlMemo.get(memoKey);
   if (memoized) return memoized;
 
-  const url = await getSignedUrl(
-    R2,
-    new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      ...(filename
-        ? { ResponseContentDisposition: attachmentDisposition(filename) }
-        : {}),
-    }),
-    { expiresIn, signingDate }
-  );
-  if (signedUrlMemo.size > 20000) signedUrlMemo.clear(); // crude bound
-  signedUrlMemo.set(memoKey, url);
+  const url = await presignGet(key, {
+    expiresIn,
+    signingDate,
+    ...(filename ? { contentDisposition: attachmentDisposition(filename) } : {}),
+  });
+  rememberSignedUrl(memoKey, url);
   return url;
 }
 
