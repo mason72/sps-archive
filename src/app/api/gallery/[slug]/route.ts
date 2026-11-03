@@ -16,6 +16,7 @@ import { logActivity } from "@/lib/analytics/log";
 import { getOptionalUserId } from "@/lib/auth/helpers";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
+import { fetchPagesInWaves } from "@/lib/supabase/paged";
 import {
   resolveShareImageScope,
   shareScopeIsCurated,
@@ -189,18 +190,16 @@ export async function GET(
     // 5. Fetch images — paginated to avoid Supabase 1000-row default limit
     const IMG_FIELDS = "id, r2_key, original_filename, parsed_name, width, height, aesthetic_score, taken_at, dominant_color, media_type, focal_x, focal_y, is_cover_upload";
     const IMG_PAGE = 1000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rawImages: any[] = [];
-    let imgOffset = 0;
 
     // Determine sort order from event settings
     const gridSort = (((event.settings as Record<string, unknown>)?.grid ?? {}) as Record<string, unknown>).sortBy as string | undefined;
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      let pageQuery = supabase
+    // The share's displayable photos. One builder for the count and every
+    // page, so they can never filter differently.
+    const imagesQuery = (columns: string, options?: { count: "exact"; head: true }) => {
+      let q = supabase
         .from("images")
-        .select(IMG_FIELDS)
+        .select(columns, options)
         .eq("event_id", share.event_id)
         // An image is displayable once its thumbnail exists — NOT once the AI
         // pipeline finishes. processing_status tracks the (currently hidden)
@@ -209,29 +208,84 @@ export async function GET(
         // processing_status='complete' silently hid every photo whose AI step
         // failed, dropping whole sections from client galleries.
         .eq("thumbnail_generated", true);
-
-      // Apply sort order from event settings
-      if (gridSort === "filename") {
-        pageQuery = pageQuery.order("original_filename", { ascending: true });
-      } else if (gridSort === "date-taken") {
-        pageQuery = pageQuery.order("taken_at", { ascending: true, nullsFirst: false });
-      } else {
-        pageQuery = pageQuery.order("created_at", { ascending: true });
-      }
-
-      pageQuery = pageQuery.range(imgOffset, imgOffset + IMG_PAGE - 1);
-
       if (scope.kind === "images") {
-        pageQuery = pageQuery.in("id", scope.imageIds);
+        q = q.in("id", scope.imageIds);
       }
+      return q;
+    };
 
-      const { data, error: pageError } = await pageQuery;
-      if (pageError) throw pageError;
-      if (!data || data.length === 0) break;
-      rawImages = rawImages.concat(data);
-      if (data.length < IMG_PAGE) break;
-      imgOffset += IMG_PAGE;
-    }
+    // Pages IN PARALLEL: the old loop waited on each 1,000-row page before
+    // asking for the next (1.5 to 1.8 s on Webex One, lesson 199). A gallery
+    // under 1,000 photos is still one round trip; a full first page asks for
+    // a count and then every other page at once. Complete only at a SHORT
+    // page, as before, so a photo added after the count is not lost. Each
+    // page ends its ORDER BY on `id`: filename and capture time are not
+    // unique, and offset paging over a non-unique order can repeat a photo on
+    // two pages and skip another.
+    const readImages = async () => {
+      const page = (i: number) => {
+        let q = imagesQuery(IMG_FIELDS);
+        // Apply sort order from event settings
+        if (gridSort === "filename") {
+          q = q.order("original_filename", { ascending: true });
+        } else if (gridSort === "date-taken") {
+          q = q.order("taken_at", { ascending: true, nullsFirst: false });
+        } else {
+          q = q.order("created_at", { ascending: true });
+        }
+        return q
+          .order("id", { ascending: true })
+          .range(i * IMG_PAGE, i * IMG_PAGE + IMG_PAGE - 1);
+      };
+      const first = await page(0);
+      if (first.error) throw first.error;
+      const pages: Awaited<ReturnType<typeof page>>[] = [first];
+      if ((first.data ?? []).length === IMG_PAGE) {
+        const counted = await imagesQuery("id", { count: "exact", head: true });
+        if (counted.error) throw counted.error;
+        const pageCount = Math.ceil((counted.count ?? 0) / IMG_PAGE);
+        pages.push(...(await fetchPagesInWaves(page, 1, pageCount)));
+        for (const res of pages) if (res.error) throw res.error;
+        while ((pages[pages.length - 1].data ?? []).length === IMG_PAGE) {
+          const next = await page(pages.length);
+          if (next.error) throw next.error;
+          pages.push(next);
+        }
+      }
+      // A photo added between the count and the pages can shift one row
+      // onto the next page; keep the first copy of any id.
+      const seen = new Set<string>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return pages.flatMap((res): any[] => {
+        if (res.error) throw res.error;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return ((res.data ?? []) as any[]).filter((row) =>
+          seen.has(row.id) ? false : (seen.add(row.id), true)
+        );
+      });
+    };
+
+    // 5a'. Sections and their links, grouped into each section's imageIds in
+    // step 7. Read through loadSectionLinks, which pages in manual order and
+    // THROWS on a failed page; the old inline loop stopped at the first error,
+    // so a timeout quietly dropped photos out of their sections. Independent
+    // of the photo read, so the two run together.
+    const readSections = async () => {
+      const { data, error } = await supabase
+        .from("sections")
+        .select("id, name, description, sort_mode, sort_seed")
+        .eq("event_id", share.event_id)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const rows = data ?? [];
+      return { rows, links: await loadSectionLinks(supabase, rows.map((s) => s.id)) };
+    };
+
+    const [imageRows, sectionRead] = await Promise.all([readImages(), readSections()]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rawImages: any[] = imageRows;
+    const rawSections = sectionRead.rows;
+    const sectionImageRows = sectionRead.links;
 
     // 5a. Save cover image data before excluding from gallery grid.
     // Exclude ONLY while the image is actively serving as the photo cover —
@@ -254,32 +308,23 @@ export async function GET(
     // Filtered AFTER coverImageRow is captured, because a logo can BE the cover.
     rawImages = rawImages.filter((img) => !img.is_cover_upload);
 
-    // 5a'. Sections and their links, grouped into each section's imageIds in
-    // step 7. Read through loadSectionLinks, which pages in manual order and
-    // THROWS on a failed page; the old inline loop stopped at the first error,
-    // so a timeout quietly dropped photos out of their sections.
-    const { data: rawSections, error: sectionsErr } = await supabase
-      .from("sections")
-      .select("id, name, description, sort_mode, sort_seed")
-      .eq("event_id", share.event_id)
-      .order("sort_order", { ascending: true });
-    if (sectionsErr) throw sectionsErr;
-    const sectionImageRows = await loadSectionLinks(
-      supabase,
-      (rawSections || []).map((s) => s.id)
-    );
-
     // 5b. Generate presigned URLs (grid thumbnails at 400px + 800px for
     // srcset, original for lightbox). Thumbnails use the presign memo so
     // repeat visits within a session keep cache-friendly, stable URLs.
     //
     // Two separate questions, deliberately NOT one flag:
     //
-    //  - May the guest SAVE an original? `allow_download` has always answered
-    //    that, and a per-image PIN now answers it too — the PIN used to be
-    //    enforced in the browser alone, so every original sat presigned in
-    //    this JSON, readable from the Network tab without the prompt
-    //    (pre-alpha audit, 2026-08-10).
+    //  - May the guest SAVE an original? NO DOWNLOAD URL IS EVER IN THIS
+    //    PAYLOAD (2026-11-02, lesson 199). A guest's Download button asks
+    //    POST /api/gallery/[slug]/image-download at the click, which applies
+    //    allow_download, the password cookie and the per-image PIN through
+    //    authorizeShareDownload. That route was built for PIN-gated shares
+    //    (the PIN used to be enforced in the browser alone, so every original
+    //    sat presigned in this JSON, pre-alpha audit 2026-08-10); now every
+    //    share uses it, because signing a download URL for every photo was a
+    //    quarter of this payload's signing for a button most guests never
+    //    press. The client already fetched on click whenever the URL was
+    //    missing, so no screen changed.
     //  - May the guest VIEW at full resolution? Only the PIN forces a step
     //    down here. It has to: for a JPEG the display key IS the original key,
     //    so a full-res lightbox would serve the very bytes the PIN withholds,
@@ -287,8 +332,6 @@ export async function GET(
     //    share keeps its full-res lightbox exactly as before — dropping every
     //    proofing gallery to 800px is a visible quality regression, and the
     //    presign is the real gate regardless.
-    const downloadWithheld =
-      !share.allow_download || (share.require_pin_individual ?? false);
     const displayWithheld = share.require_pin_individual ?? false;
 
     const images = await Promise.all(
@@ -307,13 +350,6 @@ export async function GET(
           displayKey
             ? getCachedDownloadUrl(displayKey, 14400)
             : Promise.resolve(null),
-          downloadWithheld
-            ? Promise.resolve(null)
-            : getCachedDownloadUrl(
-                img.r2_key,
-                3600,
-                img.original_filename || "image"
-              ),
         ]);
 
         const result: Record<string, unknown> = {
@@ -331,10 +367,6 @@ export async function GET(
           focalX: img.focal_x ?? null,
           focalY: img.focal_y ?? null,
         };
-
-        if (urls[3]) {
-          result.downloadUrl = urls[3];
-        }
 
         return result;
       })

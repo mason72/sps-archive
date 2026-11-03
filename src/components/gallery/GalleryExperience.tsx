@@ -1028,13 +1028,24 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           // `!downloadToken`, and the stale token is still sitting there.
           // Drop it and re-prompt so the PIN is a recoverable step, not a
           // one-shot that silently expires under an open tab.
-          if (res.status === 401 || res.status === 403) {
+          //
+          // Re-prompt ONLY when the server says a correct PIN would work
+          // (`code: "pin_required"`, never matched on wording). Every share's
+          // downloads come through this route since lesson 199, and a lapsed
+          // password session (401) or downloads switched off (403) are not
+          // PIN problems: a PIN prompt there loops, because no PIN fixes them.
+          // This also covers an owner turning the PIN on mid-visit.
+          if (data.code === "pin_required") {
             setDownloadToken(null);
             setPinAction({ type: "individual", image });
             setShowPinModal(true);
             return;
           }
-          toast.error(data.error || "Download failed — please try again.");
+          toast.error(
+            res.status === 401
+              ? "Your gallery session has ended. Reload the page to sign back in."
+              : data.error || "Download failed — please try again."
+          );
           return;
         }
         url = data.downloadUrl as string;

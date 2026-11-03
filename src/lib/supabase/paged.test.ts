@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readAllRows, type Pageable } from "./paged";
+import { fetchPagesInWaves, readAllRows, type Pageable } from "./paged";
 
 /** A fake table that answers ordered pages the way PostgREST would. */
 function fakeTable(count: number) {
@@ -63,5 +63,47 @@ describe("readAllRows", () => {
       }),
     });
     await expect(readAllRows(make)).rejects.toEqual({ message: "statement timeout" });
+  });
+});
+
+describe("fetchPagesInWaves", () => {
+  it("never has more than inFlight pages outstanding, and keeps page order", async () => {
+    let open = 0;
+    let peak = 0;
+    const asked: number[] = [];
+    const page = async (i: number) => {
+      asked.push(i);
+      open++;
+      peak = Math.max(peak, open);
+      // Later pages answer FIRST, so order can only come from the helper.
+      await new Promise((r) => setTimeout(r, 10 - (i % 4)));
+      open--;
+      return { data: `page-${i}`, error: null };
+    };
+    const got = await fetchPagesInWaves(page, 1, 10, 4);
+    expect(got.map((r) => r.data)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => `page-${i}`));
+    expect(peak).toBe(4);
+    expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("asks for nothing when the range is empty", async () => {
+    let calls = 0;
+    const page = async () => ({ data: calls++, error: null });
+    expect(await fetchPagesInWaves(page, 1, 1)).toEqual([]);
+    expect(await fetchPagesInWaves(page, 1, 0)).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("throws the first error and asks for no later wave", async () => {
+    const asked: number[] = [];
+    const page = async (i: number) => {
+      asked.push(i);
+      return { data: i, error: i === 2 ? { message: "statement timeout" } : null };
+    };
+    await expect(fetchPagesInWaves(page, 1, 12, 4)).rejects.toEqual({
+      message: "statement timeout",
+    });
+    // Wave 1 is pages 1-4; nothing after it may be asked for.
+    expect(asked).toEqual([1, 2, 3, 4]);
   });
 });

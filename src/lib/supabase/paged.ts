@@ -56,3 +56,36 @@ export async function readAllRows<Row>(
     if (got.length < pageSize) return rows;
   }
 }
+
+/**
+ * Concurrent requests per paged read: the parallel readers (the guest
+ * gallery's photos, `loadSectionLinks`, the editor's photos) fetch the pages
+ * after the first at most this many at a time. Each OFFSET page re-sorts the
+ * whole set in Postgres, and a share email sends many guests at once, so an
+ * unbounded fan-out (16 pages for an 8,000-photo gallery) multiplies into the
+ * statement-timeout bursts this project has already had (lesson 199).
+ */
+export const PAGE_FETCH_CONCURRENCY = 4;
+
+/**
+ * Pages `from` to `to - 1`, in order, at most `inFlight` requests at a time.
+ * THROWS the first page error as soon as its wave returns, so a timeout does
+ * not fire every later wave into the database that just timed out. The caller
+ * decides completion (a short last page), as the readers above do.
+ */
+export async function fetchPagesInWaves<T extends { error: unknown }>(
+  page: (index: number) => PromiseLike<T>,
+  from: number,
+  to: number,
+  inFlight = PAGE_FETCH_CONCURRENCY
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = from; i < to; i += inFlight) {
+    const wave = await Promise.all(
+      Array.from({ length: Math.min(inFlight, to - i) }, (_, k) => page(i + k))
+    );
+    for (const r of wave) if (r.error) throw r.error;
+    out.push(...wave);
+  }
+  return out;
+}

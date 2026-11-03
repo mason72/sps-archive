@@ -15,20 +15,24 @@ import {
 function fakeClient(
   respond: (
     table: string,
-    call: { range?: [number, number]; inValues?: string[]; eqs?: [string, unknown][] }
+    call: { range?: [number, number]; inValues?: string[]; eqs?: [string, unknown][]; head?: boolean }
   ) => {
     data: unknown[] | null;
     error: unknown;
+    count?: number | null;
   }
 ) {
-  type Call = { table: string; range?: [number, number]; inValues?: string[]; eqs?: [string, unknown][] };
+  type Call = { table: string; range?: [number, number]; inValues?: string[]; eqs?: [string, unknown][]; head?: boolean };
   const calls: Call[] = [];
   const client = {
     from(table: string) {
       const call: Call = { table, eqs: [] };
       calls.push(call);
       const builder = {
-        select: () => builder,
+        select: (_cols?: string, opts?: { head?: boolean }) => {
+          if (opts?.head) call.head = true;
+          return builder;
+        },
         eq: (col: string, value: unknown) => {
           call.eqs!.push([col, value]);
           return builder;
@@ -56,16 +60,91 @@ const link = (s: string, i: string) => ({ section_id: s, image_id: i });
 describe("loadSectionLinks", () => {
   it("pages past the 1000-row cap until a short page", async () => {
     const full = Array.from({ length: 1000 }, (_, k) => link("s1", `a${k}`));
+    // No count from the server: the reader must still walk to a short page.
     const { client, calls } = fakeClient((_t, call) => ({
       data: call.range?.[0] === 0 ? full : [link("s1", "last")],
       error: null,
     }));
     const links = await loadSectionLinks(client, ["s1"]);
     expect(links).toHaveLength(1001);
-    expect(calls.map((c) => c.range)).toEqual([
+    expect(calls.filter((c) => c.range).map((c) => c.range)).toEqual([
       [0, 999],
       [1000, 1999],
     ]);
+  });
+
+  it("asks for every counted page at once, in order", async () => {
+    const pageOf = (i: number, n: number) =>
+      Array.from({ length: n }, (_, k) => link("s1", `p${i}-${k}`));
+    const { client, calls } = fakeClient((_t, call) => {
+      if (call.head) return { data: null, error: null, count: 2500 };
+      const i = (call.range?.[0] ?? 0) / 1000;
+      return { data: i < 2 ? pageOf(i, 1000) : pageOf(i, 500), error: null };
+    });
+    const links = await loadSectionLinks(client, ["s1"]);
+    expect(links).toHaveLength(2500);
+    expect(links[0].image_id).toBe("p0-0");
+    expect(links[2499].image_id).toBe("p2-499");
+    // First page, then the count, then every other page at once.
+    expect(calls.map((c) => (c.head ? "count" : c.range![0]))).toEqual([
+      0,
+      "count",
+      1000,
+      2000,
+    ]);
+  });
+
+  it("does not count when the first page is short", async () => {
+    const { client, calls } = fakeClient(() => ({ data: [link("s1", "a")], error: null }));
+    expect(await loadSectionLinks(client, ["s1"])).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps reading past a stale count until a short page", async () => {
+    // The count said 1,000; a link landed before the pages were read.
+    const full = Array.from({ length: 1000 }, (_, k) => link("s1", `a${k}`));
+    const { client } = fakeClient((_t, call) => {
+      if (call.head) return { data: null, error: null, count: 1000 };
+      return { data: call.range?.[0] === 0 ? full : [link("s1", "late")], error: null };
+    });
+    const links = await loadSectionLinks(client, ["s1"]);
+    expect(links).toHaveLength(1001);
+    expect(links[1000].image_id).toBe("late");
+  });
+
+  it("keeps a link once when it shifts onto the next page", async () => {
+    const full = Array.from({ length: 1000 }, (_, k) => link("s1", `a${k}`));
+    const { client } = fakeClient((_t, call) => {
+      if (call.head) return { data: null, error: null, count: 1001 };
+      // a999 shows up again at the top of page 2, as it would if a row
+      // before it was deleted between the two reads.
+      return {
+        data: call.range?.[0] === 0 ? full : [link("s1", "a999"), link("s1", "b")],
+        error: null,
+      };
+    });
+    const ids = (await loadSectionLinks(client, ["s1"])).map((l) => l.image_id);
+    expect(ids).toHaveLength(1001);
+    expect(new Set(ids).size).toBe(1001);
+  });
+
+  it("THROWS when the first page fails, never answers 'no links'", async () => {
+    const { client } = fakeClient(() => ({ data: null, error: { message: "first page down" } }));
+    await expect(loadSectionLinks(client, ["s1"])).rejects.toEqual({
+      message: "first page down",
+    });
+  });
+
+  it("THROWS when the count fails", async () => {
+    const full = Array.from({ length: 1000 }, (_, k) => link("s1", `a${k}`));
+    const { client } = fakeClient((_t, call) =>
+      call.head
+        ? { data: null, error: { message: "count timeout" } }
+        : { data: call.range?.[0] === 0 ? full : [], error: null }
+    );
+    await expect(loadSectionLinks(client, ["s1"])).rejects.toEqual({
+      message: "count timeout",
+    });
   });
 
   it("THROWS on a failed page instead of returning what it had", async () => {
@@ -73,10 +152,14 @@ describe("loadSectionLinks", () => {
     // client's gallery. A version that breaks out of the loop on error (as the
     // routes' old inline readers did) must fail this test.
     const full = Array.from({ length: 1000 }, (_, k) => link("s1", `a${k}`));
+    // The count answers cleanly, so only the failed PAGE can make this throw
+    // (a failing count has its own test).
     const { client } = fakeClient((_t, call) =>
-      call.range?.[0] === 0
-        ? { data: full, error: null }
-        : { data: null, error: { message: "statement timeout" } }
+      call.head
+        ? { data: null, error: null, count: 2000 }
+        : call.range?.[0] === 0
+          ? { data: full, error: null }
+          : { data: null, error: { message: "statement timeout" } }
     );
     await expect(loadSectionLinks(client, ["s1"])).rejects.toEqual({
       message: "statement timeout",

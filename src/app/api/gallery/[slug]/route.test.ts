@@ -59,6 +59,13 @@ function resolveQuery(table: string, ops: QueryOp[]) {
     };
   }
   if (table === "images") {
+    // A head count (select("id", { count: "exact", head: true })) answers with
+    // the number of rows the first page serves; the reader only asks for one
+    // when that page comes back full.
+    const select = ops.find((o) => o.fn === "select");
+    if ((select?.args[1] as { count?: string } | undefined)?.count) {
+      return { data: null, error: null, count: IMAGE_ROWS.length + db.extraImages.length };
+    }
     // Paginated loop: rows on the first page, empty after, or the loop spins.
     const range = ops.find((o) => o.fn === "range");
     const offset = (range?.args[0] as number) ?? 0;
@@ -187,6 +194,33 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     expect(body.images[0].id).toBe("img-1");
   });
 
+  it("never puts a download URL in the payload, even when downloads are allowed", async () => {
+    // Downloads are signed at the click by /image-download, behind the same
+    // gates; the payload carries only what the grid and lightbox display
+    // (lesson 199).
+    db.share = { ...baseShare, allow_download: true };
+    const res = await call();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.allowDownload).toBe(true);
+    expect(body.images[0].originalUrl).toBeTruthy();
+    expect(body.images[0]).not.toHaveProperty("downloadUrl");
+  });
+
+  it("ends every photo page's order on id, so offset paging cannot skip a photo", async () => {
+    db.share = { ...baseShare };
+    await call();
+    const pageReads = db.queries.filter(
+      (q) => q.table === "images" && q.ops.some((o) => o.fn === "range")
+    );
+    expect(pageReads.length).toBeGreaterThan(0);
+    for (const q of pageReads) {
+      const orders = q.ops.filter((o) => o.fn === "order");
+      expect(orders[orders.length - 1]?.args[0]).toBe("id");
+    }
+  });
+
   it("never serves a cover upload (a client logo, lesson 184)", async () => {
     // The old route hid a cover row only while it was the CURRENT photo cover,
     // so a mosaic cover's logo and every replaced cover reached "All".
@@ -248,6 +282,29 @@ describe("GET /api/gallery/[slug] — share scope", () => {
     for (const q of pageReads) {
       expect(q.ops.find((o) => o.fn === "in")?.args).toEqual(["id", ["img-1"]]);
     }
+  });
+
+  it("narrows the COUNT of a selection share too, not just its pages", async () => {
+    // A full first page makes the reader count the rest. An unnarrowed count
+    // would size the fan-out from photos the share cannot serve, and tell a
+    // guest how many photos the whole event holds.
+    db.share = { ...baseShare, share_type: "selection", image_ids: ["img-1"] };
+    db.extraImages = Array.from({ length: 999 }, (_, k) => ({
+      ...IMAGE_ROWS[0],
+      id: `extra-${k}`,
+    }));
+    const res = await call();
+
+    expect(res.status).toBe(200);
+    const countReads = db.queries.filter(
+      (q) =>
+        q.table === "images" &&
+        q.ops.some(
+          (o) => o.fn === "select" && (o.args[1] as { count?: string } | undefined)?.count
+        )
+    );
+    expect(countReads).toHaveLength(1);
+    expect(countReads[0].ops.find((o) => o.fn === "in")?.args).toEqual(["id", ["img-1"]]);
   });
 
   it("serves nothing for a selection share with an empty id list", async () => {

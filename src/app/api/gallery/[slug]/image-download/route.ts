@@ -19,9 +19,10 @@ import { reportSystemError } from "@/lib/monitoring/report";
  * only in the browser: the gallery payload embedded a presigned downloadUrl
  * for every photo whenever allow_download was set, so a guest past the
  * password gate could read the originals straight out of the Network tab and
- * never see the PIN prompt (pre-alpha audit, 2026-08-10). When the PIN is
- * required the payload now ships no URL at all, and this is the only way to
- * get one.
+ * never see the PIN prompt (pre-alpha audit, 2026-08-10). Since 2026-11-02
+ * the payload ships no download URL for ANY share (signing one per photo was
+ * a quarter of a big gallery's load time, lesson 199), so this is the only
+ * way any guest gets one.
  *
  * Body: { imageId, dt?, pin? } — dt is the token from /verify-pin (preferred);
  * a raw pin is honored as a fallback and rate-limited inside the authorizer.
@@ -53,15 +54,28 @@ export async function POST(
       kind: "individual",
     });
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.message }, { status: auth.status });
+      return NextResponse.json(
+        { error: auth.message, ...(auth.code ? { code: auth.code } : {}) },
+        { status: auth.status }
+      );
     }
 
     // Past the gates, every request mints a presigned original. Counted AFTER
     // authorization so a guest re-prompted for an expired token does not
     // spend download budget on the 401s; the PIN path has its own failure
     // limiter inside the authorizer. Budget reasoning lives on the constant.
+    //
+    // Metered only behind the per-image PIN, which is where it was built.
+    // Since 2026-11-02 every share's downloads come through here (the gallery
+    // payload no longer carries download URLs, lesson 199); a share without
+    // the PIN used to hand all of them out in that payload, unmetered, so a
+    // budget there would protect nothing and could stop an office full of
+    // guests sharing one IP.
     const ip = clientIp(request);
-    if (!(await checkAuthRateLimit(supabase, "image-download", slug, ip))) {
+    if (
+      auth.share.require_pin_individual &&
+      !(await checkAuthRateLimit(supabase, "image-download", slug, ip))
+    ) {
       return NextResponse.json(
         { error: "Too many downloads — try again in a few minutes" },
         { status: 429 }

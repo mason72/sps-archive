@@ -23,11 +23,13 @@ const rpc = {
 };
 
 type AuthResult =
-  | { ok: true; share: { id: string } }
-  | { ok: false; status: number; message: string };
+  | { ok: true; share: { id: string; require_pin_individual: boolean } }
+  | { ok: false; status: number; message: string; code?: "pin_required" };
+// A PIN-gated share by default: the budget applies only there (see route).
+const PIN_SHARE = { id: "share-1", require_pin_individual: true };
 const authorize = vi.fn<() => Promise<AuthResult>>(async () => ({
   ok: true,
-  share: { id: "share-1" },
+  share: PIN_SHARE,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -80,7 +82,7 @@ describe("POST /api/gallery/[slug]/image-download — presign budget", () => {
     rpc.counters.clear();
     rpc.error = null;
     authorize.mockClear();
-    authorize.mockImplementation(async () => ({ ok: true, share: { id: "share-1" } }));
+    authorize.mockImplementation(async () => ({ ok: true, share: PIN_SHARE }));
   });
 
   it("counts against a per-(slug, ip) key with the image-download budget", async () => {
@@ -127,6 +129,43 @@ describe("POST /api/gallery/[slug]/image-download — presign budget", () => {
     const res = await call();
     expect(res.status).toBe(401);
     expect(rpc.calls).toHaveLength(0);
+  });
+
+  it("does not count a share WITHOUT the per-image PIN (lesson 199)", async () => {
+    // Before 2026-11-02 such a share shipped every download URL in the gallery
+    // payload, unmetered; it now gets them here, one per click. Metering it
+    // would protect nothing and could lock out an office of guests on one IP.
+    authorize.mockImplementation(async () => ({
+      ok: true,
+      share: { id: "share-1", require_pin_individual: false },
+    }));
+    for (let i = 0; i <= IMAGE_DOWNLOAD_MAX; i++) {
+      expect((await call()).status).toBe(200);
+    }
+    expect(rpc.calls).toHaveLength(0);
+  });
+
+  it("passes the PIN code through, and only for a PIN refusal", async () => {
+    // The gallery re-prompts for the PIN on this code alone; a lapsed
+    // password (401) must not carry it, or the guest loops on a PIN prompt.
+    authorize.mockImplementation(async () => ({
+      ok: false,
+      status: 403,
+      message: "PIN required",
+      code: "pin_required",
+    }));
+    const pin = await call();
+    expect(pin.status).toBe(403);
+    expect((await pin.json()).code).toBe("pin_required");
+
+    authorize.mockImplementation(async () => ({
+      ok: false,
+      status: 401,
+      message: "Authentication required",
+    }));
+    const lapsed = await call();
+    expect(lapsed.status).toBe(401);
+    expect(await lapsed.json()).not.toHaveProperty("code");
   });
 
   it("fails OPEN on limiter infrastructure errors, matching the other scopes", async () => {

@@ -73,7 +73,18 @@ export function scopeFrom(input: {
 
 export type DownloadAuthResult =
   | { ok: true; share: ShareRow }
-  | { ok: false; status: number; message: string };
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      /**
+       * Set ONLY when a correct PIN would get this request through. The
+       * gallery re-prompts for the PIN on this code and on nothing else: a
+       * lapsed password or downloads switched off are also 401/403, and a PIN
+       * prompt there loops, since no PIN can fix them (lesson 199).
+       */
+      code?: "pin_required";
+    };
 
 /**
  * Resolve a share by slug and run every download gate: active, unexpired,
@@ -165,7 +176,7 @@ export async function authorizeShareDownload(
         };
       }
       if (!opts.pin || !timingSafeEqualStr(opts.pin, share.download_pin)) {
-        return { ok: false, status: 403, message: "PIN required" };
+        return { ok: false, status: 403, message: "PIN required", code: "pin_required" };
       }
     }
   }

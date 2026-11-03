@@ -8,6 +8,7 @@ import { ensureWebsiteSections } from "@/lib/site/gallery";
 import { scheduleSiteRevalidate } from "@/lib/site/revalidate";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
+import { fetchPagesInWaves } from "@/lib/supabase/paged";
 
 // DELETE finishes its R2 cleanup in after(), which runs inside this budget. A
 // 6,000-photo event is ~24,000 object deletes, about a minute at 32 at a time.
@@ -116,8 +117,8 @@ export async function GET(
       if (countError) throw countError;
 
       const pageCount = Math.ceil((imageCount ?? 0) / PAGE_SIZE);
-      const pages = await Promise.all(
-        Array.from({ length: pageCount }, (_, i) =>
+      const pages = await fetchPagesInWaves(
+        (i) =>
           supabase
             .from("images")
             .select(IMAGE_FIELDS)
@@ -129,8 +130,14 @@ export async function GET(
             // hundreds of perfectly-good uploads marked 'failed' by the old
             // pipeline.
             .order("created_at", { ascending: true })
-            .range(i * PAGE_SIZE, i * PAGE_SIZE + PAGE_SIZE - 1)
-        )
+            // created_at is not unique (Webex One has 8 pairs of photos that
+            // share one, measured 2026-11-02), and offset paging over a
+            // non-unique order can show one photo twice and drop another when
+            // a pair straddles a page boundary (lesson 199).
+            .order("id", { ascending: true })
+            .range(i * PAGE_SIZE, i * PAGE_SIZE + PAGE_SIZE - 1),
+        0,
+        pageCount
       );
       return pages.flatMap((page) => {
         if (page.error) throw page.error;
