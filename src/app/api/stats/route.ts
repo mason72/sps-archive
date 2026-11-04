@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { reportSystemError } from "@/lib/monitoring/report";
-import { readAllRows } from "@/lib/supabase/paged";
+import { countAcross, readAllRows } from "@/lib/supabase/paged";
 
 /**
  * GET /api/stats
@@ -30,46 +30,49 @@ export async function GET() {
     }
 
     // 2. Run remaining queries in parallel
-    const [imagesResult, sharesResult] = await Promise.all([
+    const [totalImages, shares] = await Promise.all([
       // Total images across all events
-      supabase
-        .from("images")
-        .select("id", { count: "exact", head: true })
-        .in("event_id", eventIds)
-        // Photos, not cover uploads (client logos; lesson 184).
-        .eq("is_cover_upload", false),
+      countAcross(eventIds, "images", (chunk) =>
+        supabase
+          .from("images")
+          .select("id", { count: "exact", head: true })
+          .in("event_id", chunk)
+          // Photos, not cover uploads (client logos; lesson 184).
+          .eq("is_cover_upload", false)
+      ),
 
       // All shares (for view count + favorite lookups). Shares carry no
       // user_id — ownership is transitive through the event, so it has to be
       // an inner join. Filtering on a column that doesn't exist reads as an
       // empty result set, which is how this silently served 0 views for months.
-      supabase
-        .from("shares")
-        .select("id, view_count, events!inner(user_id)")
-        .eq("events.user_id", user!.id),
+      // Paged: the busiest account has 1,516 shares, and a bare select stops
+      // at 1,000 with no error.
+      readAllRows(() =>
+        supabase
+          .from("shares")
+          .select("id, view_count, events!inner(user_id)")
+          .eq("events.user_id", user!.id)
+      ),
     ]);
 
-    if (imagesResult.error) throw imagesResult.error;
-    if (sharesResult.error) throw sharesResult.error;
-
-    const totalImages = imagesResult.count ?? 0;
-    const shares = sharesResult.data || [];
     const totalViews = shares.reduce(
       (sum, s) => sum + (s.view_count || 0),
       0
     );
 
     // 3. Count favorites across all shares
-    let totalFavorites = 0;
-    if (shares.length > 0) {
-      const shareIds = shares.map((s) => s.id);
-      const { count, error: favoritesError } = await supabase
-        .from("favorites")
-        .select("id", { count: "exact", head: true })
-        .in("share_id", shareIds);
-      if (favoritesError) throw favoritesError;
-      totalFavorites = count ?? 0;
-    }
+    const totalFavorites =
+      shares.length > 0
+        ? await countAcross(
+            shares.map((s) => s.id),
+            "favorites",
+            (chunk) =>
+              supabase
+                .from("favorites")
+                .select("id", { count: "exact", head: true })
+                .in("share_id", chunk)
+          )
+        : 0;
 
     return NextResponse.json({
       totalEvents,

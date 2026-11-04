@@ -43,6 +43,13 @@ export function describeError(error: unknown): string {
       ].filter(Boolean);
       return extras.length ? `${e.message} (${extras.join("; ")})` : e.message;
     }
+    // A failed count (`head: true`) is a HEAD request: no body, so postgrest-js
+    // hands back `{ message: "" }` and keeps the HTTP status on the result, not
+    // the error. Thirteen api/stats alerts in a week said only `{"message":""}`
+    // (2026-11-03). Say where the answer is instead.
+    if (e.message === "" && !e.code) {
+      return "Database API error with an empty body (usually a count/HEAD request; its HTTP status is in Supabase's edge logs, not here)";
+    }
     // Unknown object: serialize rather than surrender to [object Object].
     try {
       return JSON.stringify(error).slice(0, 500);

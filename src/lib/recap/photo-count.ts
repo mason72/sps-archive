@@ -1,4 +1,4 @@
-import { readAllRows, type Pageable } from "@/lib/supabase/paged";
+import { idChunks, readAllRows, type Pageable } from "@/lib/supabase/paged";
 
 /**
  * How many PHOTOS a recap counts, as opposed to how many image rows.
@@ -48,15 +48,7 @@ export function countDistinctPhotos(rows: readonly PhotoCountRow[]): PhotoCount 
   return { photos: named.size, named: n };
 }
 
-/** PostgREST puts an `in()` list in the GET URL; past ~500 uuids the fetch fails. */
-const ID_CHUNK = 100;
-
-/** Split an id list for `in()` filters (see ID_CHUNK). */
-export function idChunks(ids: readonly string[]): string[][] {
-  const out: string[][] = [];
-  for (let i = 0; i < ids.length; i += ID_CHUNK) out.push(ids.slice(i, i + ID_CHUNK));
-  return out;
-}
+export { idChunks };
 
 /**
  * Read the rows a recap counts. `makeQuery(chunk)` builds a FRESH query for

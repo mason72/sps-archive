@@ -89,3 +89,53 @@ export async function fetchPagesInWaves<T extends { error: unknown }>(
   }
   return out;
 }
+
+/** PostgREST puts an `in()` list in the GET URL; past ~500 uuids the fetch fails. */
+const ID_CHUNK = 100;
+
+/** Split an id list for `in()` filters (see ID_CHUNK). */
+export function idChunks(ids: readonly string[]): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) out.push(ids.slice(i, i + ID_CHUNK));
+  return out;
+}
+
+/**
+ * Sum an exact count over an id list, 100 ids per request.
+ *
+ * Why chunked (2026-11-03): the dashboard sent all of a photographer's event
+ * ids in ONE `in()` filter. At 1,457 events that is a 56,874-character URL,
+ * the gateway answered 400, and because a count is a HEAD request there was no
+ * body, so the error read `{"message":""}` and every dashboard load since the
+ * account crossed a few hundred events emailed an alarm that said nothing.
+ * The HTTP status is on the result, not the error, so it goes into the thrown
+ * message here.
+ */
+export async function countAcross(
+  ids: string[],
+  what: string,
+  count: (chunk: string[]) => PromiseLike<{
+    count: number | null;
+    error: { message: string } | null;
+    status: number;
+  }>
+): Promise<number> {
+  const chunks = idChunks(ids);
+  const results = await fetchPagesInWaves(
+    (i) =>
+      Promise.resolve(count(chunks[i])).then((r) => ({
+        ...r,
+        error: r.error
+          ? new Error(`${what} count failed: HTTP ${r.status}${r.error.message ? `, ${r.error.message}` : ""}`)
+          : null,
+      })),
+    0,
+    chunks.length
+  );
+  // A bodiless 404 comes back as { error: null, count: null }; adding it as 0
+  // would make a missing table read as an empty one.
+  for (const r of results) {
+    if (r.count === null) throw new Error(`${what} count failed: HTTP ${r.status} with no count`);
+  }
+  return results.reduce((sum, r) => sum + (r.count ?? 0), 0);
+}

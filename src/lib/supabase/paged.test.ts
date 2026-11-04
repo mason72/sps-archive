@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fetchPagesInWaves, readAllRows, type Pageable } from "./paged";
+import { countAcross, fetchPagesInWaves, readAllRows, type Pageable } from "./paged";
+import { describeError } from "@/lib/monitoring/report";
 
 /** A fake table that answers ordered pages the way PostgREST would. */
 function fakeTable(count: number) {
@@ -105,5 +106,52 @@ describe("fetchPagesInWaves", () => {
     });
     // Wave 1 is pages 1-4; nothing after it may be asked for.
     expect(asked).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe("countAcross", () => {
+  const ids = Array.from({ length: 1457 }, (_, i) => `id-${i}`);
+
+  it("never sends more than 100 ids in one request, and sums every chunk", async () => {
+    const sizes: number[] = [];
+    const total = await countAcross(ids, "images", async (chunk) => {
+      sizes.push(chunk.length);
+      return { count: chunk.length * 2, error: null, status: 200 };
+    });
+    expect(Math.max(...sizes)).toBe(100);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(1457);
+    expect(sizes).toHaveLength(15);
+    expect(total).toBe(1457 * 2);
+  });
+
+  it("puts the HTTP status into the error a bodiless HEAD failure leaves empty", async () => {
+    await expect(
+      countAcross(ids, "images", async () => ({ count: null, error: { message: "" }, status: 400 }))
+    ).rejects.toThrow("images count failed: HTTP 400");
+  });
+
+  it("refuses a chunk that answered without a count instead of adding 0", async () => {
+    await expect(
+      countAcross(ids, "images", async () => ({ count: null, error: null, status: 204 }))
+    ).rejects.toThrow("images count failed: HTTP 204 with no count");
+  });
+
+  it("counts nothing for no ids without a request", async () => {
+    let calls = 0;
+    const total = await countAcross([], "favorites", async () => {
+      calls++;
+      return { count: 1, error: null, status: 200 };
+    });
+    expect(total).toBe(0);
+    expect(calls).toBe(0);
+  });
+});
+
+describe("describeError on an empty PostgREST error", () => {
+  it("says where the status is instead of printing {\"message\":\"\"}", () => {
+    expect(describeError({ message: "" })).toMatch(/empty body.*edge logs/);
+  });
+  it("still prints a real message as is", () => {
+    expect(describeError({ message: "boom", code: "57014" })).toBe("boom (code 57014)");
   });
 });
