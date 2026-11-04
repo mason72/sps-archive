@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Next 16.2+ writes an AGENTS.md into the repo on every `next dev` when it
+  // detects a coding agent. This repo keeps its agent docs in CLAUDE.md.
+  agentRules: false,
   images: {
     remotePatterns: [
       {

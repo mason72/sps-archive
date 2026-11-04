@@ -1,14 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-// Name + lifetime only: the signing lives in impersonation.ts, which imports
-// node's crypto and cannot be loaded here (edge runtime).
+// Name + lifetime only: the signing lives in impersonation.ts. This file ran
+// on the edge runtime until Next 16 (where it was src/middleware.ts) and could
+// not load node's crypto; the proxy runs on Node now, but keeping it to the
+// leaf module keeps the one home for the two constants.
 import { ACT_AS_COOKIE, ACT_AS_MAX_AGE } from "@/lib/auth/act-as-cookie";
 
 /** 400 days in seconds — max persistent cookie lifetime per RFC 6265bis */
 const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
 
 /**
- * Middleware — Subdomain routing + Route protection + Supabase session management.
+ * Proxy (Next 16's name for middleware; was src/middleware.ts until the Next 16
+ * upgrade, 2026-11-04) — Subdomain routing + Route protection + Supabase
+ * session management. Runs on the Node.js runtime (proxy cannot run on edge).
+ * The behavior below is unchanged from the middleware it replaces.
  *
  * Domain routing:
  *   pixeltrunk.com (marketing domain) → rewrites to /m/... routes
@@ -26,7 +31,7 @@ const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
  *   /events/*, /api/events/*, /api/upload/*, /api/search/*,
  *   /api/images/*, /api/stacks/*, /api/shares/*, /api/account/*
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
   const { pathname } = request.nextUrl;
 
