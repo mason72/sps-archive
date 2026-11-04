@@ -140,3 +140,30 @@ export async function generateThumbnailsFromBuffer(
     thumbBytes: results.reduce((sum, r) => sum + r.bytes, 0),
   };
 }
+
+/**
+ * True when sharp could not DECODE the bytes it was given: the stored file is
+ * damaged (cut short, corrupt) or in a format sharp cannot read, so
+ * tomorrow's retry gives the same answer. Storage, network and resource
+ * errors do not match; they may pass on a retry. In particular libvips's own
+ * "vips_tracked: out of memory" and temp-file errors must NOT match, or a
+ * memory spike would mark a healthy photo as unreadable for good.
+ *
+ * Why (2026-11-03): three photos whose stored originals end early (one is
+ * exactly 64 KiB) failed the nightly reconciler with "VipsJpeg: premature end
+ * of JPEG image" on every run since 2026-10-25, each night counted as a fresh
+ * failure in the alert email.
+ */
+export function isUndecodableImageError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /premature end of|corrupt|unsupported image format|bad huffman|not a (jpeg|png)|invalid sos|libpng read error|input buffer is empty/i.test(
+    msg
+  );
+}
+
+/**
+ * `images.processing_error` prefix for an original that cannot be decoded.
+ * The reconciler filters on it, so it carries no characters PostgREST's
+ * `or()` syntax treats specially (no comma, colon or parenthesis).
+ */
+export const UNREADABLE_FILE_ERROR_PREFIX = "Unreadable original - ";

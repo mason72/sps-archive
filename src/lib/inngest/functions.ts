@@ -1,7 +1,11 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "./client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { generateThumbnails } from "@/lib/thumbnails/generate";
+import {
+  UNREADABLE_FILE_ERROR_PREFIX,
+  generateThumbnails,
+  isUndecodableImageError,
+} from "@/lib/thumbnails/generate";
 import { syncSitePublication } from "@/lib/site/membership";
 import { processVideoViaModal } from "@/lib/video/process";
 import { findDigestCandidates, sendShareDigest } from "@/lib/favorites/digest-send";
@@ -257,6 +261,14 @@ const RECONCILE_GHOST_HOURS = 24;
 // what to re-upload) deleted a slice at a time.
 const RECONCILE_BATCH = 3000;
 const RECONCILE_THUMB_CAP = 50; // sharp runs per night (heavy)
+/**
+ * PostgREST `or()` filter: no processing_error, or one that is not the
+ * reconciler's own unreadable marker. A pending row can carry an older error
+ * (the retry route resets `failed` to `pending` without clearing it), and
+ * that row must still be healed, counted and, if its bytes never landed,
+ * cleaned up.
+ */
+const NOT_MARKED_UNREADABLE = `processing_error.is.null,processing_error.not.like.${UNREADABLE_FILE_ERROR_PREFIX}*`;
 
 export const uploadReconciler = inngest.createFunction(
   { id: "upload-reconciler", retries: 1 },
@@ -285,6 +297,10 @@ export const uploadReconciler = inngest.createFunction(
         .eq("processing_status", "complete")
         .eq("thumbnail_generated", false)
         .neq("media_type", "video")
+        // A row marked unreadable has been tried and named once; retrying it
+        // every night only re-fails (see isUndecodableImageError). A complete
+        // row carries no other processing_error, so null is the whole test.
+        .is("processing_error", null)
         .lt("created_at", staleCutoff)
         .order("created_at", { ascending: true })
         .limit(100);
@@ -309,6 +325,7 @@ export const uploadReconciler = inngest.createFunction(
             "id, r2_key, event_id, filename, original_filename, media_type, thumbnail_generated, width, height, created_at, events!event_id(name)"
           )
           .eq("processing_status", "pending")
+          .or(NOT_MARKED_UNREADABLE)
           .lt("created_at", staleCutoff)
           // created_at is NOT unique — a presign chunk stamps 50 rows with the
           // same value — so ordering on it alone lets rows shuffle between
@@ -331,6 +348,7 @@ export const uploadReconciler = inngest.createFunction(
         .from("images")
         .select("id", { count: "exact", head: true })
         .eq("processing_status", "pending")
+        .or(NOT_MARKED_UNREADABLE)
         .lt("created_at", staleCutoff);
 
       const result = {
@@ -344,7 +362,10 @@ export const uploadReconciler = inngest.createFunction(
         ghostsDeleted: 0,
         watching: 0, // missing original but too young to delete
         failures: 0,
+        /** Originals that cannot be decoded, marked tonight and skipped from now on. */
+        unreadable: 0,
         ghostsByEvent: {} as Record<string, string[]>,
+        unreadableByEvent: {} as Record<string, string[]>,
       };
       let thumbBudget = RECONCILE_THUMB_CAP;
 
@@ -416,6 +437,32 @@ export const uploadReconciler = inngest.createFunction(
           if (upErr) throw upErr;
           await syncSitePublication(supabase, [row.id]);
         } catch (err) {
+          if (isUndecodableImageError(err)) {
+            // The stored file itself cannot be decoded: mark the row so
+            // tomorrow does not try again. Only the error column changes; the
+            // photo, its bytes and every display column stay as they are.
+            // Undo with `update images set processing_error = null where id = …`.
+            const { data: marked, error: markErr } = await supabase
+              .from("images")
+              .update({
+                processing_error: `${UNREADABLE_FILE_ERROR_PREFIX}${err instanceof Error ? err.message : String(err)}`,
+              })
+              .eq("id", row.id)
+              .eq("thumbnail_generated", false)
+              .is("processing_error", null)
+              .select("id");
+            // Counted only when the guarded write landed: a row that changed
+            // since the read matches nothing and must not be reported marked.
+            if (!markErr && marked?.length === 1) {
+              result.unreadable++;
+              const eventName =
+                (row.events as { name?: string } | null)?.name ?? row.event_id;
+              (result.unreadableByEvent[eventName] ??= []).push(
+                row.original_filename ?? row.filename
+              );
+              return;
+            }
+          }
           console.error(`Reconciler heal failed for ${row.id}:`, err);
           result.failures++;
         }
@@ -444,6 +491,7 @@ export const uploadReconciler = inngest.createFunction(
         stats.thumbsBackfilled +
         stats.videosRequeued +
         stats.ghostsDeleted +
+        stats.unreadable +
         stats.failures >
       0;
 
@@ -454,7 +502,7 @@ export const uploadReconciler = inngest.createFunction(
     if (acted || stats.totalStuckPending > 0) {
       await step.run("report", async () => {
         const supabase = createServiceClient();
-        const summary = `${stats.totalStuckPending} stuck; finalized ${stats.finalized}, thumbs ${stats.thumbsBackfilled}, videos re-queued ${stats.videosRequeued}, ghosts deleted ${stats.ghostsDeleted}, watching ${stats.watching}, failures ${stats.failures}`;
+        const summary = `${stats.totalStuckPending} stuck; finalized ${stats.finalized}, thumbs ${stats.thumbsBackfilled}, videos re-queued ${stats.videosRequeued}, ghosts deleted ${stats.ghostsDeleted}, watching ${stats.watching}, unreadable ${stats.unreadable}, failures ${stats.failures}`;
 
         // Queryable history row (notified=true: this step sends its own email).
         await supabase.from("system_errors").insert({
@@ -485,6 +533,14 @@ export const uploadReconciler = inngest.createFunction(
                   `  select detail from system_errors where context='upload.reconciler' order by created_at desc limit 1;`,
                 ]
               : []),
+          ]
+        );
+
+        const unreadableLines = Object.entries(stats.unreadableByEvent).flatMap(
+          ([eventName, files]) => [
+            "",
+            `${eventName}: ${files.length} original(s) that cannot be read (damaged, or a format the resizer cannot open), marked and no longer retried. Re-upload from the camera files (as JPEG if the format was the problem) to restore:`,
+            ...files.map((f) => `  • ${f}`),
           ]
         );
 
@@ -520,8 +576,10 @@ export const uploadReconciler = inngest.createFunction(
               `Videos re-queued: ${stats.videosRequeued}`,
               `Ghost rows deleted (binary never landed): ${stats.ghostsDeleted}`,
               `Watching (missing binary, <24h old): ${stats.watching}`,
+              `Unreadable originals (marked, not retried): ${stats.unreadable}`,
               `Failures (will retry next night): ${stats.failures}`,
               ...ghostLines,
+              ...unreadableLines,
             ].join("\n"),
           }),
         });
