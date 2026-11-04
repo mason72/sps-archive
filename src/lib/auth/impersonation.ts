@@ -17,8 +17,9 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 
-// The name and lifetime live in a crypto-free module so edge middleware can
-// read them too (it slides the expiry forward on every authenticated request).
+// The name and lifetime live in a crypto-free module so the proxy
+// (src/proxy.ts) can read them too (it slides the expiry forward on every
+// authenticated request).
 export { ACT_AS_COOKIE, ACT_AS_MAX_AGE } from "./act-as-cookie";
 
 function secret(): string | null {

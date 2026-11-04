@@ -64,9 +64,13 @@ function loadServiceAccount(): ServiceAccount {
       throw new Error("GOOGLE_CALENDAR_KEY is set but is not valid JSON");
     }
   }
+  // The file is a LOCAL fallback (gitignored, never deployed; production sets
+  // GOOGLE_CALENDAR_KEY). turbopackIgnore stops Next 16's Turbopack build from
+  // tracing the whole project into this route's function because it cannot
+  // tell which file a runtime path names.
   const path =
     process.env.GOOGLE_CALENDAR_KEY_FILE ||
-    join(process.cwd(), ".google-calendar-key.json");
+    join(/* turbopackIgnore: true */ process.cwd(), ".google-calendar-key.json");
   if (!existsSync(path)) {
     throw new Error(
       `No Google Calendar credential. Set GOOGLE_CALENDAR_KEY (inline JSON) or place the key at ${path}`
