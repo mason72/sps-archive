@@ -153,8 +153,9 @@ on, always from the SAME source as the URL: `gallery_bg_color` +
 (MSFT Accelerate: white wordmark on a #027bcc gallery), so the pairing, not the
 choice of image, is what keeps a logo readable. The puller copies the logo into
 the pulled gallery's mosaic cover and paints the Insert hole with
-`logoInsertFill(logoBackground)`: the one stop, or the average of a gradient's
-stops, since the Insert fill is one color today (`sps-integration/pull-logo.ts`).
+`logoInsertFill(logoBackground)`: the one stop, or a gradient's FIRST stop (the
+main brand color; never a blend), since the Insert fill is one color today
+(`sps-integration/pull-logo.ts`).
 
 ### `GET /events/{eventId}/manifest?offset=0`
 

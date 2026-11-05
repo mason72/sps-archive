@@ -237,9 +237,11 @@ describe("logoInsertFill", () => {
     expect(logoInsertFill({ colors: ["#027bcc"], angle: 90 })).toBe("#027BCC");
   });
 
-  it("averages a gradient's stops into one color", () => {
-    // Confluent's header: #414558 -> #000000.
-    expect(logoInsertFill({ colors: ["#414558", "#000000"], angle: 90 })).toBe("#21232C");
+  it("takes a gradient's FIRST stop, the main brand color, never a blend", () => {
+    // K & P Wreaths' header: coral -> amber -> yellow. An average would be a
+    // dull orange nobody picked.
+    expect(logoInsertFill({ colors: ["#e86c5e", "#e8c35e", "#f7e25f"], angle: 117 })).toBe("#E86C5E");
+    expect(logoInsertFill({ colors: ["#414558", "#000000"], angle: 90 })).toBe("#414558");
   });
 
   it("ignores stops that are not #RRGGBB, and is null when none are left", () => {

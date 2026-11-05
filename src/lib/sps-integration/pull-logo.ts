@@ -145,21 +145,20 @@ const HEX6 = /^#[0-9a-f]{6}$/i;
  * The one Insert fill color for the logo's SPS background, or null when SPS
  * sent nothing usable (the fill then stays at its default).
  *
- * One stop is used as is. The Insert fill is a single color today, so a
- * gradient (9 of 135 SPS logos on 2026-11-05) becomes the average of its
- * stops: a logo its host made to read across the whole gradient reads on the
- * gradient's overall color. The full stops still arrive on the manifest, so a
- * gradient Insert can be drawn faithfully later without an SPS change.
+ * The Insert fill is a single color, so a gradient (9 of 135 SPS logos on
+ * 2026-11-05) gives its FIRST valid stop: that is usually the client's main
+ * brand color (Mason, 2026-11-05), and it is the color SPS itself uses
+ * wherever it needs one color from a gradient (`split(',')[0]` across its
+ * gallery pages). The first version averaged the stops, which invents a color
+ * nobody chose on a multi-hue gradient (K & P Wreaths' coral-to-yellow became
+ * a dull orange). The full stops still arrive on the manifest, so a gradient
+ * Insert can be drawn later without an SPS change (on hold, Mason 2026-11-05).
  */
 export function logoInsertFill(background: SpsLogoBackground | null | undefined): string | null {
   const stops = (Array.isArray(background?.colors) ? background.colors : [])
     .filter((c): c is string => typeof c === "string" && HEX6.test(c.trim()))
     .map((c) => c.trim().toUpperCase());
-  if (stops.length === 0) return null;
-  if (stops.length === 1) return stops[0];
-  const channel = (i: number) =>
-    Math.round(stops.reduce((sum, c) => sum + parseInt(c.slice(1 + i * 2, 3 + i * 2), 16), 0) / stops.length);
-  return `#${[0, 1, 2].map((i) => channel(i).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+  return stops[0] ?? null;
 }
 
 /**

@@ -396,8 +396,10 @@ is what actually keeps a logo readable: MSFT Accelerate's Background Image is a
 white wordmark on a #027bcc gallery. `insert.fill` also colors the gutters
 between tiles, so a colored logo background gives the whole mosaic colored
 gutters, which reads as the client's brand. A gradient (9 of 135 on
-2026-11-05) becomes the average of its stops (`logoInsertFill`), because the
-Insert fill is one color; the stops arrive in full for a gradient Insert later.
+2026-11-05) gives its FIRST stop (`logoInsertFill`), because the Insert fill is
+one color and the first stop is usually the main brand color (Mason), the same
+stand-in SPS uses (`split(',')[0]`). It averaged the stops for an hour on
+2026-11-05, which made muddy colors nobody chose on multi-hue gradients; the stops arrive in full for a gradient Insert later.
 
 `src/lib/sps-integration/pull-logo.ts` does the copy, called by `startSpsPull`
 once the event row and its intake section exist and BEFORE the pull job is
