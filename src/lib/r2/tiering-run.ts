@@ -26,8 +26,11 @@ export const r2TieringDeps: TieringDeps = {
  * with a partial list would move exactly the files this list protects.
  * Keyset paging on id (a row unpublished mid-read cannot shift a published one
  * out of the window), stopping only on an EMPTY page so a server row cap below
- * the page size cannot truncate it. ~1,600 rows on 2026-10-20; each page is
- * one ~0.75 s scan of images (no index on either column, measured).
+ * the page size cannot truncate it. ~1,800 rows on 2026-11-05. The filter must
+ * stay exactly this predicate: the partial index idx_images_ia_exclusions
+ * (migration 098) is built on it, and a reworded filter the planner cannot
+ * match falls back to walking all of images (4.1 s per page on 1.63M rows,
+ * which timed out the whole run on 2026-11-05). With the index, ~2 ms.
  */
 export async function loadIaExclusions(supabase: SupabaseClient): Promise<string[]> {
   const PAGE = 1000;

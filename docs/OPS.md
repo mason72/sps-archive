@@ -376,6 +376,12 @@ once the migration's originals have aged in (late November 2026).
   `scripts/triage/r2-ia-probe.ts`). The cursor lives in `ops_config` key
   `r2-ia-tiering`; a lap of the archive (~4,500 listing pages at ~1.3 s each)
   spans one to two daily runs, and the cursor wraps at the end.
+- **The exclusion list is reloaded every slice and reads a partial index**
+  (`idx_images_ia_exclusions`, migration 098). Without it each page walked the
+  whole images table (4.1 s on 1.63M rows) and on 2026-11-05 a heavy
+  AI-indexing night made it time out four tries running, killing the run
+  (`r2.ia-tiering-crashed`). Now ~2 ms in the database. A crash costs nothing
+  but a day: the cursor is saved per page and the next 02:41 PT run resumes.
 - **Dry run / backlog:** `npx tsx scripts/r2-ia-tiering.ts` counts what would
   move (moves nothing); `--apply` moves it; `--pages N` limits the walk. It does
   not touch the job's cursor and is safe beside it.
