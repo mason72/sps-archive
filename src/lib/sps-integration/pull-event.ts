@@ -299,15 +299,17 @@ export async function startSpsPull(
     throw sectionError;
   }
 
-  // The host's gallery-header logo, into the mosaic cover's Insert slot, so
-  // Mason never uploads it a second time. Before the job is queued, so nothing
-  // else is writing `settings` yet; fail-soft by contract (pull-logo.ts), a
-  // missing or broken logo leaves the plain mosaic the gallery had anyway.
+  // The host's client logo, into the mosaic cover's Insert slot on the color
+  // it was designed for, so Mason never uploads it a second time. Before the
+  // job is queued, so nothing else is writing `settings` yet; fail-soft by
+  // contract (pull-logo.ts), a missing or broken logo leaves the plain mosaic
+  // the gallery had anyway.
   await attachSpsCoverLogo(supabase, {
     eventId: event.id,
     spsEventId: spsEvent.id,
     settings,
     logoUrl: spsEvent.logoUrl,
+    logoBackground: spsEvent.logoBackground,
   });
 
   const { data: job, error: jobInsertError } = await supabase

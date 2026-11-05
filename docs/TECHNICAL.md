@@ -376,11 +376,28 @@ Binaries are stored at `events/{eventId}/originals/{filename}`. Importing from S
 A pulled gallery starts with the new-gallery cover (mosaic, Insert, title
 below-left) like any other, and the one thing that still took a hand was the
 logo: Insert with no `logoKey` draws a plain mosaic, so Mason uploaded the
-client logo in Design > Cover after every import. SPS already holds it per
-event as `events.header_image_url` (the gallery-header logo, a public URL on
-its photo CDN), and since 2026-10-24 its archive API sends it as `logoUrl` on
-`GET /events` and on every manifest page's `event` (the manifest matters: the
-archive event is created from the first manifest page, not from the list).
+client logo in Design > Cover after every import. SPS holds it per event, and
+since 2026-10-24 its archive API sends it as `logoUrl` on `GET /events` and on
+every manifest page's `event` (the manifest matters: the archive event is
+created from the first manifest page, not from the list).
+
+**Which image, and on what color (2026-11-05).** `logoUrl` is the SPS gallery
+Background Image (`gallery_overlay_url`, a public URL on its photo CDN) when the
+host set one, else the header logo (`header_image_url`). It was the header logo
+alone until then, and hosts usually upload the header version WHITE for a dark
+header bar, so Confluent's arrived as an invisible white wordmark on the white
+Insert hole while its Background Image was the black one. The header fallback
+is Mason's call (64 of 128 SPS events with a header logo had no Background
+Image): a possibly-white logo beats none, and it is one click to change. With
+it comes `logoBackground`, the colors the logo was designed to sit on (gallery
+background for a Background Image, header background for a header logo, never
+crossed), and the pull paints `cover.mosaic.insert.fill` with it. That pairing
+is what actually keeps a logo readable: MSFT Accelerate's Background Image is a
+white wordmark on a #027bcc gallery. `insert.fill` also colors the gutters
+between tiles, so a colored logo background gives the whole mosaic colored
+gutters, which reads as the client's brand. A gradient (9 of 135 on
+2026-11-05) becomes the average of its stops (`logoInsertFill`), because the
+Insert fill is one color; the stops arrive in full for a gradient Insert later.
 
 `src/lib/sps-integration/pull-logo.ts` does the copy, called by `startSpsPull`
 once the event row and its intake section exist and BEFORE the pull job is
@@ -397,7 +414,8 @@ queued, so nothing else is writing `settings` yet:
   `settings` object that was inserted (no re-read, no race).
 - **Fail-soft by contract.** A logo that cannot be fetched, is over 5 MB, or
   is not an accepted type is a `sps.pull-logo` system error and leaves
-  `logoKey` unset: the gallery has the plain mosaic it had before. The pull is
+  `logoKey` unset, and the Insert fill untouched (the color rides with the
+  logo): the gallery has the plain mosaic it had before. The pull is
   never failed for its branding. The fetch waits at most 10 s, because the
   import click waits on it.
 - **One home for the key.** `COVER_LOGO_EXTENSIONS` and `coverLogoKey()` in

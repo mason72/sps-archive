@@ -1,9 +1,13 @@
 /**
  * The client logo, carried across with an SPS pull.
  *
- * SPS holds the logo a host set for the event's gallery header
- * (`events.header_image_url`) and sends it on the manifest as `logoUrl`
- * (contract change 2026-10-24). A pulled gallery starts with the mosaic cover
+ * SPS sends the event's client logo on the manifest as `logoUrl` (contract
+ * change 2026-10-24): the gallery Background Image first, else the gallery
+ * header logo (changed 2026-11-05; the header version is often WHITE, made for
+ * a dark header bar, and landed invisible on the white Insert hole). Since the
+ * same day it also sends `logoBackground`, the colors that logo was designed
+ * to sit on, and the Insert hole is painted with them (`logoInsertFill`), so a
+ * white logo arrives on the color its host put it on. A pulled gallery starts with the mosaic cover
  * in Insert mode (`newGalleryCoverDefaults`), and Insert with no `logoKey`
  * draws a plain mosaic, so until this module existed Mason uploaded the same
  * logo again in Design > Cover after every import. This fetches the bytes and
@@ -24,7 +28,8 @@
  *     with an `<svg` element. Anything else is refused, because the key
  *     extension drives how the raster job and the editor load it.
  *
- * Writes `settings.cover.mosaic.logoKey` only. Never a display column, never
+ * Writes `settings.cover.mosaic.logoKey` and, when SPS sent a background,
+ * `settings.cover.mosaic.insert.fill`. Never a display column, never
  * `processing_status` (CLAUDE.md: the AI/import lanes write their own columns).
  */
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -128,21 +133,58 @@ export async function fetchSpsLogo(
   return { bytes, ...kind };
 }
 
-/** `settings` with the mosaic cover pointing at `logoKey`; everything else kept. */
+/** The colors SPS says a logo was designed on (`logoBackground`). */
+export interface SpsLogoBackground {
+  colors: string[];
+  angle?: number;
+}
+
+const HEX6 = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The one Insert fill color for the logo's SPS background, or null when SPS
+ * sent nothing usable (the fill then stays at its default).
+ *
+ * One stop is used as is. The Insert fill is a single color today, so a
+ * gradient (9 of 135 SPS logos on 2026-11-05) becomes the average of its
+ * stops: a logo its host made to read across the whole gradient reads on the
+ * gradient's overall color. The full stops still arrive on the manifest, so a
+ * gradient Insert can be drawn faithfully later without an SPS change.
+ */
+export function logoInsertFill(background: SpsLogoBackground | null | undefined): string | null {
+  const stops = (Array.isArray(background?.colors) ? background.colors : [])
+    .filter((c): c is string => typeof c === "string" && HEX6.test(c.trim()))
+    .map((c) => c.trim().toUpperCase());
+  if (stops.length === 0) return null;
+  if (stops.length === 1) return stops[0];
+  const channel = (i: number) =>
+    Math.round(stops.reduce((sum, c) => sum + parseInt(c.slice(1 + i * 2, 3 + i * 2), 16), 0) / stops.length);
+  return `#${[0, 1, 2].map((i) => channel(i).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+}
+
+/**
+ * `settings` with the mosaic cover pointing at `logoKey`, and the Insert hole
+ * painted `fill` when one is given; everything else kept.
+ */
 export function withMosaicLogoKey(
   settings: Record<string, unknown>,
-  logoKey: string
+  logoKey: string,
+  fill: string | null = null
 ): Record<string, unknown> {
   const cover = (settings.cover ?? {}) as Record<string, unknown>;
   const mosaic = (cover.mosaic ?? {}) as Record<string, unknown>;
+  const insert = (mosaic.insert ?? {}) as Record<string, unknown>;
   return {
     ...settings,
-    cover: { ...cover, mosaic: { ...mosaic, logoKey } },
+    cover: {
+      ...cover,
+      mosaic: { ...mosaic, logoKey, ...(fill ? { insert: { ...insert, fill } } : {}) },
+    },
   };
 }
 
 /**
- * Copy the SPS header logo onto a freshly created archive event.
+ * Copy the SPS client logo onto a freshly created archive event.
  *
  * Call it once the event row exists and BEFORE the pull job is queued, with
  * the exact `settings` object that was inserted, so the update needs no
@@ -156,10 +198,12 @@ export async function attachSpsCoverLogo(
     spsEventId: string;
     settings: Record<string, unknown>;
     logoUrl: string | null | undefined;
+    /** The colors the logo was designed on; paints the Insert hole. */
+    logoBackground?: SpsLogoBackground | null;
   },
   deps: { fetchImpl?: typeof fetch } = {}
 ): Promise<{ settings: Record<string, unknown>; logoKey: string | null }> {
-  const { eventId, spsEventId, settings, logoUrl } = args;
+  const { eventId, spsEventId, settings, logoUrl, logoBackground } = args;
   if (!logoUrl) return { settings, logoKey: null };
 
   try {
@@ -169,7 +213,9 @@ export async function attachSpsCoverLogo(
     // Rule 2: the object exists before any row names it.
     await uploadToR2(logoKey, logo.bytes, logo.mime);
 
-    const next = withMosaicLogoKey(settings, logoKey);
+    // The fill rides with the logo: without a logo there is nothing to sit on
+    // it, and a colored hole would be the only change.
+    const next = withMosaicLogoKey(settings, logoKey, logoInsertFill(logoBackground));
     const { error } = await supabase
       .from("events")
       .update({ settings: next as Json })

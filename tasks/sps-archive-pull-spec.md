@@ -130,16 +130,31 @@ re-walk idempotent, so this is a UI and job-resume question, not a schema one.
 { "events": [
   { "id": "uuid", "name": "…", "slug": "…", "completedAt": "2026-08-01T…Z",
     "imageCount": 5902, "archiveEnabled": true, "live": false,
-    "coverUrl": "https://…|null", "logoUrl": "https://…|null" }
+    "coverUrl": "https://…|null", "logoUrl": "https://…|null",
+    "logoBackground": { "colors": ["#027bcc"], "angle": 90 } }
 ]}
 ```
 
-`logoUrl` (added 2026-10-24) is the host's gallery-header logo,
-`events.header_image_url` as stored: a public URL on SPS's photo CDN that the
-guest gallery draws with no session, so the puller GETs it server-side as is.
-Null when the host never set one. It is the client LOGO; `coverUrl` is the
-event's cover art for the import list. The puller copies it into the pulled
-gallery's mosaic cover (`sps-integration/pull-logo.ts`).
+`logoUrl` (added 2026-10-24) is the client logo: since 2026-11-05 the
+gallery Background Image (`events.gallery_overlay_url`) when the host set one,
+else the gallery-header logo (`events.header_image_url`), one rule in SPS's
+`archiveLogo()` (`apps/admin/src/lib/archive.ts`). It was header-only until
+2026-11-05, and the header version is often WHITE (made for a dark header bar),
+so it arrived invisible on the cover's white Insert hole. A public URL on SPS's
+photo CDN that the guest gallery draws with no session, so the puller GETs it
+server-side as is. Null when the host set neither. It is the client LOGO;
+`coverUrl` is the event's cover art for the import list.
+
+`logoBackground` (added 2026-11-05) is the colors that logo was designed to sit
+on, always from the SAME source as the URL: `gallery_bg_color` +
+`gallery_gradient_angle` for a Background Image, `header_bg_color` +
+`header_gradient_angle` for a header logo. `colors` holds only #RRGGBB stops (2+
+= gradient); null when no stop is valid. Even a Background Image can be white
+(MSFT Accelerate: white wordmark on a #027bcc gallery), so the pairing, not the
+choice of image, is what keeps a logo readable. The puller copies the logo into
+the pulled gallery's mosaic cover and paints the Insert hole with
+`logoInsertFill(logoBackground)`: the one stop, or the average of a gradient's
+stops, since the Insert fill is one color today (`sps-integration/pull-logo.ts`).
 
 ### `GET /events/{eventId}/manifest?offset=0`
 
@@ -149,7 +164,8 @@ remain; a short page is the terminator.
 ```json
 {
   "event": { "id": "…", "name": "…", "slug": "…", "date": "…", "completedAt": "…",
-             "imageCount": 5902, "archiveEnabled": true, "logoUrl": "https://…|null" },
+             "imageCount": 5902, "archiveEnabled": true, "logoUrl": "https://…|null",
+             "logoBackground": { "colors": ["#…"], "angle": 90 } },
   "images": [
     { "id": "uuid",
       "originalFilename": "JohnSmith_0142.jpg",
@@ -168,8 +184,8 @@ remain; a short page is the terminator.
 
 Notes that will bite if ignored:
 
-- **`event.logoUrl` rides on every page** (2026-10-24), same value as the list
-  route's, because the puller creates its archive event from the FIRST
+- **`event.logoUrl` and `event.logoBackground` ride on every page** (2026-10-24,
+  2026-11-05), same values as the list route's, because the puller creates its archive event from the FIRST
   manifest page, not from the list.
 - **`url` expires in 1 hour.** For `quality: "archive"` backed by a separate
   copy it is a presigned R2 GET; otherwise it is the public `original.jpg`.

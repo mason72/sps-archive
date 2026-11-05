@@ -16,6 +16,7 @@ import {
   fetchSpsLogo,
   withMosaicLogoKey,
   attachSpsCoverLogo,
+  logoInsertFill,
   LOGO_MAX_BYTES,
 } from "./pull-logo";
 import { newGalleryCoverDefaults } from "@/types/event-settings";
@@ -228,5 +229,103 @@ describe("attachSpsCoverLogo", () => {
 
     expect(result.logoKey).toBeNull();
     expect(reportSystemError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("logoInsertFill", () => {
+  it("uses a single stop as is (MSFT Accelerate: white logo on #027bcc)", () => {
+    expect(logoInsertFill({ colors: ["#027bcc"], angle: 90 })).toBe("#027BCC");
+  });
+
+  it("averages a gradient's stops into one color", () => {
+    // Confluent's header: #414558 -> #000000.
+    expect(logoInsertFill({ colors: ["#414558", "#000000"], angle: 90 })).toBe("#21232C");
+  });
+
+  it("ignores stops that are not #RRGGBB, and is null when none are left", () => {
+    expect(logoInsertFill({ colors: ["red", " #000000 "], angle: 0 })).toBe("#000000");
+    expect(logoInsertFill({ colors: ["red"], angle: 0 })).toBeNull();
+    expect(logoInsertFill({ colors: [], angle: 0 })).toBeNull();
+    expect(logoInsertFill(null)).toBeNull();
+    expect(logoInsertFill(undefined)).toBeNull();
+    expect(logoInsertFill({ colors: "nope" } as unknown as { colors: string[] })).toBeNull();
+  });
+});
+
+describe("attachSpsCoverLogo: the logo's background", () => {
+  function db() {
+    const writes: Record<string, unknown>[] = [];
+    const from = () => ({
+      update: (values: Record<string, unknown>) => {
+        writes.push(values);
+        return { eq: async () => ({ error: null }) };
+      },
+    });
+    return { db: { from } as unknown as Parameters<typeof attachSpsCoverLogo>[0], writes };
+  }
+  type Written = { cover: { mosaic: { logoKey: string; insert: { fill: string; padding: number } } } };
+  const fresh = () => ({ cover: newGalleryCoverDefaults() }) as unknown as Record<string, unknown>;
+
+  beforeEach(() => {
+    vi.mocked(uploadToR2).mockClear();
+    vi.mocked(reportSystemError).mockClear();
+  });
+
+  it("paints the Insert hole with the color the logo was designed on, keeping the padding", async () => {
+    const { db: d, writes } = db();
+    const fetchImpl = vi.fn(async () => response(PNG)) as unknown as typeof fetch;
+    const before = (fresh().cover as { mosaic: { insert: { padding: number } } }).mosaic.insert.padding;
+
+    const result = await attachSpsCoverLogo(
+      d,
+      {
+        eventId: EVENT,
+        spsEventId: "sps-1",
+        settings: fresh(),
+        logoUrl: "https://cdn.example/bg.png",
+        logoBackground: { colors: ["#027bcc"], angle: 90 },
+      },
+      { fetchImpl }
+    );
+
+    const written = writes[0].settings as Written;
+    expect(written.cover.mosaic.insert.fill).toBe("#027BCC");
+    expect(written.cover.mosaic.insert.padding).toBe(before);
+    expect(written.cover.mosaic.logoKey).toBe(result.logoKey);
+  });
+
+  it("leaves the fill alone when SPS sent no usable background", async () => {
+    const { db: d, writes } = db();
+    const fetchImpl = vi.fn(async () => response(PNG)) as unknown as typeof fetch;
+    const s = fresh();
+    const defaultFill = (s.cover as Written["cover"]).mosaic.insert.fill;
+
+    await attachSpsCoverLogo(
+      d,
+      { eventId: EVENT, spsEventId: "sps-1", settings: s, logoUrl: "https://cdn.example/bg.png", logoBackground: null },
+      { fetchImpl }
+    );
+
+    expect((writes[0].settings as Written).cover.mosaic.insert.fill).toBe(defaultFill);
+  });
+
+  it("paints nothing when the logo itself could not be brought across", async () => {
+    const { db: d, writes } = db();
+    const fetchImpl = vi.fn(async () => response(Buffer.from("nope"), { status: 404, type: "text/plain" })) as unknown as typeof fetch;
+
+    const result = await attachSpsCoverLogo(
+      d,
+      {
+        eventId: EVENT,
+        spsEventId: "sps-1",
+        settings: fresh(),
+        logoUrl: "https://cdn.example/bg.png",
+        logoBackground: { colors: ["#027bcc"], angle: 90 },
+      },
+      { fetchImpl }
+    );
+
+    expect(result.logoKey).toBeNull();
+    expect(writes).toEqual([]);
   });
 });

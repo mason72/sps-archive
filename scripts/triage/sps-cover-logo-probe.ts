@@ -1,16 +1,20 @@
 /**
- * Read-only: did a pulled gallery get its SPS header logo?
+ * Read-only: did a pulled gallery get its SPS client logo?
  *
- *   npx tsx scripts/triage/sps-cover-logo-probe.ts --list
+ *   npx tsx scripts/triage/sps-cover-logo-probe.ts --list [--name <text>]
  *   npx tsx scripts/triage/sps-cover-logo-probe.ts <archiveEventId> [--raster]
  *
  * `--list` asks SPS (with the stored connection token, never printed) for the
- * importable events and says which carry `logoUrl`: the production proof that
- * the SPS side of the contract is live.
+ * importable events and says which carry `logoUrl`, which SPS image it is
+ * (`background` = the gallery Background Image, `header` = the header logo,
+ * read from the file name SPS gives each), the `logoBackground` colors sent
+ * with it and the Insert fill the pull would paint: the production proof that
+ * the SPS side of the contract is live. `--name` filters by event name.
  *
  * With an archive event id it prints what the row says (`cover.type`,
  * `logoMode`, `logoKey`), whether the object behind the key exists in R2 and
- * what it is, and whether the key is pinned to this event (the IDOR guard).
+ * what it is, the Insert fill, and whether the key is pinned to this event
+ * (the IDOR guard).
  * `--raster` also asks `coverRasterStatus`, which ENQUEUES a regeneration
  * when the raster is missing or stale; that is the one side effect here, so
  * it is opt-in.
@@ -33,6 +37,9 @@ async function main() {
   if (args.includes("--list")) {
     const { getSpsToken } = await import("@/lib/sps-integration/connection");
     const { listSpsEvents } = await import("@/lib/sps-integration/pull-client");
+    const { logoInsertFill } = await import("@/lib/sps-integration/pull-logo");
+    const nameAt = args.indexOf("--name");
+    const nameFilter = nameAt >= 0 ? (args[nameAt + 1] ?? "").toLowerCase() : "";
     const { data: conn, error } = await supabase
       .from("sps_connections")
       .select("user_id")
@@ -45,11 +52,15 @@ async function main() {
       const events = await listSpsEvents(token);
       const withLogo = events.filter((e) => !!e.logoUrl);
       const sent = events.filter((e) => "logoUrl" in e);
-      console.log(`user ${c.user_id.slice(0, 8)}: ${events.length} events; logoUrl field present on ${sent.length}; set on ${withLogo.length}`);
-      for (const e of withLogo.slice(0, 8)) {
+      const sentBg = events.filter((e) => "logoBackground" in e);
+      console.log(`user ${c.user_id.slice(0, 8)}: ${events.length} events; logoUrl field present on ${sent.length}; set on ${withLogo.length}; logoBackground field present on ${sentBg.length}`);
+      const shown = withLogo.filter((e) => !nameFilter || e.name.toLowerCase().includes(nameFilter));
+      for (const e of shown.slice(0, nameFilter ? 50 : 8)) {
         let host = "(bad url)";
         try { host = new URL(e.logoUrl!).host; } catch { /* keep */ }
-        console.log(`  ${e.id} | ${e.name} | ${e.imageCount ?? "?"} imgs | logo on ${host}`);
+        const source = /-background-/.test(e.logoUrl!) ? "background" : /-header-/.test(e.logoUrl!) ? "header" : "?";
+        const colors = e.logoBackground?.colors?.join(",") ?? "none";
+        console.log(`  ${e.id} | ${e.name} | ${e.imageCount ?? "?"} imgs | ${source} logo on ${host} | bg ${colors} -> fill ${logoInsertFill(e.logoBackground) ?? "(default)"}`);
       }
     }
     return 0;
@@ -75,6 +86,7 @@ async function main() {
   const cover = normalizeCoverSettings(((ev.settings ?? {}) as Record<string, unknown>).cover);
   const key = cover.mosaic?.logoKey;
   console.log(`event      : ${ev.name}`);
+  console.log(`insert fill: ${cover.mosaic?.insert.fill ?? "-"}`);
   console.log(`cover      : type=${cover.type} enabled=${cover.enabled} logoMode=${cover.mosaic?.logoMode ?? "-"} title=${cover.hideTitle ? "hidden" : `${cover.titlePosition}/${cover.titleAlignment}`}`);
   console.log(`logoKey    : ${key ?? "(none)"}`);
   if (!key) return 2;
