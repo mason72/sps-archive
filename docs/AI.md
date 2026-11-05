@@ -313,6 +313,27 @@ and losing the crowd is worse than one dog the modal lets you click away.
   filename camps — also exactly the consensus-blocked unnamed population).
   `sameNameFamily`: word-boundary prefix = agreement, never conflict.
   Dismissals persist in `events.settings.people.dismissedSuggestions`.
+- **`match_person_cluster` shortlists on a fingerprint, then ranks exactly**
+  (migration 099, 2026-11-05). It was the database's most expensive query:
+  every call compared one cluster's average face against all 83k reference
+  faces at full precision, 618 ms each, 19.2 h of CPU in 38 days. Each
+  reference row now carries `centroid_bits`, a 1-bit-per-dimension copy that
+  Postgres computes itself (a stored generated column, so writers never set
+  it); the function takes the nearest `greatest(p_limit × 50, 200)` by
+  Hamming distance (how many bits differ) with an EXACT scan, then re-ranks
+  those on the real vectors. ~45 ms. Equivalence, not similarity, is the bar:
+  every hit at ≥ 0.45 (below the 0.55 suggestion floor and the 0.70/0.10
+  auto-confirm rule, so the only hits that can change a decision) matched an
+  exact search in 303 of 303 clusters (prototype) and 304 of 304 (live), and
+  the deepest fingerprint rank any decisive hit reached was 6 of 200. The
+  margin shrinks if one identity gains hundreds of near-identical references,
+  so re-run the parity check as the reference set grows. ⚠️ **Do not put an HNSW index on the
+  fingerprints** (050's pattern): tried first, it missed a 0.84 match that
+  ranked #1 by exact Hamming distance. Nearly every reference sits at the
+  same distance from any query, so the graph cannot steer to the few that are
+  close. The exact scan is linear (~24 ms per 83k references). Re-check with
+  `npx tsx scripts/triage/match-cluster-parity.ts` (read-only) after any
+  change to the function or the reference set's shape.
 - `split.ts`: filename-seeded proposals, 2-means face fallback with a
   minority guard (≥ max(2, 10%) — a 34-vs-1 "split" is an outlier, not a
   person). Splits move FACES, not photos (shared frames belong to both).
