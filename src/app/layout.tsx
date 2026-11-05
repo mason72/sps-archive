@@ -106,7 +106,7 @@ export default async function RootLayout({
   const { user, actingAs } = await getAuthUser();
 
   return (
-    <html lang="en" className={`${inter.variable} ${playfair.variable} ${libreBaskerville.variable} ${cormorant.variable} ${dmSerif.variable} ${spaceGrotesk.variable} ${sourceSerif.variable} ${lora.variable} ${dmSans.variable}`}>
+    <html lang="en" data-scroll-behavior="smooth" className={`${inter.variable} ${playfair.variable} ${libreBaskerville.variable} ${cormorant.variable} ${dmSerif.variable} ${spaceGrotesk.variable} ${sourceSerif.variable} ${lora.variable} ${dmSans.variable}`}>
       <body className="min-h-screen bg-white font-sans text-stone-900 antialiased">
         <AuthProvider initialUser={user}>
           {/* The upload engine lives ABOVE the router outlet on purpose: pages

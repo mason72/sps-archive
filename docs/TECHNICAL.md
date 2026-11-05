@@ -16,7 +16,7 @@ There is **one database and one object store**. Supabase (Postgres) holds all *m
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router; request gate is `src/proxy.ts`, production build is Turbopack) |
 | UI | React 19, TypeScript |
 | Styling | Tailwind CSS 4 (PostCSS) |
 | Icons | lucide-react |

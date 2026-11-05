@@ -6,7 +6,7 @@ Generic workflow, shipping, collaboration, and design rules are **global** (`~/.
 
 ## Quick Reference
 
-- **Stack:** Next.js 15, React 19, TypeScript, Tailwind CSS 4, Supabase (pgvector), Cloudflare R2, Modal GPU, Inngest
+- **Stack:** Next.js 16 (supported until 2027-10-21), React 19, TypeScript, Tailwind CSS 4, Supabase (pgvector), Cloudflare R2, Modal GPU, Inngest
 - **Docs:** `docs/PRD.md` (product), `docs/TECHNICAL.md` (technical), `docs/OPS.md` (alpha access, metering, /ops, crons — read before touching auth/ops/usage), `docs/SESSION-HANDOFF.md` (handoff prompt)
 - **Brand:** Elephant pixel-mosaic logo, Libre Baskerville wordmark, Playfair Display headlines, Inter body, stone/white palette with emerald accent
 
