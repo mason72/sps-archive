@@ -75,8 +75,11 @@ export async function GET(
       db.from("event_intel").select("*").eq("event_id", eventId).eq("user_id", user!.id).maybeSingle(),
       db.from("event_crew").select("*").eq("event_id", eventId).eq("user_id", user!.id),
       db.from("event_orgs").select("*").eq("event_id", eventId).eq("user_id", user!.id),
-      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, is_regular")
-        .eq("user_id", user!.id).eq("archived", false)
+      // ALUMNI INCLUDED: this map also NAMES the people already on the event,
+      // and an archived crew member linked here rendered as "(not on the
+      // roster)". The picker below flags them instead of dropping them.
+      db.from("crew").select("id, display_name, full_name, primary_email, kind, city, is_regular, archived")
+        .eq("user_id", user!.id)
         // Regulars first — the picker shows this order as it arrives.
         .order("is_regular", { ascending: false }).order("display_name"),
     ]);
@@ -196,7 +199,7 @@ export async function GET(
        * the one comparator every picker shares.
        */
       roster: roster
-        .map((c: { id: string; display_name: string; kind: string; city: string | null; is_regular: boolean }) => {
+        .map((c: { id: string; display_name: string; kind: string; city: string | null; is_regular: boolean; archived: boolean }) => {
           const s = standingFor(c.id);
           return {
             id: c.id,
@@ -204,6 +207,7 @@ export async function GET(
             kind: c.kind,
             homeCity: c.city,
             isRegular: !!c.is_regular,
+            archived: !!c.archived,
             hardNo: s.hardNo,
             standing: s.total > 0 ? s : null,
           };

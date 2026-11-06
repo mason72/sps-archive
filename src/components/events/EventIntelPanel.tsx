@@ -60,7 +60,7 @@ interface IntelPayload {
   crew: CrewRow[];
   orgs: { orgId: string; name: string; role: string }[];
   knownRoles: string[];
-  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }[];
+  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean; archived?: boolean }[];
 }
 
 const META = "text-[11px] uppercase tracking-[0.14em] text-stone-400";
@@ -702,9 +702,9 @@ function CrewLine({
 function CrewPicker({
   roster, onPick, onCreated, onCancel,
 }: {
-  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }[];
-  onPick: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }) => void;
-  onCreated: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean }) => void;
+  roster: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean; archived?: boolean }[];
+  onPick: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean; archived?: boolean }) => void;
+  onCreated: (p: { id: string; name: string; kind: string; homeCity: string | null; isRegular: boolean; archived?: boolean }) => void;
   onCancel: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -713,9 +713,11 @@ function CrewPicker({
   const [cursor, setCursor] = useState(0);
 
   const term = q.trim().toLowerCase();
+  // Alumni are on the roster so a typed name finds them (someone you moved to
+  // alumni can still work a job), but they stay out of the untyped list.
   const matches = term
     ? roster.filter((r) => r.name.toLowerCase().includes(term) || (r.homeCity ?? "").toLowerCase().includes(term))
-    : roster;
+    : roster.filter((r) => !r.archived);
   // Offer to create only when nothing matches EXACTLY — a near-match should be
   // picked, not duplicated. Duplicate people are the failure this registry
   // exists to prevent.
@@ -728,7 +730,8 @@ function CrewPicker({
    * land wherever the array happened to put them.
    */
   const ordered = [...matches].sort((a, b) =>
-    a.isRegular === b.isRegular ? a.name.localeCompare(b.name) : a.isRegular ? -1 : 1
+    Number(!!a.archived) - Number(!!b.archived) ||
+    (a.isRegular === b.isRegular ? a.name.localeCompare(b.name) : a.isRegular ? -1 : 1)
   );
   const options = ordered.slice(0, 10);
   const firstOtherIdx = options.findIndex((o) => !o.isRegular);
@@ -795,7 +798,7 @@ function CrewPicker({
             >
               <span>{r.name}</span>
               <span className="text-[11px] text-stone-400">
-                {[r.isRegular ? "★" : null, r.kind !== "staff" ? r.kind : null, r.homeCity].filter(Boolean).join(" · ")}
+                {[r.archived ? "alumni" : null, r.isRegular ? "★" : null, r.kind !== "staff" ? r.kind : null, r.homeCity].filter(Boolean).join(" · ")}
               </span>
             </button>
           </li>

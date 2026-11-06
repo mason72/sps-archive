@@ -20,6 +20,8 @@ const ROSTER = [
   { id: "c1", display_name: "Robin Example", is_regular: true, kind: null, city: null, archived: false, lastHired: null },
   { id: "c2", display_name: "Sam Sample", is_regular: true, kind: null, city: null, archived: false, lastHired: null },
   { id: "c3", display_name: "Fail Always", is_regular: false, kind: null, city: null, archived: false, lastHired: null },
+  // Alumni: found by typing ("Alex"), never listed untyped.
+  { id: "c4", display_name: "Alex Alumnus", is_regular: false, kind: null, city: null, archived: true, lastHired: null },
 ];
 
 let installed = false;
@@ -33,7 +35,9 @@ function installStub() {
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     if (url.endsWith("/api/ops/whoami")) return json({ hasIntel: true });
-    if (url.endsWith("/api/crew")) return json({ crew: ROSTER });
+    // Path match, query ignored: the registry asks for `/api/crew?archived=1`,
+    // and a miss here would fall through to the REAL roster.
+    if (new URL(url, window.location.href).pathname === "/api/crew") return json({ crew: ROSTER });
     const m = url.match(/\/api\/crew\/([^/]+)\/faces$/);
     if (m) {
       await new Promise((r) => setTimeout(r, 600));

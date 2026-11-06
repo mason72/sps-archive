@@ -374,16 +374,24 @@ const NO_ORDER = { onJob: [], recentOff: [], rest: [] } as { onJob: KnownCrew[];
  * first), then people tagged lately who are not on the job, then everyone
  * else. Typing searches the whole roster and the shortcuts step aside. Ids
  * that are not in the roster (removed crew) are dropped, never shown blank.
+ *
+ * Alumni: the roster carries them, so a typed name always finds them (active
+ * people first, alumni after). With nothing typed they appear only as a
+ * shortcut (on the job, or tagged lately), never in "Everyone", which would
+ * otherwise be mostly people Mason moved off the list on purpose.
  */
-export function orderCrew<T extends { id: string; display_name: string }>(
+export function orderCrew<T extends { id: string; display_name: string; archived?: boolean }>(
   roster: T[],
   jobCrewIds: string[],
   recent: string[],
   query: string,
 ): { onJob: T[]; recentOff: T[]; rest: T[] } {
   const q = query.trim().toLowerCase();
-  const visible = roster.filter((c) => !q || c.display_name.toLowerCase().includes(q));
-  if (q) return { onJob: [], recentOff: [], rest: visible };
+  if (q) {
+    const hits = roster.filter((c) => c.display_name.toLowerCase().includes(q));
+    return { onJob: [], recentOff: [], rest: [...hits.filter((c) => !c.archived), ...hits.filter((c) => c.archived)] };
+  }
+  const visible = roster.filter((c) => !c.archived);
   const byId = new Map(roster.map((c) => [c.id, c]));
   const job = new Set(jobCrewIds);
   const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter((c): c is T => !!c);
@@ -428,6 +436,7 @@ function CrewGroup({
         >
           {c.is_regular && <span className="mr-1 text-accent">★</span>}
           {c.display_name}
+          {c.archived && <span className="ml-1.5 text-[11px] text-stone-400">alumni</span>}
         </button>
       ))}
     </div>

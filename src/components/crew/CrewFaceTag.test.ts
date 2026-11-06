@@ -38,4 +38,22 @@ describe("orderCrew", () => {
     expect(o.recentOff).toEqual([]);
     expect(o.rest).toHaveLength(5);
   });
+
+  describe("alumni (Kurt, College Board 2026-11-05)", () => {
+    const withAlum = [...roster, { id: "kurt", display_name: "Kurt", archived: true }, { id: "kai", display_name: "Kai", archived: false }];
+
+    it("a typed name finds an alumnus, after the active matches", () => {
+      expect(names(orderCrew(withAlum, [], [], "k").rest)).toEqual(["Kai", "Kurt"]);
+      expect(names(orderCrew(withAlum, [], [], "kurt").rest)).toEqual(["Kurt"]);
+    });
+
+    it("stays out of Everyone when nothing is typed", () => {
+      expect(names(orderCrew(withAlum, [], [], "").rest)).not.toContain("Kurt");
+    });
+
+    it("is still a shortcut when on the job or tagged lately", () => {
+      expect(names(orderCrew(withAlum, ["kurt"], [], "").onJob)).toEqual(["Kurt"]);
+      expect(names(orderCrew(withAlum, [], ["kurt"], "").recentOff)).toEqual(["Kurt"]);
+    });
+  });
 });

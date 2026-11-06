@@ -80,8 +80,18 @@ export interface KnownCrew {
 
 export const venues = new Registry<KnownVenue>("/api/venues", (j) => ((j as { venues?: KnownVenue[] }).venues ?? []));
 export const orgs = new Registry<KnownOrg>("/api/organizations", (j) => ((j as { orgs?: KnownOrg[] }).orgs ?? []));
-/** Intel-gated upstream: a 403 answers with no `crew` key and reads as an empty roster. */
-export const crew = new Registry<KnownCrew>("/api/crew", (j) => ((j as { crew?: KnownCrew[] }).crew ?? []));
+/**
+ * Intel-gated upstream: a 403 answers with no `crew` key and reads as an empty roster.
+ *
+ * ALUMNI INCLUDED (`?archived=1`), flagged per row. Every picker on this cache
+ * is answering "who worked this job", and an alumnus working again is exactly
+ * the case it must answer: on 2026-11-05 Kurt shot College Board and could be
+ * neither tagged nor added, because the cache had never loaded him. Each
+ * picker decides what to SHOW (alumni wait for a typed name); none may be
+ * unable to FIND someone. A cache without them also went stale the moment
+ * someone was restored in Intel, since it loads once per page.
+ */
+export const crew = new Registry<KnownCrew>("/api/crew?archived=1", (j) => ((j as { crew?: KnownCrew[] }).crew ?? []));
 
 /** `null` until the first load resolves — callers render "Loading…" rather than an empty list. */
 export function useRegistry<T extends { id: string }>(reg: Registry<T>): T[] | null {
