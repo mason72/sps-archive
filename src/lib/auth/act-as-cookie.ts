@@ -2,14 +2,15 @@
  * The act-as cookie's name and lifetime — in a module with NO node imports.
  *
  * `impersonation.ts` signs the cookie with node's `crypto`, which the edge
- * runtime cannot load, and middleware (edge) has to know the cookie's name to
- * slide its expiry forward. One home for the two constants both sides need.
+ * runtime cannot load, and the request gate (`src/proxy.ts`, edge middleware
+ * until Next 16, Node since) has to know the cookie's name to slide its expiry
+ * forward. One home for the two constants both sides need.
  */
 
 export const ACT_AS_COOKIE = "pt-act-as";
 
 /**
- * 12 hours, and middleware slides it forward on every authenticated request.
+ * 12 hours, and the proxy slides it forward on every authenticated request.
  *
  * It used to be 12 hours flat from the moment it was issued, so a working day
  * dropped Mason back into his own (empty) admin account mid-session — "I keep
