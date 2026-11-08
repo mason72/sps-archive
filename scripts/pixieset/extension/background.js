@@ -454,6 +454,15 @@ const REPAIRS = [
       ...PET_SITTINGS,
     ],
   },
+  {
+    id: "2026-11-08-requeue-oct2026metaeventphotos-rest",
+    // The later requeue promised above: Doug's remaining Meta uploads were due
+    // about 2026-11-06, and the archive still held the 59 previews from 10-24.
+    // The last pull before Pixieset is cancelled. Ingest is by filename, so the
+    // 59 already in the archive are skipped and only the new ones land.
+    requeue: ["oct2026metaeventphotos"],
+    front: ["oct2026metaeventphotos"],
+  },
 ];
 
 const DEFAULTS = {
