@@ -49,7 +49,7 @@ export async function PUT(request: NextRequest) {
       .eq("user_id", user!.id)
       .single();
 
-    if (existing?.logo_url && existing.logo_url.startsWith("branding/")) {
+    if (existing?.logo_url && isOwnBrandingKey(existing.logo_url, user!.id)) {
       try {
         await deleteFromR2(existing.logo_url);
       } catch {
@@ -101,7 +101,7 @@ export async function DELETE() {
       .eq("user_id", user!.id)
       .single();
 
-    if (profile?.logo_url && profile.logo_url.startsWith("branding/")) {
+    if (profile?.logo_url && isOwnBrandingKey(profile.logo_url, user!.id)) {
       try {
         await deleteFromR2(profile.logo_url);
       } catch {
@@ -129,4 +129,14 @@ export async function DELETE() {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Only this account's own branding folder may be deleted. The stored key is
+ * written solely by PUT above, but it used to be client-writable through
+ * PATCH /api/account, and a delete is the one place a wrong key costs
+ * somebody else's file (pilot audit, 2026-11-14).
+ */
+function isOwnBrandingKey(key: string, userId: string): boolean {
+  return key.startsWith(`branding/${userId}/`) && !key.includes("..");
 }

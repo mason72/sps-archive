@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { websiteEventId } from "@/lib/site/gallery";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifySharedSecret } from "@/lib/sps-integration/auth";
@@ -70,11 +71,17 @@ export async function GET(
 
     // The website-gallery section backing this scene. A known key whose
     // section hasn't been scaffolded yet is just an empty scene, not a 404.
-    const { data: section, error: sectionError } = await supabase
-      .from("sections")
-      .select("id")
-      .eq("site_scene_key", sceneKey)
-      .maybeSingle();
+    // Scoped to THE website gallery (by its unique slug), like /api/site/jobs:
+    // the scene key's global uniqueness is not an owner check (pilot audit).
+    const siteEventId = await websiteEventId(supabase);
+    const { data: section, error: sectionError } = siteEventId
+      ? await supabase
+          .from("sections")
+          .select("id")
+          .eq("event_id", siteEventId)
+          .eq("site_scene_key", sceneKey)
+          .maybeSingle()
+      : { data: null, error: null };
 
     if (sectionError) {
       console.error("Site scene section lookup error:", sectionError);
@@ -227,11 +234,16 @@ export async function POST(
 
     // The section backing this scene must already exist (scaffolded when the
     // team first curated it). We read event_id straight off it — no user.
-    const { data: section, error: sectionError } = await supabase
-      .from("sections")
-      .select("id, event_id, locked")
-      .eq("site_scene_key", sceneKey)
-      .maybeSingle();
+    // Scoped to THE website gallery, as the GET above.
+    const siteEventId = await websiteEventId(supabase);
+    const { data: section, error: sectionError } = siteEventId
+      ? await supabase
+          .from("sections")
+          .select("id, event_id, locked")
+          .eq("event_id", siteEventId)
+          .eq("site_scene_key", sceneKey)
+          .maybeSingle()
+      : { data: null, error: null };
     if (sectionError) {
       console.error("Site scene POST section lookup error:", sectionError);
       return NextResponse.json({ error: "Failed to resolve scene" }, { status: 500 });

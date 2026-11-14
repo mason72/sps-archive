@@ -13,6 +13,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import { costOf, storageCostPerMonth } from "./costs";
 import type { UsageKind } from "./record";
 import { getUserStorage, type UserStorage } from "./storage";
+import { readAllRows } from "@/lib/supabase/paged";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -68,14 +69,17 @@ export async function getUsageOverview(
   // Trailing-30d ledger covers both the window aggregation and the sparkline.
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000);
   const ledgerStart = windowStart < thirtyDaysAgo ? windowStart : thirtyDaysAgo;
-  const { data: ledger, error: ledgerError } = await supabase
-    .from("usage_events")
-    .select("user_id, kind, quantity, unit, created_at")
-    .gte("created_at", ledgerStart.toISOString())
-    .order("created_at", { ascending: true })
-    .limit(50_000);
-  if (ledgerError) throw ledgerError;
-  const rows = ledger ?? [];
+  // Paged: PostgREST answers at most 1,000 rows whatever `.limit()` says.
+  // The old `.limit(50_000)` read silently stopped at the OLDEST 1,000 rows,
+  // and the 30-day ledger passed 1,000 (1,359 on 2026-11-14), so /ops and the
+  // weekly pricing email were already undercounting, newest usage first, the
+  // way a second account's usage would vanish (pilot audit).
+  const rows = await readAllRows(() =>
+    supabase
+      .from("usage_events")
+      .select("id, user_id, kind, quantity, unit, created_at")
+      .gte("created_at", ledgerStart.toISOString())
+  );
 
   const users: UserUsageSummary[] = [];
   for (const u of userList.users) {

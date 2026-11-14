@@ -12,6 +12,9 @@ import { normalizeRecap, recapPassesFloor } from "@/lib/recap/normalize";
 import type { SpsRecap } from "@/lib/recap/types";
 import { timingSafeEqual } from "node:crypto";
 
+/** Ceiling on addresses per gallery email (see the check in POST). */
+const MAX_RECIPIENTS = 25;
+
 // Room for waitForCoverRaster (45 s, every R2 read capped at 5 s) plus the send itself.
 export const maxDuration = 90;
 
@@ -87,6 +90,16 @@ export async function POST(request: NextRequest) {
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json(
         { error: "At least one recipient is required" },
+        { status: 400 }
+      );
+    }
+    // A gallery email goes to a client, not a list. The hourly brake counts
+    // SENDS, so without a ceiling one send could carry any number of
+    // addresses from Pixeltrunk's domain (pilot audit, 2026-11-14). Measured
+    // before choosing: the most recipients any real send has had is 4.
+    if (recipients.length > MAX_RECIPIENTS) {
+      return NextResponse.json(
+        { error: `At most ${MAX_RECIPIENTS} recipients per email` },
         { status: 400 }
       );
     }
@@ -216,14 +229,25 @@ export async function POST(request: NextRequest) {
     let guestListUrl: string | null = null;
     let guestListFile: { filename: string; sizeBytes: number } | null = null;
     let emailRecap: { data: SpsRecap; url: string } | null = null;
+    let ownedEventId: string | null = null;
     if (eventId) {
-      const { data: event } = await supabase
+      const { data: event, error: eventReadError } = await supabase
         .from("events")
         .select("name, settings, recap")
         .eq("id", eventId)
         .eq("user_id", user!.id)
-        .single();
-      eventName = event?.name ?? null;
+        .maybeSingle();
+      // Refuse rather than send without the gallery: a failed read would send
+      // an email the gallery's status never learns about, and a foreign id
+      // used to mark someone else's gallery "emailed" (pilot audit, 2026-11-14).
+      if (eventReadError) {
+        return NextResponse.json({ error: "Could not load the gallery; try again" }, { status: 503 });
+      }
+      if (!event) {
+        return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+      }
+      eventName = event.name ?? null;
+      ownedEventId = eventId;
       if (verifiedGalleryUrl && verifiedSlug && verifiedShare) {
         // A composed cover that does not exist yet is waited for, because the
         // first open fixes the hero for good in Gmail (waitForCoverRaster).
@@ -361,13 +385,13 @@ export async function POST(request: NextRequest) {
           console.error("Resend API error:", err);
           void reportSystemError("emails.send", JSON.stringify(err), {
             userId: user!.id,
-            eventId: eventId || undefined,
+            eventId: ownedEventId ?? undefined,
           });
           status = "failed";
         } else {
           await recordUsage({
             userId: user!.id,
-            eventId: eventId || null,
+            eventId: ownedEventId,
             kind: "email_send",
             quantity: recipients.length,
             unit: "emails",
@@ -389,7 +413,7 @@ export async function POST(request: NextRequest) {
       .from("email_sends")
       .insert({
         user_id: user!.id,
-        event_id: eventId || null,
+        event_id: ownedEventId,
         template_id: templateId || null,
         recipients: JSON.stringify(recipients),
         subject,

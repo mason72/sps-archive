@@ -308,11 +308,16 @@ function ShareComposePage() {
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to send");
+      if (!res.ok) {
+        // Show the server's reason ("At most 25 recipients", "try again"),
+        // never a bare "failed" for a refusal the photographer can fix.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || "Failed to send email");
+      }
       toast.success(`Email sent to ${recipientList.length} recipient${recipientList.length > 1 ? "s" : ""}`);
       router.push(`/events/${eventId}`);
-    } catch {
-      toast.error("Failed to send email");
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : "Failed to send email");
     } finally {
       setIsSending(false);
     }

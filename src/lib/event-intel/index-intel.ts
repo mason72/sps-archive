@@ -210,7 +210,7 @@ export async function buildIntelIndex(db: DB, userId: string): Promise<IntelInde
   const eventRows: any[] = await readAllRows(() =>
     anyDb
       .from("events")
-      .select("id,name,sort_date,settings")
+      .select("id,name,sort_date,settings,user_id")
       .eq("user_id", userId)
       .order("sort_date", { ascending: false })
   );

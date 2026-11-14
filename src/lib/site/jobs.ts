@@ -27,6 +27,20 @@
 export const WORK_EVENT_SLUG = "tdp-work";
 export const WORK_EVENT_NAME = "TDP Work";
 
+/**
+ * Is this event THE TDP Work gallery? By slug, never by `settings.work`.
+ *
+ * Event slugs are generated on the server (name + timestamp suffix), can never
+ * be written by a client, and are unique across every account, and `tdp-work`
+ * already belongs to Two Dudes. A settings flag is client-writable: until
+ * 2026-11-14 any account could set `work: true` on its own event and publish
+ * to TDP's Featured Work (pilot audit). The flag stays in the data; nothing
+ * that decides publication reads it.
+ */
+export function isWorkGalleryEvent(event: { slug?: string | null } | null | undefined): boolean {
+  return event?.slug === WORK_EVENT_SLUG;
+}
+
 /** site_scene_key namespace for job sections: "job/<slug>". */
 export const JOB_KEY_PREFIX = "job/";
 

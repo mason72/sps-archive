@@ -14,6 +14,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { costOf } from "./costs";
 import type { UsageKind } from "./record";
+import { readAllRows } from "@/lib/supabase/paged";
 
 type SupabaseDB = ReturnType<typeof createServiceClient>;
 
@@ -69,13 +70,16 @@ export async function runDailyAnomalyCheck(supabase: SupabaseDB): Promise<{
   const yesterdayStart = new Date(todayStart.getTime() - dayMs);
   const windowStart = new Date(todayStart.getTime() - 8 * dayMs);
 
-  const { data: rows, error } = await supabase
-    .from("usage_events")
-    .select("user_id, kind, quantity, created_at")
-    .gte("created_at", windowStart.toISOString())
-    .lt("created_at", todayStart.toISOString())
-    .limit(100_000);
-  if (error) throw error;
+  // Paged: PostgREST caps a response at 1,000 rows whatever `.limit()` says,
+  // so the old unordered `.limit(100_000)` judged an arbitrary 1,000 rows
+  // (pilot audit, 2026-11-14; see summary.ts).
+  const rows = await readAllRows(() =>
+    supabase
+      .from("usage_events")
+      .select("id, user_id, kind, quantity, created_at")
+      .gte("created_at", windowStart.toISOString())
+      .lt("created_at", todayStart.toISOString())
+  );
 
   // Per user: yesterday's cost and the prior-7-day daily average.
   const yesterday = new Map<string, number>();

@@ -51,9 +51,9 @@ export async function GET(
       const b = (profile.branding ?? {}) as Record<string, unknown>;
       // Presign logo URL if it's an R2 key
       const presignedLogoUrl = profile.logo_url
-        ? profile.logo_url.startsWith("branding/")
+        ? profile.logo_url.startsWith(`branding/${user!.id}/`)
           ? await getPresignedDownloadUrl(profile.logo_url, 86400)
-          : profile.logo_url
+          : profile.logo_url.startsWith("branding/") ? null : profile.logo_url
         : null;
       branding = {
         businessName: profile.business_name,

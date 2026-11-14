@@ -35,7 +35,7 @@ export async function GET(
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
     const recap = normalizeRecap(event.recap);
-    const logoKey = readRecapSettings(event.settings).clientLogoKey;
+    const logoKey = readRecapSettings(event.settings, eventId).clientLogoKey;
     return NextResponse.json({
       recap,
       fetchedAt: event.recap_fetched_at,

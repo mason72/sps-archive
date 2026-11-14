@@ -84,14 +84,22 @@ export interface RecapSettings {
   clientName?: string;
 }
 
-/** `events.settings.recap`, tolerated when absent or malformed. */
-export function readRecapSettings(settings: unknown): RecapSettings {
+/**
+ * `events.settings.recap`, tolerated when absent or malformed.
+ *
+ * The logo key is honored only inside THIS event's folder. The settings merge
+ * accepts any `recap` object, and a bare `recap/` prefix let one account point
+ * its logo at another event's file, which the logo routes then presigned and
+ * DELETED (pilot audit, 2026-11-14). Same pinning as `pinnedCoverLogoKey`.
+ */
+export function readRecapSettings(settings: unknown, eventId: string): RecapSettings {
   const s = ((settings ?? {}) as Record<string, unknown>).recap;
   if (!s || typeof s !== "object") return {};
   const r = s as Record<string, unknown>;
   return {
     clientLogoKey:
-      typeof r.clientLogoKey === "string" && r.clientLogoKey.startsWith(CLIENT_LOGO_KEY_PREFIX)
+      typeof r.clientLogoKey === "string" && r.clientLogoKey.startsWith(`${CLIENT_LOGO_KEY_PREFIX}${eventId}/`) &&
+        !r.clientLogoKey.includes("..")
         ? r.clientLogoKey
         : undefined,
     clientName: typeof r.clientName === "string" && r.clientName.trim() ? r.clientName.trim() : undefined,
@@ -109,9 +117,9 @@ async function photographerBrand(userId: string | null): Promise<RecapBrand> {
   if (!profile) return { businessName: null, logoUrl: null, website: null, accentColor: DEFAULT_BRANDING.accentColor };
   const b = (profile.branding ?? {}) as Record<string, unknown>;
   const logoUrl = profile.logo_url
-    ? profile.logo_url.startsWith("branding/")
+    ? profile.logo_url.startsWith(`branding/${userId}/`)
       ? await getPresignedDownloadUrl(profile.logo_url, 86400)
-      : profile.logo_url
+      : profile.logo_url.startsWith("branding/") ? null : profile.logo_url
     : null;
   return {
     businessName: profile.business_name,
@@ -157,7 +165,7 @@ export async function resolveRecap(
   }
 
   const selected = shareScopeIdFilter(scope);
-  const recapSettings = readRecapSettings(event.settings);
+  const recapSettings = readRecapSettings(event.settings, event.id);
   const clientLogoUrl = recapSettings.clientLogoKey
     ? await getPresignedDownloadUrl(recapSettings.clientLogoKey, 86400)
     : null;
@@ -212,10 +220,15 @@ export async function resolveRecap(
   if (selected) {
     const picked: (TileRow & { media_type: string | null })[] = [];
     for (const chunk of idChunks([...selected])) {
+      // Owner-scoped: a selection's ids were once stored unchecked, so a share
+      // could list another account's photos and this public page served them
+      // (pilot audit, 2026-11-14). Owner, not event: a TDP Website selection
+      // legitimately holds TDP Work photos.
       const { data, error } = await supabase
         .from("images")
-        .select("id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y")
+        .select("id, r2_key, parsed_name, original_filename, width, height, media_type, focal_x, focal_y, events!event_id!inner(user_id)")
         .in("id", chunk)
+        .eq("events.user_id", event.user_id)
         .eq("thumbnail_generated", true);
       // A failed chunk leaves fewer lead frames, not a dead page; say so in the log.
       if (error) console.error("Recap lead read failed for event", event.id, error.message);

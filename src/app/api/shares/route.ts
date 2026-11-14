@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ownedImageIds } from "@/lib/auth/ownership";
 import { nanoid } from "nanoid";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { hashPassword } from "@/lib/shares/hash";
@@ -56,6 +57,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "eventId is required" }, { status: 400 });
     }
 
+    // A malformed selection must not quietly become a link to the whole gallery.
+    if (imageIds !== undefined && imageIds !== null && !Array.isArray(imageIds)) {
+      return NextResponse.json({ error: "imageIds must be an array" }, { status: 400 });
+    }
+
     // Verify user owns this event (and fetch settings when needed).
     // Service client bypasses RLS — the user_id filter IS the access control.
     const { data: event, error: eventError } = await supabase
@@ -108,7 +114,24 @@ export async function POST(request: NextRequest) {
     const passwordHash = resolvedPassword ? await hashPassword(resolvedPassword) : null;
 
     // Determine share type: 'selection' if imageIds provided, else 'full'
-    const isSelection = imageIds && imageIds.length > 0;
+    const isSelection = Array.isArray(imageIds) && imageIds.length > 0;
+
+    // A selection may only hold the caller's OWN photos. Its ids were stored
+    // unchecked, and the public recap read them by id alone, so a share listing
+    // another account's ids served that account's thumbnails to anyone with
+    // the link (pilot audit, 2026-11-14). Refuse rather than drop: a share that
+    // silently shows fewer photos than were picked is its own surprise.
+    // Owner, not event: TDP Website shares legitimately carry TDP Work photos.
+    if (isSelection) {
+      const owned = await ownedImageIds(supabase, user!.id, imageIds);
+      const foreign = imageIds.filter((id) => !owned.has(id)).length;
+      if (foreign > 0) {
+        return NextResponse.json(
+          { error: `${foreign} of the selected photos could not be found` },
+          { status: 400 }
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from("shares")

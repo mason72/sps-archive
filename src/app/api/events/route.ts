@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasIntelAccess } from "@/lib/event-intel/access";
+import { clientSettingsForCreate } from "@/lib/events/settings-guard";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { enrichEvents } from "@/lib/events/enrich";
 import { reportSystemError } from "@/lib/monitoring/report";
@@ -331,7 +333,8 @@ export async function POST(request: NextRequest) {
         event_type: eventType || null,
         // New galleries start with "Download All" behind a PIN (2026-09-18);
         // anything the creator sent for sharing still wins.
-        settings: withNewGalleryDefaults(settings) as Json,
+        // Server-owned keys (work/website) are dropped; see settings-guard.
+        settings: withNewGalleryDefaults(clientSettingsForCreate(settings)) as Json,
         user_id: user!.id,
       })
       .select()
@@ -378,7 +381,9 @@ export async function POST(request: NextRequest) {
      * replacing what a human just chose.
      */
     let intelWarnings: string[] = [];
-    if (data && intel && (intel.venue || intel.venueId || intel.crew?.length || intel.orgDomains?.length || intel.orgIds?.length)) {
+    // Intel is a TDP-team feature: an account without it never writes crew,
+    // venue or org rows it cannot see (pilot audit, 2026-11-14).
+    if (data && intel && hasIntelAccess(user!.id) && (intel.venue || intel.venueId || intel.crew?.length || intel.orgDomains?.length || intel.orgIds?.length)) {
       try {
         const { applyGigIntel } = await import("@/lib/event-intel/apply-gig");
         const result = await applyGigIntel(supabase, {

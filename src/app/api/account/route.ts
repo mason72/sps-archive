@@ -67,9 +67,9 @@ export async function GET() {
         businessName: profile.business_name,
         bio: profile.bio,
         logoUrl: profile.logo_url
-          ? profile.logo_url.startsWith("branding/")
+          ? profile.logo_url.startsWith(`branding/${user!.id}/`)
             ? await getPresignedDownloadUrl(profile.logo_url, 86400) // 1 day TTL, refreshed each load
-            : profile.logo_url // Legacy presigned URLs still work until they expire
+            : profile.logo_url.startsWith("branding/") ? null : profile.logo_url // Legacy presigned URLs still work until they expire
           : null,
         website: profile.website,
         phone: profile.phone,
@@ -104,7 +104,10 @@ export async function PATCH(request: NextRequest) {
     if (body.displayName !== undefined) updates.display_name = body.displayName;
     if (body.businessName !== undefined) updates.business_name = body.businessName;
     if (body.bio !== undefined) updates.bio = body.bio;
-    if (body.logoUrl !== undefined) updates.logo_url = body.logoUrl;
+    // logo_url is NOT client-writable. It names an R2 key that the logo
+    // routes later DELETE, so a client value let one account point it at
+    // another account's logo and have it removed (pilot audit, 2026-11-14).
+    // PUT/DELETE /api/account/logo are the only writers; no client sent it.
     if (body.website !== undefined) updates.website = body.website;
     if (body.phone !== undefined) updates.phone = body.phone;
     if (body.location !== undefined) updates.location = body.location;

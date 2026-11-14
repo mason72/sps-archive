@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { eventOwnerId } from "@/lib/auth/ownership";
 import {
   getObjectMetadata,
   getPresignedDownloadUrl,
@@ -47,20 +48,34 @@ const TILE_FIELDS =
  * fails outright ("fetch failed"), which read as "section has no photos" and
  * sent the cover rule past a section the photographer had chosen (eBay RCG
  * MiniCon, 1,289-photo section, 2026-10-24). Videos never tile a cover.
+ * Exported for scripts/triage/tenant-isolation-probe.ts; callers go through
+ * the pool functions below.
  */
-async function loadTileRows(
+export async function loadTileRows(
   supabase: ReturnType<typeof createServiceClient>,
-  ids: string[]
+  ids: string[],
+  ownerId: string | null
 ): Promise<TileRow[]> {
+  // OWNER-SCOPED: a section once accepted any image id, and these tiles end up
+  // on public covers, OG images, share emails and the recap, so a foreign id
+  // put another account's photo on the attacker's cover (pilot audit,
+  // 2026-11-14). Owner rather than event: the TDP Website and Work galleries
+  // tile photos that live in the account's other events. No owner, no tiles.
+  if (!ownerId) return [];
   const byId = new Map<string, TileRow & { media_type: string | null }>();
   for (let i = 0; i < ids.length; i += 100) {
     const { data, error } = await supabase
       .from("images")
-      .select(TILE_FIELDS)
+      .select(`${TILE_FIELDS}, events!event_id!inner(user_id)`)
       .in("id", ids.slice(i, i + 100))
+      .eq("events.user_id", ownerId)
       .eq("thumbnail_generated", true);
     if (error) throw error;
-    for (const img of data ?? []) byId.set(img.id, img);
+    // Drop the join: these rows reach public payloads, and the owner id is not theirs to carry.
+    for (const { events: _owner, ...img } of data ?? []) {
+      void _owner;
+      byId.set(img.id, img);
+    }
   }
   const rows: TileRow[] = [];
   for (const id of ids) {
@@ -83,6 +98,10 @@ export async function fetchMosaicPool(
     .eq("event_id", eventId)
     .order("sort_order", { ascending: true });
   if (!sections || sections.length === 0) return [];
+  // Fallback-frame callers (OG card, share cover, recap) degrade to "no pool"
+  // on a failed read, as they did before the owner check; no owner, no tiles.
+  const ownerId = await eventOwnerId(supabase, eventId).catch(() => null);
+  if (!ownerId) return [];
 
   const targetIds =
     sectionId && sections.some((s) => s.id === sectionId)
@@ -106,7 +125,7 @@ export async function fetchMosaicPool(
     // instead silently drops photos whose (hidden) AI step failed, and any
     // pool difference reorders the ENTIRE seeded arrangement, desyncing the
     // raster from the live cover.
-    const rows = await loadTileRows(supabase, links.map((l) => l.image_id));
+    const rows = await loadTileRows(supabase, links.map((l) => l.image_id), ownerId);
     if (rows.length > 0) return rows;
   }
   return [];
@@ -135,6 +154,7 @@ export async function fetchMosaicCoverPool(
     .eq("event_id", eventId)
     .order("sort_order", { ascending: true });
   const sectionIds = (sections ?? []).map((s) => s.id);
+  const ownerId = await eventOwnerId(supabase, eventId);
 
   const loadSection = async (sid: string): Promise<TileRow[]> => {
     // Same order as the gallery payload's link read (sort_order, then id),
@@ -148,7 +168,7 @@ export async function fetchMosaicCoverPool(
       .order("image_id", { ascending: true })
       .limit(MOSAIC_POOL_CAP);
     const ids = (links ?? []).map((l) => l.image_id);
-    return ids.length ? loadTileRows(supabase, ids) : [];
+    return ids.length ? loadTileRows(supabase, ids, ownerId) : [];
   };
 
   // 1. The chosen section, when it exists and has displayable photos.

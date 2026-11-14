@@ -54,7 +54,7 @@ export async function PUT(
       .maybeSingle();
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
-    const current = readRecapSettings(event.settings);
+    const current = readRecapSettings(event.settings, eventId);
     const key = `${CLIENT_LOGO_KEY_PREFIX}${eventId}/client-logo-${Date.now()}.${ext}`;
     await uploadToR2(key, buffer, contentType);
 
@@ -97,7 +97,7 @@ export async function DELETE(
       .maybeSingle();
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
-    const current = readRecapSettings(event.settings);
+    const current = readRecapSettings(event.settings, eventId);
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     const recap = { ...((settings.recap ?? {}) as Record<string, unknown>) };
     delete recap.clientLogoKey;

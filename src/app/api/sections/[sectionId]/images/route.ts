@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { syncSitePublication } from "@/lib/site/membership";
+import { ownedImageIds } from "@/lib/auth/ownership";
 
 /**
  * GET /api/sections/[sectionId]/images?list=true
@@ -75,7 +76,7 @@ export async function POST(
     const body = await request.json();
     const { imageIds } = body as { imageIds: string[] };
 
-    if (!imageIds?.length) {
+    if (!Array.isArray(imageIds) || !imageIds.length) {
       return NextResponse.json(
         { error: "imageIds is required" },
         { status: 400 }
@@ -111,6 +112,17 @@ export async function POST(
       );
     }
 
+    // Only the caller's OWN photos may be linked. Owning the section is not
+    // enough: the editor, mosaic covers and the recap read a section's members
+    // by id, so a foreign id linked here was served back as the caller's own
+    // (pilot audit, 2026-11-14). Same-owner photos from other events still
+    // link; that is how the TDP Website and Work galleries are built.
+    const owned = await ownedImageIds(supabase, user!.id, imageIds);
+    const linkIds = [...new Set(imageIds)].filter((id) => owned.has(id));
+    if (linkIds.length === 0) {
+      return NextResponse.json({ error: "Images not found" }, { status: 404 });
+    }
+
     // Get max sort_order in this section (maybeSingle — an empty section has
     // no rows, and .single() treats zero rows as an error)
     const { data: maxSort } = await supabase
@@ -124,7 +136,7 @@ export async function POST(
     let nextOrder = (maxSort?.sort_order ?? -1) + 1;
 
     // Insert image links (upsert to handle duplicates gracefully)
-    const rows = imageIds.map((imageId) => ({
+    const rows = linkIds.map((imageId) => ({
       section_id: sectionId,
       image_id: imageId,
       sort_order: nextOrder++,
@@ -138,10 +150,13 @@ export async function POST(
 
     // Website sections publish by membership: mirror public variants now.
     if (section.site_scene_key) {
-      await syncSitePublication(supabase, imageIds);
+      await syncSitePublication(supabase, linkIds);
     }
 
-    return NextResponse.json({ added: imageIds.length });
+    return NextResponse.json({
+      added: linkIds.length,
+      skipped: imageIds.length - linkIds.length,
+    });
   } catch (error) {
     console.error("Add images to section error:", error);
     return NextResponse.json(

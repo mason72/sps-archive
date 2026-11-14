@@ -50,7 +50,10 @@ export async function middleware(request: NextRequest) {
   }
 
   // ─── /m routes accessible directly in dev (localhost:3002/m/...) ───
-  if (pathname.startsWith("/m")) {
+  // Exactly /m and /m/..., never any path that merely starts with "m":
+  // `startsWith("/m")` also waved /mockups (and any future /me, /media,
+  // /manage) past the session check (pilot audit, 2026-11-14).
+  if (pathname === "/m" || pathname.startsWith("/m/")) {
     // Allow direct access to marketing routes (for dev + internal linking)
     return NextResponse.next({ request });
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { mergeClientSettings } from "@/lib/events/settings-guard";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { collectEventAssets, purgeEventAssets, purgeEventOwnedFiles } from "@/lib/events/purge-assets";
 import { normalizeCoverSettings, coverNeedsRaster } from "@/types/event-settings";
@@ -213,6 +214,21 @@ export async function GET(
     // gallery is built this way (its sections hold curated images that live in
     // their source events). Fetch any member images the event_id query above
     // missed so they render in the grid like local ones.
+    //
+    // OWNER-SCOPED: only photos from this account's own events. A section
+    // once accepted any image id, and this read then signed another account's
+    // thumbnails, filenames and gallery names into the caller's editor (pilot
+    // audit, 2026-11-14). The link route now refuses foreign ids; this is the
+    // second guard, so a link that got in by any other road is still not served.
+    const EXTERNAL_FIELDS = IMAGE_FIELDS.replace(
+      "events!event_id(name, city)",
+      "events!event_id!inner(name, city, user_id)"
+    );
+    // Without `!inner` the user_id filter below only nulls the embed and the
+    // rows still come back, so a silent no-op replace would reopen the hole.
+    if (EXTERNAL_FIELDS === IMAGE_FIELDS) {
+      throw new Error("EXTERNAL_FIELDS lost its !inner owner join; update the replace with IMAGE_FIELDS");
+    }
     {
       const localIds = new Set(rawImages.map((img) => img.id as string));
       const externalIds = [...sectionIdsByImage.keys()].filter(
@@ -229,8 +245,9 @@ export async function GET(
           Array.from({ length: Math.ceil(wave.length / ID_CHUNK) }, (_, j) =>
             supabase
               .from("images")
-              .select(IMAGE_FIELDS)
+              .select(EXTERNAL_FIELDS)
               .in("id", wave.slice(j * ID_CHUNK, (j + 1) * ID_CHUNK))
+              .eq("events.user_id", user!.id)
           )
         );
         for (const { data: externals, error: extError } of chunks) {
@@ -402,19 +419,29 @@ export async function PATCH(
     // there's no reason to read another tenant's settings first).
     let previousCoverJson: string | null = null;
     if (body.settings !== undefined) {
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from("events")
         .select("settings")
         .eq("id", eventId)
         .eq("user_id", user!.id)
-        .single();
+        .maybeSingle();
+      // Never merge onto {} after a failed read: the merge holds server-owned
+      // keys at their STORED value, so an empty read would erase `work` /
+      // `website` from the real TDP galleries (review of the pilot audit).
+      if (existingError) {
+        return NextResponse.json({ error: "Failed to read event settings" }, { status: 503 });
+      }
+      if (!existing) {
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
 
       const currentSettings =
-        (existing?.settings as Record<string, unknown>) || {};
+        (existing.settings as Record<string, unknown>) || {};
       previousCoverJson = JSON.stringify(
         normalizeCoverSettings(currentSettings.cover)
       );
-      updates.settings = { ...currentSettings, ...body.settings };
+      // Server-owned keys (work/website) keep their stored value; see settings-guard.
+      updates.settings = mergeClientSettings(currentSettings, body.settings);
     }
 
     if (Object.keys(updates).length === 0) {

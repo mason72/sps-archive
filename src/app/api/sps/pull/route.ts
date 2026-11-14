@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasIntelAccess } from "@/lib/event-intel/access";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { startSpsPull } from "@/lib/sps-integration/pull-event";
 import { SpsPullError } from "@/lib/sps-integration/pull-client";
@@ -115,6 +116,9 @@ export async function POST(request: NextRequest) {
      */
     if (
       !result.resumed &&
+      // Intel is a TDP-team feature: an account without it never writes crew,
+      // venue or org rows it cannot see (pilot audit, 2026-11-14).
+      hasIntelAccess(user!.id) &&
       body.intel &&
       (body.intel.venue || body.intel.venueId || body.intel.crew?.length || body.intel.orgDomains?.length || body.intel.orgIds?.length)
     ) {

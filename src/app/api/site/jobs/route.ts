@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { verifySharedSecret } from "@/lib/sps-integration/auth";
 import {
   JOB_KEY_PREFIX,
+  WORK_EVENT_SLUG,
   jobSlugFromKey,
   parseJobMeta,
   isJobComplete,
@@ -46,12 +47,31 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Every job section, in the gallery's sidebar order. The job/ namespace
-    // is only ever assigned inside the TDP Work gallery (sections POST), so
-    // the key prefix alone scopes this query.
+    // The TDP Work gallery, by its server-generated unique slug. The key
+    // prefix alone USED to scope this query, on the belief that job/ keys are
+    // only assigned inside TDP Work, but that was decided by a client-writable
+    // settings flag, so any account could put a job on the public site (pilot
+    // audit, 2026-11-14). Both layers are now closed; this is the one that
+    // still holds if a job key reaches some other gallery by a road not yet
+    // thought of.
+    const { data: workEvent, error: workError } = await supabase
+      .from("events")
+      .select("id")
+      .eq("slug", WORK_EVENT_SLUG)
+      .maybeSingle();
+    if (workError) {
+      console.error("Site jobs work-gallery lookup error:", workError);
+      return NextResponse.json({ error: "Failed to load jobs" }, { status: 500 });
+    }
+    if (!workEvent) {
+      return NextResponse.json({ count: 0, jobs: [] }, { headers: { "Cache-Control": "private, max-age=300" } });
+    }
+
+    // Every job section, in the gallery's sidebar order.
     const { data: sections, error: sectionsError } = await supabase
       .from("sections")
       .select("id, site_scene_key, job_meta, sort_order")
+      .eq("event_id", workEvent.id)
       .like("site_scene_key", `${JOB_KEY_PREFIX}%`)
       .order("sort_order", { ascending: true });
 

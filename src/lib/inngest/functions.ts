@@ -14,6 +14,17 @@ import { recordUsage } from "@/lib/usage/record";
 import { deleteFromR2, objectExistsInR2 } from "@/lib/r2/client";
 
 /**
+ * The reconciler's grouping key: gallery name plus a short id. By name alone,
+ * two accounts that each have a gallery called "Headshots 2026" got one
+ * merged list in the admin email, naming the wrong account's files as lost
+ * (pilot audit, 2026-11-14).
+ */
+function reconcileEventLabel(row: { event_id: string; events?: unknown }): string {
+  const name = (row.events as { name?: string } | null)?.name;
+  return name ? `${name} (${String(row.event_id).slice(0, 8)})` : String(row.event_id);
+}
+
+/**
  * AI processing v2 (revived 2026-08-09; the v1 shutdown story lives in
  * tasks/lessons.md and the git history of this comment).
  *
@@ -387,8 +398,7 @@ export const uploadReconciler = inngest.createFunction(
               return;
             }
             result.ghostsDeleted++;
-            const eventName =
-              (row.events as { name?: string } | null)?.name ?? row.event_id;
+            const eventName = reconcileEventLabel(row);
             (result.ghostsByEvent[eventName] ??= []).push(
               row.original_filename ?? row.filename
             );
@@ -455,8 +465,7 @@ export const uploadReconciler = inngest.createFunction(
             // since the read matches nothing and must not be reported marked.
             if (!markErr && marked?.length === 1) {
               result.unreadable++;
-              const eventName =
-                (row.events as { name?: string } | null)?.name ?? row.event_id;
+              const eventName = reconcileEventLabel(row);
               (result.unreadableByEvent[eventName] ??= []).push(
                 row.original_filename ?? row.filename
               );
@@ -885,7 +894,7 @@ export const coverFocal = inngest.createFunction(
       const supabase = createServiceClient();
       const { data: ev } = await supabase
         .from("events")
-        .select("settings")
+        .select("settings, user_id")
         .eq("id", event.data.eventId)
         .single();
       if (!ev) return 0;
@@ -896,12 +905,16 @@ export const coverFocal = inngest.createFunction(
 
       const targets: Array<{ id: string; r2_key: string }> = [];
       if (cover.type === "image" && cover.imageId) {
+        // Owner-scoped: the cover id is client-written, and this job writes
+        // focal points and faces onto the photo it names (pilot audit,
+        // 2026-11-14). A foreign id finds no row and the job does nothing.
         const { data: img } = await supabase
           .from("images")
-          .select("id, r2_key")
+          .select("id, r2_key, events!event_id!inner(user_id)")
           .eq("id", cover.imageId)
-          .single();
-        if (img) targets.push(img);
+          .eq("events.user_id", ev.user_id)
+          .maybeSingle();
+        if (img) targets.push({ id: img.id, r2_key: img.r2_key });
       } else if (cover.type === "mosaic" || cover.type === "crossfade") {
         const sectionId =
           cover.type === "mosaic"

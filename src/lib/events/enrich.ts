@@ -12,6 +12,8 @@ type SupabaseClient = ReturnType<typeof createServiceClient>;
 /** Minimal event shape the enrichment needs. */
 export interface EnrichableEvent {
   id: string;
+  /** Required for a photo cover to be honored (owner check). */
+  user_id?: unknown;
   settings: unknown;
   [key: string]: unknown;
 }
@@ -86,13 +88,20 @@ export async function enrichEvents(
     .filter((id): id is string => !!id);
 
   const coverKeyById = new Map<string, string>();
+  const coverOwnerById = new Map<string, string>();
   const focalById = new Map<string, { x: number; y: number }>();
   if (coverImageIds.length > 0) {
+    // Each cover photo carries its owner, and a cover is honored only when
+    // that owner is the event's own (below). `settings.cover.imageId` is
+    // client-written, so an account could name another account's photo and
+    // this list signed it back as its card (pilot audit, 2026-11-14).
     const { data: coverImgs } = await supabase
       .from("images")
-      .select("id, r2_key, focal_x, focal_y")
+      .select("id, r2_key, focal_x, focal_y, events!event_id!inner(user_id)")
       .in("id", coverImageIds);
     for (const img of coverImgs ?? []) {
+      const owner = (img.events as { user_id?: string } | null)?.user_id;
+      if (owner) coverOwnerById.set(img.id, owner);
       coverKeyById.set(img.id, img.r2_key);
       if (img.focal_x != null && img.focal_y != null) {
         focalById.set(img.id, { x: img.focal_x, y: img.focal_y });
@@ -101,7 +110,10 @@ export async function enrichEvents(
   }
   for (const e of events) {
     const imageId = coverImageIdFor(e);
-    const key = imageId ? coverKeyById.get(imageId) : undefined;
+    // Fails closed: an event row without its user_id honors no cover photo.
+    const sameOwner =
+      !!imageId && typeof e.user_id === "string" && coverOwnerById.get(imageId) === e.user_id;
+    const key = sameOwner ? coverKeyById.get(imageId) : undefined;
     if (key) {
       coverKeyByEvent.set(e.id, key);
       const f = imageId ? focalById.get(imageId) : undefined;

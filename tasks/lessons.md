@@ -4897,3 +4897,34 @@ Fix 5 of lesson 198 (Mason: "do fix 5 after all"). After fixes 1 to 4, Webex One
 **Fix.** The cache and the event panel load alumni, flagged per row. Each picker finds them by name, sorts them after active people and labels them "alumni"; untyped lists leave them out, except the face tag's "On this job" and "Recent" shortcuts. Tests in `CrewFaceTag.test.ts`.
 
 **Rule.** "Archived" means "off my default list", never "cannot be found". A picker answering "who worked this job" must be able to find everyone on the roster, and hide by default only what nobody typed. Also: a roster row with no email is invisible to the calendar. When someone shows up as "N other attendee is not on your roster", the fix is usually their email on an existing row, not a new person.
+
+## 203. The archive was safe for one account and leaky for two: the pre-pilot tenant audit (2026-11-14)
+
+**What happened.** Before opening Pixeltrunk to SPS hosts, Mason asked for a multi-tenant safety audit. Five parallel reviewers read all 136 API routes, the server pages, the Inngest jobs and the caches. Every hole they found was confirmed in code, and the core held up (search, /people, faces, identity, SPS pull, Stripe, guest galleries). The holes all had one shape: **a value the CLIENT writes was later used by the SERVER as if the server had chosen it.**
+- Section links accepted any image id, and the editor, mosaic covers, OG images and the recap then served another account's photos as the caller's own.
+- Selection shares stored body ids unchecked, and the public recap read them by id alone.
+- `settings.work: true` was client-writable, and it was the ONLY thing that made an event the TDP Work gallery. Any account could publish to the Two Dudes website's Featured Work, because `/api/site/jobs` listed every `job/` section in the database.
+- `settings.cover.imageId`, `settings.recap.clientLogoKey` and `user_profiles.logo_url` named photos and R2 keys that later routes presigned, wrote focal points onto, or DELETED.
+- Smaller: the email composer had no recipient cap (max ever used: 4); event titles were read by id; `/mockups` answered anonymous visitors because middleware matched `startsWith("/m")`; `/dev` pages were open to any account in production.
+- Live already, not just future risk: the usage ledger read `.limit(50_000)` and PostgREST answered at most 1,000 rows (1,359 existed), so /ops and the weekly pricing email undercounted.
+
+**Fix.** One gate, `ownedImageIds()` (`src/lib/auth/ownership.ts`), on every write that names photos and as a second guard on every read that serves them.
+- **OWNER scope, not event scope.** Production had 605 cross-event links and 2 live selection shares carrying photos from other events, all same-owner (TDP Website/Work). An event-scoped gate would have broken them; that was measured before choosing.
+- The Work and Website galleries are identified by their server-generated unique slug (`isWorkGalleryEvent`), and the flags are server-owned keys (`settings-guard.ts`).
+- Keys are pinned to their own folder (`recap/<eventId>/`, `branding/<userId>/`).
+- Proof: `scripts/triage/tenant-isolation-probe.ts` (read-only), 14 checks, each with an owner control (keeps all 953 cross-event photos, all photo covers, every recap lead, all 32 jobs) and a stranger control (gets 0).
+
+**Rule.**
+- Every value a client can write is untrusted the next time the server reads it, including JSON settings blobs, stored ids and stored keys, not only request bodies. When a route stores an id or key, gate it on write AND scope it on read; two layers, each with its own test.
+- Identify special records by something only the server can set (a generated unique slug, an id list in env), never by a flag in a client-writable object.
+- A comment saying "X alone scopes this query" is a claim about every writer of X: check them all before believing it.
+- Two probe mistakes worth remembering:
+  - "Has a cover" proved nothing, because a refused cover correctly falls back to the event's own first photo. The check had to ask whether the NAMED photo appeared.
+  - The owner control first failed on a stale non-photo cover id; the probe had to use the card's own rule (`coverImageIdFor`).
+
+**Not done (decisions or follow-ups).** These are listed in memory `pilot-readiness-2026-11.md`:
+- Signup sets `email_confirm: true`, so an invited email can be claimed by whoever types it first.
+- The gallery password cookie holds the share id itself, so a former guest keeps access after a password change.
+- `NON_PERSON_GALLERIES` matches gallery names for every account.
+- Share emails have no `reply_to`.
+- There is no audit trail of act-as sessions.

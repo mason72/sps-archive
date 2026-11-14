@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
-import { JOB_KEY_PREFIX, jobSlugFromName } from "@/lib/site/jobs";
+import { JOB_KEY_PREFIX, isWorkGalleryEvent, jobSlugFromName } from "@/lib/site/jobs";
 
 /**
  * GET /api/sections?eventId=xxx
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     // Verify event ownership
     const { data: event } = await supabase
       .from("events")
-      .select("id, settings")
+      .select("id, slug")
       .eq("id", eventId)
       .eq("user_id", user!.id)
       .single();
@@ -103,8 +103,8 @@ export async function POST(request: NextRequest) {
     // suffixed on collision). The job/ namespace is what plugs the section
     // into the public lane — publication, revalidate webhook, focal tool.
     let siteSceneKey: string | null = null;
-    const isWorkGallery =
-      (event.settings as Record<string, unknown> | null)?.work === true;
+    // By slug, never the client-writable settings flag (see isWorkGalleryEvent).
+    const isWorkGallery = isWorkGalleryEvent(event);
     if (isWorkGallery) {
       const base = jobSlugFromName(name);
       const { data: taken } = await supabase

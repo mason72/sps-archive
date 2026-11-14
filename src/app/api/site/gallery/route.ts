@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { isValidScene, sceneForKey } from "@/lib/site/scenes";
-import { getWebsiteSection, WEBSITE_EVENT_SLUG } from "@/lib/site/gallery";
+import { getWebsiteSection, WebsiteGalleryNotYoursError, WEBSITE_EVENT_SLUG } from "@/lib/site/gallery";
 import { syncSitePublication } from "@/lib/site/membership";
 
 /**
@@ -136,6 +136,9 @@ export async function POST(request: NextRequest) {
       sectionId,
     });
   } catch (error) {
+    if (error instanceof WebsiteGalleryNotYoursError) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     console.error("Add to website gallery error:", error);
     return NextResponse.json(
       { error: "Failed to add images to the website" },

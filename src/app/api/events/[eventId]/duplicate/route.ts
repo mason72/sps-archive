@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clientSettingsForCreate } from "@/lib/events/settings-guard";
 import { getAuthUser } from "@/lib/auth/helpers";
 import { nanoid } from "nanoid";
 
@@ -46,7 +47,8 @@ export async function POST(
         event_type: original.event_type,
         event_date: original.event_date,
         description: original.description,
-        settings: settings as typeof original.settings,
+        // A copy is never the website or the Work gallery (settings-guard).
+        settings: clientSettingsForCreate(settings) as typeof original.settings,
       })
       .select()
       .single();

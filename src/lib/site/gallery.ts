@@ -1,5 +1,6 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 import { SITE_SCENES } from "./scenes";
+import { hasIntelAccess } from "@/lib/event-intel/access";
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
 
@@ -11,6 +12,25 @@ type SupabaseClient = ReturnType<typeof createServiceClient>;
 export const WEBSITE_EVENT_SLUG = "tdp-website";
 export const WEBSITE_EVENT_NAME = "TDP Website";
 
+/** The website gallery belongs to another account, or this account may not create it. */
+export class WebsiteGalleryNotYoursError extends Error {
+  constructor() {
+    super("The website gallery belongs to another account");
+    this.name = "WebsiteGalleryNotYoursError";
+  }
+}
+
+/** The website gallery's event id, or null when none exists. Throws on a read error. */
+export async function websiteEventId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("id")
+    .eq("slug", WEBSITE_EVENT_SLUG)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.id as string | undefined) ?? null;
+}
+
 /**
  * Find (or lazily create) the website gallery for this user, and make sure a
  * section exists for every registry scene. Idempotent — safe to call on every
@@ -21,12 +41,30 @@ export async function getOrCreateWebsiteGallery(
   supabase: SupabaseClient,
   userId: string
 ): Promise<{ id: string }> {
-  let { data: gallery } = await supabase
+  // By slug ALONE first: the slug is unique across every account, so if the
+  // gallery exists it belongs to the studio, and anyone else is refused. It is
+  // created only when no website gallery exists anywhere, which is the first
+  // run on a fresh database, never a tenant's first click (pilot audit review,
+  // 2026-11-14: had the row ever been deleted, the next account to click "add
+  // to website" would have become the owner of TDP's public scenes).
+  const { data: existingGallery, error: lookupError } = await supabase
     .from("events")
-    .select("id")
+    .select("id, user_id")
     .eq("slug", WEBSITE_EVENT_SLUG)
-    .eq("user_id", userId)
     .maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existingGallery && existingGallery.user_id !== userId) {
+    throw new WebsiteGalleryNotYoursError();
+  }
+  let gallery: { id: string } | null = existingGallery ? { id: existingGallery.id } : null;
+
+  // Creating it is the studio's act alone. Without this, a deleted row would
+  // hand TDP's public scenes to the next account that clicked "add to website"
+  // (second review of the pilot audit). hasIntelAccess is the studio list and
+  // fails closed.
+  if (!gallery && !hasIntelAccess(userId)) {
+    throw new WebsiteGalleryNotYoursError();
+  }
 
   if (!gallery) {
     const { data: created, error } = await supabase
