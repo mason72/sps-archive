@@ -27,6 +27,7 @@ const RULES: Record<string, string> = {
   robot: "a robot",
   mascot: "a person wearing a mascot costume",
   covered: "a person covering their face with their hands",
+  hidden: "a person hiding their face behind an object",
   // A control: something no headshot event should match much.
   control_beach: "a sandy beach with ocean waves",
 };

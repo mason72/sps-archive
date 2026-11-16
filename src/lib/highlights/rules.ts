@@ -43,6 +43,18 @@
  *            face detector found a false face on one dog frame, which the
  *            first run then picked. Also drops a person HOLDING the robot
  *            (0.122), the generous direction.
+ *   hidden   a portrait or pair whose face is behind a prop, 0.055 above the
+ *            EVENT's median (relative, like bw), because
+ *            a hidden face cannot be recognised, so one-per-person cannot be
+ *            enforced on it: Team Curry's host behind a fan (0.103) and a guest
+ *            behind a magnifier (0.076) each got a second portrait on
+ *            production, 2026-11-16. Portraits and pairs only: in a group one
+ *            covered face changes nothing, and Team Curry's top 40 for this
+ *            phrase were mostly groups with one magnifier. Relative because a
+ *            fixed 0.07 banned 400 of LinkedIn's 3,429 photobooth photos, where
+ *            frames, hats and masks are the point and most faces stay visible
+ *            (median 0.037). Medians: Team Curry 0.018 (cutoff 0.073, catches
+ *            0.076 and 0.103), LinkedIn 0.037 (0.092), Electronica 0.016 (0.071).
  *
  * Bans are cut GENEROUSLY on purpose: a ban that drops a few good photos costs
  * nothing when the pool is thousands deep, while one black-and-white or gear
@@ -51,7 +63,7 @@
  * which is why the probe scripts exist. Re-run them before moving a cutoff.
  */
 
-export type RuleKey = "bw" | "profile" | "back" | "gear" | "mascot" | "robot" | "glasses";
+export type RuleKey = "bw" | "profile" | "back" | "gear" | "mascot" | "robot" | "hidden" | "glasses";
 
 export interface HighlightRule {
   /** The phrase scored against each photo's image embedding. */
@@ -64,6 +76,8 @@ export interface HighlightRule {
   relative?: boolean;
   /** "ban" drops the photo; "cap" limits how many such photos a set holds. */
   kind: "ban" | "cap";
+  /** Applies only to portraits and pairs (at most 2 subject faces). */
+  portraitsOnly?: boolean;
 }
 
 export const HIGHLIGHT_RULES: Record<RuleKey, HighlightRule> = {
@@ -73,6 +87,7 @@ export const HIGHLIGHT_RULES: Record<RuleKey, HighlightRule> = {
   gear: { text: "photography lighting equipment, a softbox or umbrella", at: 0.055, kind: "ban" },
   mascot: { text: "a person wearing a mascot costume", at: 0.11, kind: "ban" },
   robot: { text: "a robot", at: 0.11, kind: "ban" },
+  hidden: { text: "a person hiding their face behind an object", at: 0.055, kind: "ban", relative: true, portraitsOnly: true },
   glasses: { text: "a person touching their eyeglasses with their hand", at: 0.1, kind: "cap" },
 };
 
@@ -156,6 +171,7 @@ export function vetoReason(f: FrameFacts, cutoffs: Cutoffs): VetoReason | null {
   if (!RULE_KEYS.some((k) => f.scores[k] != null)) return "unscored";
   for (const key of RULE_KEYS) {
     if (HIGHLIGHT_RULES[key].kind !== "ban") continue;
+    if (HIGHLIGHT_RULES[key].portraitsOnly && f.subjectFaces > 2) continue;
     const s = f.scores[key];
     if (s != null && s >= cutoffs[key]) return key as VetoReason;
   }

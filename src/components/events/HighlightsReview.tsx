@@ -360,6 +360,7 @@ const RULE_WORDS: Record<string, string> = {
   gear: "behind the scenes",
   mascot: "mascot",
   robot: "robot",
+  hidden: "face hidden",
 };
 function ruledOutSummary(ruledOut: Record<string, number>): string {
   return Object.entries(ruledOut)

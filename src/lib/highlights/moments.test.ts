@@ -285,6 +285,18 @@ describe("rules", () => {
     expect(vetoReason(facts({ scores: { bw: 0.03, gear: 0.06 } }), c)).toBe("gear");
     expect(capTags(facts({ faces: 3, subjectFaces: 3, scores: { glasses: 0.2 } }), c).sort()).toEqual(["glasses", "group"]);
   });
+  it("a hidden face rules out a portrait or pair, never a group", () => {
+    // Team Curry (median 0.018): the host behind a fan (0.103) and a guest
+    // behind a magnifier (0.076) each got a second portrait.
+    const party = eventCutoffs(Array.from({ length: 100 }, () => ({ bw: 0.03, hidden: 0.018 })));
+    expect(vetoReason(facts({ scores: { bw: 0.03, hidden: 0.103 } }), party)).toBe("hidden");
+    expect(vetoReason(facts({ subjectFaces: 2, scores: { bw: 0.03, hidden: 0.076 } }), party)).toBe("hidden");
+    expect(vetoReason(facts({ faces: 4, subjectFaces: 4, scores: { bw: 0.03, hidden: 0.09 } }), party)).toBeNull();
+    // A prop-heavy photobooth (LinkedIn, median 0.037): a frame held beside a
+    // visible face (0.08) is ordinary there.
+    const booth = eventCutoffs(Array.from({ length: 100 }, () => ({ bw: 0.03, hidden: 0.037 })));
+    expect(vetoReason(facts({ scores: { bw: 0.03, hidden: 0.08 } }), booth)).toBeNull();
+  });
   it("background faces do not make a group shot", () => {
     expect(capTags(facts({ faces: 5, subjectFaces: 1 }), c)).toEqual([]);
   });
