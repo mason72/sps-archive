@@ -4,7 +4,7 @@
 - [x] Hover labels on every icon button + guard test (5e13b58, verified on production).
 - [x] Highlights rules, one per person by face, variety without labels (441bb3c; production propose on Electronica: 40/40 distinct, rules applied). Lessons 206-207.
 - [ ] **Propose speed: 38 s on the review screen** (Electronica, production). Each rule phrase is a full scan of the event's embeddings per 1,000-row page (7 phrases + the direction). One SQL function taking all vectors and returning the rule hits plus the black-and-white median in ONE scan would cut it; needs a migration (grant decision per the definer-function rule).
-- [x] Mason's call (2026-11-16): group shots do not use people up. Team Curry 12 -> 17 of 40; the rest would need repeat portraits.
+- [x] Mason's call (2026-11-16): group shots do not use people up. Team Curry then 11 of 40 once a hidden repeat (0.434 profile match) was closed with IMPOSTOR_MAX; the rest would need repeat portraits.
 - [ ] Mason's call: on a black-and-white-heavy shoot (silver backdrop), keep the rule effectively off + alert (current) vs fall back to the fixed cutoff.
 - [ ] Watch: crew (Justin, Joey) appear in proposed sets under the 15% crew cap; the cap is soft when a set runs short.
 - [ ] Not tested: the auto-fill short/check alerts end to end; the Electronica Highlights section (20 hand-curated) is untouched until the next Generate.

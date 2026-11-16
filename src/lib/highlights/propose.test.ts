@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFaces, subjectNameKeys, timelineSample } from "./propose";
+import { HIGHLIGHT_SAME_PERSON, readFaces, subjectNameKeys, timelineSample } from "./propose";
 
 const img = (id: string, file: string, parsed: string | null = null) => ({
   id,
@@ -114,5 +114,13 @@ describe("timelineSample", () => {
   });
   it("returns everything when asked for at least as many as exist", () => {
     expect(timelineSample([1, 2, 3], 5)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("HIGHLIGHT_SAME_PERSON", () => {
+  it("catches the Team Curry repeat: one guest, frontal vs kissing in profile, matched at 0.434", () => {
+    expect(HIGHLIGHT_SAME_PERSON).toBeLessThan(0.434);
+    // and stays above how far apart different people have ever measured
+    expect(HIGHLIGHT_SAME_PERSON).toBeGreaterThanOrEqual(0.363);
   });
 });

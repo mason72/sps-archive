@@ -30,7 +30,7 @@ import {
   type RuleKey,
 } from "./rules";
 import { embedTexts } from "@/lib/ai-index/embed-text";
-import { FACE_MATCH_FLOOR } from "@/lib/faces/calibration";
+import { IMPOSTOR_MAX } from "@/lib/faces/calibration";
 import { buildStacks } from "@/lib/gallery/stacks";
 import { detectStackable } from "@/lib/gallery/stackable";
 import { isPersonLike } from "@/lib/sections/auto-plan";
@@ -347,7 +347,7 @@ export async function proposeHighlights(
     onePerPerson: true,
     caps: groupShare < GROUP_CAP_MAX_SHARE ? HIGHLIGHT_CAPS : { glasses: HIGHLIGHT_CAPS.glasses },
     facesOf: (m) => facesByMoment.get(m.key),
-    samePerson: FACE_MATCH_FLOOR,
+    samePerson: HIGHLIGHT_SAME_PERSON,
     variety: HIGHLIGHT_VARIETY,
   });
 
@@ -509,6 +509,15 @@ export async function readFaces(
   }
   return out;
 }
+
+/**
+ * "The same person" for never-twice: any face match ABOVE the highest
+ * similarity ever measured between two different people, not FACE_MATCH_FLOOR
+ * (0.55, which is for naming faces). Team Curry's host kissing in profile
+ * matched her own frontal pair photo at 0.434 and got in twice under 0.55
+ * (found on production, 2026-11-16). Erring here costs a slot, never a repeat.
+ */
+export const HIGHLIGHT_SAME_PERSON = IMPOSTOR_MAX;
 
 /** ArcFace face vectors in this archive (faces.embedding). */
 const FACE_VECTOR_DIM = 512;

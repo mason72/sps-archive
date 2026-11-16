@@ -104,7 +104,7 @@ export function groupIntoMoments<T extends MomentInput>(images: T[]): Moment<T>[
  *     party of big group shots at 12-16 of 40), so a guest can appear once in
  *     a group and once on their own, never in two portraits.
  *     WHO a subject is: with `facesOf` + `samePerson`, a face matching a
- *     chosen face at the archive's same-person floor (calibration.ts), so a
+ *     chosen face above the archive's impostor ceiling (calibration.ts), so a
  *     guest whose faces never clustered is still recognised (two thirds of
  *     Team Curry's faces had no cluster); a moment whose faces are unknown is
  *     never picked unverified. A `name:` key (the filename's person) blocks too,
@@ -142,7 +142,7 @@ export function selectMoments<T extends MomentInput>(
     caps?: Record<string, number>;
     /** Unit face vectors of the chosen frame's SUBJECT faces, largest first. */
     facesOf?: (m: Moment<T>) => number[][] | undefined;
-    /** Cosine at or above which two faces are one person (FACE_MATCH_FLOOR). */
+    /** Cosine above which two faces are treated as one person (propose passes IMPOSTOR_MAX). */
     samePerson?: number;
     /** How hard resemblance to an already-chosen face pulls a candidate down. */
     variety?: number;
@@ -283,7 +283,7 @@ export function selectMoments<T extends MomentInput>(
       if (opts.samePerson != null) {
         const fm = (group ? faceMax : faceMaxSolo).get(m.key);
         if (!fm) return true; // who this is cannot be checked: never pick it unverified
-        const matched = fm.filter((x) => x >= opts.samePerson!).length;
+        const matched = fm.filter((x) => x > opts.samePerson!).length;
         if (
           group
             ? Math.max(matched, idsSeen) * 2 > Math.max(fm.length, ids.length)
