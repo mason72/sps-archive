@@ -4928,3 +4928,16 @@ Fix 5 of lesson 198 (Mason: "do fix 5 after all"). After fixes 1 to 4, Webex One
 - `NON_PERSON_GALLERIES` matches gallery names for every account.
 - Share emails have no `reply_to`.
 - There is no audit trail of act-as sessions.
+
+## 204. The "breaking" critical was one re-resolve away, and Vite 8 dropped a config key without a word (2026-11-15)
+
+**What happened.** Dependabot listed 49 open alerts, 4 critical: vitest 2.1.9 (UI server file read), tinypool twice (prototype pollution to RCE, under vitest), and protobufjs 8.0.0 (code execution) under Inngest's OpenTelemetry packages. Memory said the protobufjs one "needs a breaking bump". It did not. Inngest 3.54.2 accepts wide ranges (`@opentelemetry/exporter-trace-otlp-http >=0.200 <0.300`, `auto-instrumentations-node >=0.66 <1.0`), and otlp-transformer stopped depending on protobufjs at 0.222. The lockfile had simply frozen 0.212 the day Inngest was installed. `npm update <name>` refused to move the hoisted transitive packages (it changed 4-6 packages and none of the ones named); `npm uninstall inngest && npm install inngest@^3.54.2` re-resolved the whole subtree within those ranges and the critical left the tree. That code is reachable only through `inngest/experimental`, which the app never imports, so it was never live in production.
+
+vitest 2 to 4.1.12 pulled Vite 8, which compiles with oxc and **ignores the `esbuild` key without a warning**. `esbuild: { jsx: "automatic" }` in `vitest.config.ts` stopped applying, and the two `.tsx`-importing test files failed to parse ("make sure to not set jsx to preserve"). The setting is now `oxc: { jsx: { runtime: "automatic" } }`. 1,276 of 1,276 tests pass, before and after.
+
+**Result.** Commit f2251f0, live. Dependabot: 49 open to 7 (0 critical). Left: postcss 8.4.31 (pinned exactly by Next 15; PR #14, the Next 16 move, clears it), zod 3.25.76 (Inngest 3 requires zod 3; the fix is zod 4.6.6, so Inngest 4), glob 10 + minimatch 9 under archiver (minimatch #78 was published the same minute, not introduced here). Dependabot's own PR #15 bumps Next 15 to 16 in the lockfile alone, without the middleware-to-proxy and config changes #14 carries: do not merge it.
+
+**Rule.**
+- Before calling a transitive alert "needs a breaking bump", read the parent's declared RANGE (`npm view <parent>@<v> dependencies`), not the lockfile's resolved version. When npm update will not move hoisted transitive deps, uninstall and reinstall the parent at the same range.
+- Check whether the vulnerable code is even loaded (`grep` the parent's entry points for the import) before ranking urgency, and say which it is.
+- A major bump of a build tool can silently drop a config key: rerun the FULL suite after it, and compare the test count to the pre-bump run, not just the pass/fail line.
