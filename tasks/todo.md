@@ -1,5 +1,14 @@
 # Pixeltrunk - Build Plan
 
+## Justin, 2026-11-16: tooltips + Highlights picker (shipped 5e13b58, 441bb3c)
+- [x] Hover labels on every icon button + guard test (5e13b58, verified on production).
+- [x] Highlights rules, one per person by face, variety without labels (441bb3c; production propose on Electronica: 40/40 distinct, rules applied). Lessons 206-207.
+- [ ] **Propose speed: 38 s on the review screen** (Electronica, production). Each rule phrase is a full scan of the event's embeddings per 1,000-row page (7 phrases + the direction). One SQL function taking all vectors and returning the rule hits plus the black-and-white median in ONE scan would cut it; needs a migration (grant decision per the definer-function rule).
+- [ ] Mason's call: strict one-per-person on group-heavy parties (Team Curry 12-16 of 40) vs group shots not "using up" people.
+- [ ] Mason's call: on a black-and-white-heavy shoot (silver backdrop), keep the rule effectively off + alert (current) vs fall back to the fixed cutoff.
+- [ ] Watch: crew (Justin, Joey) appear in proposed sets under the 15% crew cap; the cap is soft when a set runs short.
+- [ ] Not tested: the auto-fill short/check alerts end to end; the Electronica Highlights section (20 hand-curated) is untouched until the next Generate.
+
 ## Wedding transfer 2026-10-26 (done 2026-10-28 02:10, Studio local)
 
 Mason, 2026-10-26: bring the 40 wedding and couple galleries trashed in the 2026-08-11 Pixieset triage into Pixeltrunk, for the wedding photo-booth brand. 13 explicit weddings, 27 couple sessions.
