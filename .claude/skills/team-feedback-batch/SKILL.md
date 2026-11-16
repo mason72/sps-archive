@@ -25,7 +25,7 @@ TDP team using Pixeltrunk, who report in bursts and expect fixes, not replies.
 
 ## Fix and ship
 One push for the batch. The live-upload gate is a measurement, not a question: run the repo's check
-(`scripts/git-hooks/pre-push` runs it; also `scripts/triage/` has probes) and read a real number of
+(`npx tsx scripts/triage/live-check.ts`: new rows in the last 6 hours and pending rows under 30 minutes old; the pre-push hook does NOT run it, checked 2026-11-16) and read a real number of
 active uploads; a `null` is a broken probe, not a green light (lesson 169). Verify on production as
 the reporter, through the UI they used.
 

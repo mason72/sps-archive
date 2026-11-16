@@ -170,6 +170,31 @@ export async function fillPendingHighlights(
       { eventId, sectionId: section.id }
     );
   }
+  // The rules (rules.ts) and one-per-person can leave a set short or empty: a
+  // product shoot with no people, a party with few recognisable guests. Say so,
+  // with what the rules removed, rather than stamping it filled in silence.
+  // The claim is KEPT on purpose: releasing it would re-run this whole propose
+  // every 30-minute sweep, forever, alerting each time. Guests never see an
+  // empty section (the gallery payload drops it).
+  if (imageIds.length < Math.min(count, MIN_HIGHLIGHTS) || imageIds.length < count / 2) {
+    const { reportSystemError } = await import("@/lib/monitoring/report");
+    await reportSystemError(
+      "highlights-auto-fill.short",
+      new Error(`auto-filled ${imageIds.length} of ${count} Highlights`),
+      { eventId, sectionId: section.id, count, picks: imageIds.length, ruledOut: result.ruledOut, notes: result.notes }
+    );
+  }
+  // A shoot whose black-and-white scores run high everywhere: the rule could
+  // not separate a grey backdrop from black-and-white captures, so a person
+  // should look at the set (rules.ts BW_BASELINE_HIGH).
+  if (result.notes.length) {
+    const { reportSystemError } = await import("@/lib/monitoring/report");
+    await reportSystemError(
+      "highlights-auto-fill.check",
+      new Error(`auto-filled Highlights need a look: ${result.notes.join(", ")}`),
+      { eventId, sectionId: section.id, picks: imageIds.length, notes: result.notes }
+    );
+  }
   return { status: "filled", picks: imageIds.length };
 }
 

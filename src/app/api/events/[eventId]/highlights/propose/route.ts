@@ -10,7 +10,11 @@ import {
 } from "@/lib/highlights/limits";
 
 /** Fitting the direction is a cold-start cost; give it room. */
-export const maxDuration = 60;
+// 300, not 60: the rules (lib/highlights/rules.ts) add a text-embedding call
+// (cold start up to 45 s) and one scan per rule phrase to a propose that could
+// already take 17 s to train cold. A kill at the platform limit never reaches
+// reportSystemError, so the limit must sit well above the work.
+export const maxDuration = 300;
 
 /**
  * POST /api/events/[eventId]/highlights/propose
@@ -98,6 +102,8 @@ export async function POST(
       totalMoments: result.totalMoments,
       ranker: result.ranker,
       trainedOnPicks: result.trainedOnPicks,
+      ruledOut: result.ruledOut,
+      notes: result.notes,
       count,
     });
   } catch (err) {

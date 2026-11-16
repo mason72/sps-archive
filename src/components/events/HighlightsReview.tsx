@@ -46,6 +46,8 @@ export function HighlightsReview({
   proposals,
   initialCount,
   totalMoments,
+  ruledOut = {},
+  notes = [],
   columnCount,
   gap = "normal",
   busy = false,
@@ -59,6 +61,10 @@ export function HighlightsReview({
   proposals: HighlightProposal[];
   initialCount: number;
   totalMoments: number;
+  /** Photos each Highlights rule left out (lib/highlights/rules.ts), to explain a short set. */
+  ruledOut?: Record<string, number>;
+  /** Things to know about how the rules fit this shoot (propose's `notes`). */
+  notes?: string[];
   /** Mirror the event's own grid settings so the preview matches the section. */
   columnCount?: number;
   gap?: "tight" | "normal" | "loose";
@@ -79,7 +85,9 @@ export function HighlightsReview({
   onRefresh?: () => void;
   onCancel?: () => void;
 }) {
-  const [count, setCount] = useState(initialCount);
+  // Start at what was actually proposed: a rules-shortened set (16 of 40)
+  // must not open with the slider asking for 40.
+  const [count, setCount] = useState(Math.min(initialCount, proposals.length));
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [frameByMoment, setFrameByMoment] = useState<Map<string, number>>(
     new Map()
@@ -93,10 +101,11 @@ export function HighlightsReview({
   useEffect(() => {
     if (proposalsRef.current === proposals) return;
     proposalsRef.current = proposals;
+    setCount((c) => Math.min(Math.max(c, initialCount), proposals.length));
     setDismissed(new Set());
     setFrameByMoment(new Map());
     setExpanded(null);
-  }, [proposals]);
+  }, [proposals, initialCount]);
 
   const kept = useMemo(
     () => proposals.filter((p) => !dismissed.has(p.momentId)),
@@ -105,6 +114,8 @@ export function HighlightsReview({
   const shown = useMemo(() => kept.slice(0, count), [kept, count]);
   /** Ran out of pool: the slider is asking for more than survives dismissals. */
   const short = count - shown.length;
+  /** The rules (one per person, bans, caps) left fewer candidates than asked. */
+  const ruleShort = initialCount - proposals.length;
 
   const frameIndex = (p: HighlightProposal) =>
     frameByMoment.get(p.momentId) ?? p.chosenIndex;
@@ -157,22 +168,35 @@ export function HighlightsReview({
             <input
               id="hl-review-count"
               type="range"
-              min={MIN_HIGHLIGHTS}
+              min={Math.min(MIN_HIGHLIGHTS, proposals.length)}
               max={Math.min(proposals.length, MAX_HIGHLIGHTS)}
-              step={HIGHLIGHTS_STEP}
+              // Step 1 on a short pool, so the slider can reach every photo
+              // (with step 5 from 5, a 16-photo set stopped at 15).
+              step={proposals.length < MAX_HIGHLIGHTS ? 1 : HIGHLIGHTS_STEP}
               value={count}
               onChange={(e) => setCount(Number(e.target.value))}
               disabled={refreshing}
               className="mt-1.5 h-1 w-full max-w-xs cursor-pointer appearance-none rounded-full bg-stone-300 accent-stone-900"
             />
-            {short > 0 && (
+            {ruleShort > 0 && proposals.length > 0 && (
+              <p className="mt-1.5 text-[12px] text-stone-500">
+                {`Only ${proposals.length} of ${initialCount} pass: more would repeat someone or break a Highlights rule.`}
+                {ruledOutSummary(ruledOut) ? ` Left out: ${ruledOutSummary(ruledOut)}.` : ""}
+              </p>
+            )}
+            {short > 0 && ruleShort <= 0 && (
               <p className="mt-1.5 text-[12px] text-stone-500">
                 {short} more would need a longer list than we ranked.
               </p>
             )}
+            {notes.some((n) => n.startsWith("bw-baseline-high")) && (
+              <p className="mt-1.5 text-[12px] text-amber-700">
+                Black and white could not be checked reliably on this shoot: look over the set.
+              </p>
+            )}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {onCancel && (
               <Button variant="ghost" onClick={onCancel} disabled={busy}>
                 Cancel
@@ -230,8 +254,12 @@ export function HighlightsReview({
           columnCount={columnCount}
           gap={gap}
           style="masonry"
-          emptyTitle="Everything was cut"
-          emptySubtitle="Restore some, or close and pick by hand."
+          emptyTitle={proposals.length ? "Everything was cut" : "No photo passed the Highlights rules"}
+          emptySubtitle={
+            proposals.length
+              ? "Restore some, or close and pick by hand."
+              : `Every candidate repeated someone or broke a rule${ruledOutSummary(ruledOut) ? ` (left out: ${ruledOutSummary(ruledOut)})` : ""}. Close and pick by hand.`
+          }
           tileOverlay={(image) => {
             const p = byImageId.get(image.id);
             if (!p) return null;
@@ -320,4 +348,23 @@ export function HighlightsReview({
       </div>
     </div>
   );
+}
+
+/** Plain words for what the rules left out, biggest first: "32 behind the scenes, 23 black and white". */
+const RULE_WORDS: Record<string, string> = {
+  "no-face": "with no person",
+  unscored: "not yet processed",
+  bw: "black and white",
+  profile: "in profile",
+  back: "from behind",
+  gear: "behind the scenes",
+  mascot: "mascot",
+  robot: "robot",
+};
+function ruledOutSummary(ruledOut: Record<string, number>): string {
+  return Object.entries(ruledOut)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${n.toLocaleString()} ${RULE_WORDS[k] ?? k}`)
+    .join(", ");
 }

@@ -15,7 +15,7 @@ export interface EmbedAttribution {
   /** Event owner's user id. Null skips metering (ownerless legacy events). */
   userId: string | null;
   eventId?: string | null;
-  purpose: "archive_search" | "guest_search" | "scene_plan";
+  purpose: "archive_search" | "guest_search" | "scene_plan" | "highlights";
 }
 
 export async function embedTexts(
