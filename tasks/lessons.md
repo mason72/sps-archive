@@ -4941,3 +4941,18 @@ vitest 2 to 4.1.12 pulled Vite 8, which compiles with oxc and **ignores the `esb
 - Before calling a transitive alert "needs a breaking bump", read the parent's declared RANGE (`npm view <parent>@<v> dependencies`), not the lockfile's resolved version. When npm update will not move hoisted transitive deps, uninstall and reinstall the parent at the same range.
 - Check whether the vulnerable code is even loaded (`grep` the parent's entry points for the import) before ranking urgency, and say which it is.
 - A major bump of a build tool can silently drop a config key: rerun the FULL suite after it, and compare the test count to the pre-bump run, not just the pass/fail line.
+
+## 205. Shipping the Next 16 PR eleven days late: replay it, re-resolve the lockfile, probe the proxy against production (2026-11-15)
+
+**What happened.** PR #14 (Next 15 to 16.4.5, written 2026-11-04) sat while nine commits landed on main, and GitHub marked it conflicting. Meanwhile Dependabot opened #15, which bumps `next` to 16 in `package.json`/the lockfile ALONE: no middleware-to-proxy rename, no `agentRules`, no lint change. Merging #15 would have shipped a Next 16 app still carrying `src/middleware.ts`.
+
+**What worked.**
+- Replay, not merge (per the stacked-branch rule): a worktree off `origin/main` and `git cherry-pick` of the PR's one commit. Git's rename detection carried the tenant audit's `/m` fix from `src/middleware.ts` into `src/proxy.ts` on its own; check that by grepping the new file, never by trusting "Auto-merging".
+- A lockfile that merges as text is not a resolved tree. `npm install next@^16.4.6` rebuilt it (16.4.6 had shipped since the PR), then `npm ls` showed one `@types/react` (19.3.0; two majors makes `tsc` check React 18's JSX), postcss 8.5.23 inside Next, and protobufjs still 7.x.
+- `next typegen` + `tsc`, 1,276 of 1,276 tests, lint 0 errors, `next build` on Turbopack with no warnings, and `tsconfig.json` untouched by the build.
+- Lint warnings rose from 2 to 62. That was the runner, not the code: `eslint src` on unchanged main also prints 62. `next lint` reported a smaller rule set.
+- The proxy now runs on Node instead of edge, so the production build was started (`next start`, port 3016) and every routing rule probed beside production's answer: marketing host rewrites (`x-middleware-rewrite: /m`, `/m/pricing`), unknown marketing page 404, `/api/*` not rewritten, ops host to login, app pages and `/mockups` 307 to login, public `/gallery` and `/recap` 200, site feed 401 without its key.
+
+**The probe bug.** The first host probes all answered 400, and that looked like a Next 16 regression. It was zsh: `${1:+-H "Host: $1"}` does not word-split, so curl got ONE argument `-H Host: x` and sent a malformed header line. Write `-H "Host: $1"` as two literal words (a function with the header always present), and when a probe and the platform disagree, read the response (the 400 carried the full, correct marketing page) before believing the probe.
+
+**Rule.** A PR that sat while main moved is replayed onto main, its lockfile is re-resolved rather than merged, and any change to the request proxy is proven by starting the production build and comparing each rule's answer with production's, not by a successful build.
