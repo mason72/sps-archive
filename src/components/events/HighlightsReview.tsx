@@ -245,6 +245,7 @@ export function HighlightsReview({
                     setDismissed((d) => new Set(d).add(p.momentId))
                   }
                   aria-label="Cut this pick"
+                  title="Cut this pick"
                   // Inert while hidden; always shown on touch (no hover there),
                   // with a 40px target. A cut is undoable (Restore).
                   className="pointer-events-none absolute top-2 right-2 rounded-full bg-white/85 p-1.5 pointer-coarse:p-[13px] text-stone-600 opacity-0 backdrop-blur transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 hover:text-stone-900"

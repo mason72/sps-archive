@@ -158,6 +158,7 @@ export function FilmStrip({
           onClick={() => scrollToIndex(currentIndex - 1)}
           className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 bg-black/30 backdrop-blur-sm text-white/80 hover:bg-black/50 hover:text-white transition-all duration-200"
           aria-label="Previous image"
+          title="Previous image"
         >
           <ChevronLeft className="h-5 w-5" strokeWidth={2} />
         </button>
@@ -169,6 +170,7 @@ export function FilmStrip({
           onClick={() => scrollToIndex(currentIndex + 1)}
           className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 bg-black/30 backdrop-blur-sm text-white/80 hover:bg-black/50 hover:text-white transition-all duration-200"
           aria-label="Next image"
+          title="Next image"
         >
           <ChevronRight className="h-5 w-5" strokeWidth={2} />
         </button>

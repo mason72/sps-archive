@@ -152,7 +152,7 @@ export function ActivitiesPanel({
           <h2 className="font-editorial text-[20px] text-stone-900">
             Activity
           </h2>
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             className="text-stone-400 hover:text-stone-700 transition-colors"
           >

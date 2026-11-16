@@ -447,7 +447,7 @@ export function SelectionToolbar({
               >
                 {isDeleting ? "..." : "Confirm"}
               </button>
-              <button
+              <button aria-label="Cancel delete" title="Cancel delete"
                 onClick={() => setShowDeleteConfirm(false)}
                 className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
               >

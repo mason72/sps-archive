@@ -258,7 +258,7 @@ export function NoteComposer({
                         : null}
                     </span>
                     {!saving && (
-                      <button type="button" onClick={() => remove(it.key)} className="text-stone-300 hover:text-stone-700" aria-label="Remove">
+                      <button type="button" onClick={() => remove(it.key)} className="text-stone-300 hover:text-stone-700" aria-label="Remove" title="Remove">
                         <X className="h-4 w-4" />
                       </button>
                     )}

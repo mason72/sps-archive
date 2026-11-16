@@ -99,7 +99,7 @@ export function IdentifyPersonPicker({
               <span className="ml-2 normal-case tracking-normal text-stone-400">{target.filename}</span>
             )}
           </p>
-          <button onClick={onClose} className="text-stone-400 transition-colors hover:text-stone-700">
+          <button aria-label="Close" title="Close" onClick={onClose} className="text-stone-400 transition-colors hover:text-stone-700">
             <X className="h-4 w-4" />
           </button>
         </div>

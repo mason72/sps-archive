@@ -111,6 +111,7 @@ export function MoreMenu({
         }}
         className="text-stone-400 hover:text-stone-700 transition-colors duration-300 p-1"
         aria-label="More actions"
+        title="More actions"
       >
         <MoreHorizontal size={18} />
       </button>

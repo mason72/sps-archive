@@ -342,6 +342,7 @@ export function GuestListAttachment({ eventId, initial, onChange }: Props) {
             role="switch"
             aria-checked={include}
             aria-label="Include the guest list link in this email"
+            title="Include the guest list link in this email"
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
               include ? "bg-emerald-500" : "bg-stone-200"
             }`}

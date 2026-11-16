@@ -947,6 +947,7 @@ export function UploadZone({
                     <button
                       onClick={() => dropRow(f)}
                       aria-label={`Dismiss ${f.file.name}`}
+                      title={`Dismiss ${f.file.name}`}
                       className="text-[13px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-700"
                     >
                       ×
@@ -977,6 +978,7 @@ export function UploadZone({
                     <button
                       onClick={() => dropRow(f)}
                       aria-label={`Dismiss ${f.file.name}`}
+                      title={`Dismiss ${f.file.name}`}
                       className="text-[13px] leading-none text-stone-300 transition-colors duration-200 hover:text-stone-700"
                     >
                       ×

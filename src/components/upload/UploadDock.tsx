@@ -124,6 +124,7 @@ export function UploadDock() {
                   type="button"
                   onClick={() => cancelBatch(b.id)}
                   aria-label="Cancel this upload"
+                  title="Cancel this upload"
                   className="shrink-0 p-1 text-stone-300 transition-colors hover:text-stone-700"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -165,6 +166,7 @@ export function UploadDock() {
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-label={expanded ? "Collapse upload list" : "Expand upload list"}
+            title={expanded ? "Collapse upload list" : "Expand upload list"}
             className="shrink-0 p-1 text-stone-400 transition-colors hover:text-stone-700"
           >
             <ChevronUp

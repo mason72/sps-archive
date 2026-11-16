@@ -416,6 +416,7 @@ export function SectionedGallery({
               onClick={() => setSortOpen((o) => !o)}
               onBlur={() => setTimeout(() => setSortOpen(false), 150)}
               aria-label={`Sort photos: ${SORT_LABELS[effectiveSort]}`}
+              title={`Sort photos: ${SORT_LABELS[effectiveSort]}`}
               aria-haspopup="menu"
               aria-expanded={sortOpen}
               className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
@@ -453,6 +454,7 @@ export function SectionedGallery({
             <button
               onClick={() => setFavoritesOnly((v) => !v)}
               aria-label="Show favorites only"
+              title="Show favorites only"
               aria-pressed={favoritesOnly}
               className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
               style={{ color: favoritesOnly ? colors.accent : colors.secondary }}
@@ -468,6 +470,7 @@ export function SectionedGallery({
           <button
             onClick={() => setShowFilenames((v) => !v)}
             aria-label="Show names"
+            title="Show names"
             aria-pressed={showFilenames}
             className="flex items-center gap-1.5 transition-opacity hover:opacity-70 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
             style={{ color: showFilenames ? colors.accent : colors.secondary }}

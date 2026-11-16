@@ -364,6 +364,7 @@ export function EventIntelPanel({ eventId }: { eventId: string }) {
               <button
                 type="button"
                 aria-label={`Remove ${o.name}`}
+                title={`Remove ${o.name}`}
                 onClick={() =>
                   save({ removeOrg: { orgId: o.orgId, role: o.role } }, (d) => ({
                     ...d,

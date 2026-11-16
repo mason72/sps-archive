@@ -340,6 +340,7 @@ export function CoverLayoutTab({
                               }
                               className="p-1 text-stone-300 hover:text-stone-600 transition-colors cursor-pointer"
                               aria-label="Remove color"
+                              title="Remove color"
                             >
                               <X size={13} />
                             </button>
@@ -530,6 +531,7 @@ export function CoverLayoutTab({
                           }
                           className="p-1 text-stone-300 hover:text-stone-600 transition-colors cursor-pointer"
                           aria-label="Remove color"
+                          title="Remove color"
                         >
                           <X size={13} />
                         </button>
@@ -669,7 +671,7 @@ export function CoverLayoutTab({
                             (cover.titlePlacement?.vertical || "center") === v &&
                             (cover.titlePlacement?.horizontal || "center") === h;
                           return (
-                            <button
+                            <button aria-label={`Title ${v === "center" && h === "center" ? "centered" : `${v === "center" ? "middle" : v} ${h === "center" ? "center" : h}`}`} title={`Title ${v === "center" && h === "center" ? "centered" : `${v === "center" ? "middle" : v} ${h === "center" ? "center" : h}`}`}
                               key={`${v}-${h}`}
                               onClick={() =>
                                 onChange({

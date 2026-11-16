@@ -203,6 +203,7 @@ export function JobDetailsModal({
               onClick={onClose}
               className="p-1.5 text-stone-400 hover:text-stone-900 transition-colors"
               aria-label="Close"
+              title="Close"
             >
               <X className="h-4 w-4" />
             </button>

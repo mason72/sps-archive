@@ -195,7 +195,7 @@ export function DatePicker({
         <div className="absolute top-full left-0 mt-2 z-50 bg-white border border-stone-200 shadow-xl w-[280px] select-none fade-in">
           {/* Month / Year header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
-            <button
+            <button aria-label="Previous month" title="Previous month"
               type="button"
               onClick={prevMonth}
               className="p-1 text-stone-300 hover:text-stone-900 transition-colors duration-200"
@@ -206,7 +206,7 @@ export function DatePicker({
               {MONTHS[viewDate.month]}{" "}
               <span className="text-stone-400">{viewDate.year}</span>
             </span>
-            <button
+            <button aria-label="Next month" title="Next month"
               type="button"
               onClick={nextMonth}
               className="p-1 text-stone-300 hover:text-stone-900 transition-colors duration-200"

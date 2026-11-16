@@ -54,6 +54,7 @@ export function OverflowMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={label}
+        title={label}
         aria-expanded={open}
         aria-haspopup="menu"
         className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:text-stone-800"

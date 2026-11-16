@@ -1633,7 +1633,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                 }}
               />
               {searchQuery && (
-                <button
+                <button aria-label="Clear search" title="Clear search"
                   onClick={() => setSearchQuery("")}
                   className="absolute right-0 top-1/2 -translate-y-1/2 p-1 transition-colors"
                   style={{ color: colors.secondary }}
@@ -1672,6 +1672,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
             <button
               onClick={() => setSelfieMatches(null)}
               aria-label="Show all photos"
+              title="Show all photos"
               className="p-1 transition-colors hover:opacity-70"
               style={{ color: colors.secondary }}
             >
@@ -1955,6 +1956,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           {selectedIndex > 0 && (
             <button
               aria-label="Previous image"
+              title="Previous image"
               className="absolute left-4 top-1/2 -translate-y-1/2 p-3 transition-opacity hover:opacity-100 z-10"
               style={{ color: lbFgMuted }}
               onClick={(e) => {
@@ -1968,6 +1970,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
           {selectedIndex >= 0 && selectedIndex < navImages.length - 1 && (
             <button
               aria-label="Next image"
+              title="Next image"
               className="absolute right-4 top-1/2 -translate-y-1/2 p-3 transition-opacity hover:opacity-100 z-10"
               style={{ color: lbFgMuted }}
               onClick={(e) => {
@@ -2038,6 +2041,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                         style={chip(fav)}
                         aria-pressed={fav}
                         aria-label={fav ? "Remove from favorites" : "Add to favorites"}
+                        title={fav ? "Remove from favorites" : "Add to favorites"}
                         onClick={(e) => {
                           if (favoriteIds.size === 0 && !fav) {
                             pixelBurstAt(e.clientX, e.clientY); // D2: first favorite
@@ -2060,6 +2064,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                         className={actionCls}
                         style={chip()}
                         aria-label="Download this photo"
+                        title="Download this photo"
                         onClick={() => handleIndividualDownload(selectedImage)}
                       >
                         <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -2068,6 +2073,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                     )}
                     <button
                       aria-label="Close image viewer"
+                      title="Close image viewer"
                       className="ml-0.5 flex h-7 w-7 items-center justify-center transition-opacity hover:opacity-100 pointer-coarse:h-10 pointer-coarse:w-10"
                       style={{ color: lbFgMuted }}
                       onClick={() => setSelectedImageId(null)}
@@ -2114,6 +2120,7 @@ export function GalleryExperience({ source }: { source: GallerySource }) {
                       outlineOffset: "-2px",
                     }}
                     aria-label={`View photo ${img.originalFilename}`}
+                    title={`View photo ${img.originalFilename}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img

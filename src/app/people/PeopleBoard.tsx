@@ -314,6 +314,7 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
               onClick={() => setQuery("")}
               className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-600"
               aria-label="Clear search"
+              title="Clear search"
             >
               <X className="h-4 w-4" />
             </button>
@@ -437,6 +438,7 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
             type="button"
             onClick={notAPerson.dismissUndo}
             aria-label="Dismiss"
+            title="Dismiss"
             className="ml-3 text-stone-400 hover:text-stone-700"
           >
             ×
@@ -521,6 +523,7 @@ export function PeopleBoard({ people, builtAt }: { people: PersonCard[]; builtAt
             type="button"
             onClick={() => setMergeUndo(null)}
             aria-label="Dismiss"
+            title="Dismiss"
             className="ml-3 text-stone-400 hover:text-stone-700"
           >
             ×

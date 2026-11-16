@@ -189,6 +189,7 @@ export function FindMyPhotos({
           <button
             onClick={onClose}
             aria-label="Close"
+            title="Close"
             className="p-1 -mr-2 text-stone-300 hover:text-stone-600 transition-colors pointer-coarse:-my-1.5 pointer-coarse:-mr-3.5 pointer-coarse:p-2.5"
           >
             <X className="h-4 w-4" />

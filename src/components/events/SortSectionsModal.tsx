@@ -360,7 +360,7 @@ export function SortSectionsModal({
               We&apos;ll create the sections — no math, no dragging.
             </p>
           </div>
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             disabled={applying}
             className="rounded-full p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50"

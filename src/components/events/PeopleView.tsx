@@ -854,7 +854,7 @@ function CompareModal({
             >
               Confirm match
             </button>
-            <button
+            <button aria-label="Close" title="Close"
               onClick={onClose}
               className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
             >
@@ -985,6 +985,7 @@ function PersonCard({
     <div className="group text-center">
       <button
         onClick={onClick}
+        title={person.name || person.crewName ? (active ? "Show everyone" : "Show only their photos") : "Review & name"}
         className={`relative block w-full aspect-square rounded-full overflow-hidden bg-stone-100 transition-all duration-300 ${
           active
             ? "ring-2 ring-accent ring-offset-2"
@@ -1188,7 +1189,7 @@ export function PersonModal({
             >
               Filenames
             </button>
-            <button
+            <button aria-label="Close" title="Close"
               onClick={onClose}
               className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
             >
@@ -1475,7 +1476,7 @@ function SplitPersonModal({
                   ? "Confirm split"
                   : "Keep as one person"}
             </button>
-            <button
+            <button aria-label="Close" title="Close"
               onClick={onClose}
               className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
             >
@@ -1681,7 +1682,7 @@ function MergeCompareModal({
             >
               {merging ? "Merging…" : "Merge"}
             </button>
-            <button
+            <button aria-label="Close" title="Close"
               onClick={onClose}
               className="p-1 ml-1 text-stone-300 hover:text-stone-600 transition-colors"
             >

@@ -2296,6 +2296,7 @@ export default function EventPage({
                   onClick={() => setSortNudge("dismissed")}
                   className="shrink-0 p-1 text-emerald-700/50 transition-colors hover:text-emerald-900"
                   aria-label="Dismiss"
+                  title="Dismiss"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -2329,6 +2330,7 @@ export default function EventPage({
                       onClick={() => setFailedUploads([])}
                       className="p-1.5 text-amber-400 hover:text-amber-600 transition-colors"
                       aria-label="Dismiss"
+                      title="Dismiss"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -2709,6 +2711,7 @@ export default function EventPage({
                   onClick={() => setViewMode("grid")}
                   className={`p-1.5 transition-colors ${viewMode === "grid" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
                   aria-label="Grid view"
+                  title="Grid view"
                 >
                   <LayoutGrid className="h-4 w-4" />
                 </button>
@@ -2716,6 +2719,7 @@ export default function EventPage({
                   onClick={() => setViewMode("filmstrip")}
                   className={`p-1.5 transition-colors ${viewMode === "filmstrip" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
                   aria-label="Film strip view"
+                  title="Film strip view"
                 >
                   <Rows3 className="h-4 w-4" />
                 </button>
@@ -2723,6 +2727,7 @@ export default function EventPage({
                   onClick={() => setViewMode("people")}
                   className={`relative p-1.5 transition-colors ${viewMode === "people" ? "text-stone-900" : "text-stone-300 hover:text-stone-500"}`}
                   aria-label="People view"
+                  title="People view"
                 >
                   <Users className="h-4 w-4" />
                   {suggestionCount > 0 && (
@@ -2787,6 +2792,7 @@ export default function EventPage({
                     setPersonFilter(null);
                   }}
                   aria-label="Clear person filter"
+                  title="Clear person filter"
                   className="p-1 text-stone-300 hover:text-stone-600 transition-colors"
                 >
                   <X className="h-3.5 w-3.5" />

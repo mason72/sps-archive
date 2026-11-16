@@ -887,6 +887,7 @@ export default function ImportFromSpsPage() {
                       onClick={() => setEventQuery("")}
                       className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-600 transition-colors cursor-pointer"
                       aria-label="Clear search"
+                      title="Clear search"
                     >
                       <X size={14} />
                     </button>

@@ -126,6 +126,7 @@ function SplitMenu({
           aria-expanded={pinned}
           aria-haspopup="menu"
           aria-label={`${label ?? "New Event"} menu`}
+          title={`${label ?? "New Event"} menu`}
           // The padding is the tap area, which at p-0.5 was ~13px and lost every
           // thumb to the button beside it; tablets reach this row and have no
           // hover either. Vertical margin only, so the row height is unchanged
@@ -315,6 +316,7 @@ function MobileMenu({
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open menu"
+        title="Open menu"
         aria-expanded={open}
         aria-haspopup="dialog"
         className="-mr-2.5 flex h-11 w-11 items-center justify-center text-stone-700 md:hidden"
@@ -340,6 +342,7 @@ function MobileMenu({
               type="button"
               onClick={close}
               aria-label="Close menu"
+              title="Close menu"
               autoFocus
               className="-mr-2.5 flex h-11 w-11 items-center justify-center text-stone-700"
             >

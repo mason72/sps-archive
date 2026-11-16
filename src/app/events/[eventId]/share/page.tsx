@@ -582,6 +582,7 @@ function ShareComposePage() {
                               role="switch"
                               aria-checked={includePassword}
                               aria-label="Include the gallery password in this email"
+                              title="Include the gallery password in this email"
                               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
                                 includePassword ? "bg-emerald-500" : "bg-stone-200"
                               }`}
@@ -633,6 +634,7 @@ function ShareComposePage() {
                               role="switch"
                               aria-checked={includePin}
                               aria-label="Include the download PIN in this email"
+                              title="Include the download PIN in this email"
                               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
                                 includePin ? "bg-emerald-500" : "bg-stone-200"
                               }`}
@@ -684,6 +686,7 @@ function ShareComposePage() {
                               role="switch"
                               aria-checked={includeRecap}
                               aria-label="Include the delivery recap in this email"
+                              title="Include the delivery recap in this email"
                               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
                                 includeRecap ? "bg-emerald-500" : "bg-stone-200"
                               }`}

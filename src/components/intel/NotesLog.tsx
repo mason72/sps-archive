@@ -306,12 +306,12 @@ function Lightbox({ n, scope, hasPrev, hasNext, onPrev, onNext, onClose, onPatch
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={n.imageUrl ?? n.thumbUrl!} alt={n.body ?? ""} className="max-h-full max-w-full rounded object-contain" />
         {hasPrev && (
-          <button type="button" onClick={onPrev} aria-label="Previous" className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-stone-900/60 p-2 text-white hover:bg-stone-900">
+          <button type="button" onClick={onPrev} aria-label="Previous" title="Previous" className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-stone-900/60 p-2 text-white hover:bg-stone-900">
             <ChevronLeft className="h-5 w-5" />
           </button>
         )}
         {hasNext && (
-          <button type="button" onClick={onNext} aria-label="Next" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-stone-900/60 p-2 text-white hover:bg-stone-900">
+          <button type="button" onClick={onNext} aria-label="Next" title="Next" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-stone-900/60 p-2 text-white hover:bg-stone-900">
             <ChevronRight className="h-5 w-5" />
           </button>
         )}
@@ -319,7 +319,7 @@ function Lightbox({ n, scope, hasPrev, hasNext, onPrev, onNext, onClose, onPatch
       <aside className="w-full shrink-0 bg-white p-4 sm:w-80 sm:p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <span className={META}>Behind the scenes</span>
-          <button type="button" onClick={onClose} aria-label="Close" className="text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Close" title="Close" className="text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button>
         </div>
         {editing ? (
           <CaptionEditor n={n} onPatch={onPatch} onDone={() => setEditing(false)} />

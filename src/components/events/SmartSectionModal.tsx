@@ -192,7 +192,7 @@ export function SmartSectionModal({
               Describe what belongs in it — we&apos;ll find the photos.
             </p>
           </div>
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             disabled={creating}
             className="rounded-full p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50"

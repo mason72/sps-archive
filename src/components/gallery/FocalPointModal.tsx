@@ -352,6 +352,7 @@ export function FocalPointModal({
               disabled={index === 0}
               className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors disabled:opacity-30"
               aria-label="Previous image"
+              title="Previous image"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -359,6 +360,7 @@ export function FocalPointModal({
               onClick={advance}
               className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors"
               aria-label="Next image"
+              title="Next image"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -366,6 +368,7 @@ export function FocalPointModal({
               onClick={onClose}
               className="p-1.5 pointer-coarse:p-3 text-stone-400 hover:text-stone-900 transition-colors"
               aria-label="Close"
+              title="Close"
             >
               <X className="h-4 w-4" />
             </button>

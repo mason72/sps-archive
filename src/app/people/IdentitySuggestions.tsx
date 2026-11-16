@@ -288,6 +288,7 @@ export function IdentitySuggestions() {
             type="button"
             onClick={() => setNotice(null)}
             aria-label="Dismiss"
+            title="Dismiss"
             className="ml-2 text-stone-400 hover:text-stone-700"
           >
             ×

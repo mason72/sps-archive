@@ -184,7 +184,7 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
         }}
       >
         <div className="relative w-full max-w-sm mx-4 bg-white border border-stone-200 shadow-2xl p-6">
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-700 transition-colors"
           >
@@ -215,6 +215,7 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                     setTimeout(() => setCopiedSlug(null), 2000);
                   }}
                   aria-label={copiedSlug === quickShareUrl ? "Copied" : "Copy link"}
+                  title={copiedSlug === quickShareUrl ? "Copied" : "Copy link"}
                   className="p-1 text-stone-400 hover:text-stone-700 shrink-0 transition-colors"
                 >
                   {copiedSlug === quickShareUrl ? (
@@ -306,7 +307,7 @@ export function ShareModal({ eventId, eventName, isOpen, onClose, imageIds }: Sh
                 : eventName}
             </p>
           </div>
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             className="p-2 text-stone-400 hover:text-stone-700 transition-colors"
           >

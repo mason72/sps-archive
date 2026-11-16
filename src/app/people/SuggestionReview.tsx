@@ -215,6 +215,7 @@ export function SuggestionReview({
             <button
               onClick={onClose}
               aria-label="Close"
+              title="Close"
               className="ml-1 p-1 text-stone-300 transition-colors hover:text-stone-600"
             >
               <X className="h-5 w-5" />

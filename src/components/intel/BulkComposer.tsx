@@ -413,7 +413,7 @@ function PhotoRow({ it, saving, canCopyAbove, onChange, onSameAsAbove, onRemove 
               </button>
             )}
             {!saving && (
-              <button type="button" onClick={onRemove} className="text-stone-300 hover:text-stone-700" aria-label="Remove"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={onRemove} className="text-stone-300 hover:text-stone-700" aria-label="Remove" title="Remove"><X className="h-4 w-4" /></button>
             )}
           </span>
         </div>

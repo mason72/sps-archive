@@ -327,6 +327,7 @@ export function PersonSpotlight({
           }}
           className="absolute left-2 top-1/2 hidden -translate-y-1/2 p-2 text-white/50 transition-colors hover:text-white sm:block"
           aria-label="Previous person"
+          title="Previous person"
         >
           <ChevronLeft className="h-7 w-7" />
         </button>
@@ -339,6 +340,7 @@ export function PersonSpotlight({
           }}
           className="absolute right-2 top-1/2 hidden -translate-y-1/2 p-2 text-white/50 transition-colors hover:text-white sm:block"
           aria-label="Next person"
+          title="Next person"
         >
           <ChevronRight className="h-7 w-7" />
         </button>
@@ -440,6 +442,7 @@ export function PersonSpotlight({
               onClick={onClose}
               className="p-1 text-stone-300 transition-colors hover:text-stone-600"
               aria-label="Close"
+              title="Close"
             >
               <X className="h-5 w-5" />
             </button>

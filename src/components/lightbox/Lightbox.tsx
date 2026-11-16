@@ -142,6 +142,7 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
               onClick={goPrev}
               className="absolute left-4 z-10 flex h-10 w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300 max-md:hidden"
               aria-label="Previous image"
+              title="Previous image"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -167,6 +168,7 @@ export function Lightbox({ images, initialImageId, onClose, actions }: LightboxP
               onClick={goNext}
               className="absolute right-4 z-10 flex h-10 w-10 items-center justify-center bg-stone-200/60 text-stone-500 hover:bg-stone-300/80 hover:text-stone-900 transition-colors duration-300 max-md:hidden"
               aria-label="Next image"
+              title="Next image"
             >
               <ChevronRight className="h-5 w-5" />
             </button>

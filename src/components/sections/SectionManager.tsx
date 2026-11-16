@@ -166,7 +166,7 @@ export function SectionManager({
               Sections
             </h2>
           </div>
-          <button
+          <button aria-label="Close" title="Close"
             onClick={onClose}
             className="p-1 text-stone-400 hover:text-stone-700 transition-colors"
           >

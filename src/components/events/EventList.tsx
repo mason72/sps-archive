@@ -325,7 +325,7 @@ export function EventList() {
             className="w-full pl-7 pr-8 py-2.5 text-[14px] text-stone-900 placeholder:text-stone-300 bg-transparent border-b border-stone-200 focus:border-stone-900 focus:outline-none transition-colors duration-300"
           />
           {searchQuery && (
-            <button
+            <button aria-label="Clear search" title="Clear search"
               onClick={() => setSearchQuery("")}
               className="absolute right-0 top-1/2 -translate-y-1/2 p-1 text-stone-300 hover:text-stone-600 transition-colors"
             >
@@ -653,6 +653,7 @@ function EventCard({
               : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
           }`}
           aria-label="Event actions"
+          title="Event actions"
           aria-expanded={menuOpen}
         >
           <MoreHorizontal className="h-4 w-4 text-stone-500" />

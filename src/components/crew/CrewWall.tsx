@@ -227,6 +227,7 @@ function CrewCardModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
+            title="Close"
             className="p-1 text-stone-300 transition-colors hover:text-stone-600"
           >
             ×

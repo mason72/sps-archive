@@ -160,7 +160,7 @@ export function SectionRow({
     >
       {/* Drag handle. Hidden on touch: native drag-and-drop does not follow a
           finger, so there it was a handle that moved nothing. */}
-      <button
+      <button aria-label="Drag to reorder" title="Drag to reorder"
         className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 transition-colors shrink-0 pointer-coarse:hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -186,6 +186,7 @@ export function SectionRow({
               onClick={handleSave}
               className="pointer-coarse:p-[11px] text-accent hover:text-accent-hover transition-colors"
               aria-label="Save name"
+              title="Save name"
             >
               <Check size={14} />
             </button>
@@ -196,6 +197,7 @@ export function SectionRow({
               }}
               className="pointer-coarse:p-[11px] text-stone-400 hover:text-stone-600 transition-colors"
               aria-label="Cancel rename"
+              title="Cancel rename"
             >
               <X size={14} />
             </button>

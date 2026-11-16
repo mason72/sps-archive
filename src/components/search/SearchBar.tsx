@@ -168,7 +168,7 @@ export function SearchBar({
           className="h-12 w-full border-b border-stone-200 bg-transparent pl-7 pr-10 text-[16px] text-stone-900 placeholder:text-stone-300 focus:border-stone-900 focus:outline-none transition-colors duration-300"
         />
         {query && (
-          <button
+          <button aria-label="Clear search" title="Clear search"
             onClick={handleClear}
             className="absolute right-0 top-1/2 -translate-y-1/2 p-1 text-stone-300 hover:text-stone-600 transition-colors duration-300"
           >

@@ -719,6 +719,7 @@ function SectionsPanel({
                   onClick={() => setSectionQuery("")}
                   className="shrink-0 text-stone-300 hover:text-stone-600 transition-colors"
                   aria-label="Clear search"
+                  title="Clear search"
                 >
                   <X size={12} />
                 </button>
