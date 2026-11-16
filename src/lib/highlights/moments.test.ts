@@ -171,6 +171,51 @@ describe("selectMoments: who is the same person (second review, 2026-11-16)", ()
     expect(ids).toEqual(["benLater", "boothA"]);
   });
 
+  it("a group shot does not use its people up: a guest in a picked group can still get a portrait", () => {
+    // Mason, 2026-11-16. The group is picked first (higher score); the same
+    // guest's portrait is then still allowed.
+    const ids = pickIds(
+      [frame("group", 0, 0.9, { tags: ["group"] }), frame("portrait", 30, 0.8)],
+      2,
+      { group: [[1, 0], [0, 1], [-1, 0]], portrait: [near(0.95)] }
+    );
+    expect(ids).toEqual(["group", "portrait"]);
+  });
+
+  it("...but never two portraits of one person, group or no group", () => {
+    const ids = pickIds(
+      [
+        frame("group", 0, 0.9, { tags: ["group"] }),
+        frame("portrait1", 30, 0.8),
+        frame("portrait2", 60, 0.7),
+      ],
+      3,
+      { group: [[1, 0], [0, 1], [-1, 0]], portrait1: [near(0.95)], portrait2: [near(0.9)] }
+    );
+    expect(ids).toEqual(["group", "portrait1"]);
+  });
+
+  it("...and a group made mostly of people already in the set (from any pick) is still out", () => {
+    const ids = pickIds(
+      [frame("g1", 0, 0.9, { tags: ["group"] }), frame("g2", 30, 0.8, { tags: ["group"] })],
+      2,
+      { g1: [[1, 0], [0, 1], [-1, 0]], g2: [near(0.95), [0, 0.99], [0.0, -1]] }
+    );
+    expect(ids).toEqual(["g1"]);
+  });
+
+  it("the same holds with cluster ids alone", () => {
+    const ids = selectMoments(
+      groupIntoMoments([
+        frame("group", 0, 0.9, { personIds: ["pa", "pb", "pc"], tags: ["group"] }),
+        frame("portrait", 30, 0.8, { personIds: ["pa"] }),
+      ]),
+      2,
+      { onePerPerson: true }
+    ).map((m) => m.frames[m.bestIndex].id).sort();
+    expect(ids).toEqual(["group", "portrait"]);
+  });
+
   it("a pair is out when ONE of its two faces is already in (not a majority test)", () => {
     const ids = pickIds(
       [frame("solo", 0, 0.9), frame("pair", 30, 0.8), frame("other", 60, 0.1)],

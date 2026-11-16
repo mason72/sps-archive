@@ -40,6 +40,9 @@ async function main() {
   const count = Number(countA);
   const picked = selectMoments(moments, count, { onePerPerson: true, facesOf: (m) => vecs.get(m.frames[m.bestIndex].id), samePerson: FACE_MATCH_FLOOR, variety: 0.5 });
   const chosenVecs = picked.flatMap((m) => vecs.get(m.frames[m.bestIndex].id) ?? []);
+  const soloVecs = picked
+    .filter((m) => !(m.frames[m.bestIndex].tags ?? []).includes("group"))
+    .flatMap((m) => vecs.get(m.frames[m.bestIndex].id) ?? []);
   const reasons: Record<string, number> = {};
   const subjCounts: number[] = [];
   for (const m of moments) {
@@ -47,10 +50,11 @@ async function main() {
     const vs = vecs.get(m.frames[m.bestIndex].id);
     if (!vs?.length) { reasons["no faces"] = (reasons["no faces"] ?? 0) + 1; continue; }
     subjCounts.push(vs.length);
-    const matched = vs.filter((v) => chosenVecs.some((c) => c.reduce((a, x, k) => a + x * v[k], 0) >= FACE_MATCH_FLOOR)).length;
     const group = vs.length >= GROUP_SHOT_FACES;
+    const against = group ? chosenVecs : soloVecs;
+    const matched = vs.filter((v) => against.some((c) => c.reduce((a, x, k) => a + x * v[k], 0) >= FACE_MATCH_FLOOR)).length;
     const key = group ? `group ${matched}/${vs.length} seen` : `solo/pair ${matched}/${vs.length} seen`;
-    const bucket = matched === 0 ? "NOT blocked by faces" : group ? (matched * 2 > vs.length ? "group: majority seen" : "group: minority seen") : "solo/pair: someone seen";
+    const bucket = matched === 0 ? "NOT blocked by faces" : group ? (matched * 2 > vs.length ? "group: majority seen" : "group: minority seen") : "solo/pair: someone has a portrait";
     reasons[bucket] = (reasons[bucket] ?? 0) + 1; void key;
   }
   console.log("moments", moments.length, "picked", picked.length, "of", count);

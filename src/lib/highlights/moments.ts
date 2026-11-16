@@ -96,9 +96,13 @@ export function groupIntoMoments<T extends MomentInput>(images: T[]): Moment<T>[
  *
  * Three HARD limits (2026-11-16, Mason and Justin on Electronica) are never
  * relaxed to fill a slot, so a set can come back short rather than break them:
- *   - `onePerPerson`: a portrait or pair is out once ANY of its subjects is
- *     already in the set ("limit highlights to one of the same person"); a
- *     moment tagged "group" is out once MOST of its subject faces are.
+ *   - `onePerPerson`: a portrait or pair is out once ANY of its subjects
+ *     already has a portrait or pair in the set ("limit highlights to one of
+ *     the same person"); a moment tagged "group" is out once MOST of its subject
+ *     faces are in the set at all. A group shot does NOT use its people up for
+ *     their own portrait (Mason, 2026-11-16: strict counting left a 100-guest
+ *     party of big group shots at 12-16 of 40), so a guest can appear once in
+ *     a group and once on their own, never in two portraits.
  *     WHO a subject is: with `facesOf` + `samePerson`, a face matching a
  *     chosen face at the archive's same-person floor (calibration.ts), so a
  *     guest whose faces never clustered is still recognised (two thirds of
@@ -158,7 +162,8 @@ export function selectMoments<T extends MomentInput>(
   const timed = moments.filter((m) => m.at != null);
   const chosen = new Set<string>();
   const out: Moment<T>[] = [];
-  const personCount = new Map<string, number>();
+  const personCount = new Map<string, number>(); // every pick
+  const soloCount = new Map<string, number>(); // portrait and pair picks only
   const tagCount = new Map<string, number>();
   /**
    * How often one subject may recur, scaled to how many subjects EXIST.
@@ -184,8 +189,13 @@ export function selectMoments<T extends MomentInput>(
       if (v?.length) faces.set(m.key, v);
     }
   }
-  const faceMax = new Map<string, number[]>();
-  for (const [k, vs] of faces) faceMax.set(k, vs.map(() => -1));
+  const faceMax = new Map<string, number[]>(); // vs every chosen face
+  const faceMaxSolo = new Map<string, number[]>(); // vs portrait and pair picks' faces
+  for (const [k, vs] of faces) {
+    faceMax.set(k, vs.map(() => -1));
+    faceMaxSolo.set(k, vs.map(() => -1));
+  }
+  const isGroup = (m: Moment<T>) => tagsOf(m).includes("group");
 
   // Variety: percentile score minus resemblance of the largest face.
   const variety = opts.facesOf ? (opts.variety ?? 0) : 0;
@@ -213,7 +223,11 @@ export function selectMoments<T extends MomentInput>(
     chosen.add(m.key);
     out.push(m);
     if (isCrewMoment(m)) crewTaken++;
-    for (const p of peopleOf(m)) personCount.set(p, (personCount.get(p) ?? 0) + 1);
+    const solo = !isGroup(m);
+    for (const p of peopleOf(m)) {
+      personCount.set(p, (personCount.get(p) ?? 0) + 1);
+      if (solo) soloCount.set(p, (soloCount.get(p) ?? 0) + 1);
+    }
     for (const t of tagsOf(m)) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
     const added = faces.get(m.key);
     if (!added) return;
@@ -222,11 +236,13 @@ export function selectMoments<T extends MomentInput>(
     for (const [k, vs] of faces) {
       if (chosen.has(k)) continue;
       const fm = faceMax.get(k)!;
+      const fs = faceMaxSolo.get(k)!;
       for (let a = 0; a < vs.length; a++) {
         for (const nv of added) {
           let dot = 0;
           for (let i = 0; i < nv.length; i++) dot += nv[i] * vs[a][i];
           if (dot > fm[a]) fm[a] = dot;
+          if (solo && dot > fs[a]) fs[a] = dot;
         }
       }
       sum += Math.max(0, fm[0]);
@@ -253,16 +269,19 @@ export function selectMoments<T extends MomentInput>(
   const hardBlocked = (m: Moment<T>) => {
     if (opts.onePerPerson) {
       const people = peopleOf(m);
-      const group = tagsOf(m).includes("group");
-      if (people.some((p) => p.startsWith("name:") && (personCount.get(p) ?? 0) >= 1)) return true;
+      const group = isGroup(m);
+      // A portrait or pair is judged against portrait and pair picks only (a
+      // group shot does not use its people up); a group against every pick.
+      const counts = group ? personCount : soloCount;
+      if (!group && people.some((p) => p.startsWith("name:") && (counts.get(p) ?? 0) >= 1)) return true;
       // Clusters and face matches are each evidence; use BOTH. A cluster joins
       // faces through a running average, so two faces of one person can sit in
       // one cluster yet match each other below the floor (11% of same-cluster
       // pairs at Team Curry); a face match sees guests no cluster holds.
       const ids = people.filter((p) => !p.startsWith("name:"));
-      const idsSeen = ids.filter((p) => (personCount.get(p) ?? 0) >= 1).length;
+      const idsSeen = ids.filter((p) => (counts.get(p) ?? 0) >= 1).length;
       if (opts.samePerson != null) {
-        const fm = faceMax.get(m.key);
+        const fm = (group ? faceMax : faceMaxSolo).get(m.key);
         if (!fm) return true; // who this is cannot be checked: never pick it unverified
         const matched = fm.filter((x) => x >= opts.samePerson!).length;
         if (
