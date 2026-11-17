@@ -103,6 +103,7 @@ export async function POST(
       ranker: result.ranker,
       trainedOnPicks: result.trainedOnPicks,
       ruledOut: result.ruledOut,
+      relaxed: result.relaxed,
       notes: result.notes,
       count,
     });

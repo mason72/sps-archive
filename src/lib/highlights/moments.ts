@@ -146,8 +146,16 @@ export function selectMoments<T extends MomentInput>(
     samePerson?: number;
     /** How hard resemblance to an already-chosen face pulls a candidate down. */
     variety?: number;
+    /**
+     * Picks already made (an earlier, stricter round). Taken first, so every
+     * limit counts them, and NOT returned: the result is only what this round
+     * adds, up to `count` more. propose uses it to relax taste rules only to
+     * fill a short set (Mason, 2026-11-16).
+     */
+    seed?: Moment<T>[];
   } = {}
 ): Moment<T>[] {
+  const seed = opts.seed ?? [];
   const want = Math.max(0, Math.min(count, moments.length));
   if (!want) return [];
 
@@ -184,7 +192,7 @@ export function selectMoments<T extends MomentInput>(
   // Updated incrementally on every take, so a check is a lookup.
   const faces = new Map<string, number[][]>();
   if (opts.facesOf) {
-    for (const m of moments) {
+    for (const m of [...seed, ...moments]) {
       const v = opts.facesOf(m);
       if (v?.length) faces.set(m.key, v);
     }
@@ -323,7 +331,10 @@ export function selectMoments<T extends MomentInput>(
     return top;
   };
 
-  if (opts.coverage !== false && timed.length >= want) {
+  for (const m of seed) take(m);
+  const seeded = out.length;
+
+  if (opts.coverage !== false && timed.length >= want && !seeded) {
     // Min and max, never first and last: callers may pass moments in score
     // order (propose passes its shortlist), and a negative bucket crashed it.
     let first = Infinity;
@@ -347,16 +358,16 @@ export function selectMoments<T extends MomentInput>(
 
   // Fill remaining slots on value, still avoiding over-exposed subjects first.
   for (const soft of [true, false]) {
-    while (out.length < want) {
+    while (out.length - seeded < want) {
       const pick = best(byScore, soft);
       if (!pick) break;
       take(pick);
     }
-    if (out.length >= want) break;
+    if (out.length - seeded >= want) break;
   }
 
   // Deliver in rank order — the reel reads best-first, not chronologically.
-  return out.sort((a, b) => b.score - a.score).slice(0, want);
+  return out.slice(seeded).sort((a, b) => b.score - a.score).slice(0, want);
 }
 
 /**

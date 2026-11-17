@@ -1,7 +1,8 @@
 /**
  * Run proposeHighlights on one event exactly as the auto-fill does and save the
  * picks, to compare picker versions (run it in a worktree at the old commit
- * for "before"). Reads only; the text-embedding call writes one usage row.
+ * for "before"). Writes: a stored taste direction (highlight_directions) when
+ * one is missing, and a usage row if the rule phrases need a live embed.
  *   npx tsx scripts/triage/highlights-propose-probe.ts <eventId> <count> <out.json>
  */
 import fs from "node:fs";
@@ -19,7 +20,7 @@ async function main() {
   const t0 = Date.now();
   const r = await proposeHighlights(s, eventId, ev.user_id, { count: Number(countA), coverage: true, poolExtra: 0 });
   const ids = r.proposals.slice(0, Number(countA)).map((p) => p.frames[p.chosenIndex].id);
-  console.log("seconds", ((Date.now() - t0) / 1000).toFixed(1), "picks", ids.length, "ranker", r.ranker, "ruledOut", JSON.stringify((r as { ruledOut?: unknown }).ruledOut ?? null), "notes", JSON.stringify((r as { notes?: unknown }).notes ?? null));
+  console.log("seconds", ((Date.now() - t0) / 1000).toFixed(1), "picks", ids.length, "ranker", r.ranker, "ruledOut", JSON.stringify((r as { ruledOut?: unknown }).ruledOut ?? null), "notes", JSON.stringify((r as { notes?: unknown }).notes ?? null), "relaxed", JSON.stringify((r as { relaxed?: unknown }).relaxed ?? null));
   fs.writeFileSync(out, JSON.stringify(ids));
 }
 main().catch((e) => { console.error(e); process.exit(1); });

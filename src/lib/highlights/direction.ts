@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 
 /**
  * The "highlight direction" — a vector in SigLIP space learned from the
@@ -189,8 +190,20 @@ export async function trainHighlightDirection(
     MAX_TRAIN_SECTIONS * 2
   );
 
+  // A stored result for exactly these sets (migration 101): fitting reads ~6,000
+  // embeddings, 10 s cold on every propose (2026-11-16), and only changes when a
+  // Highlights section somewhere changes. A store that cannot be read means
+  // "train", never "fail".
+  const signature = directionSignature(ownerUserId, secs);
+  const stored = await readStoredDirection(supabase, signature);
+  if (stored !== undefined) {
+    cache.set(key, { at: Date.now(), value: stored });
+    return stored;
+  }
+
   const dirs: Vec[] = [];
   let picksUsed = 0;
+  let unindexed = 0;
 
   // One past set -> its direction, or null when it is not worth learning from.
   const fitOne = async (sec: TrainableSection): Promise<{ dir: Vec; picks: number } | null> => {
@@ -255,7 +268,13 @@ export async function trainHighlightDirection(
         if (data.length < 200) break;
       }
       if (!scanned || scannedPicked / scanned > MAX_KEEP_SHARE) return null;
-      if (neg.length < 20) return null;
+      // Too few embedded photos is "not indexed yet", not "not a real set":
+      // still skipped for this fit, but the fit is then not stored, or a
+      // just-migrated gallery would stay out until some pick count changed.
+      if (neg.length < 20) {
+        unindexed++;
+        return null;
+      }
 
       // Only now, with the set judged a real one, read the picks' embeddings.
       const pos: Vec[] = [];
@@ -271,7 +290,10 @@ export async function trainHighlightDirection(
           if (v) pos.push(v);
         }
       }
-      if (pos.length < 5) return null;
+      if (pos.length < 5) {
+        unindexed++;
+        return null;
+      }
 
       // Center on THIS event's mean, then difference. See the header note.
       const mu = mean([...pos, ...neg]);
@@ -331,7 +353,77 @@ export async function trainHighlightDirection(
       : null;
 
   cache.set(key, { at: Date.now(), value });
+  // Only a COMPLETE fit is stored: one with failed sets is a partial answer,
+  // fine for this propose, wrong to keep until a section changes.
+  if (!failed && !unindexed) await storeDirection(supabase, signature, ownerUserId, value);
   return value;
+}
+
+/**
+ * Bump when the TRAINING changes (constants, centring, the dump rule) or the
+ * photo embedding model changes (a re-embed puts every photo in a new space),
+ * so every stored direction is retrained instead of serving an old answer.
+ */
+export const DIRECTION_TRAINER_VERSION = 1;
+
+/**
+ * Exactly what a fit depends on: the owner, the candidate sets in order, and
+ * how many picks each holds. An edit to any Highlights section changes a count
+ * (or the set list) and so the signature. A swap that keeps the count does not,
+ * which leaves the direction one set's edit behind until the next count change;
+ * accepted, because it is still a direction learned from this owner's picks.
+ */
+export function directionSignature(
+  ownerUserId: string,
+  secs: { id: string; picks: number }[]
+): string {
+  const body = [
+    `v${DIRECTION_TRAINER_VERSION}`,
+    `${MAX_TRAIN_SECTIONS}/${MAX_PICKS_PER_SECTION}/${NEG_SAMPLE_PER_EVENT}/${MAX_KEEP_SHARE}/${MIN_PICKS_TO_TRAIN}/${MAX_NEG_PAGES}`,
+    ownerUserId,
+    ...secs.map((s) => `${s.id}:${s.picks}`),
+  ].join("|");
+  return createHash("sha256").update(body).digest("hex");
+}
+
+/** The stored direction for a signature: a value or null when stored, undefined when not stored or unreadable. */
+async function readStoredDirection(
+  supabase: SupabaseClient,
+  signature: string
+): Promise<HighlightDirection | null | undefined> {
+  const { data, error } = await supabase
+    .from("highlight_directions")
+    .select("vector, trained_on_events, trained_on_picks")
+    .eq("signature", signature)
+    .maybeSingle();
+  if (error || !data) return undefined;
+  const v = data.vector as number[] | null;
+  if (!v) return null;
+  if (v.length !== EMBEDDING_DIM) return undefined;
+  return {
+    vector: v,
+    trainedOnEvents: data.trained_on_events as number,
+    trainedOnPicks: data.trained_on_picks as number,
+  };
+}
+
+async function storeDirection(
+  supabase: SupabaseClient,
+  signature: string,
+  ownerUserId: string,
+  value: HighlightDirection | null
+): Promise<void> {
+  const { error } = await supabase.from("highlight_directions").upsert({
+    signature,
+    owner_user_id: ownerUserId,
+    vector: value?.vector ?? null,
+    trained_on_events: value?.trainedOnEvents ?? 0,
+    trained_on_picks: value?.trainedOnPicks ?? 0,
+  });
+  if (error) {
+    const { reportSystemError } = await import("@/lib/monitoring/report");
+    await reportSystemError("highlights.direction.store", error, { ownerUserId });
+  }
 }
 
 /**

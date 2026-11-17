@@ -93,6 +93,15 @@ export const HIGHLIGHT_RULES: Record<RuleKey, HighlightRule> = {
 
 export const RULE_KEYS = Object.keys(HIGHLIGHT_RULES) as RuleKey[];
 
+/**
+ * Taste rules, in the order they are relaxed when a set comes up short (Mason,
+ * 2026-11-16: "taste rules, only to fill"). Never relaxed, because they are
+ * what a photo IS or who it is of: a person in it, black and white, gear,
+ * mascot, robot, a hidden face, and two portraits of one person.
+ */
+export const RELAX_STEPS = ["glasses", "group", "profile", "back"] as const;
+export type RelaxStep = (typeof RELAX_STEPS)[number];
+
 /** Tags a set may hold only a few of. */
 export type CapTag = "glasses" | "group";
 
@@ -162,7 +171,11 @@ export function eventCutoffs(scores: Iterable<Partial<Record<RuleKey, number>>>)
  * back of a head. It applies only once a frame is indexed, so a gallery still
  * processing is not emptied by its own backlog.
  */
-export function vetoReason(f: FrameFacts, cutoffs: Cutoffs): VetoReason | null {
+export function vetoReason(
+  f: FrameFacts,
+  cutoffs: Cutoffs,
+  relaxed: ReadonlySet<string> = new Set()
+): VetoReason | null {
   if (f.indexed && f.faces === 0) return "no-face";
   // No image embedding (not indexed yet, or indexing gave up): no rule can be
   // checked, so the frame cannot be proposed. The auto-fill counts gave-up
@@ -170,7 +183,7 @@ export function vetoReason(f: FrameFacts, cutoffs: Cutoffs): VetoReason | null {
   // every ban (review, 2026-11-16).
   if (!RULE_KEYS.some((k) => f.scores[k] != null)) return "unscored";
   for (const key of RULE_KEYS) {
-    if (HIGHLIGHT_RULES[key].kind !== "ban") continue;
+    if (HIGHLIGHT_RULES[key].kind !== "ban" || relaxed.has(key)) continue;
     if (HIGHLIGHT_RULES[key].portraitsOnly && f.subjectFaces > 2) continue;
     const s = f.scores[key];
     if (s != null && s >= cutoffs[key]) return key as VetoReason;

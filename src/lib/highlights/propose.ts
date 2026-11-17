@@ -22,14 +22,17 @@ import {
   HIGHLIGHT_CAPS,
   HIGHLIGHT_RULES,
   HIGHLIGHT_VARIETY,
+  RELAX_STEPS,
   RULE_KEYS,
   summarizeFaces,
+  type RelaxStep,
   vetoReason,
   type FaceRow,
   type FrameFacts,
   type RuleKey,
 } from "./rules";
 import { embedTexts } from "@/lib/ai-index/embed-text";
+import RULE_VECTORS from "./rule-vectors.json";
 import { IMPOSTOR_MAX } from "@/lib/faces/calibration";
 import { buildStacks } from "@/lib/gallery/stacks";
 import { detectStackable } from "@/lib/gallery/stackable";
@@ -63,6 +66,7 @@ interface ImageRow {
   focal_y: number | null;
   parsed_name: string | null;
   ai_indexed_at: string | null;
+  embedding_model: string | null;
 }
 
 /**
@@ -80,7 +84,7 @@ async function allEventImages(
     const { data, error } = await supabase
       .from("images")
       .select(
-        "id, r2_key, taken_at, width, height, original_filename, processing_status, created_at, focal_x, focal_y, parsed_name, ai_indexed_at, events!images_event_id_fkey!inner(user_id)"
+        "id, r2_key, taken_at, width, height, original_filename, processing_status, created_at, focal_x, focal_y, parsed_name, ai_indexed_at, embedding_model, events!images_event_id_fkey!inner(user_id)"
       )
       .eq("event_id", eventId)
       .eq("events.user_id", ownerUserId)
@@ -195,6 +199,8 @@ export interface ProposeResult {
   crewFound: number;
   /** Photos each rule kept out of the set (rules.ts): in the propose response and the auto-fill's short-set alert. */
   ruledOut: Record<string, number>;
+  /** Taste rules relaxed to fill a short set, in the order applied (rules.ts RELAX_STEPS). */
+  relaxed: string[];
   /** Things a person should know about how the rules fit this shoot (e.g. "bw-baseline-high:0.070"). */
   notes: string[];
 }
@@ -218,32 +224,36 @@ export async function proposeHighlights(
       trainedOnPicks: 0,
       crewFound: 0,
       ruledOut: {},
+      relaxed: [],
       notes: [],
     };
   }
 
   const direction = await trainHighlightDirection(supabase, ownerUserId, eventId);
 
-  // Score every indexed image against the direction. Paged for the same reason
-  // scene-plan pages: an RPC response is capped at 1000 rows like any read.
-  const scoreById = direction
-    ? await scoreByEmbedding(supabase, direction.vector, ownerUserId, eventId)
-    : new Map<string, number>();
-
-  // The rules (rules.ts): every phrase scored against the event's photos. A
-  // failure here THROWS rather than proposing without rules: an unruled set is
-  // exactly the complaint, and the auto-fill retries on its next sweep. Scored
-  // one phrase at a time, not seven at once: each score is a full scan of the
-  // event's embeddings per 1,000-row page, and these run against production.
-  const ruleVectors = await ruleTextVectors(ownerUserId, eventId);
+  // The rules (rules.ts) and the learned direction, scored against every
+  // indexed photo in ONE call (migration 100): nine paged scans took 8.6 s on
+  // Electronica. A failure here THROWS rather than proposing without rules: an
+  // unruled set is exactly the complaint, and the auto-fill retries.
+  const ruleVectors = await ruleTextVectors(
+    ownerUserId,
+    eventId,
+    new Set(images.map((i) => i.embedding_model).filter((m): m is string => !!m))
+  );
+  const scored = await scoreByVectors(
+    supabase,
+    [...(direction ? [direction.vector] : []), ...ruleVectors],
+    ownerUserId,
+    eventId
+  );
+  const offset = direction ? 1 : 0;
+  const scoreById = new Map<string, number>();
   const ruleScores = new Map<string, Partial<Record<RuleKey, number>>>();
-  for (const [i, key] of RULE_KEYS.entries()) {
-    const scores = await scoreByEmbedding(supabase, ruleVectors[i], ownerUserId, eventId);
-    for (const [id, sim] of scores) {
-      const row = ruleScores.get(id) ?? {};
-      row[key] = sim;
-      ruleScores.set(id, row);
-    }
+  for (const [id, sims] of scored) {
+    if (direction) scoreById.set(id, sims[0]);
+    const row: Partial<Record<RuleKey, number>> = {};
+    RULE_KEYS.forEach((key, i) => (row[key] = sims[offset + i]));
+    ruleScores.set(id, row);
   }
 
   // Faces: how many per frame ("only humans"), how many are SUBJECTS (group
@@ -267,7 +277,7 @@ export async function proposeHighlights(
   );
   const ruledOut: Record<string, number> = {};
   const facts = new Map<string, FrameFacts>();
-  const kept = images.filter((i) => {
+  for (const i of images) {
     const s = faceSummary.get(i.id)!;
     const f: FrameFacts = {
       indexed: i.ai_indexed_at != null,
@@ -278,25 +288,32 @@ export async function proposeHighlights(
     facts.set(i.id, f);
     const why = vetoReason(f, cutoffs) ?? (bwVersions.has(i.id) ? "bw" : null);
     if (why) ruledOut[why] = (ruledOut[why] ?? 0) + 1;
-    return !why;
-  });
+  }
 
   const byId = new Map(images.map((i) => [i.id, i]));
-  const moments = groupIntoMoments(
-    kept.map((i) => {
-      const name = nameKeyById.get(i.id);
-      return {
-        id: i.id,
-        takenAt: i.taken_at,
-        // Unranked fallback keeps capture order rather than inventing a quality
-        // signal — the three scalars we have were measured and do not predict
-        // human picks.
-        score: scoreById.get(i.id) ?? 0,
-        personIds: [...(personByImage.get(i.id) ?? []), ...(name ? [name] : [])],
-        tags: capTags(facts.get(i.id)!, cutoffs),
-      };
-    })
-  );
+  // Candidate moments from every frame no (unrelaxed) ban rules out.
+  const buildMoments = (relaxedBans: ReadonlySet<string>) =>
+    groupIntoMoments(
+      images
+        .filter((i) => {
+          if (bwVersions.has(i.id)) return false;
+          return !vetoReason(facts.get(i.id)!, cutoffs, relaxedBans);
+        })
+        .map((i) => {
+          const name = nameKeyById.get(i.id);
+          return {
+            id: i.id,
+            takenAt: i.taken_at,
+            // Unranked fallback keeps capture order rather than inventing a
+            // quality signal: the three scalars we have were measured and do
+            // not predict human picks.
+            score: scoreById.get(i.id) ?? 0,
+            personIds: [...(personByImage.get(i.id) ?? []), ...(name ? [name] : [])],
+            tags: capTags(facts.get(i.id)!, cutoffs),
+          };
+        })
+    );
+  const moments = buildMoments(new Set());
 
   // Crew: present across the whole day rather than for one booth visit. On the
   // first live run 29 of 40 picks contained a crew member — the direction is
@@ -334,22 +351,70 @@ export async function proposeHighlights(
   // equal, so "top" would be arbitrary). Only these can be picked: one-per-
   // person is checked face against face, and a photo whose faces were never
   // read cannot be checked (second review, 2026-11-16: cluster ids missed
-  // two thirds of Team Curry's faces).
-  const shortlistSize = Math.min(moments.length, poolSize * 6);
-  const shortlist = direction
-    ? [...moments].sort((a, b) => b.score - a.score).slice(0, shortlistSize)
-    : timelineSample(moments, shortlistSize);
-  const facesByMoment = await momentFaces(supabase, shortlist);
-
-  const picked = selectMoments(shortlist, Math.min(poolSize, shortlist.length), {
+  // two thirds of Team Curry's faces). Faces are cached by image, so a later
+  // round reads only frames it has not seen.
+  const faceVecsByImage = new Map<string, number[][]>();
+  const shortlistOf = async (ms: Moment[], size: number, exclude: ReadonlySet<string>) => {
+    const pool = ms.filter((m) => !exclude.has(m.key));
+    const n = Math.min(pool.length, size);
+    const list = direction
+      ? [...pool].sort((a, b) => b.score - a.score).slice(0, n)
+      : timelineSample(pool, n);
+    const missing = list.filter((m) => !faceVecsByImage.has(m.frames[m.bestIndex].id));
+    for (const [id, v] of await momentFaces(supabase, missing)) faceVecsByImage.set(id, v);
+    return list;
+  };
+  const baseOpts = {
     coverage: opts.coverage,
     crewIds,
     onePerPerson: true,
-    caps: groupShare < GROUP_CAP_MAX_SHARE ? HIGHLIGHT_CAPS : { glasses: HIGHLIGHT_CAPS.glasses },
-    facesOf: (m) => facesByMoment.get(m.key),
+    facesOf: (m: Moment) => faceVecsByImage.get(m.frames[m.bestIndex].id),
     samePerson: HIGHLIGHT_SAME_PERSON,
     variety: HIGHLIGHT_VARIETY,
-  });
+  };
+  let caps: Record<string, number> =
+    groupShare < GROUP_CAP_MAX_SHARE ? { ...HIGHLIGHT_CAPS } : { glasses: HIGHLIGHT_CAPS.glasses };
+
+  const shortlist = await shortlistOf(moments, poolSize * 6, new Set());
+  const picked = selectMoments(shortlist, Math.min(poolSize, shortlist.length), { ...baseOpts, caps });
+
+  // Short? Relax the taste rules one at a time, ONLY to fill (Mason,
+  // 2026-11-16), continuing from the strict picks so one-per-person and every
+  // remaining limit still count them. The strict picks stay first. A short
+  // set is refilled up to the full pool (the count plus the swap-in spares
+  // the review screen backfills cuts from), and each round searches as deep
+  // as the strict round did: the photos a relaxed rule lets in rank BELOW the
+  // ones one-per-person already refused (review: a 6x-`need` list added 8
+  // fewer picks on Electronica asked for 300).
+  const relaxed: RelaxStep[] = [];
+  const applied: RelaxStep[] = [];
+  const relaxedBans = new Set<string>();
+  const poolTarget = opts.count + (opts.poolExtra ?? Math.max(20, Math.round(opts.count * 0.75)));
+  const short = picked.length < opts.count;
+  for (const step of RELAX_STEPS) {
+    if (!short || picked.length >= poolTarget) break;
+    if (step === "glasses" || step === "group") {
+      if (caps[step] == null) continue; // not in force on this shoot
+      caps = { ...caps };
+      delete caps[step];
+    } else {
+      relaxedBans.add(step);
+    }
+    applied.push(step);
+    const need = poolTarget - picked.length;
+    const round = await shortlistOf(
+      buildMoments(relaxedBans),
+      Math.max(need * 6, shortlist.length),
+      new Set(picked.map((m) => m.key))
+    );
+    const extra = selectMoments(round, need, { ...baseOpts, caps, seed: picked });
+    if (extra.length) {
+      picked.push(...extra);
+      // Relaxing is cumulative: everything lifted so far was in force for
+      // these photos (a glasses pose can arrive in the group round).
+      relaxed.splice(0, relaxed.length, ...applied);
+    }
+  }
 
   // A black-and-white baseline this high means a backdrop that reads as black
   // and white (LinkedIn's silver sequins, 0.070) or an all-black-and-white
@@ -390,6 +455,7 @@ export async function proposeHighlights(
     trainedOnPicks: direction?.trainedOnPicks ?? 0,
     crewFound: crewIds.size,
     ruledOut,
+    relaxed,
     notes,
   };
 }
@@ -429,42 +495,54 @@ export function subjectNameKeys(
 }
 
 /**
- * Similarity of every embedded photo in the event to one vector. Paged for the
- * same reason scene-plan pages: an RPC response is capped at 1000 rows.
+ * Similarity of every embedded photo in the event to each vector, in one scan
+ * and one round trip: score_images_by_vectors (migration 100) returns a single
+ * jsonb object, so PostgREST's 1,000-row cap does not page it.
  */
-async function scoreByEmbedding(
+async function scoreByVectors(
   supabase: SupabaseClient,
-  vector: number[],
+  vectors: number[][],
   ownerUserId: string,
   eventId: string
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  for (let page = 0; ; page++) {
-    const { data, error } = await supabase
-      .rpc("score_images_by_embedding", {
-        query_embedding: JSON.stringify(vector),
-        target_user_id: ownerUserId,
-        target_event_id: eventId,
-      })
-      .order("id", { ascending: true })
-      .range(page * 1000, page * 1000 + 999);
-    if (error) throw error;
-    for (const row of (data ?? []) as { id: string; similarity: number }[]) {
-      out.set(row.id, row.similarity);
+): Promise<Map<string, number[]>> {
+  const call = () =>
+    supabase.rpc("score_images_by_vectors", {
+      query_embeddings: vectors,
+      target_user_id: ownerUserId,
+      target_event_id: eventId,
+    });
+  let { data, error } = await call();
+  // One retry on a statement timeout: a cold 34,000-photo event measured ~18 s
+  // against the 15 s limit and 2.8 s once its pages were warm (review).
+  if (error?.code === "57014") ({ data, error } = await call());
+  if (error) throw error;
+  const out = new Map<string, number[]>();
+  for (const [id, sims] of Object.entries((data ?? {}) as Record<string, number[]>)) {
+    if (!Array.isArray(sims) || sims.length !== vectors.length) {
+      throw new Error(`score_images_by_vectors: ${id} has ${sims?.length} scores for ${vectors.length} vectors`);
     }
-    if (!data || data.length < 1000) break;
+    out.set(id, sims);
   }
   return out;
 }
 
 /**
- * The rule phrases as text vectors. They never change, so a warm server keeps
- * them and skips the embedding service; a cold one fetches them once. A reply
- * with the wrong number of vectors is an error, not a partial rule set.
+ * The rule phrases as text vectors. Stored in rule-vectors.json (written by
+ * scripts/highlights-rule-vectors.ts) because the embedding service cost 28 s
+ * cold on every propose (2026-11-16). Used only when every phrase matches the
+ * stored text AND every indexed photo carries the stored model; otherwise a
+ * live embed, kept per warm server. A reply with the wrong number of vectors
+ * is an error, not a partial rule set.
  */
 let ruleVectorCache: { key: string; vectors: number[][] } | null = null;
-async function ruleTextVectors(ownerUserId: string, eventId: string): Promise<number[][]> {
+async function ruleTextVectors(
+  ownerUserId: string,
+  eventId: string,
+  eventModels: Set<string>
+): Promise<number[][]> {
   const texts = RULE_KEYS.map((k) => HIGHLIGHT_RULES[k].text);
+  const stored = storedRuleVectors(texts, eventModels);
+  if (stored) return stored;
   const key = texts.join("\n");
   if (ruleVectorCache?.key === key) return ruleVectorCache.vectors;
   const vectors = await embedTexts(texts, { userId: ownerUserId, eventId, purpose: "highlights" });
@@ -473,6 +551,19 @@ async function ruleTextVectors(ownerUserId: string, eventId: string): Promise<nu
   }
   ruleVectorCache = { key, vectors };
   return vectors;
+}
+
+/** The stored vectors, or null when a phrase or the model no longer matches. */
+export function storedRuleVectors(texts: string[], eventModels: Set<string>): number[][] | null {
+  const file = RULE_VECTORS as { model: string; phrases: Record<string, { text: string; vector: number[] }> };
+  if ([...eventModels].some((m) => m !== file.model)) return null;
+  const out: number[][] = [];
+  for (const [i, key] of RULE_KEYS.entries()) {
+    const entry = file.phrases[key];
+    if (!entry || entry.text !== texts[i] || entry.vector.length !== 1152) return null;
+    out.push(entry.vector);
+  }
+  return out;
 }
 
 type FaceRead = FaceRow & { image_id: string; embedding?: unknown };
@@ -489,8 +580,21 @@ export async function readFaces(
   columns = "id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h"
 ): Promise<Map<string, FaceRead[]>> {
   const out = new Map<string, FaceRead[]>();
-  for (let i = 0; i < imageIds.length; i += 100) {
-    const chunk = imageIds.slice(i, i + 100);
+  const chunks: string[][] = [];
+  for (let i = 0; i < imageIds.length; i += 100) chunks.push(imageIds.slice(i, i + 100));
+  // Six chunks at a time: fifty sequential reads took 6.1 s on Electronica.
+  // Small indexed lookups, so the parallelism is cheap for the database.
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    try {
+      for (let c = next++; c < chunks.length && !failed; c = next++) await readChunk(chunks[c]);
+    } catch (e) {
+      failed = true; // stop the other workers querying a database that is failing
+      throw e;
+    }
+  };
+  const readChunk = async (chunk: string[]) => {
     for (let page = 0; ; page++) {
       const { data, error } = await supabase
         .from("faces")
@@ -507,7 +611,8 @@ export async function readFaces(
       }
       if (rows.length < 1000) break;
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, chunks.length) }, worker));
   return out;
 }
 
@@ -535,7 +640,7 @@ export function timelineSample<M>(moments: M[], size: number): M[] {
 }
 
 /**
- * The SUBJECT faces of each moment's chosen frame, largest first, as unit
+ * The SUBJECT faces of each moment's chosen frame, keyed by IMAGE id, largest first, as unit
  * vectors (ArcFace, 512 numbers). Subjects by the same size rule as
  * summarizeFaces, so "who the photo is of" means one thing everywhere.
  */
@@ -543,10 +648,10 @@ async function momentFaces(
   supabase: SupabaseClient,
   moments: Moment[]
 ): Promise<Map<string, number[][]>> {
-  const keyByImage = new Map(moments.map((m) => [m.frames[m.bestIndex].id, m.key]));
+  const ids = [...new Set(moments.map((m) => m.frames[m.bestIndex].id))];
   const rows = await readFaces(
     supabase,
-    [...keyByImage.keys()],
+    ids,
     "id, image_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, embedding"
   );
   const out = new Map<string, number[][]>();
@@ -563,7 +668,7 @@ async function momentFaces(
         const norm = Math.hypot(...raw) || 1;
         return raw.map((x) => x / norm);
       });
-    if (vecs.length) out.set(keyByImage.get(imageId)!, vecs);
+    if (vecs.length) out.set(imageId, vecs);
   }
   return out;
 }

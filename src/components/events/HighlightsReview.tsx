@@ -47,6 +47,7 @@ export function HighlightsReview({
   initialCount,
   totalMoments,
   ruledOut = {},
+  relaxed = [],
   columnCount,
   gap = "normal",
   busy = false,
@@ -62,6 +63,8 @@ export function HighlightsReview({
   totalMoments: number;
   /** Photos each Highlights rule left out (lib/highlights/rules.ts), to explain a short set. */
   ruledOut?: Record<string, number>;
+  /** Taste rules relaxed to fill a short set (propose's `relaxed`), in order. */
+  relaxed?: string[];
   /** Mirror the event's own grid settings so the preview matches the section. */
   columnCount?: number;
   gap?: "tight" | "normal" | "loose";
@@ -178,7 +181,12 @@ export function HighlightsReview({
             {ruleShort > 0 && proposals.length > 0 && (
               <p className="mt-1.5 text-[12px] text-stone-500">
                 {`Only ${proposals.length} of ${initialCount} pass: more would repeat someone or break a Highlights rule.`}
-                {ruledOutSummary(ruledOut) ? ` Left out: ${ruledOutSummary(ruledOut)}.` : ""}
+                {ruledOutSummary(ruledOut, relaxed) ? ` Left out: ${ruledOutSummary(ruledOut, relaxed)}.` : ""}
+              </p>
+            )}
+            {relaxed.length > 0 && (
+              <p className="mt-1.5 text-[12px] text-stone-500">
+                {`To fill the set, also allowed: ${relaxed.map((r) => RELAX_WORDS[r] ?? r).join(", ")}.`}
               </p>
             )}
             {short > 0 && ruleShort <= 0 && (
@@ -354,10 +362,19 @@ const RULE_WORDS: Record<string, string> = {
   robot: "robot",
   hidden: "face hidden",
 };
-function ruledOutSummary(ruledOut: Record<string, number>): string {
+function ruledOutSummary(ruledOut: Record<string, number>, relaxed: string[] = []): string {
+  // A ban relaxed to fill the set did not leave its photos out.
   return Object.entries(ruledOut)
-    .filter(([, n]) => n > 0)
+    .filter(([k, n]) => n > 0 && !relaxed.includes(k))
     .sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${n.toLocaleString()} ${RULE_WORDS[k] ?? k}`)
     .join(", ");
 }
+
+/** Plain words for the taste rules relaxed to fill a set (rules.ts RELAX_STEPS). */
+const RELAX_WORDS: Record<string, string> = {
+  glasses: "more hand-on-glasses poses",
+  group: "more group shots",
+  profile: "profile shots",
+  back: "shots from behind",
+};

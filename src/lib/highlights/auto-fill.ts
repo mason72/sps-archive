@@ -181,7 +181,7 @@ export async function fillPendingHighlights(
     await reportSystemError(
       "highlights-auto-fill.short",
       new Error(`auto-filled ${imageIds.length} of ${count} Highlights`),
-      { eventId, sectionId: section.id, count, picks: imageIds.length, ruledOut: result.ruledOut, notes: result.notes }
+      { eventId, sectionId: section.id, count, picks: imageIds.length, ruledOut: result.ruledOut, relaxed: result.relaxed, notes: result.notes }
     );
   }
   return { status: "filled", picks: imageIds.length };

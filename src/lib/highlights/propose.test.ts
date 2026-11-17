@@ -124,3 +124,55 @@ describe("HIGHLIGHT_SAME_PERSON", () => {
     expect(HIGHLIGHT_SAME_PERSON).toBeGreaterThanOrEqual(0.363);
   });
 });
+
+describe("rule-vectors.json", () => {
+  it("matches every current rule phrase (regenerate with scripts/highlights-rule-vectors.ts)", async () => {
+    const { HIGHLIGHT_RULES, RULE_KEYS } = await import("./rules");
+    const { storedRuleVectors } = await import("./propose");
+    const texts = RULE_KEYS.map((k) => HIGHLIGHT_RULES[k].text);
+    expect(storedRuleVectors(texts, new Set(["google/siglip2-so400m-patch16-384"]))).not.toBeNull();
+  });
+  it("is not used for a phrase it does not hold, or for photos of another model", async () => {
+    const { HIGHLIGHT_RULES, RULE_KEYS } = await import("./rules");
+    const { storedRuleVectors } = await import("./propose");
+    const texts = RULE_KEYS.map((k) => HIGHLIGHT_RULES[k].text);
+    expect(storedRuleVectors(["a different phrase", ...texts.slice(1)], new Set())).toBeNull();
+    expect(storedRuleVectors(texts, new Set(["some/other-model"]))).toBeNull();
+  });
+});
+
+describe("readFaces failure", () => {
+  it("rejects, and the other readers stop instead of querying on", async () => {
+    let calls = 0;
+    const fake = {
+      from: () => ({
+        select: () => ({
+          in: () => ({
+            order: () => ({
+              range: async () => {
+                calls++;
+                return calls === 1 ? { data: null, error: new Error("db down") } : { data: [], error: null };
+              },
+            }),
+          }),
+        }),
+      }),
+    };
+    const ids = Array.from({ length: 5000 }, (_, i) => `img${i}`); // 50 chunks
+    await expect(readFaces(fake as never, ids)).rejects.toThrow("db down");
+    // The other readers run on after the rejection; give them time, then count.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBeLessThan(15);
+  });
+});
+
+describe("directionSignature", () => {
+  it("is stable, and changes when a set or its pick count changes", async () => {
+    const { directionSignature } = await import("./direction");
+    const secs = [{ id: "s1", picks: 40 }, { id: "s2", picks: 12 }];
+    expect(directionSignature("u", secs)).toBe(directionSignature("u", [...secs]));
+    expect(directionSignature("u", [{ id: "s1", picks: 41 }, secs[1]])).not.toBe(directionSignature("u", secs));
+    expect(directionSignature("u", [secs[0]])).not.toBe(directionSignature("u", secs));
+    expect(directionSignature("other", secs)).not.toBe(directionSignature("u", secs));
+  });
+});

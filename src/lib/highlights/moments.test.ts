@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { groupIntoMoments, selectMoments, type MomentInput } from "./moments";
 import {
+  RELAX_STEPS,
   bwBaselineNote,
   bwSiblings,
   capTags,
@@ -216,6 +217,32 @@ describe("selectMoments: who is the same person (second review, 2026-11-16)", ()
     expect(ids).toEqual(["group", "portrait"]);
   });
 
+  it("a later round continues from earlier picks: it adds only new people and returns only its own picks", () => {
+    // The strict round picked "a". A relaxed round must not re-pick a's
+    // person, and returns just what it adds.
+    const strict = groupIntoMoments([frame("a", 0, 0.9)]);
+    const later = groupIntoMoments([frame("a-again", 30, 0.95), frame("b", 60, 0.5)]);
+    const ids = selectMoments(later, 5, {
+      onePerPerson: true,
+      facesOf: (m) => ({ a: [[1, 0]], "a-again": [near(0.9)], b: [[0, 1]] } as Record<string, number[][]>)[m.frames[m.bestIndex].id],
+      samePerson: 0.55,
+      seed: strict,
+    }).map((m) => m.frames[m.bestIndex].id);
+    expect(ids).toEqual(["b"]);
+  });
+
+  it("earlier picks do not use up a round's count: asked for 2 more, it adds 2", () => {
+    const strict = groupIntoMoments([frame("a", 0, 0.9)]);
+    const later = groupIntoMoments([frame("b", 30, 0.5), frame("c", 60, 0.4)]);
+    const ids = selectMoments(later, 2, {
+      onePerPerson: true,
+      facesOf: (m) => ({ a: [[1, 0]], b: [[0, 1]], c: [[-1, 0]] } as Record<string, number[][]>)[m.frames[m.bestIndex].id],
+      samePerson: 0.55,
+      seed: strict,
+    }).map((m) => m.frames[m.bestIndex].id).sort();
+    expect(ids).toEqual(["b", "c"]);
+  });
+
   it("a pair is out when ONE of its two faces is already in (not a majority test)", () => {
     const ids = pickIds(
       [frame("solo", 0, 0.9), frame("pair", 30, 0.8), frame("other", 60, 0.1)],
@@ -296,6 +323,14 @@ describe("rules", () => {
     // visible face (0.08) is ordinary there.
     const booth = eventCutoffs(Array.from({ length: 100 }, () => ({ bw: 0.03, hidden: 0.037 })));
     expect(vetoReason(facts({ scores: { bw: 0.03, hidden: 0.08 } }), booth)).toBeNull();
+  });
+  it("a relaxed ban lets its photos back in; other bans still hold", () => {
+    expect(vetoReason(facts({ scores: { bw: 0.03, profile: 0.2 } }), c)).toBe("profile");
+    expect(vetoReason(facts({ scores: { bw: 0.03, profile: 0.2 } }), c, new Set(["profile"]))).toBeNull();
+    expect(vetoReason(facts({ scores: { bw: 0.03, profile: 0.2, gear: 0.2 } }), c, new Set(["profile"]))).toBe("gear");
+  });
+  it("only taste rules are relaxable, and in Mason's order", () => {
+    expect([...RELAX_STEPS]).toEqual(["glasses", "group", "profile", "back"]);
   });
   it("background faces do not make a group shot", () => {
     expect(capTags(facts({ faces: 5, subjectFaces: 1 }), c)).toEqual([]);
