@@ -262,9 +262,10 @@ export function summarizeFaces(rows: FaceRow[]): {
 }
 
 /**
- * A black-and-white median at or above this (the old fixed cutoff) means the
- * relative rule cannot tell a grey backdrop from a mostly black-and-white
- * shoot; propose reports it as a note instead of guessing.
+ * A black-and-white median at or above this (the old fixed cutoff): a grey
+ * backdrop or an all-black-and-white shoot. Propose returns it as a diagnostic
+ * note only (no alert: Mason, 2026-11-16, events are all colour or all black
+ * and white, and a mixed one keeps colour, which the sibling test does).
  */
 export const BW_BASELINE_HIGH = 0.055;
 

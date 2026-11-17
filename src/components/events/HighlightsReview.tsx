@@ -47,7 +47,6 @@ export function HighlightsReview({
   initialCount,
   totalMoments,
   ruledOut = {},
-  notes = [],
   columnCount,
   gap = "normal",
   busy = false,
@@ -63,8 +62,6 @@ export function HighlightsReview({
   totalMoments: number;
   /** Photos each Highlights rule left out (lib/highlights/rules.ts), to explain a short set. */
   ruledOut?: Record<string, number>;
-  /** Things to know about how the rules fit this shoot (propose's `notes`). */
-  notes?: string[];
   /** Mirror the event's own grid settings so the preview matches the section. */
   columnCount?: number;
   gap?: "tight" | "normal" | "loose";
@@ -187,11 +184,6 @@ export function HighlightsReview({
             {short > 0 && ruleShort <= 0 && (
               <p className="mt-1.5 text-[12px] text-stone-500">
                 {short} more would need a longer list than we ranked.
-              </p>
-            )}
-            {notes.some((n) => n.startsWith("bw-baseline-high")) && (
-              <p className="mt-1.5 text-[12px] text-amber-700">
-                Black and white could not be checked reliably on this shoot: look over the set.
               </p>
             )}
           </div>

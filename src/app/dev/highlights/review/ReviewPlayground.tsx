@@ -12,12 +12,10 @@ export function ReviewPlayground({
   proposals,
   totalMoments,
   ruledOut = {},
-  notes = [],
 }: {
   proposals: HighlightProposal[];
   totalMoments: number;
   ruledOut?: Record<string, number>;
-  notes?: string[];
 }) {
   const [pool, setPool] = useState(proposals);
   const [applied, setApplied] = useState<
@@ -59,7 +57,6 @@ export function ReviewPlayground({
         initialCount={DEFAULT_HIGHLIGHTS}
         totalMoments={totalMoments}
         ruledOut={ruledOut}
-        notes={notes}
         // Mirrors an event's own grid setting — the review must look like the
         // section it is previewing, not like a bespoke contact sheet.
         columnCount={6}

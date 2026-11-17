@@ -56,7 +56,6 @@ export function HighlightsPanel({
   const [proposals, setProposals] = useState<HighlightProposal[] | null>(null);
   const [totalMoments, setTotalMoments] = useState(0);
   const [ruledOut, setRuledOut] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState<string[]>([]);
   const [count, setCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -111,7 +110,6 @@ export function HighlightsPanel({
         const data = await res.json();
         setTotalMoments(data.totalMoments);
         setRuledOut(data.ruledOut ?? {});
-        setNotes(data.notes ?? []);
         setCount(data.count);
         setCoverage(opts.coverage);
         setProposals(
@@ -167,7 +165,6 @@ export function HighlightsPanel({
         initialCount={count}
         totalMoments={totalMoments}
         ruledOut={ruledOut}
-        notes={notes}
         columnCount={columnCount}
         gap={gap}
         busy={busy}

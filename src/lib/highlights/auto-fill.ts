@@ -184,17 +184,6 @@ export async function fillPendingHighlights(
       { eventId, sectionId: section.id, count, picks: imageIds.length, ruledOut: result.ruledOut, notes: result.notes }
     );
   }
-  // A shoot whose black-and-white scores run high everywhere: the rule could
-  // not separate a grey backdrop from black-and-white captures, so a person
-  // should look at the set (rules.ts BW_BASELINE_HIGH).
-  if (result.notes.length) {
-    const { reportSystemError } = await import("@/lib/monitoring/report");
-    await reportSystemError(
-      "highlights-auto-fill.check",
-      new Error(`auto-filled Highlights need a look: ${result.notes.join(", ")}`),
-      { eventId, sectionId: section.id, picks: imageIds.length, notes: result.notes }
-    );
-  }
   return { status: "filled", picks: imageIds.length };
 }
 

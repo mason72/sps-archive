@@ -351,10 +351,11 @@ export async function proposeHighlights(
     variety: HIGHLIGHT_VARIETY,
   });
 
-  // A black-and-white baseline this high means either a backdrop that reads as
-  // black and white (LinkedIn's silver sequins, 0.070) or a shoot that is mostly
-  // black and white in SEPARATE captures, which the median and the sibling test
-  // cannot tell apart. Say so rather than guess (second review, 2026-11-16).
+  // A black-and-white baseline this high means a backdrop that reads as black
+  // and white (LinkedIn's silver sequins, 0.070) or an all-black-and-white
+  // shoot. Diagnostic only, in the response: Mason (2026-11-16) said shoots are
+  // all colour or all black and white, mixed ones should keep colour (the
+  // sibling test does), so an alert here would fire on normal shoots.
   const notes: string[] = [];
   const bwNote = bwBaselineNote(cutoffs);
   if (bwNote) notes.push(bwNote);

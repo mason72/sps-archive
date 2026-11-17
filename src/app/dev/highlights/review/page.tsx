@@ -124,14 +124,13 @@ async function loadRealProposals(): Promise<{
 export default async function DevHighlightsReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ short?: string; bw?: string }>;
+  searchParams: Promise<{ short?: string }>;
 }) {
   const isLocal = process.env.NODE_ENV === "development";
   const real = isLocal ? await loadRealProposals() : null;
   // ?short=N cuts the pool to N, as the Highlights rules can (16 of 40 on a
-  // group-heavy party); ?bw=1 adds the black-and-white note. Local only, like
-  // the real frames above.
-  const { short, bw } = await searchParams;
+  // group-heavy party). Local only, like the real frames above.
+  const { short } = await searchParams;
   const shortTo = short != null ? Math.max(0, Number(short) || 0) : null;
 
   return (
@@ -152,7 +151,6 @@ export default async function DevHighlightsReviewPage({
           proposals={shortTo != null ? real.proposals.slice(0, shortTo) : real.proposals}
           totalMoments={real.totalMoments}
           ruledOut={shortTo != null ? { gear: 32, bw: 23, "no-face": 17, profile: 20 } : {}}
-          notes={bw === "1" ? ["bw-baseline-high:0.070"] : []}
         />
       ) : (
         <p className="mx-auto max-w-6xl px-8 pb-24 font-editorial text-lg text-stone-400 italic">
