@@ -44,6 +44,7 @@
  */
 import { inngest } from "@/lib/inngest/client";
 import { objectExistsInR2 } from "@/lib/r2/client";
+import { reportSystemError } from "@/lib/monitoring/report";
 import type { createServiceClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
 import { getSpsToken } from "./connection";
@@ -228,9 +229,18 @@ export function planSweepPage(input: {
 
 interface PresentRow {
   spsImageId: string;
+  imageId: string;
   r2Key: string;
   complete: boolean;
   reported: boolean;
+  /**
+   * In at least one section. A row with no link is an orphan that a person
+   * has to place, and it must never be reported to SPS as safe: SPS may then
+   * delete its copy, leaving a photo that is in no section. The nightly
+   * reconciler completes pending rows without looking at links, so
+   * `complete` alone does not rule this out (lesson 209).
+   */
+  linked: boolean;
 }
 
 /** The rows the event already has for these SPS ids. */
@@ -243,7 +253,7 @@ async function presentRows(
   for (let i = 0; i < ids.length; i += ID_CHUNK) {
     const { data, error } = await supabase
       .from("images")
-      .select("sps_image_id, r2_key, processing_status, sps_pulled_at")
+      .select("id, sps_image_id, r2_key, processing_status, sps_pulled_at")
       .eq("event_id", eventId)
       .in("sps_image_id", ids.slice(i, i + ID_CHUNK));
     if (error) throw error;
@@ -251,10 +261,25 @@ async function presentRows(
       if (!row.sps_image_id) continue;
       present.set(row.sps_image_id, {
         spsImageId: row.sps_image_id,
+        imageId: row.id,
         r2Key: row.r2_key,
         complete: row.processing_status === "complete",
         reported: row.sps_pulled_at !== null,
+        linked: false,
       });
+    }
+  }
+  const byImage = new Map([...present.values()].map((r) => [r.imageId, r]));
+  const imageIds = [...byImage.keys()];
+  for (let i = 0; i < imageIds.length; i += ID_CHUNK) {
+    const { data, error } = await supabase
+      .from("section_images")
+      .select("image_id")
+      .in("image_id", imageIds.slice(i, i + ID_CHUNK));
+    if (error) throw error;
+    for (const link of data ?? []) {
+      const row = byImage.get(link.image_id);
+      if (row) row.linked = true;
     }
   }
   return present;
@@ -401,9 +426,16 @@ export async function sweepPage(
   // Here, complete, never reported: prove the object, then report. These are
   // photos whose import threw after the row was written (the reconciler
   // finished them) and photos whose `/pulled` call failed.
-  const durable = await provedInR2(
-    [...found.present.values()].filter((row) => row.complete && !row.reported)
-  );
+  const unreported = [...found.present.values()].filter((row) => row.complete && !row.reported);
+  const orphans = unreported.filter((row) => !row.linked);
+  if (orphans.length) {
+    await reportSystemError(
+      "sps.pull-orphan-row",
+      new Error(`${orphans.length} pulled photo(s) are in no section; not reported to SPS`),
+      { jobId: job.id, eventId: job.event_id, imageIds: orphans.slice(0, 20).map((r) => r.imageId) }
+    );
+  }
+  const durable = await provedInR2(unreported.filter((row) => row.linked));
 
   if (!found.batch.length) {
     // Folded even when it is all zeros: a page with nothing to do still proves

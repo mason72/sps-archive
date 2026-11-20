@@ -514,29 +514,150 @@ describe("importOneImage on a flaky network", () => {
     expect(deleteFromR2).toHaveBeenCalledTimes(1);
   });
 
-  it("an insert that never landed after three tries fails, with the bytes taken back", async () => {
+  const NO_ROW = { data: null, error: null, status: 200 };
+  const FK_REFUSED = {
+    data: null,
+    error: {
+      code: "23503",
+      message: 'insert or update on table "section_images" violates foreign key constraint "section_images_image_id_fkey"',
+    },
+    status: 409,
+  };
+  const SECTION_GONE = {
+    data: null,
+    error: {
+      code: "23503",
+      message: 'insert or update on table "section_images" violates foreign key constraint "section_images_section_id_fkey"',
+    },
+    status: 409,
+  };
+  const RACE = {
+    data: null,
+    error: { code: "23505", message: 'duplicate key value violates unique constraint "images_sps_image_per_event"' },
+    status: 409,
+  };
+
+  it("an insert whose last answer was lost keeps its bytes, even when no row is seen yet", async () => {
+    // The third attempt may still be committing when the lookup runs, so
+    // "no row" proves nothing; deleting the bytes there could orphan a row.
     vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
     const { db, calls } = scriptedDb({
       "images:insert": [NETWORK, NETWORK, NETWORK],
-      "images:select": [{ data: null, error: null, status: 200 }],
+      "images:select": [NO_ROW],
+      "section_images:insert": [FK_REFUSED],
     });
 
     await expect(importOneImage(db, job, { image: photo, place })).rejects.toMatchObject({
       message: "TypeError: fetch failed",
     });
     expect(count(calls, "images:insert")).toBe(3);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("a definite answer with no row takes the bytes back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "images:insert": [NETWORK, { data: null, error: { code: "23502", message: "null value" }, status: 400 }],
+      "images:select": [NO_ROW],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toMatchObject({
+      code: "23502",
+    });
+    expect(count(calls, "section_images:insert")).toBe(0);
     expect(deleteFromR2).toHaveBeenCalledTimes(1);
   });
 
-  it("when it cannot tell whether the row landed, it keeps the bytes", async () => {
+  it("a statement timeout is not retried, and its fate counts as unknown", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
-    const { db } = scriptedDb({
+    const { db, calls } = scriptedDb({
+      "images:insert": [{ data: null, error: { code: "57014", message: "statement timeout" }, status: 500 }],
+      "images:select": [NO_ROW],
+      "section_images:insert": [FK_REFUSED],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toMatchObject({
+      code: "57014",
+    });
+    expect(count(calls, "images:insert")).toBe(1);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("when the lookup cannot answer, a link that lands proves the row and the import carries on", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
       "images:insert": [NETWORK, NETWORK, NETWORK],
       "images:select": [NETWORK, NETWORK, NETWORK],
     });
 
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(count(calls, "section_images:insert")).toBe(1); // linked once, not twice
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("when the lookup cannot answer and the link is refused, it keeps the bytes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db } = scriptedDb({
+      "images:insert": [NETWORK, NETWORK, NETWORK],
+      "images:select": [NETWORK, NETWORK, NETWORK],
+      "section_images:insert": [FK_REFUSED],
+    });
+
     await expect(importOneImage(db, job, { image: photo, place })).rejects.toBeTruthy();
     // A row with no object is a broken tile forever; an object with no row is a few MB.
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("23505 on our own primary key is our earlier attempt landing, with no lookup needed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "images:insert": [
+        NETWORK,
+        { data: null, error: { code: "23505", message: 'duplicate key value violates unique constraint "images_pkey"' }, status: 409 },
+      ],
+    });
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(count(calls, "images:select")).toBe(0);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("a Cloudflare 524 is not a definite answer: the bytes stay", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "images:insert": [{ data: null, error: { code: "", message: "" }, status: 524 }],
+      "images:select": [NO_ROW],
+      "section_images:insert": [FK_REFUSED],
+    });
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toBeTruthy();
+    expect(count(calls, "images:insert")).toBe(1);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("a lost race whose lookup cannot answer is still a skip, settled by the link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db } = scriptedDb({
+      "images:insert": [RACE],
+      "images:select": [NETWORK, NETWORK, NETWORK],
+      "section_images:insert": [FK_REFUSED],
+    });
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toEqual({
+      status: "skipped",
+    });
+    expect(deleteFromR2).toHaveBeenCalledTimes(1);
+  });
+
+  it("a link refused because the SECTION went away proves nothing about the row: the bytes stay", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db } = scriptedDb({
+      "images:insert": [RACE],
+      "images:select": [NETWORK, NETWORK, NETWORK],
+      "section_images:insert": [SECTION_GONE],
+    });
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toBeTruthy();
     expect(deleteFromR2).not.toHaveBeenCalled();
   });
 

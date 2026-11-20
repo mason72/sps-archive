@@ -42,7 +42,7 @@ import {
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
 import { describeError, reportSystemError } from "@/lib/monitoring/report";
-import { HttpStatusError, retryResult, retryThrown } from "@/lib/net/retry";
+import { HttpStatusError, isTransientResult, retryResult, retryThrown } from "@/lib/net/retry";
 import { spsEventLinkPatch } from "./event-link";
 import { attachSpsCoverLogo } from "./pull-logo";
 import { withNewGalleryDefaults } from "@/types/event-settings";
@@ -846,7 +846,12 @@ export async function importOneImage(
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
       cache: "no-store",
     });
-    if (!res.ok) throw new HttpStatusError(res.status, `source fetch ${res.status}`);
+    if (!res.ok) {
+      // Release the connection now: with retries, an unread error body would
+      // otherwise hold up to three sockets per photo until garbage collection.
+      await res.body?.cancel().catch(() => {});
+      throw new HttpStatusError(res.status, `source fetch ${res.status}`);
+    }
 
     const type = res.headers.get("content-type") ?? "";
     // A presigned URL that has expired, or a bucket that answers with an XML
@@ -921,7 +926,7 @@ export async function importOneImage(
   // judged by looking our own row up by id, never by the error alone: a
   // request that timed out on the way BACK may have committed, and then the
   // retry answers 23505 on our own primary key.
-  const { error: insertErr } = await retryResult(() => supabase.from("images").insert({
+  const insertRes = await retryResult(() => supabase.from("images").insert({
     id,
     event_id: job.event_id,
     filename,
@@ -943,44 +948,88 @@ export async function importOneImage(
     sps_source_image_id: image.sourceImageId ?? null,
   }));
 
+  const insertErr = insertRes.error;
+  const linkRow = () =>
+    retryResult(() =>
+      supabase.from("section_images").insert({
+        section_id: sectionId,
+        image_id: id,
+        sort_order: sortOrder,
+      })
+    );
+  // The link's key is (section_id, image_id) and image_id is a fresh UUID, so
+  // 23505 on it can only mean an earlier attempt of OURS landed: success.
+  const linkOk = (res: { error: unknown }) =>
+    !res.error || (res.error as { code?: string }).code === "23505";
+  let linked = false;
+
   if (insertErr) {
-    const landed = await ownRowExists(supabase, id);
-    if (landed === null) {
-      // Cannot tell whether the row exists. Keep the bytes: an R2 object with
-      // no row costs a few MB, a row with no object is a broken tile forever.
-      // The failure is logged, so the closing sweep looks again.
-      throw insertErr;
-    }
-    if (!landed) {
+    const { code = "", message = "" } = insertErr as { code?: string; message?: string };
+    // 23505 on our own primary key: an earlier attempt of ours committed.
+    const ownKey = code === "23505" && message.includes("images_pkey");
+    const landed = ownKey ? true : await ownRowExists(supabase, id);
+    // A DEFINITE answer is one the DATA gave: Postgres refused the row itself
+    // (class 22 bad value, 23 constraint, 42 bad statement) or PostgREST
+    // rejected the request (a 4xx with a code, not 408/429). Then any earlier
+    // attempt of ours has resolved too: it would hold our primary key's lock,
+    // and this attempt would have waited on it. Anything else (a lost answer,
+    // a gateway or Cloudflare 5xx, a statement or lock timeout) may still
+    // commit after the lookup, so its "no row" proves nothing.
+    const status = insertRes.status ?? 0;
+    const definite =
+      !isTransientResult(insertRes) &&
+      (/^(22|23|42)/.test(code) ||
+        (/^PGRST/.test(code) && status >= 400 && status < 500 && status !== 408 && status !== 429));
+    const takeBack = () => {
+      // 23505 on (event_id, sps_image_id): a concurrent slice won the race.
+      // Correct outcome, not a failure.
+      return code === "23505" ? { status: "skipped" as const } : null;
+    };
+
+    if (landed === false && definite) {
       await abandon();
-      // 23505 = unique violation on (event_id, sps_image_id): a concurrent
-      // slice won the race. Correct outcome, not a failure.
-      if ((insertErr as { code?: string }).code === "23505") {
-        return { status: "skipped" };
-      }
+      const skipped = takeBack();
+      if (skipped) return skipped;
       throw insertErr;
     }
-    // Our own earlier attempt landed: carry on as if it had answered.
+
+    if (landed !== true) {
+      // Fate unknown. Linking settles it, because the link's foreign key on
+      // image_id only accepts a row that is there. If it is refused, KEEP the
+      // bytes unless the answer was definite: an R2 object with no row costs
+      // a few MB, a row with no object is a broken tile forever. A row that
+      // commits after this has no link; the sweep will not report it to SPS
+      // (`sps.pull-orphan-row`), and scripts/sps-pull-finish-pending.ts lists it.
+      const probe = await linkRow();
+      if (!linkOk(probe)) {
+        const pe = probe.error as { code?: string; message?: string };
+        // Refused for OUR row, not for a section deleted meanwhile.
+        const noRow = pe.code === "23503" && (pe.message ?? "").includes("image_id");
+        if (noRow && definite) {
+          await abandon();
+          const skipped = takeBack();
+          if (skipped) return skipped;
+        }
+        throw insertErr;
+      }
+      linked = true;
+    }
+    // Otherwise our own earlier attempt landed: carry on as if it had answered.
   }
 
   // ── 4. Section link — no orphans, ever ──
-  // The link's key is (section_id, image_id), so a retry whose first attempt
-  // landed answers 23505 on exactly this row: that is success.
-  const { error: linkErr } = await retryResult(() =>
-    supabase.from("section_images").insert({
-      section_id: sectionId,
-      image_id: id,
-      sort_order: sortOrder,
-    })
-  );
-  if (linkErr && (linkErr as { code?: string }).code !== "23505") {
-    const { error: undoErr } = await retryResult(() =>
-      supabase.from("images").delete().eq("id", id)
-    );
-    // Only take the bytes back once the row is gone. A row that survives its
-    // delete must keep its object, or it becomes a tile with nothing behind it.
-    if (!undoErr) await abandon();
-    throw linkErr;
+  if (!linked) {
+    const linkRes = await linkRow();
+    if (!linkOk(linkRes)) {
+      const { error: undoErr } = await retryResult(() =>
+        supabase.from("images").delete().eq("id", id)
+      );
+      // Only take the bytes back once the row is gone. A row that survives
+      // its delete must keep its object, or it becomes a tile with nothing
+      // behind it.
+      if (!undoErr) await abandon();
+      throw linkRes.error;
+    }
   }
 
   // ── 5. Display work, then complete ──

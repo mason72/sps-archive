@@ -20,6 +20,16 @@
  * Only rows older than 30 minutes, so a photo an import is finishing right
  * now is never touched. Videos are left to the nightly reconciler, which
  * re-queues their poster pipeline.
+ *
+ * Only rows WITH a section link are finished. A pulled row with no link is an
+ * orphan (its link failed and its undo failed, or its insert committed after
+ * the importer gave up on it). Completing one would let the closing sweep
+ * report it to SPS as safe, and SPS may then delete its copy, leaving a photo
+ * that exists only as a row in no section. Those are LISTED for a person.
+ *
+ * Two fields differ from the importer's own finish: SPS's `capturedAt` is not
+ * at hand, so a file with no EXIF date ends with no `taken_at` (AI renders
+ * are the likely case), and width/height come from the thumbnailer only.
  */
 import fs from "node:fs";
 
@@ -58,10 +68,27 @@ async function main() {
     console.log("1,000 rows, the response cap: run again after this pass for the rest.");
   }
 
+  const { idChunks } = await import("@/lib/supabase/paged");
+  const linked = new Set<string>();
+  for (const chunk of idChunks(rows.map((r) => r.id))) {
+    const { data: links, error: linkErr } = await supabase
+      .from("section_images")
+      .select("image_id")
+      .in("image_id", chunk);
+    if (linkErr) throw linkErr;
+    for (const l of links) linked.add(l.image_id);
+  }
+  const orphans = rows.filter((r) => !linked.has(r.id));
+  const finishable = rows.filter((r) => linked.has(r.id));
+
   console.log(`${rows.length} pulled photo(s) stuck pending for over ${STALE_MINUTES} min${apply ? "" : " (dry run; --apply to finish)"}`);
+  if (orphans.length) {
+    console.log(`${orphans.length} of them have NO section link and are left alone for a person to decide:`);
+    for (const r of orphans) console.log(`  ORPHAN  event ${r.event_id}  ${r.original_filename ?? r.filename} [${r.id}]`);
+  }
   let finished = 0;
   let failed = 0;
-  for (const row of rows) {
+  for (const row of finishable) {
     const label = `${row.original_filename ?? row.filename} [${row.id}]`;
     if (!apply) {
       console.log(`  ${row.created_at}  ${label}`);
@@ -100,7 +127,7 @@ async function main() {
     }
   }
   if (apply) console.log(`finished ${finished}, failed ${failed}`);
-  if (failed) process.exit(1);
+  if (failed || orphans.length) process.exit(1);
 }
 
 main().catch((err) => {

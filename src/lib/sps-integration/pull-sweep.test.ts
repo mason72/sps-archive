@@ -8,6 +8,14 @@ vi.mock("./pull-client", async (original) => ({
   fetchManifestPage: vi.fn(),
 }));
 vi.mock("./pull-placement", () => ({ planSweepPlacement: vi.fn() }));
+vi.mock("@/lib/r2/client", async (original) => ({
+  ...(await original<typeof import("@/lib/r2/client")>()),
+  objectExistsInR2: vi.fn(async () => true),
+}));
+vi.mock("@/lib/monitoring/report", async (original) => ({
+  ...(await original<typeof import("@/lib/monitoring/report")>()),
+  reportSystemError: vi.fn(async () => {}),
+}));
 vi.mock("./pull-event", async (original) => ({
   ...(await original<typeof import("./pull-event")>()),
   importBatch: vi.fn(async () => ({ durable: [], failures: [] })),
@@ -28,7 +36,8 @@ import {
   unresolvedEntries,
 } from "./pull-sweep";
 import { fetchManifestPage, type SpsManifestImage } from "./pull-client";
-import { importBatch, intakeAppendPoint, type SpsPullJob } from "./pull-event";
+import { confirmDurable, importBatch, intakeAppendPoint, type SpsPullJob } from "./pull-event";
+import { reportSystemError } from "@/lib/monitoring/report";
 import { planSweepPlacement } from "./pull-placement";
 
 const img = (id: string): SpsManifestImage => ({
@@ -352,5 +361,74 @@ describe("sweepPage placement", () => {
       sweepPage(db([]), job, 0, { watch: ["b"], fetch: ["b"], skip: [] })
     ).rejects.toThrow("statement timeout");
     expect(importBatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A photo that is complete but in NO section must never be reported to SPS as
+ * safe: SPS may then delete its copy. The nightly reconciler completes pending
+ * rows without checking links, so `complete` alone does not rule it out
+ * (lesson 209).
+ */
+describe("sweepPage reporting", () => {
+  const job = {
+    id: "job-1",
+    user_id: "user-1",
+    event_id: "event-1",
+    sps_event_id: "sps-event-1",
+    deselected: [],
+  } as unknown as SpsPullJob;
+
+  /** Both rows complete and never reported; only `linked` have a section link. */
+  const db = (linked: string[]) => {
+    const from = (table: string) => {
+      const builder = {
+        select: () => builder,
+        eq: () => builder,
+        in: (_col: string, ids: string[]) =>
+          Promise.resolve({
+            data:
+              table === "images"
+                ? ids.map((id) => ({
+                    id: `img-${id}`,
+                    sps_image_id: id,
+                    r2_key: `events/event-1/${id}.jpg`,
+                    processing_status: "complete",
+                    sps_pulled_at: null,
+                  }))
+                : ids.filter((imageId) => linked.includes(imageId)).map((image_id) => ({ image_id })),
+            error: null,
+          }),
+      };
+      return builder;
+    };
+    return { from } as unknown as Parameters<typeof sweepPage>[0];
+  };
+
+  beforeEach(() => {
+    vi.mocked(confirmDurable).mockClear();
+    vi.mocked(reportSystemError).mockClear();
+    vi.mocked(fetchManifestPage).mockResolvedValue({
+      images: [img("a"), img("b")],
+    } as unknown as Awaited<ReturnType<typeof fetchManifestPage>>);
+  });
+
+  it("reports a linked photo to SPS and holds back an orphan, naming it", async () => {
+    await sweepPage(db(["img-a"]), job, 0, { watch: ["a", "b"], fetch: [], skip: [] });
+
+    const reported = vi.mocked(confirmDurable).mock.calls.flatMap((c) => c[3] as string[]);
+    expect(reported).toEqual(["a"]);
+    expect(reportSystemError).toHaveBeenCalledWith(
+      "sps.pull-orphan-row",
+      expect.any(Error),
+      expect.objectContaining({ imageIds: ["img-b"] })
+    );
+  });
+
+  it("says nothing when every photo has a section", async () => {
+    await sweepPage(db(["img-a", "img-b"]), job, 0, { watch: ["a", "b"], fetch: [], skip: [] });
+    const reported = vi.mocked(confirmDurable).mock.calls.flatMap((c) => c[3] as string[]);
+    expect(reported.sort()).toEqual(["a", "b"]);
+    expect(reportSystemError).not.toHaveBeenCalled();
   });
 });
