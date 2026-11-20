@@ -67,12 +67,18 @@ function ago(iso: string) {
 async function main(){
   const { createServiceClient } = await import("../../src/lib/supabase/server");
   const { liveVerdict } = await import("../../src/lib/monitoring/live-activity");
+  const { readAllRows, idChunks } = await import("../../src/lib/supabase/paged");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createServiceClient() as any;
   const since = new Date(Date.now() - WINDOW_HOURS*3600*1000).toISOString();
 
   type Ev = { id: string; name: string; event_date: string | null; settings: Record<string, unknown> | null };
-  const { data: events } = must<Ev[]>("events", await db.from("events").select("id,name,event_date,settings"));
+  // PAGED. The table passed PostgREST's silent 1,000-row cap on 2026-10-05, and
+  // an unpaged read kept the OLDEST 1,000: every event created since was
+  // invisible here. On 2026-11-20 three imports ran into three new events and
+  // this printed "rows landed by SPS pulls: 0" with 3,500 landed; a person
+  // uploading to any new event would have read as quiet.
+  const events = await readAllRows<Ev>(() => db.from("events").select("id,name,event_date,settings"));
   if (events.length === 0) throw new Error("events: table returned 0 rows — refusing to call that quiet");
   const live = events.filter(e => !(e.settings && "pixiesetCollectionId" in e.settings));
   const name = new Map(events.map(e => [e.id, e.name]));
@@ -91,16 +97,29 @@ async function main(){
     }
     return per;
   };
-  const windowed = () => db.from("images")
-    .select("event_id,created_at").in("event_id", liveIds).gte("created_at", since)
-    .order("created_at", { ascending: false }).limit(SAMPLE);
+  // Chunked by event id: `in()` rides in the GET URL and fails past ~500 ids.
+  // Each chunk gets its own sample; `capped` says whether any chunk filled it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const windowed = async (label: string, narrow: (q: any) => any) => {
+    const rows: Img[] = [];
+    let capped = false;
+    for (const chunk of idChunks(liveIds)) {
+      const { data } = must<Img[]>(label, await narrow(db.from("images")
+        .select("event_id,created_at").in("event_id", chunk).gte("created_at", since))
+        .order("created_at", { ascending: false }).limit(SAMPLE));
+      rows.push(...data);
+      if (data.length >= SAMPLE) capped = true;
+    }
+    rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    return { rows, capped };
+  };
 
   // A person uploading: no SPS id on the row.
-  const { data: recent } = must<Img[]>("live uploads", await windowed().is("sps_image_id", null));
+  const { rows: recent, capped: recentCapped } = await windowed("live uploads", (q) => q.is("sps_image_id", null));
   const perEvent = tally(recent);
 
   // Landed by an SPS pull: counted and shown, never part of the verdict.
-  const { data: pulled } = must<Img[]>("pulled rows", await windowed().not("sps_image_id", "is", null));
+  const { rows: pulled, capped: pulledCapped } = await windowed("pulled rows", (q) => q.not("sps_image_id", "is", null));
   const perPulled = tally(pulled);
 
   // Pulls running right now. These DO gate: a deploy kills the step in flight.
@@ -109,9 +128,13 @@ async function main(){
     .select("sps_event_name,event_id,status,images_done,expected_total,updated_at")
     .in("status", ["queued", "running"]));
 
-  const { count: pending } = must("live pending", await db.from("images")
-    .select("id", { count: "exact", head: true }).in("event_id", liveIds).eq("processing_status", "pending"));
-  if (pending === null) throw new Error("live pending: count came back null");
+  let pending = 0;
+  for (const chunk of idChunks(liveIds)) {
+    const { count } = must("live pending", await db.from("images")
+      .select("id", { count: "exact", head: true }).in("event_id", chunk).eq("processing_status", "pending"));
+    if (count === null) throw new Error("live pending: count came back null");
+    pending += count;
+  }
 
   // Migration ingest, for context only — it never makes the verdict LIVE.
   const { data: migLatest } = must<{ created_at: string }[]>("latest upload", await db.from("images")
@@ -120,16 +143,16 @@ async function main(){
   const days = [localDate(-1), localDate(0), localDate(1)];
   const dated = live.filter(e => e.event_date && days.includes(e.event_date));
 
-  const shown = (rows: Img[]) => (rows.length >= SAMPLE ? `${SAMPLE}+` : String(rows.length));
+  const shown = (rows: Img[], capped: boolean) => `${rows.length}${capped ? "+" : ""}`;
   const lines = (per: Map<string, { n: number; last: string }>, capped: boolean) => {
     for (const [id, p] of per) console.log(`    ${name.get(id)} — ${p.n}${capped ? "+" : ""}, last ${ago(p.last)}`);
   };
   console.log(`window                          : last ${WINDOW_HOURS}h (since ${since})`);
   console.log(`live events (non-Pixieset)      : ${live.length} of ${events.length}`);
-  console.log(`live-event uploads in window    : ${shown(recent)}`);
-  lines(perEvent, recent.length >= SAMPLE);
-  console.log(`rows landed by SPS pulls        : ${shown(pulled)}${pulled.length ? " (an import's work, not counted as live)" : ""}`);
-  lines(perPulled, pulled.length >= SAMPLE);
+  console.log(`live-event uploads in window    : ${shown(recent, recentCapped)}`);
+  lines(perEvent, recentCapped);
+  console.log(`rows landed by SPS pulls        : ${shown(pulled, pulledCapped)}${pulled.length ? " (an import's work, not counted as live)" : ""}`);
+  lines(perPulled, pulledCapped);
   console.log(`SPS pulls in flight             : ${pulls.length}`);
   for (const p of pulls) {
     console.log(`    ${p.sps_event_name ?? name.get(p.event_id) ?? p.event_id} — ${p.status}, ${p.images_done}${p.expected_total ? ` of ${p.expected_total}` : ""}, moved ${ago(p.updated_at)}`);
@@ -140,7 +163,7 @@ async function main(){
 
   const verdict = liveVerdict({
     uploads: [...perEvent].map(([id, p]) => ({ name: name.get(id) ?? id, count: p.n })),
-    uploadsCapped: recent.length >= SAMPLE,
+    uploadsCapped: recentCapped,
     dated: dated.map(e => ({ name: e.name, date: e.event_date as string })),
     pullsInFlight: pulls.map(p => ({ name: p.sps_event_name ?? name.get(p.event_id) ?? p.event_id, status: p.status })),
   });

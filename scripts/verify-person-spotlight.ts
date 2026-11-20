@@ -29,9 +29,11 @@ async function main() {
 
   // Scope to whoever owns the most events — the archive lives on the TEAM
   // account, not necessarily the admin one.
-  const { data: owned } = await (supabase as never as ReturnType<typeof createClient>)
-    .from("events")
-    .select("user_id");
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../src/lib/supabase/paged");
+  const owned = await readAllRows<{ user_id: string | null }>(() =>
+    (supabase as never as ReturnType<typeof createClient>).from("events").select("user_id")
+  );
   const tally = new Map<string, number>();
   for (const row of (owned ?? []) as { user_id: string | null }[]) {
     if (row.user_id) tally.set(row.user_id, (tally.get(row.user_id) ?? 0) + 1);

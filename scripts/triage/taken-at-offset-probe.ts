@@ -25,11 +25,9 @@ async function main() {
   const exifr = await import("exifr");
   const supabase = createServiceClient();
 
-  const { data: events, error } = await supabase
-    .from("events")
-    .select("id, name, settings")
-    .order("id");
-  if (error) throw error;
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../../src/lib/supabase/paged");
+  const events = await readAllRows(() => supabase.from("events").select("id, name, settings"));
 
   const out: Record<string, unknown>[] = [];
   for (const ev of events ?? []) {

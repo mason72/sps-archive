@@ -6,7 +6,9 @@ for (const line of fs.readFileSync(".env.local", "utf8").split("\n")) {
 (async () => {
   const { createClient } = await import("@supabase/supabase-js");
   const s = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  const { data } = await s.from("events").select("name, settings");
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../../src/lib/supabase/paged");
+  const data = await readAllRows<{ name: string; settings: unknown }>(() => s.from("events").select("name, settings"));
   for (const e of data ?? []) {
     const st = (e.settings ?? {}) as Record<string, unknown>;
     if (st.source === "manual-link") {

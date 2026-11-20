@@ -20,8 +20,9 @@ async function main() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ) as unknown as Parameters<typeof clusterEventFaces>[0];
 
-  const { data: events, error } = await supabase.from("events").select("id, name");
-  if (error) throw error;
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../src/lib/supabase/paged");
+  const events = await readAllRows<{ id: string; name: string }>(() => supabase.from("events").select("id, name"));
 
   for (const ev of events ?? []) {
     const t0 = Date.now();

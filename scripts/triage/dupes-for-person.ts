@@ -27,10 +27,11 @@ async function main() {
   const supabase = createServiceClient();
   const key = normalizeNameKey(name);
 
-  const { data: events, error: evErr } = await supabase
-    .from("events")
-    .select("id, name, event_date, user_id");
-  if (evErr) throw evErr;
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../../src/lib/supabase/paged");
+  const events = await readAllRows<{ id: string; name: string; event_date: string | null; user_id: string }>(() =>
+    supabase.from("events").select("id, name, event_date, user_id")
+  );
   const eventById = new Map(
     (events ?? []).filter((e) => !NON_PERSON_GALLERIES.has(e.name)).map((e) => [e.id, e])
   );

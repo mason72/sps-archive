@@ -12,7 +12,9 @@ async function main(){
   const { data: orgs, error } = await db.from("organizations").select("id,name,domains");
   if (error) throw new Error(error.message);
   const { data: links } = await db.from("event_orgs").select("org_id,event_id");
-  const { data: events } = await db.from("events").select("id,name");
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../../src/lib/supabase/paged");
+  const events = await readAllRows<{ id: string; name: string }>(() => db.from("events").select("id,name"));
   const nameById = new Map((events ?? []).map((e: {id:string;name:string}) => [e.id, e.name]));
 
   for (const o of orgs ?? []) {

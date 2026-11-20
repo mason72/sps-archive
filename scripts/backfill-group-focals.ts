@@ -24,7 +24,9 @@ async function main() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ) as unknown as Parameters<typeof ensureAutoFocal>[0];
 
-  const { data: events } = await supabase.from("events").select("id, name");
+  // Paged: the events table is past PostgREST's 1,000-row cap (lesson 188, 209).
+  const { readAllRows } = await import("../src/lib/supabase/paged");
+  const events = await readAllRows<{ id: string; name: string }>(() => supabase.from("events").select("id, name"));
   let total = 0;
   for (const ev of events ?? []) {
     let written = 0;
