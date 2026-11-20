@@ -155,3 +155,18 @@ describe("describeError on an empty PostgREST error", () => {
     expect(describeError({ message: "boom", code: "57014" })).toBe("boom (code 57014)");
   });
 });
+
+describe("describeError on Node's fetch failure", () => {
+  it("names the cause that 'fetch failed' hides", () => {
+    const cause = Object.assign(new Error("Connect Timeout Error"), {
+      name: "ConnectTimeoutError",
+      code: "UND_ERR_CONNECT_TIMEOUT",
+    });
+    expect(describeError(new TypeError("fetch failed", { cause }))).toBe(
+      "fetch failed (ConnectTimeoutError: Connect Timeout Error UND_ERR_CONNECT_TIMEOUT)"
+    );
+  });
+  it("leaves an error without a cause as it was", () => {
+    expect(describeError(new Error("source fetch 500"))).toBe("source fetch 500");
+  });
+});

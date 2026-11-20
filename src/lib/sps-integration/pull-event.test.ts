@@ -19,6 +19,17 @@ vi.mock("@/lib/upload/parse-filename", async (original) => ({
   ...(await original<typeof import("@/lib/upload/parse-filename")>()),
   extractExif: vi.fn(async () => null),
 }));
+// Real retry logic, no real waiting: a retry test must not cost seconds.
+vi.mock("@/lib/net/retry", async (original) => {
+  const real = await original<typeof import("@/lib/net/retry")>();
+  const noWait = { delays: [0, 0], sleep: async () => {} };
+  return {
+    ...real,
+    retryThrown: <T,>(op: () => Promise<T>) => real.retryThrown(op, noWait),
+    retryResult: <R extends { error: unknown; status?: number }>(op: () => PromiseLike<R>) =>
+      real.retryResult(op, noWait),
+  };
+});
 
 import { deleteFromR2, uploadToR2 } from "@/lib/r2/client";
 import {
@@ -28,6 +39,7 @@ import {
   createProgressFlusher,
   applySliceResult,
   importBatch,
+  importOneImage,
   type SpsPullJob,
 } from "./pull-event";
 import { MANIFEST_PAGE_SIZE, type SpsManifestImage } from "./pull-client";
@@ -360,5 +372,198 @@ describe("importBatch", () => {
     });
     expect(out).toEqual({ durable: [], failures: [] });
     expect(flush).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The network blips of 2026-11-20: 91 "failed" photos in three imports, every
+ * one a connection that would have worked a second later, and 31 of them left
+ * stuck "pending" because the blip hit the write that completes the row.
+ */
+describe("importOneImage on a flaky network", () => {
+  beforeEach(() => {
+    vi.mocked(uploadToR2).mockClear();
+    vi.mocked(deleteFromR2).mockClear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BYTES = 4096;
+  const job = { id: "job-1", event_id: "event-1" } as SpsPullJob;
+  const photo: SpsManifestImage = {
+    id: "sps-1",
+    originalFilename: "Ann Lee_26-09-30_1.jpg",
+    width: null,
+    height: null,
+    mimeType: "image/jpeg",
+    capturedAt: null,
+    boothId: null,
+    quality: "archive",
+    alreadyPulled: false,
+    url: "https://sps.example/1",
+  };
+  const jpeg = () =>
+    new Response(new Uint8Array(BYTES), { headers: { "content-type": "image/jpeg" } });
+
+  /** postgrest-js RETURNS this (never throws) when the connection fails. */
+  const NETWORK = {
+    data: null,
+    error: { message: "TypeError: fetch failed", details: "ConnectTimeoutError", hint: "", code: "" },
+    status: 0,
+  };
+  const OK = { data: null, error: null, status: 201 };
+  type Answer = { data: unknown; error: unknown; status: number };
+
+  /**
+   * A database whose answers are scripted per "table:op", in order; anything
+   * unscripted succeeds. Every call is recorded.
+   */
+  function scriptedDb(script: Record<string, Answer[]>) {
+    const calls: string[] = [];
+    const from = (table: string) => {
+      let op = "select";
+      const builder = {
+        insert: () => ((op = "insert"), builder),
+        update: () => ((op = "update"), builder),
+        delete: () => ((op = "delete"), builder),
+        select: () => builder,
+        eq: () => builder,
+        maybeSingle: () => builder,
+        then: (resolve: (v: unknown) => unknown) => {
+          const key = `${table}:${op}`;
+          calls.push(key);
+          const answer = script[key]?.shift() ?? OK;
+          return Promise.resolve(answer).then(resolve);
+        },
+      };
+      return builder;
+    };
+    return { db: { from } as unknown as Parameters<typeof importOneImage>[0], calls };
+  }
+  const place = () => ({ sectionId: "s", sortOrder: 0 });
+  const count = (calls: string[], key: string) => calls.filter((c) => c === key).length;
+
+  it("downloads again when SPS's connection drops, and imports the photo", async () => {
+    const source = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(jpeg());
+    vi.stubGlobal("fetch", source);
+    const { db } = scriptedDb({});
+
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toEqual({
+      status: "imported",
+      bytes: BYTES,
+    });
+    expect(source).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not download again on a 404, which is the data, not the network", async () => {
+    const source = vi.fn(async () => new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", source);
+    await expect(importOneImage(scriptedDb({}).db, job, { image: photo, place })).rejects.toThrow(
+      "source fetch 404"
+    );
+    expect(source).toHaveBeenCalledTimes(1);
+    expect(uploadToR2).not.toHaveBeenCalled();
+  });
+
+  it("completes the row when the completing write blips (the 31 stuck photos)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({ "images:update": [NETWORK, NETWORK] });
+
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(count(calls, "images:update")).toBe(3);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("an insert whose answer was lost but which landed carries on, keeping its bytes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      // Try 1 committed but the answer was lost; try 2 hits our own primary key.
+      "images:insert": [
+        NETWORK,
+        { data: null, error: { code: "23505", message: "duplicate key images_pkey" }, status: 409 },
+      ],
+      // The lookup by our own id finds it.
+      "images:select": [{ data: { id: "x" }, error: null, status: 200 }],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(deleteFromR2).not.toHaveBeenCalled();
+    expect(count(calls, "section_images:insert")).toBe(1);
+  });
+
+  it("a concurrent slice that won the race is still a skip, with the bytes taken back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "images:insert": [
+        { data: null, error: { code: "23505", message: "images_sps_image_per_event" }, status: 409 },
+      ],
+      "images:select": [{ data: null, error: null, status: 200 }],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toEqual({
+      status: "skipped",
+    });
+    expect(count(calls, "images:insert")).toBe(1); // a conflict is not retried
+    expect(deleteFromR2).toHaveBeenCalledTimes(1);
+  });
+
+  it("an insert that never landed after three tries fails, with the bytes taken back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "images:insert": [NETWORK, NETWORK, NETWORK],
+      "images:select": [{ data: null, error: null, status: 200 }],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toMatchObject({
+      message: "TypeError: fetch failed",
+    });
+    expect(count(calls, "images:insert")).toBe(3);
+    expect(deleteFromR2).toHaveBeenCalledTimes(1);
+  });
+
+  it("when it cannot tell whether the row landed, it keeps the bytes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db } = scriptedDb({
+      "images:insert": [NETWORK, NETWORK, NETWORK],
+      "images:select": [NETWORK, NETWORK, NETWORK],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toBeTruthy();
+    // A row with no object is a broken tile forever; an object with no row is a few MB.
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("a link whose first try landed is not undone", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db, calls } = scriptedDb({
+      "section_images:insert": [
+        NETWORK,
+        { data: null, error: { code: "23505", message: "section_images_pkey" }, status: 409 },
+      ],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(count(calls, "images:delete")).toBe(0);
+    expect(deleteFromR2).not.toHaveBeenCalled();
+  });
+
+  it("a link that fails keeps the bytes when the row cannot be deleted", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jpeg()));
+    const { db } = scriptedDb({
+      "section_images:insert": [{ data: null, error: { code: "23503", message: "fk" }, status: 409 }],
+      "images:delete": [NETWORK, NETWORK, NETWORK],
+    });
+
+    await expect(importOneImage(db, job, { image: photo, place })).rejects.toBeTruthy();
+    expect(deleteFromR2).not.toHaveBeenCalled();
   });
 });

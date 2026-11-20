@@ -25,7 +25,18 @@ import { createServiceClient } from "@/lib/supabase/server";
  * an alarm that costs a debugging session every time it fires.
  */
 export function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    // Node's fetch says only "fetch failed" and keeps the real reason (a
+    // connect timeout, a reset socket) on .cause. 33 SPS pull failures on
+    // 2026-11-20 were stored as the bare phrase, which names nothing.
+    const cause = error.cause as { name?: unknown; message?: unknown; code?: unknown } | undefined;
+    if (cause && typeof cause.message === "string" && cause.message) {
+      const label = typeof cause.name === "string" && cause.name !== "Error" ? `${cause.name}: ` : "";
+      const code = typeof cause.code === "string" ? ` ${cause.code}` : "";
+      return `${error.message} (${label}${cause.message}${code})`;
+    }
+    return error.message;
+  }
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
     const e = error as {

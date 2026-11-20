@@ -42,6 +42,7 @@ import {
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
 import { inngest } from "@/lib/inngest/client";
 import { describeError, reportSystemError } from "@/lib/monitoring/report";
+import { HttpStatusError, retryResult, retryThrown } from "@/lib/net/retry";
 import { spsEventLinkPatch } from "./event-link";
 import { attachSpsCoverLogo } from "./pull-logo";
 import { withNewGalleryDefaults } from "@/types/event-settings";
@@ -837,21 +838,26 @@ export async function importOneImage(
   const { image } = ctx;
 
   // ── 1. Fetch from SPS ──
-  const res = await fetch(image.url, {
-    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    cache: "no-store",
+  // Retried on the network and on SPS 5xx (lib/net/retry.ts), body included:
+  // a stream that dies part-way is the same blip as one that never connects.
+  // The signed URL is seconds old, so a retry a few seconds later still holds.
+  const { contentType, arrayBuffer } = await retryThrown(async () => {
+    const res = await fetch(image.url, {
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new HttpStatusError(res.status, `source fetch ${res.status}`);
+
+    const type = res.headers.get("content-type") ?? "";
+    // A presigned URL that has expired, or a bucket that answers with an XML
+    // error, is a 200 with the wrong type — trusting the status alone would
+    // store an error document as a photograph.
+    if (!type.startsWith("image/") && !type.startsWith("video/")) {
+      throw new Error(`source type ${type || "unknown"}`);
+    }
+    return { contentType: type, arrayBuffer: await res.arrayBuffer() };
   });
-  if (!res.ok) throw new Error(`source fetch ${res.status}`);
 
-  const contentType = res.headers.get("content-type") ?? "";
-  // A presigned URL that has expired, or a bucket that answers with an XML
-  // error, is a 200 with the wrong type — trusting the status alone would store
-  // an error document as a photograph.
-  if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
-    throw new Error(`source type ${contentType || "unknown"}`);
-  }
-
-  const arrayBuffer = await res.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   if (buffer.byteLength < 1024) throw new Error("source too small");
 
@@ -911,7 +917,11 @@ export async function importOneImage(
   const { sectionId, sortOrder } = placement;
 
   // ── 3. The row ──
-  const { error: insertErr } = await supabase.from("images").insert({
+  // Retried on the network. An insert is NOT idempotent, so a failed result is
+  // judged by looking our own row up by id, never by the error alone: a
+  // request that timed out on the way BACK may have committed, and then the
+  // retry answers 23505 on our own primary key.
+  const { error: insertErr } = await retryResult(() => supabase.from("images").insert({
     id,
     event_id: job.event_id,
     filename,
@@ -931,27 +941,45 @@ export async function importOneImage(
     // Provenance only (migration 076): display and indexing treat a render
     // like any photo, by Mason's call on 2026-09-02.
     sps_source_image_id: image.sourceImageId ?? null,
-  });
+  }));
 
   if (insertErr) {
-    await abandon();
-    // 23505 = unique violation on (event_id, sps_image_id): a concurrent slice
-    // won the race. Correct outcome, not a failure.
-    if ((insertErr as { code?: string }).code === "23505") {
-      return { status: "skipped" };
+    const landed = await ownRowExists(supabase, id);
+    if (landed === null) {
+      // Cannot tell whether the row exists. Keep the bytes: an R2 object with
+      // no row costs a few MB, a row with no object is a broken tile forever.
+      // The failure is logged, so the closing sweep looks again.
+      throw insertErr;
     }
-    throw insertErr;
+    if (!landed) {
+      await abandon();
+      // 23505 = unique violation on (event_id, sps_image_id): a concurrent
+      // slice won the race. Correct outcome, not a failure.
+      if ((insertErr as { code?: string }).code === "23505") {
+        return { status: "skipped" };
+      }
+      throw insertErr;
+    }
+    // Our own earlier attempt landed: carry on as if it had answered.
   }
 
   // ── 4. Section link — no orphans, ever ──
-  const { error: linkErr } = await supabase.from("section_images").insert({
-    section_id: sectionId,
-    image_id: id,
-    sort_order: sortOrder,
-  });
-  if (linkErr) {
-    await supabase.from("images").delete().eq("id", id);
-    await abandon();
+  // The link's key is (section_id, image_id), so a retry whose first attempt
+  // landed answers 23505 on exactly this row: that is success.
+  const { error: linkErr } = await retryResult(() =>
+    supabase.from("section_images").insert({
+      section_id: sectionId,
+      image_id: id,
+      sort_order: sortOrder,
+    })
+  );
+  if (linkErr && (linkErr as { code?: string }).code !== "23505") {
+    const { error: undoErr } = await retryResult(() =>
+      supabase.from("images").delete().eq("id", id)
+    );
+    // Only take the bytes back once the row is gone. A row that survives its
+    // delete must keep its object, or it becomes a tile with nothing behind it.
+    if (!undoErr) await abandon();
     throw linkErr;
   }
 
@@ -960,10 +988,9 @@ export async function importOneImage(
   // posters and duration come from the Modal ffmpeg pipeline. Same handoff
   // /api/upload/complete performs.
   if (mediaType === "video") {
-    const { error: updErr } = await supabase
-      .from("images")
-      .update({ processing_status: "complete" })
-      .eq("id", id);
+    const { error: updErr } = await retryResult(() =>
+      supabase.from("images").update({ processing_status: "complete" }).eq("id", id)
+    );
     if (updErr) throw updErr;
 
     inngest
@@ -976,9 +1003,69 @@ export async function importOneImage(
     return { status: "imported", bytes: buffer.byteLength };
   }
 
+  await finishImportedPhoto(supabase, {
+    id,
+    eventId: job.event_id,
+    filename,
+    buffer,
+    arrayBuffer,
+    spsImageId: image.id,
+    width: image.width ?? null,
+    height: image.height ?? null,
+    capturedAt: image.capturedAt ?? null,
+  });
+
+  return { status: "imported", bytes: buffer.byteLength };
+}
+
+/**
+ * Did OUR insert land? Asked after an insert came back with an error, because
+ * a request that lost its answer on the way back may still have committed.
+ * The id is a fresh UUID, so a row carrying it can only be ours.
+ *
+ * true / false when the database answered; null when it could not be asked,
+ * which the caller must treat as "maybe" (keep the bytes, log the failure).
+ */
+export async function ownRowExists(
+  supabase: SupabaseDB,
+  id: string
+): Promise<boolean | null> {
+  const { data, error } = await retryResult(() =>
+    supabase.from("images").select("id").eq("id", id).maybeSingle()
+  );
+  if (error) return null;
+  return data !== null;
+}
+
+/**
+ * Finish a still photo whose bytes are in R2 and whose row and section link
+ * exist: thumbnails, dimensions, capture time, camera metadata, and the write
+ * that flips it from "pending" to "complete".
+ *
+ * Its own function so the same finish can be re-run on a row that got stuck
+ * part-way (scripts/sps-pull-finish-pending.ts), rather than a second copy of
+ * these rules drifting from the first.
+ */
+export async function finishImportedPhoto(
+  supabase: SupabaseDB,
+  p: {
+    id: string;
+    eventId: string;
+    /** The stored name (`<uuid>.<ext>`), which the thumbnail keys follow. */
+    filename: string;
+    buffer: Buffer;
+    arrayBuffer: ArrayBuffer;
+    spsImageId: string;
+    /** What SPS reported; the thumbnailer's measurement wins when it has one. */
+    width: number | null;
+    height: number | null;
+    /** SPS's upload time, used only when the file carries no EXIF date. */
+    capturedAt: string | null;
+  }
+): Promise<void> {
   const update: Record<string, unknown> = { processing_status: "complete" };
-  update.width = image.width ?? null;
-  update.height = image.height ?? null;
+  update.width = p.width;
+  update.height = p.height;
 
   // Thumbnails from the buffer we already hold — the upload path's /complete
   // re-downloads the original from R2 to do this; we don't have to.
@@ -993,9 +1080,9 @@ export async function importOneImage(
   // self-heals on view and the reconciler backfills the rest.
   try {
     const thumbs = await generateThumbnailsFromBuffer(
-      buffer,
-      job.event_id,
-      filename
+      p.buffer,
+      p.eventId,
+      p.filename
     );
     update.thumbnail_generated = true;
     update.thumb_bytes = thumbs.thumbBytes;
@@ -1003,11 +1090,11 @@ export async function importOneImage(
     if (thumbs.height) update.height = thumbs.height;
     if (thumbs.dominantColor) update.dominant_color = thumbs.dominantColor;
   } catch (thumbErr) {
-    console.error(`SPS pull: thumbnail failed for ${filename}:`, thumbErr);
+    console.error(`SPS pull: thumbnail failed for ${p.filename}:`, thumbErr);
     await reportSystemError("sps.pull-thumbnail", thumbErr, {
-      imageId: id,
-      eventId: job.event_id,
-      spsImageId: image.id,
+      imageId: p.id,
+      eventId: p.eventId,
+      spsImageId: p.spsImageId,
     });
   }
 
@@ -1020,7 +1107,7 @@ export async function importOneImage(
    * double-precision column did exactly that to 69 photographs on 2026-08-13.
    * EXIF decorates a photo that has already arrived; it must never break it.
    */
-  const exif = await extractExif(arrayBuffer);
+  const exif = await extractExif(p.arrayBuffer);
   const exifUpdate: Record<string, unknown> = {};
   if (exif) {
     if (exif.takenAt) exifUpdate.taken_at = exif.takenAt;
@@ -1039,31 +1126,32 @@ export async function importOneImage(
   if (exifUpdate.taken_at) update.taken_at = exifUpdate.taken_at;
   // SPS's `capturedAt` is its row's created_at — upload time, not shutter time.
   // Only worth having when the file carries no EXIF date of its own.
-  if (!update.taken_at && image.capturedAt) update.taken_at = image.capturedAt;
+  if (!update.taken_at && p.capturedAt) update.taken_at = p.capturedAt;
 
-  const { error: updateErr } = await supabase
-    .from("images")
-    .update(update)
-    .eq("id", id);
+  // Retried: this is the write that moves the row out of "pending". When it
+  // failed on a connection blip (31 photos on 2026-11-20) the photo had its
+  // bytes and its row but stayed pending and thumbless until the nightly
+  // reconciler, which does not read EXIF, got to it.
+  const { error: updateErr } = await retryResult(() =>
+    supabase.from("images").update(update).eq("id", p.id)
+  );
   if (updateErr) throw updateErr;
 
   // Decorations, after the photo is safely complete. Reported, never thrown.
   delete exifUpdate.taken_at; // already applied above
   if (Object.keys(exifUpdate).length) {
-    const { error: exifErr } = await supabase
-      .from("images")
-      .update(exifUpdate)
-      .eq("id", id);
+    const { error: exifErr } = await retryResult(() =>
+      supabase.from("images").update(exifUpdate).eq("id", p.id)
+    );
     if (exifErr) {
       const { reportSystemError } = await import("@/lib/monitoring/report");
       await reportSystemError("sps-pull.exif", exifErr, {
-        imageId: id,
+        imageId: p.id,
         note: "photo is complete and visible; camera metadata not stored",
       });
     }
   }
 
-  return { status: "imported", bytes: buffer.byteLength };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
