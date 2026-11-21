@@ -101,7 +101,7 @@ and its cost. The alert ledger is `system_errors` rows with context
 
 | Finding | Reads | Warn / critical |
 |---|---|---|
-| `vector-memory` | HNSW index bytes ÷ `effective_cache_size` | 50% / 75% |
+| `vector-memory` | HNSW index bytes ÷ `effective_cache_size` | 60% / 75% |
 | `db-size` | database bytes ÷ recommended max for the compute size | 70% / 90% |
 | `timeouts` | `statement timeout` rows in `system_errors`, last 6 h | 10 / 50 |
 | `sweep-failing` | `inngest.ai-index-sweep` errors, last 2 h | 2 = critical |
@@ -117,6 +117,10 @@ and its cost. The alert ledger is `system_errors` rows with context
   call: the alert names the smallest size that clears the numbers and its price.
 - **Thresholds have one calibration point each** (the 2026-10-04 incident,
   replayed as a test in `capacity.test.ts`). Move them on evidence.
+  `vector-memory` has two: on 2026-11-21, at 50% on Medium, a ~21,000-photo
+  overnight burst (Docusign @ Ignite, HLTH, Stripe Headshots) cost 37 absorbed
+  face-insert timeouts and nothing else, so warn moved 50% → 60% (Mason chose
+  that over resizing to Large; resize when the pilot opens to outside hosts).
 - **`ai-index.slow-insert` rows are part of the timeout count.** When a face
   insert times out and the smaller chunk saves the batch, nothing fails, so the
   indexer writes a `system_errors` row (no email) to keep the signal visible.

@@ -84,16 +84,21 @@ describe("assessCapacity", () => {
   });
 
   it("warns before the vector indexes outgrow memory, and names the next size", () => {
-    const f = assess({ ...healthy, vector_index_bytes: 1700 * MB }, quietBacklog);
+    const f = assess({ ...healthy, vector_index_bytes: 1900 * MB }, quietBacklog);
     expect(keys(f)).toEqual(["vector-memory:warn"]);
     expect(f[0].action).toContain("Medium to Large");
     expect(f[0].action).toContain("$110");
   });
 
+  it("stays quiet at 2026-11-21's reading: 50% was slow under a burst, not broken", () => {
+    const f = assess({ ...healthy, vector_index_bytes: 1542 * MB }, quietBacklog);
+    expect(keys(f)).toEqual([]);
+  });
+
   it("recommends the size that clears the numbers, not just the next one", () => {
-    // 3 GB of vector indexes: Large (6 GB cache) would sit at exactly the warn
+    // 3.8 GB of vector indexes: Large (6 GB cache) would sit above its 60% warn
     // line, so the recommendation skips it.
-    const f = assess({ ...healthy, vector_index_bytes: 3072 * MB }, quietBacklog);
+    const f = assess({ ...healthy, vector_index_bytes: 3800 * MB }, quietBacklog);
     expect(keys(f)).toEqual(["vector-memory:critical"]);
     expect(f[0].action).toContain("Medium to XL");
   });

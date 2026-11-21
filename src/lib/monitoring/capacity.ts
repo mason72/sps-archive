@@ -54,14 +54,18 @@ export type ComputeSize = (typeof COMPUTE_SIZES)[number];
  * next person can move them on evidence:
  *
  *   vector memory: the collapse was measured at 90% (691 MB of indexes on 768
- *     MB of cache). Where it BEGAN was not measured, so warn sits well below.
+ *     MB of cache). Second point, 2026-11-21 on Medium: at 50% (1,542 MB on
+ *     3,072), three galleries indexed at once (~21,000 photos in 14 hours) slowed
+ *     face inserts into 37 timeouts, all absorbed by the shrinking chunk, nothing
+ *     lost, no guest query affected. So 50% is slow under a burst, not broken;
+ *     warn moved to 60% (Mason's call) so the email means "act soon".
  *   db size: Supabase's own recommended ceiling per compute size.
  *   timeouts: an ordinary 6 hours has 0 to 3; the incident ran at ~125.
  *   backlog: the lane clears a normal shoot in under an hour, so a week of
  *     work waiting means the lane has lost to its inflow.
  */
 export const THRESHOLDS = {
-  vectorMemoryWarn: 0.5,
+  vectorMemoryWarn: 0.6,
   vectorMemoryCritical: 0.75,
   dbSizeWarn: 0.7,
   dbSizeCritical: 0.9,
@@ -239,8 +243,15 @@ export function assessCapacity(
       findings.push({
         key: "timeouts",
         severity: capacity.timeouts_6h >= T.timeoutsCritical ? "critical" : "warn",
-        headline: `The database cancelled ${n(capacity.timeouts_6h)} queries for running too long in the last 6 hours`,
-        detail: `Where: ${contexts || "unknown"}. An ordinary 6 hours has 0 to 3.`,
+        // Not "cancelled N queries": ai-index.slow-insert rows count slowed
+        // BATCHES (some absorbed no timeout of their own), so N is a measure of
+        // slowness, and that context's work was saved.
+        headline: `The database was too slow ${n(capacity.timeouts_6h)} times in the last 6 hours`,
+        detail:
+          `Where: ${contexts || "unknown"}. An ordinary 6 hours has 0 to 3.` +
+          (capacity.timeout_contexts_6h["ai-index.slow-insert"]
+            ? " ai-index.slow-insert is face saving that hit a timeout and was retried in smaller pieces: slow, but nothing was lost."
+            : ""),
         action:
           "One context alone points at one slow query. Several at once means the whole database " +
           "is slow, which is a capacity problem: read the other findings in this message, then " +
