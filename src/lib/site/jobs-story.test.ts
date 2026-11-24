@@ -216,9 +216,12 @@ describe("guardPublishedStory", () => {
     expect(guardPublishedStory(anon, stored)).toEqual({ error: expect.stringContaining('"Rand"') });
   });
 
-  it("refuses an edit to a published story that still names the client", () => {
-    const stored: JobMeta = { ...anon, story: { ...named, body: "Old text." } };
-    expect("error" in guardPublishedStory(anon, stored)).toBe(true);
+  it("a live story edited in the same save that anonymizes still SAVES, as a draft", () => {
+    // third review: the anonymize save must never be the one that fails
+    const stored: JobMeta = { ...COMPLETE, anonymize: false, story: { ...named, body: "Old text naming Rand." } };
+    const r = guardPublishedStory(anon, stored);
+    if ("error" in r) throw new Error(r.error);
+    expect([r.meta.anonymize, r.meta.story?.status]).toEqual([true, "draft"]);
   });
 
   it("anonymizing a job with a live named story SAVES, with the story moved to draft", () => {
@@ -278,4 +281,29 @@ describe("keepOmittedCaseStudyFields (a stale browser tab must not erase a story
   it("passes garbage through for the validator to reject", () => {
     expect("error" in validateJobMeta(keepOmittedCaseStudyFields("nope", stored))).toBe(true);
   });
+});
+
+describe("name guard: short forms (third review)", () => {
+  const caught: Array<[string, string]> = [
+    ["A&E", "the A & E upfront"],
+    ["IBM", "I.B.M. brought us in"],
+    ["H&M", "the H & M store team"],
+    ["AT&T", "ATT's sales kickoff"],
+    ["Procter & Gamble", "P&G's leadership offsite"],
+    ["Johnson & Johnson", "the J&J floor"],
+    ["Ørsted", "Orsted's summit in Copenhagen"],
+  ];
+  for (const [client, text] of caught) {
+    it(`catches ${client} in "${text}"`, () => expect(clientNameMatch(client, text)).not.toBeNull());
+  }
+  const ordinary: Array<[string, string]> = [
+    ["Intel Technology", "it was a long day"],
+    ["Oracle NetSuite", "on the show floor"],
+    ["Amazon Music", "we am-bushed nobody"],
+    ["AT&T", "at the convention center"],
+    ["Insight Software", "this is the lounge"],
+  ];
+  for (const [client, text] of ordinary) {
+    it(`does not flag ordinary English for ${client}: "${text}"`, () => expect(clientNameMatch(client, text)).toBeNull());
+  }
 });

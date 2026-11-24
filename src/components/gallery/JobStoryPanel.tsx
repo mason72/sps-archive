@@ -381,6 +381,12 @@ export function JobStoryPanel({
             </span>
           </div>
 
+          {meta.anonymize && !clientWord && story.status === "draft" && (
+            <p className="text-[11px] leading-relaxed text-stone-400">
+              Anonymized job: the automatic check only knows the client&apos;s name. Read it for
+              nicknames, products or people that would identify them before you approve.
+            </p>
+          )}
           {clientWord && (
             <p className="text-[12px] leading-relaxed text-red-700">
               This story mentions the client (&ldquo;{clientWord}&rdquo;), and the job is

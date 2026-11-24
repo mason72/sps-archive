@@ -263,6 +263,14 @@ fields; the form footer says the same.
   publishing or editing such a story is refused with the matched word; a
   story that was ALREADY live is moved back to draft and the save goes
   through, because that save is usually the client asking to be anonymized.
+  **The match is a backstop, not a guarantee**: no rule built from a name
+  catches nicknames ("a16z", "Coke"), so Mason reading the story before
+  Approve is the real control, and the form says so on anonymized jobs.
+  Short forms (3 letters or fewer, and initials) match case-sensitively and
+  across separators ("I.B.M.", "P&G"), so "IT" does not match "it". Any
+  story that was already live is demoted, never refused, even if edited in
+  the same save. Three reviews on 2026-11-23 each found forms the previous
+  version missed; that history is why the stance is "backstop".
   On anonymized jobs `eventName` and `venue` that name the client are sent
   as null too. Job images never carry the upload filename (it often holds a
   client's or guest's name), and anonymized jobs' images carry no gallery

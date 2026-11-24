@@ -473,9 +473,6 @@ export function validateJobMeta(
   return { meta: { ...parseJobMeta(obj), proof: null } };
 }
 
-const sameStoryText = (a: JobStoryMeta, b: JobStoryMeta) =>
-  JSON.stringify([a.headline, a.dek, a.body, a.quote]) === JSON.stringify([b.headline, b.dek, b.body, b.quote]);
-
 /**
  * The save-time rule for a published story on an anonymized job that names
  * the client (serializeJob withholds such a story regardless):
@@ -493,7 +490,10 @@ export function guardPublishedStory(
 ): { meta: JobMeta; notice: string | null } | { error: string } {
   const match = storyClientMatch(meta);
   if (!match || meta.story?.status !== "published") return { meta, notice: null };
-  const wasLive = stored.story?.status === "published" && sameStoryText(stored.story, meta.story);
+  // Anything already live goes back to draft rather than being refused, even
+  // if its text was edited in the same save: the save that turns on
+  // anonymize must never be the one that fails (third review, 2026-11-23).
+  const wasLive = stored.story?.status === "published";
   if (!wasLive) {
     return {
       error: `This story mentions the client ("${match}"), and the job is anonymized. Take that out to publish it.`,
@@ -614,7 +614,12 @@ const GENERIC_NAME_WORDS = new Set([
   "services", "partners", "com", "net", "org", "io", "ai", "events", "media", "health",
 ]);
 
-const deaccent = (s: string) => s.normalize("NFD").replace(/\p{M}+/gu, "");
+/** Letters NFD does not split into base + accent ("Ørsted" = "Orsted"). */
+const FOLD: Record<string, string> = {
+  ø: "o", Ø: "O", ß: "ss", ł: "l", Ł: "L", đ: "d", Đ: "D", æ: "ae", Æ: "AE", œ: "oe", Œ: "OE", þ: "th", Þ: "Th",
+};
+const deaccent = (s: string) =>
+  s.replace(/[øØßłŁđĐæÆœŒþÞ]/g, (c) => FOLD[c]).normalize("NFD").replace(/\p{M}+/gu, "");
 const squeeze = (s: string) => deaccent(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 /** Legal forms and joiners: never part of initials ("Ernst & Young LLP" → "EY"). */
@@ -645,15 +650,30 @@ export function clientNameMatch(client: string | null, text: string | null): str
   const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const distinctive = words.filter((w) => w.length >= 2 && !GENERIC_NAME_WORDS.has(w.toLowerCase()));
   const plain = deaccent(text);
-  const wholeWord = (n: string) =>
-    new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(deaccent(n))}($|[^\\p{L}\\p{N}])`, "iu").test(plain);
+  const B = "[^\\p{L}\\p{N}]"; // a word boundary that understands accented letters
+
+  const matches = (needle: string) => {
+    const letters = deaccent(needle).replace(/[^\p{L}\p{N}]+/gu, "");
+    if (!letters) return false;
+    if (letters.length <= 3) {
+      // Short forms ("HP", "IBM", "A&E", initials) may be written with
+      // separators ("I.B.M.", "A & E", "P&G"), and as lowercase they are
+      // ordinary English ("it", "on", "at"), so they match case-sensitively
+      // unless the client itself writes them in lowercase.
+      const body = [...letters].map(escapeRegExp).join("[\\s.&'\u2019-]*");
+      const flags = /\p{Ll}/u.test(letters) ? "iu" : "u";
+      return new RegExp(`(^|${B})${body}($|${B})`, flags).test(plain);
+    }
+    return new RegExp(`(^|${B})${escapeRegExp(deaccent(needle))}($|${B})`, "iu").test(plain);
+  };
 
   const needles = [name, ...distinctive];
-  const initials = words.filter((w) => !LEGAL_WORDS.has(w.toLowerCase())).map((w) => w[0]).join("");
+  const initials = words
+    .filter((w) => !LEGAL_WORDS.has(w.toLowerCase()))
+    .map((w) => w[0].toUpperCase())
+    .join("");
   if (words.length >= 2 && initials.length >= 2) needles.push(initials);
-  // A name with no distinctive word ("A&E") still counts as itself, squeezed.
-  if (distinctive.length === 0 && squeeze(name).length >= 2) needles.push(squeeze(name));
-  const hit = needles.find(wholeWord);
+  const hit = needles.find(matches);
   if (hit) return hit;
 
   const squeezedText = squeeze(text);
