@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
+import { readAllRows } from "@/lib/supabase/paged";
 
 /**
  * The "highlight direction" — a vector in SigLIP space learned from the
@@ -72,6 +73,34 @@ interface TrainableSection {
  * photos is a count on the hot `images` table (5s each under migration load,
  * measured 2026-09-24), which is exactly what timed the learner out.
  */
+/**
+ * Past sets, newest WORK first: by the date the event happened, falling back
+ * to the creation date for an undated gallery.
+ *
+ * It used to be the creation date alone. On 2026-11-23 that meant the
+ * Pixieset migration's 1,028 galleries from 2014-2023, all created Oct 30-31
+ * 2026, filled the candidate window; almost all were dumps (every photo in
+ * "Highlights") and were rightly skipped, which left TWO real sets to learn
+ * from, one of them event coverage. The picker then filled Electronica
+ * 2026's headshot Highlights with candid, off-camera frames and no women,
+ * while 15 hand-picked 2026 sets sat outside the window.
+ */
+export function orderTrainingCandidates(
+  rows: { id: string; event_id: string; events: { event_date: string | null; created_at: string } | null }[]
+): { id: string; eventId: string }[] {
+  return rows
+    .map((r) => ({
+      id: r.id,
+      eventId: r.event_id,
+      // Undated: the creation date. Measured 2026-11-23: all 1,041 migrated
+      // sets carry an event date; only 6 native ones (samples, workspaces) are
+      // undated, and for those "made recently" is the honest guess.
+      at: r.events?.event_date ?? r.events?.created_at?.slice(0, 10) ?? "",
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id))
+    .map(({ id, eventId }) => ({ id, eventId }));
+}
+
 async function candidateSections(
   supabase: SupabaseClient,
   ownerUserId: string,
@@ -79,24 +108,28 @@ async function candidateSections(
   limit: number
 ): Promise<TrainableSection[]> {
   // Owner-scoped: sections carries no user_id, so the join is the filter.
-  const { data: secs, error } = await supabase
-    .from("sections")
-    .select("id, event_id, events!inner(user_id, created_at)")
-    .ilike("name", "%highlight%")
-    // Machine-filled sections (migration 086) are the generator's own output;
-    // learning from them would teach it to agree with itself.
-    .is("highlights_auto_count", null)
-    .eq("events.user_id", ownerUserId)
-    .neq("event_id", excludeEventId);
-  if (error) throw error;
+  // Paged: there are over 1,000 such sections since the Pixieset migration,
+  // and an unpaged read stops at 1,000 with no error.
+  const raw = await readAllRows(() =>
+    supabase
+      .from("sections")
+      .select("id, event_id, events!inner(user_id, created_at, event_date)")
+      .ilike("name", "%highlight%")
+      // Machine-filled sections (migration 086) are the generator's own output;
+      // learning from them would teach it to agree with itself.
+      .is("highlights_auto_count", null)
+      .eq("events.user_id", ownerUserId)
+      .neq("event_id", excludeEventId)
+  );
 
-  const ordered = (secs ?? [])
-    .map((r) => ({
-      id: r.id as string,
-      eventId: r.event_id as string,
-      at: (r.events as unknown as { created_at: string }).created_at,
-    }))
-    .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
+  // A many-to-one embed arrives as one object at runtime; the generated
+  // types call it an array, so the shape is asserted here (as before).
+  const secs = raw.map((r) => ({
+    id: r.id as string,
+    event_id: r.event_id as string,
+    events: r.events as unknown as { event_date: string | null; created_at: string } | null,
+  }));
+  const ordered = orderTrainingCandidates(secs);
 
   const out: TrainableSection[] = [];
   for (let i = 0; i < ordered.length && out.length < limit; i += 20) {
@@ -364,7 +397,7 @@ export async function trainHighlightDirection(
  * photo embedding model changes (a re-embed puts every photo in a new space),
  * so every stored direction is retrained instead of serving an old answer.
  */
-export const DIRECTION_TRAINER_VERSION = 1;
+export const DIRECTION_TRAINER_VERSION = 2;
 
 /**
  * Exactly what a fit depends on: the owner, the candidate sets in order, and
