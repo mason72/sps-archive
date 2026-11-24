@@ -9,6 +9,7 @@ import {
   JOB_KEY_PREFIX,
 } from "@/lib/site/jobs";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
+import { computeJobProof, JobProofError } from "@/lib/site/job-proof";
 
 /**
  * Helper: verify section ownership through event → user chain.
@@ -81,6 +82,21 @@ export async function PATCH(
       const result = validateJobMeta(body.jobMeta);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      // Proof is recounted from the linked galleries on every save. A count
+      // that fails fails the save: storing proof: null would quietly drop the
+      // numbers from the live case study.
+      try {
+        result.meta.proof = await computeJobProof(supabase, user!.id, result.meta.sources);
+      } catch (err) {
+        if (err instanceof JobProofError) {
+          return NextResponse.json({ error: err.message }, { status: err.status });
+        }
+        console.error("Job proof count failed:", err);
+        return NextResponse.json(
+          { error: "Couldn't count the source galleries. Nothing was saved; try again." },
+          { status: 502 }
+        );
       }
       updates.job_meta = result.meta;
     }

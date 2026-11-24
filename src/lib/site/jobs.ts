@@ -158,7 +158,59 @@ export interface JobMeta {
   year: number | null;
   /** Hair + makeup touchup artists on site — the job sheet's TOUCHUPS row. */
   touchups: boolean;
+  /** Leads the site's /work index as a magazine spread. */
+  special: boolean;
+  /** The written case study. Only a PUBLISHED story leaves the server. */
+  story: JobStoryMeta | null;
+  /** The client galleries this job delivered; proof is counted from them. */
+  sources: JobSource[];
+  /** Counted by the server from `sources` on every save. Never typed, and
+      never accepted from a request body (validateJobMeta drops it). */
+  proof: JobProofMeta | null;
 }
+
+/* ─── Case-study fields (2026-11-23, twodudesphoto.com/work) ─── */
+
+export const JOB_STORY_STATUSES = ["draft", "published"] as const;
+/** Who wrote it: a draft from Claude or Scout waits for Mason's approval. */
+export const JOB_STORY_SOURCES = ["mason", "claude", "scout"] as const;
+export type JobStoryStatus = (typeof JOB_STORY_STATUSES)[number];
+export type JobStorySource = (typeof JOB_STORY_SOURCES)[number];
+
+export const STORY_LIMITS = { headline: 120, dek: 300, body: 6000, quote: 600, by: 120, role: 120 } as const;
+
+export interface JobStoryMeta {
+  status: JobStoryStatus;
+  source: JobStorySource;
+  headline: string;
+  dek: string | null;
+  /** Plain text; a blank line separates paragraphs. */
+  body: string;
+  /** A real client quote only: never paraphrased into one. */
+  quote: { text: string; by: string; role: string | null } | null;
+}
+
+export interface JobSource {
+  eventId: string;
+  /** Count this gallery's people. Only honest for headshot-led galleries:
+      event coverage finds a fraction of the faces (Atlassian Expo 2026 =
+      7,747 photos, 111 people). */
+  people: boolean;
+}
+
+export interface JobProofMeta {
+  photos: number;
+  galleries: number;
+  /** Null when no source gallery is marked for people. */
+  people: number | null;
+  /** Photos per hour from each day's first frame (see job-proof.ts). */
+  days: number[][] | null;
+  countedAt: string;
+}
+
+export const MAX_JOB_SOURCES = 40;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const EMPTY_JOB_META: JobMeta = {
   client: null,
@@ -176,6 +228,10 @@ export const EMPTY_JOB_META: JobMeta = {
   industryOther: null,
   year: null,
   touchups: false,
+  special: false,
+  story: null,
+  sources: [],
+  proof: null,
 };
 
 function cleanText(value: unknown): string | null {
@@ -188,6 +244,71 @@ function asEnum<T extends string>(value: unknown, allowed: readonly T[]): T | nu
   return typeof value === "string" && (allowed as readonly string[]).includes(value)
     ? (value as T)
     : null;
+}
+
+/** Body text keeps its paragraphs: CRLF folded, 3+ newlines become one blank line. */
+function cleanBody(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const body = value.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return body.length > 0 ? body : null;
+}
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/** Lenient story reader: anything without a headline and body is "no story". */
+export function parseStory(raw: unknown): JobStoryMeta | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const headline = cleanText(r.headline);
+  const body = cleanBody(r.body);
+  if (!headline || !body) return null;
+  let quote: JobStoryMeta["quote"] = null;
+  if (r.quote && typeof r.quote === "object" && !Array.isArray(r.quote)) {
+    const q = r.quote as Record<string, unknown>;
+    const text = cleanText(q.text);
+    const by = cleanText(q.by);
+    if (text && by) quote = { text, by, role: cleanText(q.role) };
+  }
+  return {
+    // Unknown status reads as draft: an unreadable flag must never publish.
+    status: r.status === "published" ? "published" : "draft",
+    source: asEnum(r.source, JOB_STORY_SOURCES) ?? "mason",
+    headline,
+    dek: cleanText(r.dek),
+    body,
+    quote,
+  };
+}
+
+function parseSources(raw: unknown): JobSource[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: JobSource[] = [];
+  for (const s of raw) {
+    if (!s || typeof s !== "object") continue;
+    const r = s as Record<string, unknown>;
+    const id = typeof r.eventId === "string" ? r.eventId.toLowerCase() : "";
+    if (!UUID_RE.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ eventId: id, people: r.people === true });
+  }
+  return out.slice(0, MAX_JOB_SOURCES);
+}
+
+function parseProof(raw: unknown): JobProofMeta | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (!isCount(r.photos) || !isCount(r.galleries) || typeof r.countedAt !== "string") return null;
+  const days = Array.isArray(r.days)
+    ? r.days.filter((d): d is number[] => Array.isArray(d) && d.every(isCount))
+    : null;
+  return {
+    photos: r.photos,
+    galleries: r.galleries,
+    people: isCount(r.people) ? r.people : null,
+    days: days && days.length > 0 ? days : null,
+    countedAt: r.countedAt,
+  };
 }
 
 /**
@@ -222,7 +343,62 @@ export function parseJobMeta(raw: unknown): JobMeta {
     industryOther: industry === "other" ? cleanText(obj.industryOther) : null,
     year,
     touchups: obj.touchups === true,
+    special: obj.special === true,
+    story: parseStory(obj.story),
+    sources: parseSources(obj.sources),
+    proof: parseProof(obj.proof),
   };
+}
+
+function storyError(raw: unknown): string | null {
+  if (typeof raw !== "object" || Array.isArray(raw)) return "story must be an object or null";
+  const r = raw as Record<string, unknown>;
+  if (!(JOB_STORY_STATUSES as readonly string[]).includes(r.status as string)) {
+    return `Invalid story status: ${String(r.status)}`;
+  }
+  if (!(JOB_STORY_SOURCES as readonly string[]).includes(r.source as string)) {
+    return `Invalid story source: ${String(r.source)}`;
+  }
+  const strings: Array<[string, unknown, number, boolean]> = [
+    ["headline", r.headline, STORY_LIMITS.headline, true],
+    ["dek", r.dek, STORY_LIMITS.dek, false],
+    ["body", r.body, STORY_LIMITS.body, true],
+  ];
+  for (const [field, value, max, required] of strings) {
+    if (value != null && typeof value !== "string") return `story ${field} must be a string`;
+    const len = typeof value === "string" ? value.trim().length : 0;
+    if (required && len === 0) return `A story needs a ${field}`;
+    if (len > max) return `story ${field} is over ${max} characters`;
+  }
+  if (r.quote != null) {
+    if (typeof r.quote !== "object" || Array.isArray(r.quote)) return "story quote must be an object or null";
+    const q = r.quote as Record<string, unknown>;
+    for (const [field, max] of [["text", STORY_LIMITS.quote], ["by", STORY_LIMITS.by], ["role", STORY_LIMITS.role]] as const) {
+      if (q[field] != null && typeof q[field] !== "string") return `quote ${field} must be a string`;
+      if (typeof q[field] === "string" && (q[field] as string).trim().length > max) {
+        return `quote ${field} is over ${max} characters`;
+      }
+    }
+    // A quote is a real person's words: it needs both, or it is not a quote.
+    if (!cleanText(q.text) || !cleanText(q.by)) return "A quote needs its text and who said it";
+  }
+  return null;
+}
+
+function sourcesError(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return "sources must be an array";
+  if (raw.length > MAX_JOB_SOURCES) return `At most ${MAX_JOB_SOURCES} source galleries`;
+  const seen = new Set<string>();
+  for (const s of raw) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) return "Each source must be an object";
+    const r = s as Record<string, unknown>;
+    if (typeof r.eventId !== "string" || !UUID_RE.test(r.eventId)) return "Invalid source gallery id";
+    if (r.people != null && typeof r.people !== "boolean") return "source people must be a boolean";
+    const id = r.eventId.toLowerCase();
+    if (seen.has(id)) return "A gallery is listed twice";
+    seen.add(id);
+  }
+  return null;
 }
 
 /**
@@ -281,8 +457,20 @@ export function validateJobMeta(
       return { error: "year must be a 4-digit year" };
     }
   }
+  if (obj.special != null && typeof obj.special !== "boolean") {
+    return { error: "special must be a boolean" };
+  }
+  if (obj.story != null) {
+    const err = storyError(obj.story);
+    if (err) return { error: err };
+  }
+  if (obj.sources != null) {
+    const err = sourcesError(obj.sources);
+    if (err) return { error: err };
+  }
 
-  return { meta: parseJobMeta(obj) };
+  // proof is the server's to count (job-proof.ts): a request body never sets it.
+  return { meta: { ...parseJobMeta(obj), proof: null } };
 }
 
 /* ─── Completeness (draft vs live) ─── */
@@ -338,7 +526,49 @@ export function serializeJob(slug: string, meta: JobMeta) {
     year: meta.year,
     // Always a boolean in API output — unset/legacy stored docs read false.
     touchups: meta.touchups,
+    special: meta.special,
+    // Drafts never leave the server, and neither does a story that names an
+    // anonymized client (fail closed: the job page simply has no story).
+    story:
+      meta.story && meta.story.status === "published" && !storyNamesClient(meta)
+        ? {
+            headline: meta.story.headline,
+            dek: meta.story.dek,
+            body: meta.story.body,
+            quote: meta.story.quote,
+          }
+        : null,
+    // Counts only: source gallery ids and names stay on the server.
+    proof:
+      meta.proof && meta.proof.photos > 0 && meta.proof.galleries > 0
+        ? {
+            photos: meta.proof.photos,
+            galleries: meta.proof.galleries,
+            people: meta.proof.people,
+            days: meta.proof.days,
+          }
+        : null,
   };
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * True when an ANONYMIZED job's story mentions the client: the full name, or
+ * its first word as a whole word ("Rand Technology" → "Rand", which does not
+ * match "brand"). Over-matching only withholds a story; under-matching would
+ * publish a name the client asked us to keep off the site.
+ */
+export function storyNamesClient(meta: JobMeta): boolean {
+  if (!meta.anonymize || !meta.story || !meta.client) return false;
+  const story = meta.story;
+  const text = [story.headline, story.dek, story.body, story.quote?.text, story.quote?.by, story.quote?.role]
+    .filter(Boolean)
+    .join("\n");
+  const name = meta.client.trim();
+  const first = name.split(/\s+/)[0];
+  const needles = [name, ...(first.length >= 3 ? [first] : [])];
+  return needles.some((n) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(n)}($|[^\\p{L}\\p{N}])`, "iu").test(text));
 }
 
 /* ─── Slugs ─── */

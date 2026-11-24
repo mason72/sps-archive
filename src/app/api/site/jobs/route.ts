@@ -31,6 +31,9 @@ import {
  *  - jobs missing required metadata or without a published image are omitted
  *    (the site's Job type needs the required fields non-null)
  *  - only published images are served (site_published_at gate), same as scenes
+ *  - `story` is sent only when PUBLISHED (drafts stay here), and never when an
+ *    anonymized job's story names the client; `proof` is counts only, counted
+ *    from the job's source galleries on save (src/lib/site/job-proof.ts)
  *
  * Auth: shared secret header `X-SPS-Key: <SPS_INTEGRATION_KEY>` — and the
  * response must stay `private` for the same reason as the scene API (shared
@@ -95,20 +98,33 @@ export async function GET(request: NextRequest) {
       images: SiteAssetRow;
     };
 
-    let rows: MemberRow[] = [];
+    // Paged: PostgREST answers at most 1,000 rows with no error, and past that
+    // the newest jobs would silently lose their photos (and then vanish, as
+    // "no published images"). Total order on the primary key so pages neither
+    // skip nor repeat; complete only at a short page; any failed page fails
+    // the request rather than serving a partial site.
+    const rows: MemberRow[] = [];
     if (jobSections.length > 0) {
-      const { data, error } = await supabase
-        .from("section_images")
-        .select(`section_id, sort_order, images!inner(${SITE_ASSET_COLUMNS})`)
-        .in("section_id", jobSections.map((s) => s.id))
-        .eq("images.thumbnail_generated", true)
-        .not("images.site_published_at", "is", null);
+      const PAGE = 1000;
+      for (let page = 0; ; page++) {
+        const { data, error } = await supabase
+          .from("section_images")
+          .select(`section_id, image_id, sort_order, images!inner(${SITE_ASSET_COLUMNS})`)
+          .in("section_id", jobSections.map((s) => s.id))
+          .eq("images.thumbnail_generated", true)
+          .not("images.site_published_at", "is", null)
+          .order("section_id", { ascending: true })
+          .order("image_id", { ascending: true })
+          .range(page * PAGE, page * PAGE + PAGE - 1);
 
-      if (error) {
-        console.error("Site jobs images query error:", error);
-        return NextResponse.json({ error: "Failed to load jobs" }, { status: 500 });
+        if (error) {
+          console.error("Site jobs images query error:", error);
+          return NextResponse.json({ error: "Failed to load jobs" }, { status: 500 });
+        }
+        const got = (data ?? []) as unknown as MemberRow[];
+        rows.push(...got);
+        if (got.length < PAGE) break;
       }
-      rows = (data ?? []) as unknown as MemberRow[];
     }
 
     // Exact drag order within each job (cover = position 1); newest-first as
