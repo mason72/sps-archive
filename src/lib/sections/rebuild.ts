@@ -1,5 +1,6 @@
 import { isCuratedSectionName } from "./intake";
 import { isAiLooksMeta } from "./ai-looks";
+import { isScoutGigMeta } from "@/lib/scout-integration/validate";
 
 /**
  * What "Rebuild all sections" does to a section that already exists.
@@ -7,7 +8,7 @@ import { isAiLooksMeta } from "./ai-looks";
  * One rule, shared by the preview (GET section-plan) and the apply (POST
  * auto-sections), so the dialog can only ever promise what the sort then does.
  *
- * Rebuild REPLACES every section except five kinds (Mason, 2026-10-09):
+ * Rebuild REPLACES every section except six kinds (Mason, 2026-10-09):
  *   - Highlights: curated picks, never discarded by a sort (re-picking is the
  *     Review button's job).
  *   - a locked section: the lock is the photographer's "hands off".
@@ -18,6 +19,10 @@ import { isAiLooksMeta } from "./ai-looks";
  *     Looks button. Its members are links, so a rebuild would not lose a photo
  *     by deleting it, but it would silently undo a click and the name sorter
  *     never recreates it (ai-looks.ts).
+ *   - a Scout gig section (`job_meta.kind = "scout-gig"`, 2026-11-23): one
+ *     gig's crew postcards in the Scout Road gallery. Scout's postcard links
+ *     point at it, and the name sorter would scatter a gig's photos into
+ *     letter ranges (src/lib/scout-integration/).
  *
  * Before this, only sections the sorter itself had made (`is_auto`) were
  * replaced, and everything else counted as "your own". That was wrong for the
@@ -34,7 +39,7 @@ export interface RebuildCandidate {
   jobMeta?: unknown;
 }
 
-export type KeepReason = "highlights" | "locked" | "smart" | "site" | "ai-looks";
+export type KeepReason = "highlights" | "locked" | "smart" | "site" | "ai-looks" | "scout-gig";
 
 /** Why a section survives a rebuild, or null when it is replaced. */
 export function rebuildKeepReason(s: RebuildCandidate): KeepReason | null {
@@ -43,6 +48,7 @@ export function rebuildKeepReason(s: RebuildCandidate): KeepReason | null {
   if (s.filterQuery) return "smart";
   if (s.siteSceneKey) return "site";
   if (isAiLooksMeta(s.jobMeta)) return "ai-looks";
+  if (isScoutGigMeta(s.jobMeta)) return "scout-gig";
   return null;
 }
 
@@ -64,4 +70,5 @@ export const KEEP_REASON_LABEL: Record<KeepReason, string> = {
   // Renders gathered by the AI Looks button; the dialog prints this after the
   // section's own name ("AI Looks · AI renders"), so it stays short like the rest.
   "ai-looks": "AI renders",
+  "scout-gig": "Scout gig",
 };

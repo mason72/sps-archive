@@ -1420,6 +1420,42 @@ export type Database = {
           },
         ]
       }
+      scout_postcard_links: {
+        Row: {
+          author_email: string | null
+          created_at: string
+          event_id: string
+          gig_id: string
+          image_id: string
+          postcard_id: string
+          published_at: string | null
+          published_target: string | null
+          section_id: string | null
+        }
+        Insert: {
+          author_email?: string | null
+          created_at?: string
+          event_id: string
+          gig_id: string
+          image_id: string
+          postcard_id: string
+          published_at?: string | null
+          published_target?: string | null
+          section_id?: string | null
+        }
+        Update: {
+          author_email?: string | null
+          created_at?: string
+          event_id?: string
+          gig_id?: string
+          image_id?: string
+          postcard_id?: string
+          published_at?: string | null
+          published_target?: string | null
+          section_id?: string | null
+        }
+        Relationships: []
+      }
       section_images: {
         Row: {
           image_id: string
@@ -2330,6 +2366,14 @@ export type Database = {
         }
         Returns: {
           id: string
+          similarity: number
+        }[]
+      }
+      scout_image_crew_candidates: {
+        Args: { p_image_id: string; p_per_face?: number; p_user_id: string }
+        Returns: {
+          crew_id: string
+          face_id: string
           similarity: number
         }[]
       }

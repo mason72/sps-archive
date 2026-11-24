@@ -56,6 +56,12 @@ export const NON_PERSON_GALLERIES = new Set([
   "Two Dudes Sample Images",
   "Two Dudes Samples",
   "Staff Photos",
+  // Crew behind-the-scenes postcards from Scout (2026-11-23,
+  // src/lib/scout-integration). Same reason as Staff Photos (lesson 146): the
+  // people in them are crew and bystanders, never a client's guests, and crew
+  // are recognised through crew_faces, not /people. Keep in step with
+  // SCOUT_ROAD_NAME (a test checks).
+  "Scout Road (crew BTS)",
 ]);
 
 /**

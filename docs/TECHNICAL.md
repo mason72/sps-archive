@@ -499,6 +499,96 @@ the buyer had seen a line item, never the delivery.
   email bars to the capture window: a gallery re-sent a week later counts in
   `linksSent` but is not a day the booth was open.
 
+## 9b. Scout integration (built 2026-11-23, not yet deployed)
+
+Scout is the TDP crew app (its own Supabase project, `ezubznenjcogwocccznj`,
+repo `~/Projects/TDP/scout`). Its "Postcards" are crew behind-the-scenes photos
+filed under a gig. Pixeltrunk archives them, runs the normal AI lane on them,
+tells Scout which crew are in each one, publishes chosen shots to the website's
+BTS scenes, and tells Scout who worked which gig from the EXPOSURE calendar.
+Code: `src/lib/scout-integration/`, routes `src/app/api/integrations/scout/`,
+schema: migration `102_scout_integration.sql`.
+
+**Auth.** Header `X-Scout-Key`, compared in constant time (`timingSafeEqualStr`)
+with `SCOUT_INTEGRATION_KEY`. Unset on the server = 503 with a message; missing
+or wrong = 401. The proxy lists exactly `/api/integrations/scout/` as public
+(no session), so `requireScoutKey()` is the only gate and every handler calls it
+first. All database work uses the service client with a 30 s deadline per call.
+
+**Owner.** Every row belongs to the `user_id` of the `tdp-website` gallery
+(looked up per request, never hard-coded): the studio account that also owns the
+crew roster and `crew_faces`. No `tdp-website` gallery = 503.
+
+**Routes.**
+
+| Route | What it does |
+| --- | --- |
+| `POST /postcards` | Archive one postcard. Body `{postcard_id, gig_id, gig_title, gig_start?, taken_at?, author_email?, image_url, width?, height?}`. 201 `{image_id, status, created: true, ai_index_requested}`; a repeat answers 200 with the existing link. |
+| `GET /postcards/:id` | `{status, image_id, aesthetic_score, crew: [{email, display_name, confidence}], published_target, published_at}`. |
+| `DELETE /postcards/:id` | Unpublish, then delete (see below). |
+| `POST /postcards/:id/publish` `{target}` / `DELETE` | Put the photo in / take it off a website BTS scene. |
+| `GET /publish-targets` | `bts/headshot-booth`, `bts/photo-booth`, `bts/anti-booth` with labels. |
+| `GET /gig-crew?from&to` | Array of `{calendar_event_id, start, end, title, kind, city, venue, crew: [{email, display_name, source}]}`, window at most 120 days. |
+
+**Ingest (POST).** Idempotent on `postcard_id`, the primary key of
+`scout_postcard_links`. Order: link exists? return it. Otherwise ensure the
+private `scout-road` gallery ("Scout Road (crew BTS)", no share is ever made)
+and one section per `gig_id` (`job_meta = {kind: "scout-gig", scout_gig_id,
+scout_gig_start}`, a partial unique index stops a duplicate; a taken section
+NAME moves to "title · date", then "title · gig id"). Then fetch the image
+(`fetch-image.ts`: https only, Scout's storage host and `/storage/v1/object/`
+only, no redirects, 30 s deadline, 40 MB counted while streaming, JPEG magic
+bytes) and write in the order of `scripts/upload-folder-to-section.ts`: R2 bytes
+→ `images` row → CLAIM (insert the link; a 23505 means a concurrent POST won,
+so this one deletes its photo and returns the winner's) → `section_images` →
+`generateThumbnailsFromBuffer` → `processing_status = complete` → EXIF
+(Scout's zoned `taken_at` only when the file has no capture time). A failure
+before `complete` rolls back the row (cascading the claim) and the R2 objects,
+so a retry starts clean. Then the same Inngest events `/api/upload/complete`
+sends, `ai/index.requested` and `focal/auto.suggest`, AWAITED (a failed send is
+a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
+`maxDuration = 120`, as for `/api/upload/complete`.
+
+**Status.** `ready` = complete and `ai_indexed_at` set; `failed` = upload failed
+or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including
+while `AI_INDEXING_ENABLED` is off).
+
+**Crew in a photo (GET).** Only when `ready`. `scout_image_crew_candidates()`
+returns, per face, the top crews by their best reference face (cosine, the
+same scoring as `match_person_cluster_to_crew`, per face because one new photo
+has no cluster yet). `pickCrewMatches()` names a face only through
+`decideAutoConfirm` (0.70 and a 0.10 lead, the engine's own rule) and keeps one
+entry per person. Crew only: nothing reads `persons` or a guest name, and
+nothing is written. Scout shows these as tags a person can remove.
+
+**Publish.** Same mechanics as `/api/site/gallery`: membership of the
+`tdp-website` gallery's scene section IS publication (`getWebsiteSection` +
+`syncSitePublication`, which also schedules the `TDP_SITE_REVALIDATE_URL` ping).
+One scene at a time (a new target takes it off the old one). A lane copy that
+fails is a 502, never a quiet success; a locked section is 423; a photo not yet
+`complete` with thumbnails is 409.
+
+**Delete.** Refused (423) when the photo sits in a locked section. Otherwise off
+every website section first (and synced), then: if a person also filed it in
+another non-website section, only the Scout Road copy and the link go;
+otherwise the row is hard-deleted (cascades the link, faces, section links) and
+`deleteImageAssets` removes the original and the three thumbnails, with failed
+keys reported.
+
+**Gig crew.** `listEvents("exposure")` with a day of slack each side, then
+filtered on the day the calendar wrote; only `gig` and `setup` entries.
+Attendee emails pass through lower-cased (calendar/resource addresses dropped),
+named from the roster by primary email or alias. Title names resolve through
+`crewNameKey` on the whole name, then the first name, only when exactly one
+crew member answers; otherwise they come back with `email: null`. One entry per
+person; the attendee wins. A calendar that cannot be read is 502, never `[]`.
+
+**Kept out of the way of the rest of the app.** "Scout Road (crew BTS)" is in
+`NON_PERSON_GALLERIES` (like Staff Photos, lesson 146), and "Rebuild all
+sections" keeps `scout-gig` sections (`rebuildKeepReason`).
+
+---
+
 ## 10. Design System
 
 - **Fonts:** `font-brand` (Libre Baskerville — wordmark only), `font-editorial` (Playfair Display — headlines), `font-sans` (Inter — body).
@@ -540,6 +630,9 @@ MODAL_TOKEN_SECRET=
 # Inngest — leave unset to keep AI/processing dormant
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
+
+# Scout integration (section 9b). Unset = every /api/integrations/scout route answers 503.
+SCOUT_INTEGRATION_KEY=
 ```
 
 > Verify the exact Stripe/Resend variable names against `.env.example` and the code in `src/lib/stripe` and `src/lib/email` before relying on this list — the AI/Supabase/R2 vars are confirmed in code.

@@ -48,4 +48,12 @@ describe("rebuildKeepReason", () => {
       rebuildKeepReason(plain({ jobMeta: { client: "eBay" }, siteSceneKey: "job/ebay" }))
     ).toBe("site");
   });
+
+  it("keeps a Scout gig section (its postcard links point at it), and only a real marker counts", () => {
+    expect(
+      rebuildKeepReason(plain({ name: "Acme SKO", jobMeta: { kind: "scout-gig", scout_gig_id: "g-1" } }))
+    ).toBe("scout-gig");
+    expect(rebuildKeepReason(plain({ jobMeta: { kind: "scout-gig" } }))).toBeNull();
+    expect(rebuildKeepReason(plain({ jobMeta: { scout_gig_id: "g-1" } }))).toBeNull();
+  });
 });

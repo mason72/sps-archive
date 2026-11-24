@@ -24,7 +24,8 @@ const PERSISTENT_MAX_AGE = 60 * 60 * 24 * 400;
  *   /, /login, /signup, /forgot-password, /reset-password,
  *   /auth/callback, /gallery/*, /api/gallery/*, /recap/*, /api/recap/*, /api/inngest,
  *   /api/stripe/webhook, /api/site/*,
- *   /api/waitlist, /api/guest-list/* (token-authenticated), /dev/*
+ *   /api/waitlist, /api/guest-list/* (token-authenticated), /dev/*,
+ *   /api/integrations/scout/* (X-Scout-Key-authenticated)
  *   — note /api/sps/* is NOT public; see the isPublic block below.
  *
  * Protected app routes (redirect to /login if unauthenticated):
@@ -172,6 +173,12 @@ export async function proxy(request: NextRequest) {
     // person it exists for. The route itself rate-limits, verifies the hashed
     // token, and requires a live share.
     pathname.startsWith("/api/guest-list/") ||
+    // Scout (the TDP crew app) calls these server-to-server with no session.
+    // Every handler checks X-Scout-Key against SCOUT_INTEGRATION_KEY first
+    // (src/lib/scout-integration/auth.ts): 503 when the server has no key, 401
+    // on a missing or wrong one. Exactly this prefix, with its trailing slash,
+    // never "/api/integrations" as a whole.
+    pathname.startsWith("/api/integrations/scout/") ||
     // Design playgrounds and rendering probes. PUBLIC ONLY OFF PRODUCTION.
     //
     // This was an unconditional allowlist, so app.pixeltrunk.com/dev/* answered
