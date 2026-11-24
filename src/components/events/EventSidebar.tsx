@@ -174,17 +174,41 @@ const STORAGE_KEY = "pixeltrunk-sidebar-open";
  */
 function jobStatusFor(
   section: SectionItem
-): { live: boolean; title: string } | undefined {
+): { live: boolean; title: string; line: string } | undefined {
   if (!isJobSceneKey(section.siteSceneKey)) return undefined;
   const missing = jobMissingFields(parseJobMeta(section.jobMeta));
-  if (missing.length > 0) {
-    return { live: false, title: `Not live — missing ${missing.join(", ")}` };
+  // Shown on the row, not only on hover: a dot whose meaning lives in a
+  // tooltip says nothing on a phone (2026-11-24).
+  const needs = [...missing, ...(section.imageCount === 0 ? ["photos"] : [])];
+  if (needs.length > 0) {
+    const line = `Not live · needs ${needs.join(", ")}`;
+    return { live: false, title: line, line };
   }
-  if (section.imageCount === 0) {
-    return { live: false, title: "Not live — no photos yet" };
-  }
-  return { live: true, title: "Live on the site" };
+  return { live: true, title: "Live on the site", line: "Live on the site" };
 }
+
+/** A job the crew can fill: it names at least one client gallery to pick from. */
+function hasPickSources(section: SectionItem): boolean {
+  return (
+    isJobSceneKey(section.siteSceneKey) &&
+    parseJobMeta(section.jobMeta).sources.length > 0
+  );
+}
+
+/**
+ * Sidebar width, desktop only (the phone sheet is full-screen). Dragged from
+ * the right edge, remembered per browser, double-click resets. Long job names
+ * ("World Employer Branding Week 2024") were cut off at the old fixed 320.
+ */
+const WIDTH_KEY = "pixeltrunk-sidebar-width";
+const WIDTH_DEFAULT = 320;
+const WIDTH_MIN = 280;
+const WIDTH_MAX = 640;
+/** Never more than half the window, so the gallery keeps room on a small laptop. */
+const clampWidth = (w: number) => {
+  const max = typeof window === "undefined" ? WIDTH_MAX : Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, window.innerWidth / 2));
+  return Math.round(Math.min(max, Math.max(WIDTH_MIN, w)));
+};
 
 /**
  * EventSidebar — Collapsible left sidebar for event management.
@@ -236,6 +260,24 @@ export function EventSidebar({
     return stored !== "false";
   });
   const [activePanel, setActivePanel] = useState<Panel | null>("sections");
+  const [width, setWidth] = useState(() => {
+    if (typeof window === "undefined") return WIDTH_DEFAULT;
+    const stored = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(stored) && stored > 0 ? clampWidth(stored) : WIDTH_DEFAULT;
+  });
+  const saveWidth = useCallback((w: number) => {
+    const next = clampWidth(w);
+    setWidth(next);
+    localStorage.setItem(WIDTH_KEY, String(next));
+  }, []);
+  const dragFrom = useRef<{ x: number; w: number } | null>(null);
+  // A narrower window shrinks the sidebar (never saved: widening the window
+  // again does not grow it back past what the person chose).
+  useEffect(() => {
+    const onResize = () => setWidth((w) => clampWidth(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Persist open state + notify parent
   useEffect(() => {
@@ -303,7 +345,50 @@ export function EventSidebar({
   }
 
   return (
-    <div className="w-[320px] shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden h-dvh sticky top-0 max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-r-0">
+    <div
+      className="shrink-0 border-r border-stone-200 bg-white flex flex-col overflow-hidden h-dvh sticky top-0 max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-r-0"
+      style={isPhone ? undefined : { width }}
+    >
+      {/* Resize handle: drag the right edge; double-click resets; arrow keys
+          nudge. Desktop only. */}
+      {!isPhone && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={width}
+          aria-valuemin={WIDTH_MIN}
+          aria-valuemax={WIDTH_MAX}
+          tabIndex={0}
+          title="Drag to resize · double-click to reset"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            dragFrom.current = { x: e.clientX, w: width };
+          }}
+          onPointerMove={(e) => {
+            const from = dragFrom.current;
+            if (from) setWidth(clampWidth(from.w + e.clientX - from.x));
+          }}
+          onPointerUp={(e) => {
+            const from = dragFrom.current;
+            dragFrom.current = null;
+            if (from) saveWidth(from.w + e.clientX - from.x);
+          }}
+          onPointerCancel={() => {
+            dragFrom.current = null;
+            saveWidth(width);
+          }}
+          onDoubleClick={() => saveWidth(WIDTH_DEFAULT)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") saveWidth(width - 16);
+            if (e.key === "ArrowRight") saveWidth(width + 16);
+          }}
+          className="group/resize absolute inset-y-0 right-0 z-20 w-1.5 cursor-col-resize touch-none outline-none"
+        >
+          <span className="absolute inset-y-0 right-0 w-0.5 bg-transparent transition-colors group-hover/resize:bg-stone-400 group-focus-visible/resize:bg-stone-900 group-active/resize:bg-stone-900" />
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
         <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
@@ -496,8 +581,10 @@ function SectionsPanel({
   const [sectionQuery, setSectionQuery] = useState("");
   const [lockFilter, setLockFilter] = useState<"all" | "locked" | "unlocked">("all");
   const [emptyOnly, setEmptyOnly] = useState(false);
+  // TDP Work only: jobs that are not on the site yet (fields or photos missing).
+  const [notLiveOnly, setNotLiveOnly] = useState(false);
   const filtersActive =
-    sectionQuery.trim() !== "" || lockFilter !== "all" || emptyOnly;
+    sectionQuery.trim() !== "" || lockFilter !== "all" || emptyOnly || notLiveOnly;
   // Keep original indices: drag-reorder positions refer to the FULL list, so
   // reordering is disabled while a filter hides rows (indices would lie).
   const visibleSections = sections
@@ -508,8 +595,29 @@ function SectionsPanel({
       if (lockFilter === "locked" && !section.locked) return false;
       if (lockFilter === "unlocked" && section.locked) return false;
       if (emptyOnly && section.imageCount > 0) return false;
+      if (notLiveOnly && jobStatusFor(section)?.live !== false) return false;
       return true;
     });
+  // The crew's pick page for a job (src/app/fill). Mason texts this link.
+  const copyPickLink = useCallback(async (sectionId: string, name: string) => {
+    const url = `${window.location.origin}/fill/${sectionId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(`Pick link for ${name} copied. Send it to a photographer.`);
+    } catch {
+      // Clipboard refused (permissions, insecure context): show it to copy by hand.
+      window.prompt("Copy this pick link:", url);
+    }
+  }, []);
+
+  // Counts on the chips: a filter that says what it would show gets noticed
+  // (Mason did not know "Empty" existed, 2026-11-24).
+  const filterCounts = {
+    locked: sections.filter((s) => s.locked).length,
+    unlocked: sections.filter((s) => !s.locked).length,
+    empty: sections.filter((s) => s.imageCount === 0).length,
+    notLive: sections.filter((s) => jobStatusFor(s)?.live === false).length,
+  };
 
   // New uploads land in the selected section, or — when "All Images" is the
   // view — the "Unsorted" intake (never Highlights). Surfaced as a "Target"
@@ -711,7 +819,7 @@ function SectionsPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSectionQuery("");
                 }}
-                placeholder="Find a section…"
+                placeholder={isWorkGallery ? "Find a job…" : "Find a section…"}
                 className="w-full bg-transparent py-0.5 text-[12px] text-stone-900 outline-none placeholder:text-stone-300"
               />
               {sectionQuery && (
@@ -725,42 +833,67 @@ function SectionsPanel({
                 </button>
               )}
             </div>
-            <div className="mt-1.5 flex items-center gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {(
                 [
-                  ["locked", "Locked"],
-                  ["unlocked", "Unlocked"],
+                  isWorkGallery && {
+                    key: "notLive",
+                    label: "Not live",
+                    count: filterCounts.notLive,
+                    active: notLiveOnly,
+                    onClick: () => setNotLiveOnly((v) => !v),
+                  },
+                  {
+                    key: "empty",
+                    label: "No photos",
+                    count: filterCounts.empty,
+                    active: emptyOnly,
+                    onClick: () => setEmptyOnly((v) => !v),
+                  },
+                  {
+                    key: "locked",
+                    label: "Locked",
+                    count: filterCounts.locked,
+                    active: lockFilter === "locked",
+                    onClick: () => setLockFilter((cur) => (cur === "locked" ? "all" : "locked")),
+                  },
+                  {
+                    key: "unlocked",
+                    label: "Unlocked",
+                    count: filterCounts.unlocked,
+                    active: lockFilter === "unlocked",
+                    onClick: () => setLockFilter((cur) => (cur === "unlocked" ? "all" : "unlocked")),
+                  },
                 ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  onClick={() =>
-                    setLockFilter((cur) => (cur === value ? "all" : value))
-                  }
-                  className={cn(
-                    "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors",
-                    lockFilter === value
-                      ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 text-stone-400 hover:border-stone-300 hover:text-stone-600"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                onClick={() => setEmptyOnly((v) => !v)}
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors",
-                  emptyOnly
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-400 hover:border-stone-300 hover:text-stone-600"
-                )}
-              >
-                Empty
-              </button>
+              )
+                // A chip that could not change the list (0 rows, or every
+                // row) is noise; an active one always stays so it can be
+                // switched off.
+                .filter(
+                  (c): c is Exclude<typeof c, false> =>
+                    !!c && (c.active || (c.count > 0 && c.count < sections.length))
+                )
+                .map((c) => (
+                  <button
+                    key={c.key}
+                    onClick={c.onClick}
+                    aria-pressed={c.active}
+                    className={cn(
+                      "flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors pointer-coarse:py-1.5",
+                      c.active
+                        ? "border-stone-900 bg-stone-900 text-white"
+                        : "border-stone-300 text-stone-600 hover:border-stone-500 hover:text-stone-900"
+                    )}
+                  >
+                    {c.label}
+                    <span className="tabular-nums text-stone-400">
+                      {c.count}
+                    </span>
+                  </button>
+                ))}
               {filtersActive && (
-                <span className="ml-auto text-[10px] tabular-nums text-stone-300">
-                  {visibleSections.length}/{sections.length}
+                <span className="ml-auto text-[10px] tabular-nums text-stone-400">
+                  {visibleSections.length} of {sections.length}
                 </span>
               )}
             </div>
@@ -818,6 +951,11 @@ function SectionsPanel({
                 locked={section.locked ?? false}
                 onToggleLock={handleToggleLock}
                 jobStatus={jobStatusFor(section)}
+                onCopyPickLink={
+                  hasPickSources(section)
+                    ? () => copyPickLink(section.id, section.name)
+                    : undefined
+                }
                 sceneHint={
                   // Website scene sections: where on the site this is used.
                   // Jobs have their own status line; client sections none.

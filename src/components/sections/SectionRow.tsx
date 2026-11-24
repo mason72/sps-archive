@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { GripVertical, Pencil, Trash2, Check, X, Upload, Lock, LockOpen, AlertTriangle } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Check, X, Upload, Lock, LockOpen, AlertTriangle, Link2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface SectionRowProps {
@@ -41,7 +41,9 @@ interface SectionRowProps {
    * Job sections (TDP Work gallery): live = on the site; draft = held back
    * (missing metadata or photos — the title says which). Undefined = not a job.
    */
-  jobStatus?: { live: boolean; title: string };
+  jobStatus?: { live: boolean; title: string; line?: string };
+  /** TDP Work jobs with a source gallery: copies the crew's pick link. */
+  onCopyPickLink?: () => void;
   /**
    * Website scene sections (TDP Website gallery): one-line "where this is
    * used on the site" hint, shown under the name.
@@ -68,6 +70,7 @@ export function SectionRow({
   locked = false,
   onToggleLock,
   jobStatus,
+  onCopyPickLink,
   sceneHint,
 }: SectionRowProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -115,7 +118,7 @@ export function SectionRow({
 
   return (
     <div
-      className={`group flex items-center gap-3 px-4 py-3 border-b border-stone-100 transition-colors duration-200 ${
+      className={`group relative flex items-center gap-3 px-4 py-3 border-b border-stone-100 transition-colors duration-200 ${
         isDragging ? "bg-stone-50 opacity-60" : isDropTarget ? "bg-emerald-50 ring-1 ring-inset ring-emerald-300" : "hover:bg-stone-50/50"
       }`}
       draggable
@@ -212,7 +215,9 @@ export function SectionRow({
                 title={jobStatus.title}
               />
             )}
-            <span className="text-[13px] text-stone-900 font-medium truncate">
+            {/* On touch the row's actions sit inline and leave the name ~100px,
+                so it wraps to two lines there instead of cutting to "Atlassi…". */}
+            <span className="text-[13px] text-stone-900 font-medium truncate pointer-coarse:whitespace-normal pointer-coarse:line-clamp-2 pointer-coarse:break-words">
               {name}
             </span>
             {isUploadTarget && (
@@ -227,6 +232,16 @@ export function SectionRow({
             {/* AI_HIDDEN: Auto badge disabled — AI backend not configured */}
           </div>
         )}
+        {!isEditing && jobStatus?.line && (
+          <p
+            className={`mt-0.5 truncate pointer-coarse:whitespace-normal text-[11px] leading-snug ${
+              jobStatus.live ? "text-stone-400" : "text-stone-500"
+            }`}
+            title={jobStatus.title}
+          >
+            {jobStatus.line}
+          </p>
+        )}
         {!isEditing && sceneHint && (
           <p
             className="mt-0.5 truncate text-[11px] leading-snug text-stone-400"
@@ -237,48 +252,122 @@ export function SectionRow({
         )}
       </div>
 
-      {/* Image count badge — replaced by live engine numbers while this
-          section is an upload target (Justin's 350-in-chunks-of-50 report:
-          the DB count includes presign reservations; the engine's numbers
-          are the same ones the dropzone bar shows, on the same heartbeat). */}
-      {uploadProgress && uploadProgress.inFlight > 0 ? (
-        <span
-          className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums"
-          title={`${uploadProgress.completed} of ${uploadProgress.total} uploaded`}
-        >
-          <span className="text-stone-300">{uploadProgress.completed}</span>
-          <span className="text-stone-300">/</span>
-          <span className="text-stone-500">{uploadProgress.total}</span>
-          <UploadRing
-            fraction={
-              uploadProgress.total > 0
-                ? uploadProgress.completed / uploadProgress.total
-                : 0
-            }
-          />
-        </span>
-      ) : uploadProgress && uploadProgress.failed > 0 ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onShowUploadIssues?.();
-          }}
-          className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-amber-600 transition-colors hover:text-amber-700"
-          title={`${uploadProgress.failed} file${uploadProgress.failed === 1 ? "" : "s"} failed to upload — click to review`}
-        >
-          <AlertTriangle size={11} />
-          {uploadProgress.failed} failed
-        </button>
-      ) : (
-        <span
-          className={`text-[11px] tabular-nums shrink-0 ${
-            locked ? "text-stone-300" : "text-stone-400"
+      <div className="relative flex shrink-0 items-center gap-1">
+        {/* Image count badge — replaced by live engine numbers while this
+            section is an upload target (Justin's 350-in-chunks-of-50 report:
+            the DB count includes presign reservations; the engine's numbers
+            are the same ones the dropzone bar shows, on the same heartbeat). */}
+        {uploadProgress && uploadProgress.inFlight > 0 ? (
+          <span
+            className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums"
+            title={`${uploadProgress.completed} of ${uploadProgress.total} uploaded`}
+          >
+            <span className="text-stone-300">{uploadProgress.completed}</span>
+            <span className="text-stone-300">/</span>
+            <span className="text-stone-500">{uploadProgress.total}</span>
+            <UploadRing
+              fraction={
+                uploadProgress.total > 0
+                  ? uploadProgress.completed / uploadProgress.total
+                  : 0
+              }
+            />
+          </span>
+        ) : uploadProgress && uploadProgress.failed > 0 ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowUploadIssues?.();
+            }}
+            className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-amber-600 transition-colors hover:text-amber-700"
+            title={`${uploadProgress.failed} file${uploadProgress.failed === 1 ? "" : "s"} failed to upload — click to review`}
+          >
+            <AlertTriangle size={11} />
+            {uploadProgress.failed} failed
+          </button>
+        ) : (
+          <span
+            className={`text-[11px] tabular-nums shrink-0 ${
+              locked ? "text-stone-300" : "text-stone-400"
+            }`}
+          >
+            {imageCount}
+            <span className="pointer-coarse:hidden"> {imageCount === 1 ? "image" : "images"}</span>
+          </span>
+        )}
+
+        {/* With a mouse the actions FLOAT just left of the image count on
+            hover instead of holding their width while invisible: that reserved
+            space cut job names to eight letters at the default sidebar width
+            (2026-11-24). Floating over the row's end hid the lock, and over the
+            count it would hide "N failed", so they cover only the name's tail.
+            On touch they sit inline, always shown. */}
+        <div
+          className={`flex items-center gap-1 transition-opacity duration-200 absolute right-full mr-1.5 top-1/2 -translate-y-1/2 rounded-md bg-white px-0.5 shadow-sm ring-1 ring-stone-200 pointer-coarse:static pointer-coarse:mr-0 pointer-coarse:translate-y-0 pointer-coarse:bg-transparent pointer-coarse:px-0 pointer-coarse:shadow-none pointer-coarse:ring-0 ${
+            confirmDelete
+              ? "opacity-100"
+              : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
           }`}
         >
-          {imageCount} {imageCount === 1 ? "image" : "images"}
-        </span>
-      )}
-
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={handleDelete}
+                className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+                title="Permanently delete this section"
+              >
+                <Trash2 size={11} />
+                Delete?
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDelete(false);
+                }}
+                className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
+                title="Cancel"
+              >
+                <X size={13} />
+              </button>
+            </>
+          ) : (
+            <>
+              {onCopyPickLink && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyPickLink();
+                  }}
+                  className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
+                  title="Copy pick link for photographers"
+                  aria-label="Copy pick link for photographers"
+                >
+                  <Link2 size={13} />
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditing(true);
+                }}
+                className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
+                title="Rename"
+              >
+                <Pencil size={13} />
+              </button>
+              {canDelete && !locked && (
+                <button
+                  onClick={handleDelete}
+                  className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-red-500 transition-colors"
+                  title="Delete section"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
       {/* Lock toggle — always visible; dim when open, amber when locked */}
       {onToggleLock && (
         <button
@@ -308,58 +397,6 @@ export function SectionRow({
           icon-only confirm was invisible because its red matched the hover
           red. Hidden actions are also inert (no invisible tap targets), and
           on touch, where there is no hover, they are always shown at ≥36px. */}
-      <div
-        className={`flex items-center gap-1 transition-opacity duration-200 ${
-          confirmDelete
-            ? "opacity-100"
-            : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto"
-        }`}
-      >
-        {confirmDelete ? (
-          <>
-            <button
-              onClick={handleDelete}
-              className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
-              title="Permanently delete this section"
-            >
-              <Trash2 size={11} />
-              Delete?
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmDelete(false);
-              }}
-              className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
-              title="Cancel"
-            >
-              <X size={13} />
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsEditing(true);
-              }}
-              className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-stone-700 transition-colors"
-              title="Rename"
-            >
-              <Pencil size={13} />
-            </button>
-            {canDelete && !locked && (
-              <button
-                onClick={handleDelete}
-                className="p-1 pointer-coarse:p-3 text-stone-400 hover:text-red-500 transition-colors"
-                title="Delete section"
-              >
-                <Trash2 size={13} />
-              </button>
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 }
