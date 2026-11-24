@@ -244,7 +244,11 @@ export async function proposeHighlights(
   // poses); anything else, or an owner with no such reference, keeps the
   // direction learned from their past Highlights.
   const models = new Set(images.map((i) => i.embedding_model).filter((m): m is string => !!m));
-  const headshotGallery = isHeadshotGallery(images.map((i) => faceSummary.get(i.id)!.faces));
+  // Analysed photos only: one indexing gave up on reads as "no faces" and
+  // would drag a headshot gallery's share down (review, 2026-11-23).
+  const headshotGallery = isHeadshotGallery(
+    images.filter((i) => i.ai_indexed_at != null).map((i) => faceSummary.get(i.id)!.faces)
+  );
   const reference = headshotGallery ? await readHeadshotReference(supabase, ownerUserId, models) : null;
   const direction = reference ? null : await trainHighlightDirection(supabase, ownerUserId, eventId);
   const taste = reference ?? direction?.vector ?? null;

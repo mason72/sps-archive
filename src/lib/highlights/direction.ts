@@ -92,6 +92,9 @@ export function orderTrainingCandidates(
     .map((r) => ({
       id: r.id,
       eventId: r.event_id,
+      // Undated: the creation date. Measured 2026-11-23: all 1,041 migrated
+      // sets carry an event date; only 6 native ones (samples, workspaces) are
+      // undated, and for those "made recently" is the honest guess.
       at: r.events?.event_date ?? r.events?.created_at?.slice(0, 10) ?? "",
     }))
     .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id))

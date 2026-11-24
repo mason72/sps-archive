@@ -59,6 +59,8 @@ export function referenceVector(vectors: Float32Array[]): number[] | null {
 
 const cache = new Map<string, { at: number; value: number[] | null }>();
 const CACHE_MS = 60 * 60 * 1000;
+/** "No reference" is remembered briefly, so curating the scenes takes effect soon. */
+const NULL_CACHE_MS = 5 * 60 * 1000;
 
 /**
  * The centroid of the owner's website headshots, in the gallery's embedding
@@ -73,7 +75,7 @@ export async function readHeadshotReference(
 ): Promise<number[] | null> {
   const key = `${ownerUserId}:${[...models].sort().join(",")}`;
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+  if (hit && Date.now() - hit.at < (hit.value ? CACHE_MS : NULL_CACHE_MS)) return hit.value;
 
   const { data: site, error: siteErr } = await supabase
     .from("events")
@@ -111,8 +113,11 @@ export async function readHeadshotReference(
     for (let i = 0; i < ids.length; i += 100) {
       let q = supabase
         .from("images")
-        .select("id, siglip_embedding")
+        .select("id, siglip_embedding, events!images_event_id_fkey!inner(user_id)")
         .in("id", ids.slice(i, i + 100))
+        // Defense in depth: the ids came from the owner's own sections, and
+        // only the owner's photos may shape the owner's taste.
+        .eq("events.user_id", ownerUserId)
         .not("siglip_embedding", "is", null);
       // Same model as the gallery, or the centroid sits in another space.
       if (models.size) q = q.in("embedding_model", [...models]);
