@@ -5035,4 +5035,6 @@ vitest 2 to 4.1.12 pulled Vite 8, which compiles with oxc and **ignores the `esb
 
 **Fix (Mason chose it).** A gallery with >= 75% one-face photos (measured: headshot lounges 0.92-1.00, events 0.06-0.28) ranks by the centroid of the owner's curated website headshots (`headshot-reference.ts`); events keep the learned direction. Electronica 2026: median likeness to those headshots 0.760 -> 0.913, 0 glasses poses, 9 women of 20; an event gallery stayed "learned".
 
+**Use going forward (Mason, same day: "these are much better - please make sure to use this going forward").** For any hand-picked headshots (TDP Work job photos, site scenes, ads) start from `npx tsx scripts/site/headshot-sheet.ts <eventId> <count> <outDir>`: it runs the picker's headshot path read-only and writes a numbered contact sheet. Then the eye pass (cut chin-in-hand, hand-at-lapel, looking away, tiny-in-frame; balance the set) and show Mason the sheet before publishing.
+
 **Rules.** (a) Before rewriting a picker, re-run it: the complaint may be about stale output. (b) When a fix to the data a model learns from makes results worse, the objective is the bug: ask what the model is literally rewarded for. (c) Any "newest N" over a table the migration filled must order by when the work happened, not when the row was written (same trap as lesson 188 events ordering, `sort_date`).
