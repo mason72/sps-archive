@@ -98,6 +98,19 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact" })
       .eq("user_id", user!.id);
 
+    // Specific galleries by id (the job form shows the sources a job already
+    // links). Still scoped to the user above; malformed ids are a 400, not a
+    // silently shorter list.
+    const idsParam = searchParams.get("ids");
+    if (idsParam !== null) {
+      const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (ids.length === 0 || ids.length > 50 || !ids.every((id) => UUID.test(id))) {
+        return NextResponse.json({ error: "ids must be 1 to 50 gallery ids" }, { status: 400 });
+      }
+      query = query.in("id", ids);
+    }
+
     /**
      * Search and type filter run in the DATABASE, not on the loaded page.
      *

@@ -92,7 +92,10 @@ describe("computeJobProof", () => {
   });
 
   it("counts photos, galleries and only the marked galleries' people", async () => {
-    const images = frames(T0, 2, 20).map((t, i) => ({ id: `i${i}`, taken_at: new Date(t).toISOString() }));
+    const images: { id: string; taken_at: string | null }[] = frames(T0, 2, 20).map((t, i) => ({
+      id: `i${i}`,
+      taken_at: new Date(t).toISOString(),
+    }));
     images.push({ id: "no-clock", taken_at: null });
     const { db, calls } = fakeDb({
       events: { data: [{ id: A }, { id: B }], error: null },
