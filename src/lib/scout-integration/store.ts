@@ -392,7 +392,7 @@ export function pipelineTimeoutMs(startedAt: number, now: number, budgetMs = VID
  * (`mp4TrackKinds`): any `soun` track and nothing is filed. Because the stored
  * original is the silent file, everything downstream is silent by
  * construction: the editor, downloads, ZIPs, and the website (a silent clip of
- * 60 s or less publishes on the R2 video lane, where the played file IS this
+ * 61 s or less publishes on the R2 video lane, where the played file IS this
  * original; a longer one goes to Cloudflare Stream, which pulls the same
  * original). There is no staging copy to clean up: the only bytes with sound
  * are Scout's own, and the buffer this request held and dropped.

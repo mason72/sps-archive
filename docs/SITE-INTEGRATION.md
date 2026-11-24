@@ -362,8 +362,8 @@ publishing lanes chosen automatically at publish time:
 
 | Lane | Which videos | What's published | Playback |
 |---|---|---|---|
-| **R2 public lane** (`kind: "video"`) | ≤ 60s AND muted (loops) | poster `thumb-md`/`thumb-lg` + the web-playable mp4 | `videoUrl` = public mp4 |
-| **Cloudflare Stream** (`kind: "stream"`) | > 60s OR sound-on (showcase reels w/ voiceover) | posters via R2; the video is ingested into Stream on first publish (`stream_uid`) | `videoUrl` = HLS manifest, `iframeUrl` = hosted player |
+| **R2 public lane** (`kind: "video"`) | ≤ 60s AND muted (loops); ≤ 61s when `has_audio` is known false (Scout clips, 2026-11-24) | poster `thumb-md`/`thumb-lg` + the web-playable mp4 | `videoUrl` = public mp4 |
+| **Cloudflare Stream** (`kind: "stream"`) | > 60s (> 61s if known silent) OR sound-on (showcase reels w/ voiceover) | posters via R2; the video is ingested into Stream on first publish (`stream_uid`) | `videoUrl` = HLS manifest, `iframeUrl` = hosted player |
 
 **Upload → poster pipeline.** The uploader accepts MP4/MOV (H.264, AAC-or-
 silent audio) up to 500 MB. On upload-complete an Inngest job

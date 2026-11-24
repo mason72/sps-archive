@@ -17,6 +17,16 @@
 /** Videos at or under this length with no audio stay on the R2 public lane. */
 export const STREAM_MIN_DURATION_SECONDS = 60;
 
+/**
+ * A video KNOWN to be silent (`has_audio` false) may run this long and still
+ * stay on the R2 lane (2026-11-24). Scout's crew clips are contracted at 61 s
+ * or less and stored silent by construction, and frame rounding makes a "60 s"
+ * export read 60.02 s, which the 60 s line sent to Stream: a lane for long or
+ * sound-on reels that may not even be configured. An unknown `has_audio`
+ * (null) keeps the 60 s line.
+ */
+export const SILENT_R2_MAX_DURATION_SECONDS = 61;
+
 function accountId(): string | undefined {
   return process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT_ID;
 }
@@ -39,10 +49,10 @@ export function needsStream(video: {
   durationSeconds: number | null;
   hasAudio: boolean | null;
 }): boolean {
-  return (
-    (video.durationSeconds ?? 0) > STREAM_MIN_DURATION_SECONDS ||
-    video.hasAudio === true
-  );
+  if (video.hasAudio === true) return true;
+  const longest =
+    video.hasAudio === false ? SILENT_R2_MAX_DURATION_SECONDS : STREAM_MIN_DURATION_SECONDS;
+  return (video.durationSeconds ?? 0) > longest;
 }
 
 /** HLS manifest URL — what <video> players (hls.js / Safari) consume. */

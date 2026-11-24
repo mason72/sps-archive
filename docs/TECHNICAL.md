@@ -569,9 +569,10 @@ unreadable file rolls everything back, and so does a clip the pipeline could
 not measure. The row is `media_type video`, `has_audio false`, complete with posters,
 so the request answers `ready`; no AI event is sent (the AI lane reads images
 only) and GET reports no crew for a clip. Because the stored original is the
-silent file, every downstream copy is silent: a silent clip of 60 s or less
+silent file, every downstream copy is silent: a silent clip of 61 s or less
+(`SILENT_R2_MAX_DURATION_SECONDS`; the 60 s line is for clips not known silent)
 publishes on the R2 video lane, whose playable file is that original (the site
-gets `kind: "video"`, `posterUrl`, `videoUrl`); one over 60 s takes the
+gets `kind: "video"`, `posterUrl`, `videoUrl`); one over 61 s takes the
 Cloudflare Stream lane, which pulls the same original. POST `maxDuration` is
 300 s for the pipeline call (240 s deadline, cold start included).
 

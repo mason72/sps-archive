@@ -14,8 +14,19 @@ describe("needsStream", () => {
   });
 
   it("sends long videos to Stream", () => {
-    expect(needsStream({ durationSeconds: 61, hasAudio: false })).toBe(true);
+    expect(needsStream({ durationSeconds: 61.01, hasAudio: false })).toBe(true);
     expect(needsStream({ durationSeconds: 180, hasAudio: null })).toBe(true);
+  });
+
+  it("keeps a KNOWN-silent clip up to 61 s on the R2 lane (Scout's clip contract)", () => {
+    // A "60 s" export reads 60.02; the old 60 s line sent these to Stream.
+    expect(needsStream({ durationSeconds: 60.5, hasAudio: false })).toBe(false);
+    expect(needsStream({ durationSeconds: 61, hasAudio: false })).toBe(false);
+  });
+
+  it("keeps the 60 s line when silence is not known, and sound always goes to Stream", () => {
+    expect(needsStream({ durationSeconds: 60.5, hasAudio: null })).toBe(true);
+    expect(needsStream({ durationSeconds: 60.5, hasAudio: true })).toBe(true);
   });
 
   it("sends sound-on videos to Stream even when short", () => {

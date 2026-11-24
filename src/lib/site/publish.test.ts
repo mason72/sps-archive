@@ -53,6 +53,16 @@ describe("assetLane", () => {
     ).toBe("video");
   });
 
+  it("routes a silent 60.5 s Scout clip to the R2 video lane, not Stream", () => {
+    // Scout's clips are <= 61 s and stored silent; a "60 s" export reads 60.02.
+    expect(
+      assetLane({ mediaType: "video", durationSeconds: 60.5, hasAudio: false })
+    ).toBe("video");
+    expect(
+      assetLane({ mediaType: "video", durationSeconds: 60.5, hasAudio: null })
+    ).toBe("stream");
+  });
+
   it("routes long videos to Stream", () => {
     expect(
       assetLane({ mediaType: "video", durationSeconds: 180, hasAudio: false })
