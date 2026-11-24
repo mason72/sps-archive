@@ -563,30 +563,44 @@ Scout are sent at all. The path, in order:
    H.264) is a **415**, an overlong clip a **400**. Too little of the time
    budget left → **503**. None of these creates the gallery, a section, a row
    or an object, and Modal is not called.
-2. **Modal `mute_video`** (its own endpoint, `processMutedVideoViaModal`) is
-   handed Scout's signed URL, reads it once, and writes the silent copy to a
-   STAGING key, `scout-staging/<event>/<image>.mp4` (top-level, so one R2
-   lifecycle rule covers it), plus three posters. Never
-   to `originals/`. An old deployment has no such endpoint: 404 → **503**.
-   Modal's 303 for a long call is followed only to its own host, by GET;
-   any other redirect is an error.
-3. **The staged bytes are judged** by this server's own parser
-   (`assertStoredClipIsSilent`, `src/lib/video/mp4-tracks.ts`): any `soun`
-   handler, any audio sample entry in any track (mp4a, ac-3, ec-3, Opus,
-   alac, samr, lpcm, sowt, twos and more), more than one `moov`, any `moof`
-   or `mvex` (fragmented), a non-H.264 video entry, an unreadable length, or a
-   length over `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack) refuses it.
-4. Only then is it **copied server-side to `originals/`** and the staged
-   object deleted, and the row, claim, section link and `complete` are
-   written, with `duration_seconds` and `file_size` from those bytes.
-5. **On any failure after Modal was called**, a delayed cleanup is scheduled
-   FIRST (Inngest `scout-clip-cleanup`, event `scout/clip.cleanup`): it sleeps
-   past the upload URLs' life (`mutePutTtlSeconds` + 60 s), then deletes every
-   key the attempt could have written (derived from the two ids by
-   `clipKeys`, never handed in), unless a row uses the original. A Modal run
-   that outlives our timeout and PUTs late is cleaned up by it; so is a
-   request killed mid-rollback. Then the rollback runs (row, original,
-   posters, staged).
+2. **Gallery and gig section are ensured**, then the budget is checked AGAIN.
+   From here on, a refusal can leave the (empty, reused) gallery and gig
+   section behind, but never a row or a clip object.
+3. **The cleanup job is scheduled BEFORE Modal is told anything**, for every
+   attempt (Inngest `scout/clip.cleanup`, the send bounded to 5 s). If it
+   cannot be scheduled: **503**, Modal is not called. The job
+   (`scout-clip-cleanup`) sleeps past the upload URLs' life
+   (`mutePutTtlSeconds` + 60 s), then ALWAYS deletes the staged copy, and
+   deletes the original and posters only when no row uses the original. Keys
+   are derived from the two ids (`clipKeys`), never handed in. A run that
+   exhausts its retries is reported (`scout.clip-cleanup-failed`). This one
+   job removes a late PUT from Modal, the leftovers of a request killed
+   mid-rollback, and the staged leftover of a success.
+4. **Modal `mute_video`** (its own endpoint, `processMutedVideoViaModal`) gets
+   Scout's signed URL, reads it once, and writes the silent copy to a STAGING
+   key, `scout-staging/<event>/<image>.mp4` (top-level, so one R2 lifecycle
+   rule covers it), plus three posters. Never to `originals/`. An old
+   deployment has no such endpoint: 404 → **503** (no row, no clip object).
+   Modal's 303 for a long call is followed only to its own host, by GET, with
+   a short pause between polls; a 404 on that result URL means the result
+   expired (an ordinary failure, not "not deployed"). Any other redirect is an
+   error.
+5. **The staged bytes are judged** by this server's own parser
+   (`assertStoredClipIsSilent`, `src/lib/video/mp4-tracks.ts`) against an
+   ALLOW-LIST (`mp4SilentH264Problems`): exactly one `moov`, no `moof`/`mvex`,
+   exactly ONE track, of handler `vide`, with an `stsd` whose every sample
+   entry is `avc1`/`avc3`. A second track of any kind, an audio track
+   relabelled `vide`, any other entry (`mp4a`, `apac`, `enca`, ...), or a
+   parse error is refused, as is a length over
+   `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack). A read-back over the cap
+   is a 502.
+6. **Exactly the checked bytes are filed**: the server copies the staged
+   object to `originals/` with `CopySourceIfMatch` = the ETag of the read it
+   judged (a staged object replaced since is refused by R2), then HEADs the
+   original and requires the same ETag and size. Any mismatch rolls back. Then
+   the row, claim, section link and `complete` are written, with
+   `duration_seconds` and `file_size` from those bytes. On any failure the
+   request also rolls back at once (row, original, posters, staged copy).
 
 Because the stored original is the silent file, every downstream copy is
 silent, and because the cap equals the R2 video lane's limit for a known-silent
@@ -656,7 +670,8 @@ errors the same way (`scrub_urls`) and does not chain the original exception.
    re-syncs Inngest; confirm `scout-clip-cleanup` is listed in the Inngest
    dashboard, since a new function has failed to register before.
 6. Send one real Site-worthy clip from Scout and confirm: row `has_audio false`,
-   nothing left under `staging/` for it, and the website plays it silent.
+   nothing left under `scout-staging/` for it (after the cleanup job's
+   wait, about 6 minutes), and the website plays it silent.
 
 **Status.** `ready` = complete and `ai_indexed_at` set (a clip: complete with posters); `failed` = upload failed
 or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including

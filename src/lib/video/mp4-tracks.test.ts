@@ -5,7 +5,7 @@ import {
   isMp4Container,
   mp4DurationSeconds,
   mp4HasAudio,
-  mp4SilenceProblems,
+  mp4SilentH264Problems,
   mp4TrackKinds,
   mp4VideoCodecs,
   Mp4ParseError,
@@ -64,42 +64,67 @@ function hdlrAt(buf: Uint8Array): number[] {
   return out;
 }
 
-describe("mp4SilenceProblems (refuse anything that might carry sound)", () => {
+describe("mp4SilentH264Problems (allow-list: one track, video, every entry H.264)", () => {
   const fragmented = fixture("tone-muted-fragmented.mp4");
+  const twoVideo = fixture("tone-two-video-tracks.mp4");
 
   it("finds nothing in the muted copy", () => {
-    expect(mp4SilenceProblems(muted)).toEqual([]);
+    expect(mp4SilentH264Problems(muted)).toEqual([]);
   });
 
-  it("refuses a file with an audio track", () => {
-    expect(mp4SilenceProblems(withAudio)).toContain("audio track (soun)");
+  it("refuses the AAC clip (a second track, of handler soun, entry mp4a)", () => {
+    const p = mp4SilentH264Problems(withAudio);
+    expect(p).toContain("2 tracks (exactly one video track allowed)");
+    expect(p).toContain("a soun track");
   });
 
-  it("refuses an audio sample entry even when its track's handler says video", () => {
-    // Relabel the audio track's handler soun → vide: the handler check alone
-    // would now pass it, the sample entry (mp4a) still gives it away.
+  it("refuses an audio track relabelled vide", () => {
     const relabeled = new Uint8Array(withAudio);
     const b = Buffer.from(relabeled.buffer, relabeled.byteOffset, relabeled.byteLength);
     const soun = hdlrAt(relabeled).find((i) => b.toString("latin1", i + 12, i + 16) === "soun");
     expect(soun).toBeDefined();
     b.write("vide", soun! + 12, "latin1");
-    expect(mp4TrackKinds(relabeled)).not.toContain("soun");
-    expect(mp4SilenceProblems(relabeled).join()).toMatch(/audio sample entry \(mp4a\) in a vide track/);
+    expect(mp4TrackKinds(relabeled)).toEqual(["vide", "vide"]);
+    const p = mp4SilentH264Problems(relabeled).join("; ");
+    expect(p).toMatch(/2 tracks/);
+    expect(p).toMatch(/sample entry "mp4a" in a vide track/);
+  });
+
+  it("refuses a second VIDEO track", () => {
+    expect(mp4TrackKinds(twoVideo)).toEqual(["vide", "vide"]);
+    expect(mp4SilentH264Problems(twoVideo)).toEqual(["2 tracks (exactly one video track allowed)"]);
+  });
+
+  it("refuses an unknown sample entry, rather than looking for known audio names", () => {
+    for (const fourcc of ["apac", "enca", "hvc1"]) {
+      const b = Buffer.from(muted);
+      b.write(fourcc, b.indexOf("avc1", b.indexOf("stsd")), "latin1");
+      expect(mp4SilentH264Problems(b).join()).toContain(`sample entry "${fourcc}"`);
+    }
   });
 
   it("refuses a fragmented file, even a silent one", () => {
     expect(mp4TrackKinds(fragmented)).toEqual(["vide"]);
-    const problems = mp4SilenceProblems(fragmented);
+    const problems = mp4SilentH264Problems(fragmented);
     expect(problems).toContain("fragmented (moof)");
     expect(problems).toContain("fragmented (mvex)");
   });
 
   it("refuses a file with more than one moov", () => {
-    // Append a copy of the moov box to the end of the muted file.
     const b = Buffer.from(muted);
     const at = b.indexOf("moov") - 4;
     const size = b.readUInt32BE(at);
     const twice = Buffer.concat([b, b.subarray(at, at + size)]);
-    expect(mp4SilenceProblems(twice)).toContain("2 moov boxes");
+    expect(mp4SilentH264Problems(twice)).toContain("2 moov boxes");
+  });
+
+  it("refuses a video track with no sample description", () => {
+    const b = Buffer.from(muted);
+    b.write("xxxx", b.indexOf("stsd"), "latin1"); // the box is still there, just not an stsd
+    expect(mp4SilentH264Problems(b)).toContain("a vide track with no sample description");
+  });
+
+  it("fails closed on a file it cannot walk", () => {
+    expect(() => mp4SilentH264Problems(muted.subarray(0, 64))).toThrow(Mp4ParseError);
   });
 });

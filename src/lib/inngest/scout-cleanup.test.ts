@@ -19,17 +19,23 @@ vi.mock("@/lib/r2/client", async (importOriginal) => {
   return { ...real, deleteFromR2: vi.fn(async (k: string) => void deleted.push(k)) };
 });
 // Capture the handler instead of registering it with a real Inngest client.
-const captured = vi.hoisted(() => ({ handler: null as null | ((ctx: unknown) => Promise<unknown>) }));
+const captured = vi.hoisted(() => ({
+  handler: null as null | ((ctx: unknown) => Promise<unknown>),
+  cfg: null as null | { onFailure?: (ctx: unknown) => Promise<void> },
+}));
 vi.mock("./client", () => ({
   inngest: {
-    createFunction: (_cfg: unknown, _trigger: unknown, handler: (ctx: unknown) => Promise<unknown>) => {
+    createFunction: (cfg: { onFailure?: (ctx: unknown) => Promise<void> }, _trigger: unknown, handler: (ctx: unknown) => Promise<unknown>) => {
       captured.handler = handler;
+      captured.cfg = cfg;
       return { handler };
     },
   },
 }));
+vi.mock("@/lib/monitoring/report", () => ({ reportSystemError: vi.fn(async () => {}) }));
 
 import "./scout-cleanup";
+import { reportSystemError } from "@/lib/monitoring/report";
 import { clipKeys } from "@/lib/scout-integration/clip-keys";
 
 const EVENT = "11111111-1111-4111-8111-111111111111";
@@ -54,18 +60,31 @@ describe("scout-clip-cleanup", () => {
     expect(k.stagedKey).toBe(`scout-staging/${EVENT}/${IMAGE}.mp4`);
   });
 
-  it("touches nothing when a row uses the clip (a filed clip is never cleaned away)", async () => {
+  it("after a SUCCESS deletes only the staged copy: a filed clip is never cleaned away", async () => {
     db.rows = [{ id: IMAGE }];
     const out = await run({ eventId: EVENT, imageId: IMAGE, sleepSeconds: 360 });
-    expect(out).toMatchObject({ skipped: expect.any(String) });
+    expect(out).toMatchObject({ kept: expect.any(String) });
     expect(db.asked).toEqual([clipKeys(EVENT, IMAGE).r2Key]);
-    expect(deleted).toEqual([]);
+    expect(deleted).toEqual([clipKeys(EVENT, IMAGE).stagedKey]);
   });
 
-  it("deletes nothing when the database cannot answer (it retries instead)", async () => {
+  it("still deletes the staged copy when the database cannot answer, and keeps the rest", async () => {
     db.error = { message: "504" };
     await expect(run({ eventId: EVENT, imageId: IMAGE, sleepSeconds: 360 })).rejects.toBeTruthy();
-    expect(deleted).toEqual([]);
+    expect(deleted).toEqual([clipKeys(EVENT, IMAGE).stagedKey]);
+  });
+
+  it("reports a run that exhausted its retries (never silent)", async () => {
+    expect(captured.cfg?.onFailure).toBeTypeOf("function");
+    await captured.cfg!.onFailure!({
+      error: new Error("R2 delete failed"),
+      event: { data: { event: { data: { eventId: EVENT, imageId: IMAGE } } } },
+    });
+    expect(reportSystemError).toHaveBeenCalledWith(
+      "scout.clip-cleanup-failed",
+      expect.any(Error),
+      expect.objectContaining({ data: { eventId: EVENT, imageId: IMAGE } })
+    );
   });
 
   it("derives its keys: a non-uuid id can never point it at other objects", async () => {

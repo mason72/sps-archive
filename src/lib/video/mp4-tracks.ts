@@ -147,26 +147,19 @@ export function mp4VideoCodecs(buf: Uint8Array): string[] {
 }
 
 /**
- * Sample-entry types that carry SOUND, whatever the track's handler claims
- * (lower-cased; `.mp3` and `ulaw`/`alaw` included for QuickTime files).
+ * The ALLOW-LIST a stored Scout clip must meet, judged on structure alone.
+ * Empty = acceptable. Anything not explicitly allowed is refused, rather than
+ * hunting for known audio formats (a block-list misses the next codec name):
+ *   - exactly one `moov`, and no `moof` / `mvex` (not fragmented: tracks and
+ *     samples could otherwise arrive after the header read here);
+ *   - exactly ONE track, of handler `vide`;
+ *   - that track has an `stsd` with at least one sample entry, and EVERY entry
+ *     is H.264 (`avc1` / `avc3`).
+ * A second track of any kind, an audio track relabelled `vide` (its entry is
+ * `mp4a`), or an unknown entry (`apac`, `enca`, ...) is refused. Throws on a
+ * file it cannot walk; the caller treats a throw as a refusal (fail closed).
  */
-export const AUDIO_SAMPLE_ENTRIES: ReadonlySet<string> = new Set([
-  "mp4a", "ac-3", "ec-3", "ac-4", "opus", "alac", "samr", "sawb", "lpcm",
-  "sowt", "twos", "flac", ".mp3", "ulaw", "alaw", "ima4", "dtsc", "dtsh", "dtsl",
-]);
-
-/**
- * Every reason a file might still carry sound, judged on structure alone.
- * Empty = silent as far as the boxes can tell. Stricter than "no `soun`
- * handler": a player can play audio from places a handler check misses.
- *   - more than one `moov` (which one a player reads is not ours to guess);
- *   - any `moof`, or `mvex` in the movie (fragmented: tracks and samples can
- *     arrive after the header we read);
- *   - any track whose handler is `soun`;
- *   - any sample entry, in ANY track, that is an audio codec.
- * Throws on a file it cannot walk.
- */
-export function mp4SilenceProblems(buf: Uint8Array): string[] {
+export function mp4SilentH264Problems(buf: Uint8Array): string[] {
   const problems: string[] = [];
   let moovs = 0;
   for (const b of boxes(buf, 0, buf.length)) {
@@ -175,22 +168,32 @@ export function mp4SilenceProblems(buf: Uint8Array): string[] {
   }
   if (moovs === 0) throw new Mp4ParseError("no moov box: not a complete MP4");
   if (moovs > 1) problems.push(`${moovs} moov boxes`);
+
   const moov = findMoov(buf);
+  const traks: Box[] = [];
   for (const b of boxes(buf, moov.start, moov.end)) {
     if (b.type === "mvex") problems.push("fragmented (mvex)");
-    if (b.type !== "trak") continue;
-    const mdia = child(buf, b, "mdia");
+    if (b.type === "trak") traks.push(b);
+  }
+  if (traks.length !== 1) problems.push(`${traks.length} tracks (exactly one video track allowed)`);
+
+  for (const trak of traks) {
+    const mdia = child(buf, trak, "mdia");
     const hdlr = mdia ? child(buf, mdia, "hdlr") : null;
     if (!mdia || !hdlr || hdlr.start + 12 > hdlr.end) throw new Mp4ParseError("a track has no readable hdlr box");
     const handler = String.fromCharCode(...buf.subarray(hdlr.start + 8, hdlr.start + 12));
-    if (handler === "soun") problems.push("audio track (soun)");
-    const stbl = child(buf, mdia, "minf");
-    const stsd = stbl ? child(buf, stbl, "stbl") : null;
-    const desc = stsd ? child(buf, stsd, "stsd") : null;
-    if (!desc) continue;
-    for (const entry of boxes(buf, desc.start + 8, desc.end)) {
-      const t = entry.type.toLowerCase();
-      if (AUDIO_SAMPLE_ENTRIES.has(t)) problems.push(`audio sample entry (${entry.type}) in a ${handler} track`);
+    if (handler !== "vide") problems.push(`a ${handler} track`);
+    const minf = child(buf, mdia, "minf");
+    const stbl = minf ? child(buf, minf, "stbl") : null;
+    const stsd = stbl ? child(buf, stbl, "stsd") : null;
+    if (!stsd || stsd.start + 8 > stsd.end) {
+      problems.push(`a ${handler} track with no sample description`);
+      continue;
+    }
+    const entries = [...boxes(buf, stsd.start + 8, stsd.end)].map((e) => e.type);
+    if (!entries.length) problems.push(`a ${handler} track with no sample entry`);
+    for (const t of entries) {
+      if (!H264_SAMPLE_ENTRIES.has(t)) problems.push(`sample entry ${JSON.stringify(t)} in a ${handler} track`);
     }
   }
   return [...new Set(problems)];

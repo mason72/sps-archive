@@ -24,8 +24,8 @@ const okBody = (over: Record<string, unknown> = {}) =>
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
 
 let fetchMock: ReturnType<typeof vi.fn>;
-const call = (over: { timeoutMs?: number } = {}) =>
-  processMutedVideoViaModal(SRC, KEYS, undefined, { fetchImpl: fetchMock as unknown as typeof fetch, ...over });
+const call = (over: { timeoutMs?: number; pollDelayMs?: number } = {}) =>
+  processMutedVideoViaModal(SRC, KEYS, undefined, { fetchImpl: fetchMock as unknown as typeof fetch, pollDelayMs: 0, ...over });
 
 beforeEach(() => {
   process.env.VIDEO_MUTE_URL = MUTE_URL;
@@ -57,7 +57,7 @@ describe("processMutedVideoViaModal", () => {
     expect(mutePutTtlSeconds(240_000)).toBe(300);
   });
 
-  it("refuses to stage anywhere but staging/", async () => {
+  it("refuses to stage anywhere but scout-staging/", async () => {
     await expect(
       processMutedVideoViaModal(SRC, { stagedKey: "events/e1/originals/abc.mp4", posterKey: KEYS.posterKey })
     ).rejects.toThrow(/scout-staging/);
@@ -84,6 +84,23 @@ describe("processMutedVideoViaModal", () => {
       expect(init.method).toBe("GET");
       expect(init.redirect).toBe("manual");
     }
+  });
+
+  it("pauses between repeated polls", async () => {
+    const redirect = () => new Response(null, { status: 303, headers: { location: `${MUTE_URL}/?__modal_function_call_id=fc-1` } });
+    fetchMock.mockResolvedValueOnce(redirect()).mockResolvedValueOnce(redirect()).mockResolvedValueOnce(redirect()).mockResolvedValueOnce(json(okBody()));
+    const t0 = Date.now();
+    await call({ pollDelayMs: 60 });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(110); // two pauses: between poll 1-2 and 2-3
+  });
+
+  it("treats a 404 on the RESULT URL as an expired result, not a missing endpoint", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: `${MUTE_URL}/?__modal_function_call_id=fc-1` } }))
+      .mockResolvedValueOnce(new Response("gone", { status: 404 }));
+    const err = await call().then(() => null, (e) => e as Error);
+    expect(err).not.toBeInstanceOf(VideoMuteUnavailableError);
+    expect(err?.message).toMatch(/expired/);
   });
 
   it("refuses a redirect to another host, and any other redirect", async () => {

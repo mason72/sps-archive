@@ -124,13 +124,22 @@ export async function fetchPostcardVideo(
  */
 export async function fetchCapped(
   url: URL,
+  opts: { fetchImpl?: typeof fetch; maxBytes: number; timeoutMs?: number },
+  label: string
+): Promise<Buffer> {
+  return (await fetchCappedWithEtag(url, opts, label)).buf;
+}
+
+/** `fetchCapped`, plus the ETag the server sent with exactly these bytes. */
+export async function fetchCappedWithEtag(
+  url: URL,
   {
     fetchImpl = fetch,
     maxBytes,
     timeoutMs = POSTCARD_FETCH_TIMEOUT_MS,
   }: { fetchImpl?: typeof fetch; maxBytes: number; timeoutMs?: number },
   label: string
-): Promise<Buffer> {
+): Promise<{ buf: Buffer; etag: string | null }> {
   // An undefined cap (e.g. `{ maxBytes: undefined }` spread over a default)
   // would compare false forever and read without limit; refuse instead.
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) throw new Error(`fetchCapped: no byte cap for ${label}`);
@@ -173,7 +182,7 @@ export async function fetchCapped(
 
   const buf = Buffer.concat(parts);
   if (buf.byteLength === 0) throw new PostcardFetchError(`${label} returned an empty file.`, 502);
-  return buf;
+  return { buf, etag: res.headers.get("etag") };
 }
 
 function errorText(err: unknown): string {

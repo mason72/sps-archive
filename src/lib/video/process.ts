@@ -159,7 +159,8 @@ export async function processMutedVideoViaModal(
   {
     timeoutMs = 240_000,
     fetchImpl = fetch,
-  }: { timeoutMs?: number; fetchImpl?: typeof fetch } = {}
+    pollDelayMs = 1_000,
+  }: { timeoutMs?: number; fetchImpl?: typeof fetch; pollDelayMs?: number } = {}
 ): Promise<MutedVideoResult> {
   const endpoint = process.env.VIDEO_MUTE_URL;
   if (!endpoint) {
@@ -197,17 +198,26 @@ export async function processMutedVideoViaModal(
     signal: AbortSignal.timeout(remaining()),
   });
   // A long call: Modal hands back a result URL on its own host to poll.
+  let polled = false;
   while (res.status === 303) {
     const location = res.headers.get("location");
     const next = location ? new URL(location, endpoint) : null;
     if (!next || next.origin !== origin) {
       throw new Error("Video pipeline redirected off its own host; not followed");
     }
+    // A short pause between polls; never past the deadline.
+    if (polled) await new Promise((r) => setTimeout(r, Math.min(pollDelayMs, Math.max(0, remaining() - 1))));
+    polled = true;
     res = await fetchImpl(next.toString(), {
       method: "GET",
       redirect: "manual",
       signal: AbortSignal.timeout(remaining()),
     });
+  }
+  // A 404 on the RESULT URL means the result expired or was never stored, not
+  // that the endpoint is missing: an ordinary failure, not "not deployed".
+  if (res.status === 404 && polled) {
+    throw new Error("Video pipeline result expired before it was collected (404 on the result URL)");
   }
   if (res.status === 404) {
     throw new VideoMuteUnavailableError(

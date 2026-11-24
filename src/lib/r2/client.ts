@@ -418,7 +418,8 @@ export async function copyWithinR2(
   sourceKey: string,
   destKey: string,
   contentType: string,
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  { ifMatch }: { ifMatch?: string } = {}
 ): Promise<void> {
   await R2.send(
     new CopyObjectCommand({
@@ -427,9 +428,28 @@ export async function copyWithinR2(
       CopySource: encodeURI(`${BUCKET}/${sourceKey}`),
       MetadataDirective: "REPLACE",
       ContentType: contentType,
+      // Copy only the exact object version the caller checked; R2 answers 412
+      // when the source has changed since.
+      ...(ifMatch ? { CopySourceIfMatch: ifMatch } : {}),
     }),
     { abortSignal: AbortSignal.timeout(timeoutMs) }
   );
+}
+
+/** ETag (quotes stripped) and size of an object, bounded by `timeoutMs`. */
+export async function headR2Object(
+  key: string,
+  timeoutMs = 15_000
+): Promise<{ etag: string; size: number }> {
+  const head = await R2.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }), {
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
+  return { etag: normalizeEtag(head.ETag), size: Number(head.ContentLength ?? -1) };
+}
+
+/** An ETag without its surrounding quotes (headers and SDKs disagree on them). */
+export function normalizeEtag(etag: string | null | undefined): string {
+  return String(etag ?? "").replace(/^W\//, "").replace(/^"+|"+$/g, "");
 }
 
 /** Delete a file from R2 */

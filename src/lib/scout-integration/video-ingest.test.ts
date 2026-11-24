@@ -7,7 +7,17 @@ const r2 = vi.hoisted(() => ({
   objects: new Map<string, Buffer>(),
   deleted: [] as string[],
   copies: [] as [string, string][],
+  /** Replace the staged object right after it is read (a swap between check and copy). */
+  swapAfterRead: null as Buffer | null,
+  /** Make the copy land different bytes than its source (a bad copy). */
+  corruptCopy: false,
 }));
+/** A content fingerprint standing in for R2's ETag (FNV-1a over the bytes). */
+const md5 = vi.hoisted(() => (b: Buffer) => {
+  let h = 0x811c9dc5;
+  for (const x of b) h = Math.imul(h ^ x, 0x01000193) >>> 0;
+  return `${h.toString(16)}-${b.byteLength}`;
+});
 vi.mock("@/lib/r2/client", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/r2/client")>();
   return {
@@ -16,11 +26,19 @@ vi.mock("@/lib/r2/client", async (importOriginal) => {
       r2.objects.set(key, Buffer.from(body));
       return { key, url: key };
     }),
-    copyWithinR2: vi.fn(async (src: string, dest: string) => {
+    copyWithinR2: vi.fn(async (src: string, dest: string, _ct: string, _t: number, opts?: { ifMatch?: string }) => {
       const b = r2.objects.get(src);
       if (!b) throw new Error(`no object ${src}`);
+      if (opts?.ifMatch && opts.ifMatch !== md5(b)) {
+        throw Object.assign(new Error("PreconditionFailed"), { name: "PreconditionFailed" });
+      }
       r2.copies.push([src, dest]);
-      r2.objects.set(dest, b);
+      r2.objects.set(dest, r2.corruptCopy ? Buffer.concat([b, Buffer.from("x")]) : b);
+    }),
+    headR2Object: vi.fn(async (key: string) => {
+      const b = r2.objects.get(key);
+      if (!b) throw new Error(`no object ${key}`);
+      return { etag: md5(b), size: b.byteLength };
     }),
     deleteFromR2: vi.fn(async (key: string) => {
       r2.deleted.push(key);
@@ -50,12 +68,14 @@ vi.mock("./fetch-image", async (importOriginal) => {
     ...real,
     fetchPostcardVideo: vi.fn(),
     fetchPostcardImage: vi.fn(),
-    // The read-back of what the pipeline stored: served from the fake bucket.
-    fetchCapped: vi.fn(async (url: URL) => {
+    // The read-back of what the pipeline stored: served from the fake bucket,
+    // with the object's ETag as R2 sends it (quoted).
+    fetchCappedWithEtag: vi.fn(async (url: URL) => {
       const key = url.pathname.slice(1);
       const b = r2.objects.get(key);
       if (!b) throw new Error(`no object ${key}`);
-      return b;
+      if (r2.swapAfterRead) r2.objects.set(key, r2.swapAfterRead);
+      return { buf: b, etag: `"${md5(b)}"` };
     }),
   };
 });
@@ -79,6 +99,7 @@ import { FakeDb } from "./fake-db";
 import {
   AFTER_PIPELINE_RESERVE_MS,
   MIN_REMAINING_FOR_PIPELINE_MS,
+  CLEANUP_SEND_TIMEOUT_MS,
   ROLLBACK_RESERVE_MS,
   VIDEO_REQUEST_BUDGET_MS,
   ingestPostcard,
@@ -152,6 +173,8 @@ beforeEach(() => {
   r2.objects.clear();
   r2.deleted.length = 0;
   r2.copies.length = 0;
+  r2.swapAfterRead = null;
+  r2.corruptCopy = false;
   freshDb();
   vi.mocked(fetchPostcardVideo).mockResolvedValue(WITH_AUDIO);
   vi.mocked(isVideoMuteConfigured).mockReturnValue(true);
@@ -184,14 +207,21 @@ describe("a Scout clip", () => {
     expect(src).toEqual({ url: input().videoUrl });
     expect(keys.stagedKey).toMatch(/^scout-staging\/[^/]+\/[^/]+\.mp4$/);
     expect(keys.posterKey).toBe(row.r2_key);
-    // Copied into originals only after the checks, and the staged copy is gone.
+    // Copied into originals only after the checks; the staged (silent) copy is
+    // left for the cleanup job, which was scheduled BEFORE Modal was called.
     expect(r2.copies).toEqual([[keys.stagedKey, row.r2_key]]);
     expect(r2.objects.get(row.r2_key)?.equals(MUTED)).toBe(true);
-    expect(keysUnder("scout-staging/")).toEqual([]);
+    expect(keysUnder("scout-staging/")).toEqual([keys.stagedKey]);
+    expect(r2.objects.get(keys.stagedKey)?.equals(MUTED)).toBe(true);
     // The clip with sound was never written to our storage at all.
     expect(uploadToR2).not.toHaveBeenCalled();
     expect([...r2.objects.values()].some((b) => b.equals(WITH_AUDIO))).toBe(false);
-    expect(inngest.send).not.toHaveBeenCalled(); // nothing to clean up later
+    const send = vi.mocked(inngest.send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({ name: "scout/clip.cleanup", data: { imageId: row.id } });
+    expect(send.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(processMutedVideoViaModal).mock.invocationCallOrder[0]
+    );
 
     // What the website plays is that original: a silent clip on the R2 lane.
     expect(assetLane({ mediaType: "video", durationSeconds: 3, hasAudio: false })).toBe("video");
@@ -199,7 +229,7 @@ describe("a Scout clip", () => {
     expect(publicLaneKeys(row.r2_key).displayKey).toBe(row.r2_key);
   });
 
-  it("never lets a copy with sound reach originals/, and schedules the late-PUT cleanup", async () => {
+  it("never lets a copy with sound reach originals/, with the late-PUT cleanup already scheduled", async () => {
     pipelineWrites(WITH_AUDIO); // a pipeline that CLAIMS muted but staged sound
     await expect(ingest()).rejects.toMatchObject({ status: 502 });
     expect(copyWithinR2).not.toHaveBeenCalled();
@@ -226,11 +256,81 @@ describe("a Scout clip", () => {
     expectNoWrites();
   });
 
-  it("answers a retryable 503 when the deployed pipeline has no mute endpoint (404)", async () => {
+  it("answers a retryable 503 when the deployed pipeline has no mute endpoint (404): no row, no clip object", async () => {
     vi.mocked(processMutedVideoViaModal).mockRejectedValue(new VideoMuteUnavailableError("no mute_video endpoint (404)"));
     await expect(ingest()).rejects.toMatchObject({ status: 503 });
+    // The gallery and gig section were ensured before the call; they are reused.
     expect(db.tables.images).toHaveLength(0);
     expect(r2.objects.size).toBe(0);
+  });
+
+  it("does not call Modal when the cleanup cannot be scheduled: 503, no row, no clip object", async () => {
+    pipelineWrites(MUTED);
+    vi.mocked(inngest.send).mockRejectedValueOnce(new Error("inngest down"));
+    await expect(ingest()).rejects.toMatchObject({ status: 503 });
+    expect(processMutedVideoViaModal).not.toHaveBeenCalled();
+    expect(db.tables.images).toHaveLength(0);
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it("gives up on a cleanup schedule that hangs, within its timeout, without calling Modal", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      pipelineWrites(MUTED);
+      vi.mocked(inngest.send).mockImplementationOnce(() => new Promise(() => {}));
+      const run = ingest().then(() => null, (e) => e);
+      await vi.advanceTimersByTimeAsync(CLEANUP_SEND_TIMEOUT_MS + 10);
+      expect(await run).toMatchObject({ status: 503 });
+      expect(processMutedVideoViaModal).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-checks the budget after the gallery and section are ensured, before any upload URL or Modal call", async () => {
+    pipelineWrites(MUTED);
+    const base = Date.now();
+    let late = false;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => (late ? base + VIDEO_REQUEST_BUDGET_MS : base));
+    const realFrom = db.from.bind(db);
+    db.from = ((t: string) => {
+      if (t === "sections") late = true; // the ensures "took" the whole budget
+      return realFrom(t);
+    }) as typeof db.from;
+    try {
+      await expect(ingest({}, base)).rejects.toMatchObject({ status: 503 });
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(inngest.send).not.toHaveBeenCalled();
+    expect(processMutedVideoViaModal).not.toHaveBeenCalled();
+    expect(db.tables.images).toHaveLength(0);
+  });
+
+  it("copies EXACTLY the checked bytes: a staged object swapped after the check is never filed", async () => {
+    pipelineWrites(MUTED);
+    r2.swapAfterRead = WITH_AUDIO; // replaced between our read and the copy
+    await expect(ingest()).rejects.toMatchObject({ status: 502 });
+    expect(r2.copies).toEqual([]);
+    expect(db.tables.images).toHaveLength(0);
+    expect(keysUnder("/originals/")).toEqual([]);
+  });
+
+  it("answers 502 (not Scout's 413) when OUR staged copy reads back over the cap", async () => {
+    pipelineWrites(MUTED);
+    const { fetchCappedWithEtag } = await import("./fetch-image");
+    vi.mocked(fetchCappedWithEtag).mockRejectedValueOnce(new PostcardFetchError("the silent copy is over the limit", 413));
+    await expect(ingest()).rejects.toMatchObject({ status: 502 });
+    expect(db.tables.images).toHaveLength(0);
+    expect(keysUnder("/originals/")).toEqual([]);
+  });
+
+  it("refuses a filed copy whose ETag or size is not the checked one", async () => {
+    pipelineWrites(MUTED);
+    r2.corruptCopy = true;
+    await expect(ingest()).rejects.toMatchObject({ status: 502 });
+    expect(db.tables.images).toHaveLength(0);
+    expect(keysUnder("/originals/")).toEqual([]);
   });
 
   it("refuses an HEVC or overlong clip on the first read: no gallery, no section, no Modal call", async () => {

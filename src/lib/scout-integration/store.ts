@@ -23,6 +23,8 @@ import {
   copyWithinR2,
   deleteFromR2,
   deleteImageAssets,
+  headR2Object,
+  normalizeEtag,
   getPresignedDownloadUrl,
   uploadToR2,
 } from "@/lib/r2/client";
@@ -37,7 +39,7 @@ import { clipKeys } from "./clip-keys";
 import {
   H264_SAMPLE_ENTRIES,
   mp4DurationSeconds,
-  mp4SilenceProblems,
+  mp4SilentH264Problems,
   mp4TrackKinds,
   mp4VideoCodecs,
 } from "@/lib/video/mp4-tracks";
@@ -49,7 +51,13 @@ import { reportSystemError } from "@/lib/monitoring/report";
 import { inngest } from "@/lib/inngest/client";
 import { WEBSITE_EVENT_SLUG, getWebsiteSection } from "@/lib/site/gallery";
 import { syncSitePublication } from "@/lib/site/membership";
-import { POSTCARD_VIDEO_MAX_BYTES, fetchCapped, fetchPostcardImage, fetchPostcardVideo } from "./fetch-image";
+import {
+  POSTCARD_VIDEO_MAX_BYTES,
+  PostcardFetchError,
+  fetchCappedWithEtag,
+  fetchPostcardImage,
+  fetchPostcardVideo,
+} from "./fetch-image";
 import { pickCrewMatches, type CrewInPhoto, type CrewRosterEntry } from "./crew-match";
 import {
   claimOutcome,
@@ -395,6 +403,16 @@ export const MIN_REMAINING_FOR_PIPELINE_MS = 90_000;
  * rollback (bounded to the same span) still fits inside it.
  */
 export const ROLLBACK_RESERVE_MS = 12_000;
+/** Scheduling the cleanup job may take this long before the clip is refused. */
+export const CLEANUP_SEND_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} took over ${ms} ms`)), ms);
+  });
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Pure: how long the pipeline may take, or null when too little of the budget
@@ -421,7 +439,8 @@ export function pipelineTimeoutMs(
  *   Modal's own `mute_video` endpoint → a silent copy at a STAGING key
  *   (`scout-staging/<event>/<image>.mp4`) + three posters → this server reads
  *   the staged bytes and judges them (`assertStoredClipIsSilent`) → only then
- *   copied to `events/<id>/originals/<image>.mp4` and the staged object deleted
+ *   copies EXACTLY those bytes (ETag-matched) to
+ *   `events/<id>/originals/<image>.mp4`, and confirms the copy (ETag + size)
  *
  * so a copy that failed any check never sits under `originals/`, where the
  * gallery, downloads and the website read. Everything filed (length, size,
@@ -429,16 +448,21 @@ export function pipelineTimeoutMs(
  * file, every downstream copy is silent, and because the cap equals the R2
  * video lane's limit for a silent clip, every accepted clip publishes there.
  *
- * Failure handling, in this order: (1) if Modal was called, a delayed cleanup
- * is scheduled FIRST (Inngest `scout/clip.cleanup`: after the upload URLs
- * expire, delete every key the attempt could have written), because Modal can
- * still write after we give up on it, and a request killed mid-rollback is
- * then still cleaned; (2) the rollback (row, original, posters, staged). The
- * R2 lifecycle rule on `staging/` is the last backstop (a release step).
+ * Cleanup: BEFORE Modal is called, for every attempt, the cleanup job is
+ * scheduled (Inngest `scout/clip.cleanup`, with a timeout on the send; a send
+ * that fails is a 503 before Modal, with no row and no clip object written).
+ * After the upload URLs expire it ALWAYS deletes the staged copy, and deletes
+ * the original and posters only when no row uses them. So a late PUT from
+ * Modal, a request killed mid-rollback, and the staged leftover of a SUCCESS
+ * are all removed by the same job. On a failure the request also rolls back
+ * at once (row, original, posters, staged). The R2 lifecycle rule on
+ * `scout-staging/` is the last backstop (a release step).
  *
- * Time: refused with a retryable 503 BEFORE any write when the mute endpoint is
- * not configured or too little of the budget is left; the writes after the
- * pipeline run on a client that stops at the budget minus the rollback reserve.
+ * Time: a retryable 503 when the mute endpoint is not configured or too
+ * little of the budget is left, checked before the gallery and section are
+ * ensured AND again right before the presign and the Modal call. The writes
+ * after the pipeline run on a client that stops at the budget minus the
+ * rollback reserve.
  */
 async function ingestPostcardVideo(
   db: ScoutDb,
@@ -471,21 +495,37 @@ async function ingestPostcardVideo(
   const r2Key = keys.r2Key;
   const writeDeadline = startedAt + VIDEO_REQUEST_BUDGET_MS - ROLLBACK_RESERVE_MS;
 
+  // The ensures above took time: re-check before handing out upload URLs.
+  const cleanupTimeoutMs = pipelineTimeoutMs(startedAt, Date.now());
+  if (cleanupTimeoutMs == null) {
+    throw new ScoutIntegrationError("Too little time left in this request to process the clip; retry.", 503);
+  }
+  // The cleanup job is scheduled BEFORE Modal is told anything, for every
+  // attempt. If it cannot be scheduled, Modal is not called: 503, no row, no
+  // clip object (the gallery and gig section may now exist; they are reused).
+  try {
+    await withTimeout(
+      inngest.send({
+        name: "scout/clip.cleanup",
+        data: { eventId, imageId, sleepSeconds: mutePutTtlSeconds(cleanupTimeoutMs) + 60 },
+      }),
+      CLEANUP_SEND_TIMEOUT_MS,
+      "scheduling the clip cleanup"
+    );
+  } catch (err) {
+    await reportSystemError("scout.ingest-video.cleanup-schedule", err, { imageId });
+    throw new ScoutIntegrationError("Could not schedule the clip's cleanup; retry later.", 503);
+  }
+  // And once more, after the send: the pipeline gets only what is left now,
+  // which is never more than the cleanup's sleep was sized for.
+  const pipelineMs = pipelineTimeoutMs(startedAt, Date.now());
+  if (pipelineMs == null) {
+    throw new ScoutIntegrationError("Too little time left in this request to process the clip; retry.", 503);
+  }
+
   let rowWritten = false;
-  let modalCalled = false;
   const rollback = async (reason: string) => {
     const why = scrubSignedUrls(reason);
-    if (modalCalled) {
-      // First, so it is in place even if this request dies mid-rollback.
-      try {
-        await inngest.send({
-          name: "scout/clip.cleanup",
-          data: { eventId, imageId, sleepSeconds: mutePutTtlSeconds(timeoutMs) + 60 },
-        });
-      } catch (err) {
-        await reportSystemError("scout.ingest-video.cleanup-schedule", err, { imageId, keys, why });
-      }
-    }
     const rdb = dbUntil(Date.now() + ROLLBACK_RESERVE_MS - 2_000);
     if (rowWritten) {
       const { error } = await rdb.from("images").delete().eq("id", imageId);
@@ -514,28 +554,42 @@ async function ingestPostcardVideo(
   let silent: Awaited<ReturnType<typeof processMutedVideoViaModal>>;
   let stored: StoredClip;
   try {
-    modalCalled = true;
     silent = await processMutedVideoViaModal(
       { url: input.videoUrl },
       { stagedKey: keys.stagedKey, posterKey: r2Key },
       { userId: ownerId, eventId },
-      { timeoutMs }
+      { timeoutMs: pipelineMs }
     );
     if (!silent.ok) {
       throw new ScoutIntegrationError(silent.error ?? "The clip could not be read as H.264 video.", 415);
     }
-    // Judge the STAGED bytes; only a copy that passes is moved into place.
-    stored = await assertStoredClipIsSilent(keys.stagedKey, (k) =>
-      readStoredClip(k, Math.max(1_000, writeDeadline - Date.now()))
-    );
-    await copyWithinR2(keys.stagedKey, r2Key, "video/mp4", Math.max(1_000, writeDeadline - Date.now()));
+    // Judge the STAGED bytes, then copy exactly those bytes into place: the
+    // copy is conditional on the ETag of the read we judged, and the result
+    // is confirmed by ETag and size. Anything else and nothing is filed.
+    let checkedEtag: string | null = null;
+    stored = await assertStoredClipIsSilent(keys.stagedKey, async (k) => {
+      const read = await readStoredClip(k, Math.max(1_000, writeDeadline - Date.now()));
+      checkedEtag = read.etag;
+      return read.buf;
+    });
+    const etag = normalizeEtag(checkedEtag as string | null);
+    if (!etag) throw new ScoutIntegrationError("The staged copy came back without an ETag; nothing was filed.", 502);
     try {
-      await deleteFromR2(keys.stagedKey);
+      await copyWithinR2(keys.stagedKey, r2Key, "video/mp4", Math.max(1_000, writeDeadline - Date.now()), {
+        ifMatch: etag,
+      });
     } catch (err) {
-      // The original is in place; the staged copy is silent and expires by
-      // the lifecycle rule. Reported, not fatal.
-      await reportSystemError("scout.ingest-video.staging-delete", err, { stagedKey: keys.stagedKey });
+      throw new ScoutIntegrationError(
+        `The staged copy changed after it was checked, or could not be copied (${err instanceof Error ? err.name : "error"}); nothing was filed.`,
+        502
+      );
     }
+    const filed = await headR2Object(r2Key, Math.max(1_000, Math.min(15_000, writeDeadline - Date.now())));
+    if (filed.etag !== etag || filed.size !== stored.bytes) {
+      throw new ScoutIntegrationError("The filed copy is not the one that was checked; nothing was filed.", 502);
+    }
+    // The staged copy is NOT deleted here: the cleanup job always deletes it,
+    // off the request's clock.
   } catch (err) {
     if (err instanceof VideoMuteUnavailableError) {
       await rollback(err.message);
@@ -573,8 +627,8 @@ async function ingestPostcardVideo(
     const outcome = claimOutcome(claimErr);
     if (outcome === "lost") {
       await rollback("lost the claim race");
-      const winner = await requireLink(db, input.postcardId);
-      return { link: winner, created: false, status: await statusOf(db, winner.image_id), aiIndexRequested: null };
+      const winner = await requireLink(wdb, input.postcardId);
+      return { link: winner, created: false, status: await statusOf(wdb, winner.image_id), aiIndexRequested: null };
     }
     if (outcome === "error") throw claimErr;
 
@@ -611,7 +665,7 @@ async function ingestPostcardVideo(
     throw err;
   }
 
-  const link = await requireLink(db, input.postcardId);
+  const link = await requireLink(wdb, input.postcardId);
   return { link, created: true, status: "ready", aiIndexRequested: null };
 }
 
@@ -630,7 +684,7 @@ export interface StoredClip {
  */
 export async function assertStoredClipIsSilent(
   r2Key: string,
-  read: (key: string) => Promise<Buffer> = readStoredClip
+  read: (key: string) => Promise<Buffer> = async (k) => (await readStoredClip(k)).buf
 ): Promise<StoredClip> {
   const bytes = await read(r2Key);
   let kinds: string[];
@@ -641,21 +695,25 @@ export async function assertStoredClipIsSilent(
     kinds = mp4TrackKinds(bytes);
     codecs = mp4VideoCodecs(bytes);
     durationSeconds = mp4DurationSeconds(bytes);
-    problems = mp4SilenceProblems(bytes);
+    problems = mp4SilentH264Problems(bytes);
   } catch (err) {
     throw new ScoutIntegrationError(`The silent copy could not be checked: ${err instanceof Error ? err.message : err}`, 502);
   }
+  // One video track whose only fault is its codec is a clip problem (415);
+  // anything else outside the allow-list is the pipeline's (502).
+  const codecOnly =
+    kinds.length === 1 &&
+    kinds[0] === "vide" &&
+    problems.length > 0 &&
+    problems.every((p) => p.startsWith("sample entry"));
+  if (codecOnly || (!problems.length && !codecs.every((c) => H264_SAMPLE_ENTRIES.has(c)))) {
+    throw new ScoutIntegrationError(`The clip is not H.264 (${codecs.join(", ") || "none"}); nothing was filed.`, 415);
+  }
   if (problems.length) {
     throw new ScoutIntegrationError(
-      `The pipeline's copy may still carry sound (${problems.join("; ")}); nothing was filed.`,
+      `The pipeline's copy is not a single silent H.264 track (${problems.join("; ")}); nothing was filed.`,
       502
     );
-  }
-  if (!kinds.includes("vide")) {
-    throw new ScoutIntegrationError("The pipeline's copy has no video track; nothing was filed.", 502);
-  }
-  if (!codecs.length || !codecs.every((c) => H264_SAMPLE_ENTRIES.has(c))) {
-    throw new ScoutIntegrationError(`The clip is not H.264 (${codecs.join(", ") || "none"}); nothing was filed.`, 415);
   }
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new ScoutIntegrationError("The clip's length could not be read; nothing was filed.", 502);
@@ -669,15 +727,22 @@ export async function assertStoredClipIsSilent(
   return { bytes: bytes.byteLength, durationSeconds };
 }
 
-async function readStoredClip(r2Key: string, timeoutMs = 30_000): Promise<Buffer> {
+async function readStoredClip(r2Key: string, timeoutMs = 30_000): Promise<{ buf: Buffer; etag: string | null }> {
   const url = new URL(await getPresignedDownloadUrl(r2Key, 600));
   // Muting only removes streams, but the rewritten header can come out a few
   // KB larger than the source's, so the read-back allows 1 MB over the cap.
-  return fetchCapped(
-    url,
-    { maxBytes: POSTCARD_VIDEO_MAX_BYTES + 1024 * 1024, timeoutMs: Math.min(30_000, timeoutMs) },
-    "the silent copy"
-  );
+  try {
+    return await fetchCappedWithEtag(
+      url,
+      { maxBytes: POSTCARD_VIDEO_MAX_BYTES + 1024 * 1024, timeoutMs: Math.min(30_000, timeoutMs) },
+      "the silent copy"
+    );
+  } catch (err) {
+    // Whatever went wrong reading OUR copy is the pipeline's or ours, never
+    // Scout's: an over-cap copy (413 from the reader) is a 502 here.
+    if (err instanceof PostcardFetchError) throw new ScoutIntegrationError(err.message, 502);
+    throw err;
+  }
 }
 
 async function storeExif(db: ScoutDb, imageId: string, buffer: Buffer, takenAt: string | null) {
