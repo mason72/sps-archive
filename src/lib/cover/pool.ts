@@ -191,6 +191,7 @@ export async function fetchMosaicCoverPool(
     .eq("thumbnail_generated", true)
     .eq("is_cover_upload", false)
     .neq("media_type", "video")
+    .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
     .order("original_filename", { ascending: true })
     .order("id", { ascending: true })
     .limit(MOSAIC_POOL_CAP);

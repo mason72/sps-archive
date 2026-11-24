@@ -218,6 +218,7 @@ export async function blockedNameKeys(supabase: SupabaseDB, eventId: string): Pr
       .eq("event_id", eventId)
       .eq("media_type", "image")
       .eq("processing_status", "complete")
+      .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
       .order("id")
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;

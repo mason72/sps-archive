@@ -56,6 +56,12 @@ export const NON_PERSON_GALLERIES = new Set([
   "Two Dudes Sample Images",
   "Two Dudes Samples",
   "Staff Photos",
+  // Crew behind-the-scenes postcards from Scout (2026-11-23,
+  // src/lib/scout-integration). Same reason as Staff Photos (lesson 146): the
+  // people in them are crew and bystanders, never a client's guests, and crew
+  // are recognised through crew_faces, not /people. Keep in step with
+  // SCOUT_ROAD_NAME (a test checks).
+  "Scout Road (crew BTS)",
 ]);
 
 /**
@@ -327,6 +333,7 @@ export async function buildPersonDetail(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .in("event_id", eventChunk)
         .eq("media_type", "image")
+        .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
         // Not a cover upload: "FM Logo" and "What IF logo" pass
         // looksLikePersonName and were cards on the wall (lesson 184).
         .eq("is_cover_upload", false)
@@ -406,6 +413,7 @@ export async function buildPersonDetail(
       .select("id, event_id, r2_key, original_filename, aesthetic_score")
       .in("id", slice)
       .eq("media_type", "image")
+      .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
       .eq("is_cover_upload", false)
       .eq("processing_status", "complete");
     if (error) throw error;
@@ -530,6 +538,7 @@ export async function buildPeopleIndex(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .eq("event_id", eventId)
         .eq("media_type", "image")
+        .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
         // Not a cover upload: "FM Logo" and "What IF logo" pass
         // looksLikePersonName and were cards on the wall (lesson 184).
         .eq("is_cover_upload", false)

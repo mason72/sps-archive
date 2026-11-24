@@ -362,8 +362,8 @@ publishing lanes chosen automatically at publish time:
 
 | Lane | Which videos | What's published | Playback |
 |---|---|---|---|
-| **R2 public lane** (`kind: "video"`) | ≤ 60s AND muted (loops) | poster `thumb-md`/`thumb-lg` + the web-playable mp4 | `videoUrl` = public mp4 |
-| **Cloudflare Stream** (`kind: "stream"`) | > 60s OR sound-on (showcase reels w/ voiceover) | posters via R2; the video is ingested into Stream on first publish (`stream_uid`) | `videoUrl` = HLS manifest, `iframeUrl` = hosted player |
+| **R2 public lane** (`kind: "video"`) | ≤ 60s AND muted (loops); ≤ 61s when `has_audio` is known false (Scout clips, 2026-11-24) | poster `thumb-md`/`thumb-lg` + the web-playable mp4 | `videoUrl` = public mp4 |
+| **Cloudflare Stream** (`kind: "stream"`) | > 60s (> 61s if known silent) OR sound-on (showcase reels w/ voiceover) | posters via R2; the video is ingested into Stream on first publish (`stream_uid`) | `videoUrl` = HLS manifest, `iframeUrl` = hosted player |
 
 **Upload → poster pipeline.** The uploader accepts MP4/MOV (H.264, AAC-or-
 silent audio) up to 500 MB. On upload-complete an Inngest job
@@ -376,6 +376,18 @@ keeps gating display and publication for both media types. `.mov` originals
 also get a lossless `-c copy` remux to `events/{id}/video/{file}.mp4`
 (Firefox won't play QuickTime containers). Unsupported codecs politely fail
 the row (`processing_status: failed` + human-readable `processing_error`).
+
+**Muted copies: the `mute_video` endpoint (2026-11-24).** A SEPARATE web
+endpoint of the same Modal app (the app reaches it at `VIDEO_MUTE_URL`; the
+upload pipeline stays at `VIDEO_PIPELINE_URL` and refuses `mute`). It downloads
+the source once (no redirects, 55 MB, 90 s), writes a copy with every audio,
+subtitle, data and chapter stream dropped (video copied untouched, metadata
+cleared; the source's audio codec is not checked, since it is dropped) to the
+`staged_put` URL, re-probes what it wrote, and answers `muted: true` with the
+written file's duration and codec. A deployment from before it existed has no
+such endpoint (404), so it can never receive a clip. Used by the Scout
+integration (`docs/TECHNICAL.md` 9b). Local proof:
+`python3 -I modal/tests/test_video_mute.py`.
 
 **Stream lifecycle.** Stream ingestion happens at *publish* time (membership
 sync), so only website videos cost Stream minutes; unpublishing deletes the

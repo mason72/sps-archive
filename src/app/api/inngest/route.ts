@@ -24,6 +24,7 @@ import {
   r2InfrequentAccess,
 } from "@/lib/inngest/ops-functions";
 import { peopleIndexRefresh } from "@/lib/inngest/people-index";
+import { scoutClipCleanup } from "@/lib/inngest/scout-cleanup";
 
 // zip-build streams a whole gallery into R2 inside one step — give the
 // execution route the Fluid ceiling, same reasoning as the download route.
@@ -53,5 +54,6 @@ export const { GET, POST, PUT } = serve({
     pricingSummaryWeekly,
     capacityCheck,
     r2InfrequentAccess,
+    scoutClipCleanup,
   ],
 });

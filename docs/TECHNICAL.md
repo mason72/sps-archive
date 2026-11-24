@@ -499,6 +499,300 @@ the buyer had seen a line item, never the delivery.
   email bars to the capture window: a gallery re-sent a week later counts in
   `linksSent` but is not a day the booth was open.
 
+## 9b. Scout integration (built 2026-11-23, not yet deployed)
+
+Scout is the TDP crew app (its own Supabase project, `ezubznenjcogwocccznj`,
+repo `~/Projects/TDP/scout`). Its "Postcards" are crew behind-the-scenes photos
+filed under a gig. Pixeltrunk archives them, runs the normal AI lane on them,
+tells Scout which crew are in each one, publishes chosen shots to the website's
+BTS scenes, and tells Scout who worked which gig from the EXPOSURE calendar.
+Code: `src/lib/scout-integration/`, routes `src/app/api/integrations/scout/`,
+schema: migration `102_scout_integration.sql`.
+
+**Auth.** Header `X-Scout-Key`, compared in constant time (`timingSafeEqualStr`)
+with `SCOUT_INTEGRATION_KEY`. Unset on the server = 503 with a message; missing
+or wrong = 401. The proxy lists exactly `/api/integrations/scout/` as public
+(no session), so `requireScoutKey()` is the only gate and every handler calls it
+first. All database work uses the service client with a 30 s deadline per call.
+
+**Owner.** Every row belongs to the `user_id` of the `tdp-website` gallery
+(looked up per request, never hard-coded): the studio account that also owns the
+crew roster and `crew_faces`. No `tdp-website` gallery = 503.
+
+**Routes.**
+
+| Route | What it does |
+| --- | --- |
+| `POST /postcards` | Archive one postcard. Body `{postcard_id, gig_id, gig_title, gig_start?, taken_at?, author_email?, image_url, width?, height?}`, plus for a clip `media_type: "video", video_url, duration_s` (`image_url` is then the poster). 201 `{image_id, status, created: true, ai_index_requested}`; a repeat answers 200 with the existing link. |
+| `GET /postcards/:id` | `{status, media_type, image_id, aesthetic_score, crew: [{email, display_name, confidence}], published_target, published_at}`. |
+| `DELETE /postcards/:id` | Unpublish, then delete (see below). |
+| `POST /postcards/:id/publish` `{target}` / `DELETE` | Put the photo in / take it off a website BTS scene. |
+| `GET /publish-targets` | `bts/headshot-booth`, `bts/photo-booth`, `bts/anti-booth` with labels. |
+| `GET /gig-crew?from&to` | Array of `{calendar_event_id, start, end, title, kind, city, venue, crew: [{email, display_name, source, on_roster}]}`, window at most 120 days. |
+
+**Ingest (POST).** Idempotent on `postcard_id`, the primary key of
+`scout_postcard_links`. Order: link exists? return it. Otherwise ensure the
+private `scout-road` gallery ("Scout Road (crew BTS)", no share is ever made)
+and one section per `gig_id` (`job_meta = {kind: "scout-gig", scout_gig_id,
+scout_gig_start}`, a partial unique index stops a duplicate; a taken section
+NAME moves to "title · date", then "title · gig id"). Then fetch the image
+(`fetch-image.ts`: https only, Scout's storage host and `/storage/v1/object/`
+only, no redirects, 30 s deadline, 40 MB counted while streaming, JPEG magic
+bytes) and write in the order of `scripts/upload-folder-to-section.ts`: R2 bytes
+→ `images` row → CLAIM (insert the link; a 23505 means a concurrent POST won,
+so this one deletes its photo and returns the winner's) → `section_images` →
+`generateThumbnailsFromBuffer` → `processing_status = complete` → EXIF
+(Scout's zoned `taken_at` only when the file has no capture time). A failure
+before `complete` rolls back the row (cascading the claim) and the R2 objects,
+so a retry starts clean; if the row itself cannot be deleted, its bytes stay
+and it is marked `failed`. The image is fetched before the gallery or gig
+section is ensured, so a bad URL leaves nothing behind. Then the same Inngest events `/api/upload/complete`
+sends, `ai/index.requested` and `focal/auto.suggest`, AWAITED (a failed send is
+a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
+`maxDuration = 120`, as for `/api/upload/complete`.
+
+**Clips are filed SILENT (Mason, 2026-11-24).** Crew phone clips record
+conversations and client names, and only clips an admin stamps Site-worthy in
+Scout are sent at all. The path, in order:
+
+1. **Refusals with no writes.** `VIDEO_MUTE_URL` unset → retryable **503**.
+   `video_url` is read once in memory (same host and path rules, no redirects,
+   60 s, 50 MB counted while streaming) and must be an MP4 with a video track,
+   H.264 (`avc1`/`avc3`) and at most 61 s by its own `mvhd`: HEVC (some
+   Android phones, uploaded as-is from Scout's web app; iOS re-encodes to
+   H.264) is a **415**, an overlong clip a **400**. Too little of the time
+   budget left → **503**. None of these creates the gallery, a section, a row
+   or an object, and Modal is not called.
+2. **Gallery and gig section are ensured**, then the budget is checked AGAIN.
+   From here on, a refusal can leave the (empty, reused) gallery and gig
+   section behind, but never a row or a clip object.
+3. **The cleanup job is scheduled BEFORE Modal is told anything**, for every
+   attempt (Inngest `scout/clip.cleanup`, the send bounded to 5 s). If it
+   cannot be scheduled: **503**, Modal is not called. The job
+   (`scout-clip-cleanup`) sleeps past the upload URLs' life
+   (`mutePutTtlSeconds` + 60 s), then ALWAYS deletes the staged copy, and
+   deletes the original and posters only when no row uses the original. Keys
+   are derived from the two ids (`clipKeys`), never handed in. A run that
+   exhausts its retries is reported (`scout.clip-cleanup-failed`). This one
+   job removes a late PUT from Modal, the leftovers of a request killed
+   mid-rollback, and the staged leftover of a success.
+4. **Modal `mute_video`** (its own endpoint, `processMutedVideoViaModal`) gets
+   Scout's signed URL, reads it once, and writes the silent copy to a STAGING
+   key, `scout-staging/<event>/<image>.mp4` (top-level, so one R2 lifecycle
+   rule covers it), plus three posters. Never to `originals/`. An old
+   deployment has no such endpoint: 404 → **503** (no row, no clip object).
+   Modal's 303 for a long call is followed only to its own host, by GET, with
+   a short pause between polls; a 404 on that result URL means the result
+   expired (an ordinary failure, not "not deployed"). Any other redirect is an
+   error.
+5. **The staged bytes are judged** by this server's own parser
+   (`assertStoredClipIsSilent`, `src/lib/video/mp4-tracks.ts`) against an
+   ALLOW-LIST (`mp4SilentH264Problems`): exactly one `moov`, no `moof`/`mvex`,
+   exactly ONE track, of handler `vide`, with an `stsd` whose every sample
+   entry is `avc1`/`avc3`. A second track of any kind, an audio track
+   relabelled `vide`, any other entry (`mp4a`, `apac`, `enca`, ...), or a
+   parse error is refused, as is a length over
+   `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack). Exactly one box is
+   allowed at each step of the checked chain (`mdia` > `hdlr`, `minf` >
+   `stbl` > `stsd`): a second one is refused. A 415 is returned only when the
+   one video track's entries are all a non-H.264 video codec (re-export);
+   anything else, e.g. `[avc1, mp4a]`, is the pipeline's fault: 502. A
+   read-back over the cap is a 502.
+
+   **Accepted risk: unreferenced bytes are not inspected.** The check reads the
+   box structure and the sample descriptions, not every byte: media data that
+   no sample table points to (bytes in `mdat` outside any sample), and the
+   payloads of `uuid`, `udta`, `free` and `meta` boxes, are not decoded. A
+   player plays only what a track's sample table describes, and that is
+   verified to be one H.264 video track. Such bytes could only come from a
+   misbehaving `mute_video`: `-map 0:v:0 -an` writes a fresh file containing
+   only the video samples (and `-map_metadata -1` drops the metadata).
+6. **Exactly the checked bytes are filed**: the server copies the staged
+   object to `originals/` with `CopySourceIfMatch` = the ETag of the read it
+   judged (a staged object replaced since is refused by R2), then HEADs the
+   original and requires the same ETag and size. Any mismatch rolls back. Then
+   the row, claim, section link and `complete` are written (right after the row
+   insert, the staged copy is deleted best-effort with a 3 s limit, so a filed
+   clip does not depend on the cleanup job being registered), with
+   `duration_seconds` and `file_size` from those bytes. On any failure the
+   request also rolls back at once (row, original, posters, staged copy).
+
+Because the stored original is the silent file, every downstream copy is
+silent, and because the cap equals the R2 video lane's limit for a known-silent
+clip, every accepted clip publishes there (`kind: "video"`, `posterUrl`,
+`videoUrl`). The row is `media_type video`, `has_audio false`, complete with
+posters, so the request answers `ready`; no AI event is sent (the AI lane reads
+images only) and GET reports no crew for a clip.
+
+**Time budget.** `VIDEO_REQUEST_BUDGET_MS` (285 s, inside the route's 300 s)
+counts from the moment the POST arrived (the route passes its own start time).
+Under 90 s left before Modal → 503 with nothing written; otherwise Modal gets
+what is left minus 60 s. The writes after the pipeline run on a client whose
+every call stops at the budget's end minus `ROLLBACK_RESERVE_MS` (12 s;
+`deadlineFetch`, `src/lib/net/deadline-fetch.ts`), and the rollback gets its own
+10 s window, so a burst of slow gateway answers fails the request cleanly
+instead of the platform killing it mid-write.
+
+**Contract with Scout: the clip URL is signed for 900 s (15 min).** Scout's
+bridge signs the MP4 URL for 15 minutes, comfortably above this route's 285 s
+budget, so Modal's read never meets an expired URL inside a request that can
+still succeed. If Scout ever shortens it below the budget, clips fail with a
+pipeline error (refused and rolled back, never filed with audio).
+
+**Time budget.** The budget (`VIDEO_REQUEST_BUDGET_MS`, 285 s, inside the
+route's 300 s) counts from the moment the POST arrived (the route passes its own
+start time). If less than 90 s is left before Modal would be called, the request
+is refused with a retryable **503** before anything is written; otherwise Modal
+gets what is left minus 60 s kept for the read-back and the row writes. There is
+no floor, because a floor is what let the old version overrun.
+
+**One source of truth: the stored bytes.** This server downloads the file Modal
+stored and reads it with its own parser (`src/lib/video/mp4-tracks.ts`): any
+`soun` track, no `vide` track, a video sample entry that is not H.264
+(`avc1`/`avc3`), an unreadable length, or a length over
+`SILENT_R2_MAX_DURATION_SECONDS` (61 s, NO slack) rolls everything back. The
+row's `duration_seconds` and `file_size` come from those bytes, never from the
+pipeline's report or our first read of Scout's URL. The row is
+`media_type video`, `has_audio false`, complete with posters, so the request
+answers `ready`; no AI event is sent (the AI lane reads images only) and GET
+reports no crew for a clip. Because the stored original is the silent file,
+every downstream copy is silent, and because the ingest cap equals the R2
+video lane's limit for a known-silent clip (61 s; the 60 s line is for clips not
+known silent), every accepted clip publishes on the R2 video lane, whose
+playable file is that original (the site gets `kind: "video"`, `posterUrl`,
+`videoUrl`). POST `maxDuration` is 300 s.
+
+**No signed URL in an error.** Every message on the clip path (ffmpeg and Modal
+error text, fetch failures, rollback reasons, `system_errors`, the route's log
+and response) goes through `scrubSignedUrls` (`src/lib/net/scrub-urls.ts`),
+which replaces each URL's query string with `?<redacted>`; Modal scrubs its own
+errors the same way (`scrub_urls`) and does not chain the original exception.
+
+**Client BTS bonus (Mason, 2026-11-24).** Crew-loved postcards (2+ Banger
+stamps in Scout) go into the CLIENT's own gallery, 24 h after qualifying unless
+an admin pulls them; a pull removes them. Scout decides when; Pixeltrunk only
+places and removes on request (`src/lib/scout-integration/client-bts.ts`). NDA
+gigs are allowed here (the client's own private gallery).
+
+- `GET /client-galleries?date=YYYY-MM-DD&days=N[&calendar_event_id=…]` (days
+  1–31; `date` may be left out when `calendar_event_id` is given, and then only
+  calendar and series matches come back) → `{ "candidates": [{ "event_id",
+  "name", "date", "client_name", "match": "calendar" | "series" | "date" }] }`.
+  In that order: `"calendar"` = a stored `event_intel.calendar_event_ids`
+  entry IS the asked id; `"series"` = only the recurring series matches (same
+  base id before `_`, e.g. last month's instance: Scout must never auto-link
+  on it); then `"date"` = galleries dated in `date - 1 .. date + days`; never Scout Road,
+  the website or Work galleries; at most 30, newest first in each group;
+  `client_name` is the payer organisation, else the end brand.
+- `PUT /postcards/:id/client {event_id}` → `{ "ok": true, "event_id",
+  "section_id" }`. 404 unknown postcard or not one of the studio's client
+  galleries, 409 not archived yet or a locked "Behind the scenes" section.
+  Idempotent; a different `event_id` moves it, and a MOVE makes, verifies
+  and records the new copy FIRST and only then deletes the old one, so a
+  failed move (409 locked or not ready, 502 copy check) leaves the shot in
+  its old gallery.
+- `DELETE /postcards/:id/client` → `{ "removed": true|false }` (idempotent;
+  an unknown postcard is `{ "removed": false }`). `DELETE /postcards/:id` now
+  removes the client placement first (`deletePostcardEverywhere`).
+
+**Data model: a COPY, not a link.** `images.event_id` is single-owner and every
+client path reads an event's photos by it (the guest gallery's
+`readGalleryImageRows`, the ZIP and downloads in `download-core`, share scope,
+favorites); a section link to the Scout Road row would show in none. So the
+copy is a new `images` row owned by the client event, with its own R2 objects
+(original by ETag-matched server-side copy, plus the three posters), marked
+`is_crew_bts` and inserted with `ai_indexed_at` set. `scout_postcard_links`
+records it (`client_event_id`, `client_image_id`, `client_section_id`,
+`client_placed_at`; migration 102), so a pull deletes exactly that row and its
+objects, and only if it is a crew BTS copy in the recorded gallery. It sits in
+a "Behind the scenes" section (found by name, else created last with
+`job_meta.kind = "scout-bts"`), which Rebuild keeps. A clip copy is the silent
+stored original, re-judged with the clip checks before copying. It plays in the
+client gallery from that mp4 (signed R2 URL), never Stream. A pull removes the
+copy even from a locked section: the copy is Scout's.
+
+**Kept out of the client's photos.** Explicit `.eq("is_crew_bts", false)` in:
+the AI batch select and its count (`index-event.ts`), /people (3 reads,
+`index-people.ts`), face-cluster naming (`cluster-event.ts`), Highlights pool
+and count (`highlights/propose.ts`), the mosaic cover pool (`cover/pool.ts`),
+the recap photo count (`recap/payload.ts`), Sort into sections / Rebuild and
+its preview (`auto-sections`, `section-plan`), the scene planner
+(`scene-plan`). A guard test (`crew-bts-exclusions.test.ts`) counts them. By
+construction: no faces and no embedding ever exist for the copy, so face
+clustering, selfie search, identity scan, smart sections and Highlights picks
+cannot see it; its filename is never a person and every copy is its own
+singleton stack (a plain card). There is no client "new photos" email in this
+app. Not excluded (by design): the gallery, share scope, favorites, ZIP and
+downloads. Not excluded (noted): the recap's section count includes the
+Behind-the-scenes section.
+
+**Release steps for clips, in order** (none of them done by the branch):
+1. `modal deploy modal/video_pipeline.py`. It prints two endpoint URLs now:
+   `process_video` (unchanged, keeps `VIDEO_PIPELINE_URL`) and `mute_video`.
+2. Prove the mute endpoint before the app uses it: POST it a short test clip
+   with sound and check that the answer says `muted: true` and that the staged
+   object has no audio stream (`ffprobe`). Also check one portrait phone clip
+   keeps its rotation on Modal's ffmpeg.
+3. Set `VIDEO_MUTE_URL` (the `mute_video` URL) on Vercel, Production. Until it
+   is set, clip POSTs answer 503 and nothing is written.
+4. Add an R2 lifecycle rule on the archive bucket: delete objects with prefix
+   `scout-staging/` 1 day after creation. It is the backstop if the delayed
+   cleanup never runs. (Staging is top-level precisely because lifecycle
+   rules match by prefix only.)
+5. Deploy the app (migration 102 first, then the code). The deploy workflow
+   re-syncs Inngest; confirm `scout-clip-cleanup` is listed in the Inngest
+   dashboard, since a new function has failed to register before.
+6. Client BTS: with migration 102 applied (it adds `images.is_crew_bts` and
+   the `client_*` columns), PUT one postcard into a test client gallery, open
+   its share link and the ZIP, then DELETE it and confirm both are gone.
+7. Send one real Site-worthy clip from Scout and confirm: row `has_audio false`,
+   nothing left under `scout-staging/` for it (after the cleanup job's
+   wait, about 6 minutes), and the website plays it silent.
+
+**Status.** `ready` = complete and `ai_indexed_at` set (a clip: complete with posters); `failed` = upload failed
+or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including
+while `AI_INDEXING_ENABLED` is off).
+
+**Crew in a photo (GET).** Only when `ready`. `scout_image_crew_candidates()`
+returns, per face, the top crews by their best reference face (cosine, the
+same scoring as `match_person_cluster_to_crew`, per face because one new photo
+has no cluster yet). `pickCrewMatches()` names a face only through
+`decideAutoConfirm` (0.70 and a 0.10 lead, the engine's own rule) and keeps one
+entry per person. Crew only: nothing reads `persons` or a guest name, and
+nothing is written. Scout shows these as tags a person can remove.
+
+**Publish.** Same mechanics as `/api/site/gallery`: membership of the
+`tdp-website` gallery's scene section IS publication (`getWebsiteSection` +
+`syncSitePublication`, which also schedules the `TDP_SITE_REVALIDATE_URL` ping).
+One scene at a time (a new target takes it off the old one, after the new
+scene's lock is checked). A lane copy that
+fails is a 502, never a quiet success; a locked section is 423; a photo not yet
+`complete` with thumbnails is 409.
+
+**Delete.** Refused (423) when the photo sits in a locked section. Otherwise off
+every website section first, and synced whenever the row is published
+(`site_published_at`), even with no membership left, so a retry after a failed
+sync cannot orphan the public copy. Then: if a person also filed it in another
+non-website, non-`is_auto` section, only the Scout Road copy and the link go;
+otherwise the row is hard-deleted (cascades the link, faces, section links) and
+`deleteImageAssets` removes the original and the three thumbnails, with failed
+keys reported.
+
+**Gig crew.** `listEvents("exposure")` with a day of slack each side, then
+filtered on the day the calendar wrote; only `gig` and `setup` entries.
+Attendee emails pass through lower-cased (calendar/resource addresses dropped),
+named from the roster by primary email or alias; `on_roster: false` marks an
+invitee who is not crew (a client contact can be on the invite). Title names resolve through
+`crewNameKey` on the whole name, then the first name, only when exactly one
+crew member answers; otherwise they come back with `email: null`. One entry per
+person; the attendee wins. A calendar that cannot be read is 502, never `[]`.
+
+**Kept out of the way of the rest of the app.** "Scout Road (crew BTS)" is in
+`NON_PERSON_GALLERIES` (like Staff Photos, lesson 146), and "Rebuild all
+sections" keeps `scout-gig` sections (`rebuildKeepReason`).
+
+---
+
 ## 10. Design System
 
 - **Fonts:** `font-brand` (Libre Baskerville — wordmark only), `font-editorial` (Playfair Display — headlines), `font-sans` (Inter — body).
@@ -540,6 +834,9 @@ MODAL_TOKEN_SECRET=
 # Inngest — leave unset to keep AI/processing dormant
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
+
+# Scout integration (section 9b). Unset = every /api/integrations/scout route answers 503.
+SCOUT_INTEGRATION_KEY=
 ```
 
 > Verify the exact Stripe/Resend variable names against `.env.example` and the code in `src/lib/stripe` and `src/lib/email` before relying on this list — the AI/Supabase/R2 vars are confirmed in code.

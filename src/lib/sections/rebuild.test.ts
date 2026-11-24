@@ -48,4 +48,18 @@ describe("rebuildKeepReason", () => {
       rebuildKeepReason(plain({ jobMeta: { client: "eBay" }, siteSceneKey: "job/ebay" }))
     ).toBe("site");
   });
+
+  it("keeps a Scout gig section (its postcard links point at it), and only a real marker counts", () => {
+    expect(
+      rebuildKeepReason(plain({ name: "Acme SKO", jobMeta: { kind: "scout-gig", scout_gig_id: "g-1" } }))
+    ).toBe("scout-gig");
+    expect(rebuildKeepReason(plain({ jobMeta: { kind: "scout-gig" } }))).toBeNull();
+    expect(rebuildKeepReason(plain({ jobMeta: { scout_gig_id: "g-1" } }))).toBeNull();
+  });
+
+  it("keeps a client gallery's Behind-the-scenes section, by marker or by name", () => {
+    expect(rebuildKeepReason(plain({ name: "Behind the scenes", jobMeta: { kind: "scout-bts" } }))).toBe("scout-bts");
+    expect(rebuildKeepReason(plain({ name: " behind THE scenes " }))).toBe("scout-bts");
+    expect(rebuildKeepReason(plain({ name: "BTS", jobMeta: { kind: "scout-bts" } }))).toBe("scout-bts");
+  });
 });

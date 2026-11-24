@@ -877,6 +877,7 @@ export type Database = {
           height: number | null
           id: string
           is_cover_upload: boolean
+          is_crew_bts: boolean
           is_eyes_open: boolean | null
           iso: number | null
           last_error: string | null
@@ -936,6 +937,7 @@ export type Database = {
           height?: number | null
           id?: string
           is_cover_upload?: boolean
+          is_crew_bts?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null
@@ -995,6 +997,7 @@ export type Database = {
           height?: number | null
           id?: string
           is_cover_upload?: boolean
+          is_crew_bts?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null
@@ -1419,6 +1422,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scout_postcard_links: {
+        Row: {
+          author_email: string | null
+          client_event_id: string | null
+          client_image_id: string | null
+          client_placed_at: string | null
+          client_section_id: string | null
+          created_at: string
+          event_id: string
+          gig_id: string
+          image_id: string
+          postcard_id: string
+          published_at: string | null
+          published_target: string | null
+          section_id: string | null
+        }
+        Insert: {
+          author_email?: string | null
+          client_event_id?: string | null
+          client_image_id?: string | null
+          client_placed_at?: string | null
+          client_section_id?: string | null
+          created_at?: string
+          event_id: string
+          gig_id: string
+          image_id: string
+          postcard_id: string
+          published_at?: string | null
+          published_target?: string | null
+          section_id?: string | null
+        }
+        Update: {
+          author_email?: string | null
+          client_event_id?: string | null
+          client_image_id?: string | null
+          client_placed_at?: string | null
+          client_section_id?: string | null
+          created_at?: string
+          event_id?: string
+          gig_id?: string
+          image_id?: string
+          postcard_id?: string
+          published_at?: string | null
+          published_target?: string | null
+          section_id?: string | null
+        }
+        Relationships: []
       }
       section_images: {
         Row: {
@@ -2330,6 +2381,14 @@ export type Database = {
         }
         Returns: {
           id: string
+          similarity: number
+        }[]
+      }
+      scout_image_crew_candidates: {
+        Args: { p_image_id: string; p_per_face?: number; p_user_id: string }
+        Returns: {
+          crew_id: string
+          face_id: string
           similarity: number
         }[]
       }

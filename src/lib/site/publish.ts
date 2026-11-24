@@ -21,7 +21,8 @@ import {
  *                or the 800px thumb-lg for non-renderable formats (TIFF)
  *
  * Videos publish by lane (assetLane):
- *   - "video" (short muted loops, ≤60s and silent): the poster variants
+ *   - "video" (short muted loops, ≤60s and silent; ≤61s when known silent,
+ *     see SILENT_R2_MAX_DURATION_SECONDS): the poster variants
  *     (thumb-md + thumb-lg, written by the video pipeline into the normal
  *     thumbnail scheme) plus the web-playable mp4 rendition — all via the R2
  *     public lane, same as images.
