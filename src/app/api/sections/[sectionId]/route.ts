@@ -8,6 +8,7 @@ import {
   validateJobMeta,
   parseJobMeta,
   keepOmittedCaseStudyFields,
+  guardPublishedStory,
   JOB_KEY_PREFIX,
 } from "@/lib/site/jobs";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
@@ -69,6 +70,7 @@ export async function PATCH(
     }
 
     const updates: Record<string, unknown> = {};
+    let jobNotice: string | null = null;
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     // The lock toggle itself — deliberately editable while locked (that's how
@@ -87,10 +89,15 @@ export async function PATCH(
         );
       }
       const stored = parseJobMeta(section.job_meta);
-      const result = validateJobMeta(keepOmittedCaseStudyFields(body.jobMeta, stored));
+      const validated = validateJobMeta(keepOmittedCaseStudyFields(body.jobMeta, stored));
+      if ("error" in validated) {
+        return NextResponse.json({ error: validated.error }, { status: 400 });
+      }
+      const result = guardPublishedStory(validated.meta, stored);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
+      jobNotice = result.notice;
       // Proof is counted from the linked galleries: whenever they change, and
       // otherwise once a day at most (galleries grow after delivery), so an
       // unrelated edit does not pay for a full recount. A count that fails
@@ -194,6 +201,9 @@ export async function PATCH(
         sortMode: data.sort_mode ?? null,
         sortSeed: data.sort_seed ?? null,
       },
+      // Set when the save changed something the editor did not ask for
+      // (a published story moved back to draft): the form shows it.
+      notice: jobNotice,
     });
   } catch (error) {
     console.error("Update section error:", error);

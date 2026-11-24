@@ -147,9 +147,17 @@ export async function GET(request: NextRequest) {
       .map((section) => {
         // Shared site-asset shape — image contract unchanged, videos add
         // kind/duration/posterUrl/videoUrl.
-        const images = (rowsBySection.get(section.id) ?? []).map(
-          ({ images: img }) => serializeSiteAsset(img)
-        );
+        // Job images never carry the upload filename (it often holds the
+        // client's or a guest's name, "250423_a16z-4454.jpg",
+        // "CaseyGraul_25-06-05_..."; the site does not read it), and an
+        // anonymized job's images do not carry their gallery's name either.
+        // Found by review 2026-11-23; the site was already whitelisting
+        // image fields, so nothing reached visitors.
+        const images = (rowsBySection.get(section.id) ?? []).map(({ images: img }) => ({
+          ...serializeSiteAsset(img),
+          name: null,
+          ...(section.meta.anonymize ? { event: null } : {}),
+        }));
         return { ...serializeJob(section.slug, section.meta), images };
       })
       // A job with no published images yet has nothing to show — omit it.

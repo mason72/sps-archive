@@ -43,7 +43,7 @@ async function main() {
   if (!slug || !file) throw new Error("usage: --slug <job-slug> --file <patch.json> [--write] [--publish]");
 
   const { createServiceClient } = await import("../../src/lib/supabase/server");
-  const { WORK_EVENT_SLUG, JOB_KEY_PREFIX, isValidJobSlug, parseJobMeta, validateJobMeta, serializeJob, isJobComplete } =
+  const { WORK_EVENT_SLUG, JOB_KEY_PREFIX, isValidJobSlug, parseJobMeta, validateJobMeta, guardPublishedStory, serializeJob, isJobComplete } =
     await import("../../src/lib/site/jobs");
   const { computeJobProof } = await import("../../src/lib/site/job-proof");
   const supabase = createServiceClient();
@@ -72,9 +72,12 @@ async function main() {
 
   const before = parseJobMeta(section.job_meta);
   const merged = { ...before, ...patch };
-  const result = validateJobMeta(merged);
-  if ("error" in result) throw new Error(`Invalid job_meta: ${result.error}`);
-  const meta = result.meta;
+  const validated = validateJobMeta(merged);
+  if ("error" in validated) throw new Error(`Invalid job_meta: ${validated.error}`);
+  const guarded = guardPublishedStory(validated.meta, before);
+  if ("error" in guarded) throw new Error(guarded.error);
+  if (guarded.notice) console.log(`notice: ${guarded.notice}`);
+  const meta = guarded.meta;
   if (meta.story?.status === "published" && before.story?.status !== "published" && !PUBLISH) {
     throw new Error("This would PUBLISH a story. Publishing is Mason's call: load it as a draft, or pass --publish.");
   }

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   EMPTY_JOB_META,
   keepOmittedCaseStudyFields,
+  guardPublishedStory,
+  clientNameMatch,
   parseJobMeta,
   serializeJob,
   storyNamesClient,
@@ -181,13 +183,68 @@ describe("name guard: the forms review found it missed", () => {
     expect(storyNamesClient(meta)).toBe(false);
   });
 
-  it("the validator refuses to PUBLISH such a story, but a draft may hold it while being edited", () => {
-    const base = { ...COMPLETE, anonymize: true, alias: "Enterprise tech client" };
-    const named = { ...STORY, body: "Rand brought us back." };
-    expect(validateJobMeta({ ...base, story: named })).toEqual({
-      error: expect.stringMatching(/names the client/),
+});
+
+describe("name guard: the forms the second review found", () => {
+  const cases: Array<[string, string, string]> = [
+    ["ServiceNow", "Service Now's team", "servicenow"],
+    ["CocaCola", "the Coca-Cola floor", "cocacola"],
+    ["PayPal", "Pay Pal booked us", "paypal"],
+    ["JPMorgan Chase", "J.P. Morgan's offsite", "jpmorgan"],
+    ["Nestlé", "Nestle's summit", "Nestlé"],
+    ["General Electric", "GE flew us out", "GE"],
+    ["Ernst & Young", "EY partners lined up", "EY"],
+    ["A&E", "the A&E upfront", "A&E"],
+  ];
+  for (const [client, text, word] of cases) {
+    it(`${client} vs "${text}" (matched: ${word})`, () => {
+      expect(clientNameMatch(client, text)?.toLowerCase()).toBe(word.toLowerCase());
     });
-    expect("error" in validateJobMeta({ ...base, story: { ...named, status: "draft" } })).toBe(false);
+  }
+  it("still ignores words that merely contain the name, and generic words", () => {
+    expect(clientNameMatch("Rand Technology", "our brand, the technology floor, grand halls")).toBeNull();
+    expect(clientNameMatch("A&E", "a great event")).toBeNull();
+  });
+});
+
+describe("guardPublishedStory", () => {
+  const named = { ...STORY, body: "Rand brought us back." };
+  const anon: JobMeta = { ...COMPLETE, anonymize: true, alias: "Enterprise tech client", story: named };
+
+  it("refuses to newly publish a story naming an anonymized client, and says which word", () => {
+    const stored: JobMeta = { ...anon, story: { ...named, status: "draft" } };
+    expect(guardPublishedStory(anon, stored)).toEqual({ error: expect.stringContaining('"Rand"') });
+  });
+
+  it("refuses an edit to a published story that still names the client", () => {
+    const stored: JobMeta = { ...anon, story: { ...named, body: "Old text." } };
+    expect("error" in guardPublishedStory(anon, stored)).toBe(true);
+  });
+
+  it("anonymizing a job with a live named story SAVES, with the story moved to draft", () => {
+    // was public: not anonymized, story published and naming the client
+    const stored: JobMeta = { ...COMPLETE, anonymize: false, story: named };
+    const r = guardPublishedStory(anon, stored);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.meta.anonymize).toBe(true);
+    expect(r.meta.story?.status).toBe("draft");
+    expect(r.notice).toMatch(/back to draft/);
+    expect(serializeJob("x", r.meta).story).toBeNull();
+  });
+
+  it("a draft may hold the name while it is being edited", () => {
+    const draft: JobMeta = { ...anon, story: { ...named, status: "draft" } };
+    expect(guardPublishedStory(draft, draft)).toEqual({ meta: draft, notice: null });
+  });
+});
+
+describe("anonymized free text", () => {
+  it("drops eventName and venue that name the client, keeps the rest", () => {
+    const meta: JobMeta = { ...COMPLETE, anonymize: true, alias: "Enterprise tech client", eventName: "Rand Summit", venue: "Messe München" };
+    const job = serializeJob("x", meta);
+    expect(job.eventName).toBeNull();
+    expect(job.venue).toBe("Messe München");
+    expect(serializeJob("x", { ...meta, anonymize: false }).eventName).toBe("Rand Summit");
   });
 });
 

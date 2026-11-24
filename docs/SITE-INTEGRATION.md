@@ -256,11 +256,17 @@ fields; the form footer says the same.
 - `story` `{status: "draft"|"published", source: "mason"|"claude"|"scout",
   headline, dek, body, quote: {text, by, role}|null}`. Body is plain text, a
   blank line between paragraphs. **Only a published story leaves the server**,
-  and never one that names an anonymized client (`storyNamesClient`: the full
-  name, or any distinctive word of it as a whole word, so "HP Inc." catches
-  "HP's"; it fails closed, so the page just has no story). Publishing such a
-  story is refused at save, so the form never claims a story is live that
-  the site withholds. Claude and Scout write drafts; Mason's "Approve and publish"
+  and never one that names an anonymized client (`clientNameMatch`: the
+  full name and each distinctive word as whole words, squeezed forms like
+  "Service Now", initials like "GE", accents ignored; it fails closed, so
+  the page just has no story). At save (`guardPublishedStory`), newly
+  publishing or editing such a story is refused with the matched word; a
+  story that was ALREADY live is moved back to draft and the save goes
+  through, because that save is usually the client asking to be anonymized.
+  On anonymized jobs `eventName` and `venue` that name the client are sent
+  as null too. Job images never carry the upload filename (it often holds a
+  client's or guest's name), and anonymized jobs' images carry no gallery
+  name. Claude and Scout write drafts; Mason's "Approve and publish"
   flips the status and saves in one tap (it rolls back to draft if the save
   fails). A stored status that is not exactly `"published"` reads as draft.
 - `sources` `[{eventId, people}]`: the client galleries the job delivered,

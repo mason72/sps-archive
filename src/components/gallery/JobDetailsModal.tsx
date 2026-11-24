@@ -158,7 +158,9 @@ export function JobDetailsModal({
       }
       const data = (await res.json()) as {
         section: { siteSceneKey: string; jobMeta: unknown };
+        notice?: string | null;
       };
+      if (data.notice) toast.warning(data.notice, { duration: 10000 });
       toast.success(
         doneMessage ??
         (missing.length === 0

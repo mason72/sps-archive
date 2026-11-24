@@ -470,13 +470,39 @@ export function validateJobMeta(
   }
 
   // proof is the server's to count (job-proof.ts): a request body never sets it.
-  const meta: JobMeta = { ...parseJobMeta(obj), proof: null };
-  // serializeJob would withhold it anyway; refusing here means the form can
-  // never say "Story published" about a story the site will not show.
-  if (meta.story?.status === "published" && storyNamesClient(meta)) {
-    return { error: "This story names the client, and the job is anonymized. Remove the name to publish it." };
+  return { meta: { ...parseJobMeta(obj), proof: null } };
+}
+
+const sameStoryText = (a: JobStoryMeta, b: JobStoryMeta) =>
+  JSON.stringify([a.headline, a.dek, a.body, a.quote]) === JSON.stringify([b.headline, b.dek, b.body, b.quote]);
+
+/**
+ * The save-time rule for a published story on an anonymized job that names
+ * the client (serializeJob withholds such a story regardless):
+ *  - newly publishing it, or editing its text while published, is REFUSED,
+ *    with the matched word, so the form can never claim a story is live that
+ *    the site will not show;
+ *  - a story that was ALREADY published, unchanged, is moved back to DRAFT
+ *    and the save goes through. That is the "client asked to be anonymized"
+ *    save: refusing it would keep `anonymize` false and the client's name on
+ *    the live site (second review, 2026-11-23).
+ */
+export function guardPublishedStory(
+  meta: JobMeta,
+  stored: JobMeta
+): { meta: JobMeta; notice: string | null } | { error: string } {
+  const match = storyClientMatch(meta);
+  if (!match || meta.story?.status !== "published") return { meta, notice: null };
+  const wasLive = stored.story?.status === "published" && sameStoryText(stored.story, meta.story);
+  if (!wasLive) {
+    return {
+      error: `This story mentions the client ("${match}"), and the job is anonymized. Take that out to publish it.`,
+    };
   }
-  return { meta };
+  return {
+    meta: { ...meta, story: { ...meta.story, status: "draft" } },
+    notice: `The story mentions the client ("${match}"), so it went back to draft and is off the site. Edit it, then publish again.`,
+  };
 }
 
 /** The case-study fields (2026-11-23), which older clients do not send. */
@@ -537,9 +563,11 @@ export function serializeJob(slug: string, meta: JobMeta) {
     slug,
     client: meta.anonymize ? null : meta.client,
     alias: meta.anonymize ? meta.alias : null,
-    eventName: meta.eventName,
+    // Free text the editor typed: on an anonymized job a field that names the
+    // client is dropped rather than sent ("Rand Technology Summit").
+    eventName: anonymizedText(meta, meta.eventName),
     city: meta.city,
-    venue: meta.venue,
+    venue: anonymizedText(meta, meta.venue),
     services: meta.services,
     eventSize: meta.eventSize,
     duration: meta.duration,
@@ -554,7 +582,7 @@ export function serializeJob(slug: string, meta: JobMeta) {
     // Drafts never leave the server, and neither does a story that names an
     // anonymized client (fail closed: the job page simply has no story).
     story:
-      meta.story && meta.story.status === "published" && !storyNamesClient(meta)
+      meta.story && meta.story.status === "published" && !storyClientMatch(meta)
         ? {
             headline: meta.story.headline,
             dek: meta.story.dek,
@@ -586,37 +614,71 @@ const GENERIC_NAME_WORDS = new Set([
   "services", "partners", "com", "net", "org", "io", "ai", "events", "media", "health",
 ]);
 
+const deaccent = (s: string) => s.normalize("NFD").replace(/\p{M}+/gu, "");
+const squeeze = (s: string) => deaccent(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** Legal forms and joiners: never part of initials ("Ernst & Young LLP" → "EY"). */
+const LEGAL_WORDS = new Set([
+  "inc", "incorporated", "corp", "corporation", "co", "company", "llc", "llp", "ltd", "limited", "plc",
+  "gmbh", "ag", "sa", "se", "bv", "nv", "the", "and", "of", "com", "net", "org", "io",
+]);
+
 /**
- * True when an ANONYMIZED job's story mentions the client, in any field.
- * Checks every distinctive word of the name as a whole word (so "HP Inc."
- * catches "HP's", "Salesforce, Inc." catches "Salesforce", "Amazon.com"
- * catches "Amazon", and "Rand" does not match "brand"), the full name, and
- * for multi-word names the name with spaces and punctuation squeezed out
- * ("Coca-Cola" vs "CocaCola"). Over-matching only withholds a story (and the
- * form says why); under-matching would publish a name the client asked us
- * to keep off the site. Found by review, 2026-11-23: the first version
- * checked only the full name and its first word.
+ * The word or form of `client` found in `text`, or null. Matching, all
+ * case- and accent-insensitive ("Nestlé" = "Nestle"):
+ *  - the full name, and every distinctive word of it, as WHOLE words: "HP
+ *    Inc." catches "HP's", "Salesforce, Inc." catches "Salesforce", and
+ *    "Rand" does not match "brand";
+ *  - squeezed forms (spaces and punctuation removed, 6+ letters) anywhere:
+ *    "ServiceNow" vs "Service Now's", "Coca-Cola" vs "CocaCola", "PayPal" vs
+ *    "Pay Pal", "JPMorgan" vs "J.P. Morgan";
+ *  - the initials of a multi-word name as a whole word: "General Electric"
+ *    catches "GE", "Ernst & Young" catches "EY".
+ * Over-matching only withholds (and the form names the word it matched);
+ * under-matching would publish a name the client asked us to keep off the
+ * site. History: the first version checked the full name and its first word;
+ * two reviews on 2026-11-23 found the forms above.
  */
-export function storyNamesClient(meta: JobMeta): boolean {
-  if (!meta.anonymize || !meta.story || !meta.client) return false;
-  const story = meta.story;
-  const text = [story.headline, story.dek, story.body, story.quote?.text, story.quote?.by, story.quote?.role]
-    .filter(Boolean)
-    .join("\n");
-  const name = meta.client.trim();
+export function clientNameMatch(client: string | null, text: string | null): string | null {
+  if (!client || !text) return null;
+  const name = client.trim();
   const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const distinctive = words.filter((w) => w.length >= 2 && !GENERIC_NAME_WORDS.has(w.toLowerCase()));
-  // A name made only of generic words ("The Company") still counts as itself.
-  const needles = [name, ...(distinctive.length ? distinctive : words)];
+  const plain = deaccent(text);
   const wholeWord = (n: string) =>
-    new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(n)}($|[^\\p{L}\\p{N}])`, "iu").test(text);
-  if (needles.some(wholeWord)) return true;
-  if (words.length >= 2) {
-    const squeeze = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-    const squeezed = squeeze(words.filter((w) => !GENERIC_NAME_WORDS.has(w.toLowerCase())).join(""));
-    if (squeezed.length >= 6 && squeeze(text).includes(squeezed)) return true;
-  }
-  return false;
+    new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(deaccent(n))}($|[^\\p{L}\\p{N}])`, "iu").test(plain);
+
+  const needles = [name, ...distinctive];
+  const initials = words.filter((w) => !LEGAL_WORDS.has(w.toLowerCase())).map((w) => w[0]).join("");
+  if (words.length >= 2 && initials.length >= 2) needles.push(initials);
+  // A name with no distinctive word ("A&E") still counts as itself, squeezed.
+  if (distinctive.length === 0 && squeeze(name).length >= 2) needles.push(squeeze(name));
+  const hit = needles.find(wholeWord);
+  if (hit) return hit;
+
+  const squeezedText = squeeze(text);
+  const squeezedForms = [...distinctive.map(squeeze), squeeze(distinctive.join(""))];
+  const form = squeezedForms.find((f) => f.length >= 6 && squeezedText.includes(f));
+  return form ?? null;
+}
+
+/** On an anonymized job: the client word a published-facing story contains. */
+export function storyClientMatch(meta: JobMeta): string | null {
+  if (!meta.anonymize || !meta.story) return null;
+  const q = meta.story.quote;
+  return clientNameMatch(
+    meta.client,
+    [meta.story.headline, meta.story.dek, meta.story.body, q?.text, q?.by, q?.role].filter(Boolean).join("\n")
+  );
+}
+
+export function storyNamesClient(meta: JobMeta): boolean {
+  return storyClientMatch(meta) !== null;
+}
+
+/** Free text sent for an anonymized job: dropped when it names the client. */
+function anonymizedText(meta: JobMeta, value: string | null): string | null {
+  return meta.anonymize && clientNameMatch(meta.client, value) ? null : value;
 }
 
 /* ─── Slugs ─── */

@@ -5,7 +5,7 @@ import { BookOpen, Check, Plus, Search, Star, Users, X } from "lucide-react";
 import {
   STORY_LIMITS,
   WORK_EVENT_SLUG,
-  storyNamesClient,
+  storyClientMatch,
   type JobMeta,
   type JobSource,
   type JobStoryMeta,
@@ -23,6 +23,8 @@ import {
 interface GalleryRow {
   id: string;
   name: string;
+  /** TDP Work / TDP Website: never a valid source (the server refuses it). */
+  siteGallery: boolean;
   date: string | null;
   photos: number | null;
 }
@@ -43,11 +45,10 @@ interface EventsResponse {
 const HIDDEN_SLUGS = new Set([WORK_EVENT_SLUG, "tdp-website"]);
 
 function toRows(data: EventsResponse): GalleryRow[] {
-  return (data.events ?? [])
-    .filter((e) => !HIDDEN_SLUGS.has(e.slug ?? ""))
-    .map((e) => ({
+  return (data.events ?? []).map((e) => ({
       id: e.id,
       name: e.name,
+      siteGallery: HIDDEN_SLUGS.has(e.slug ?? ""),
       date: e.event_date ?? null,
       photos: e.images?.[0]?.count ?? null,
     }));
@@ -144,7 +145,7 @@ export function JobStoryPanel({
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
         .then((data: EventsResponse) => {
           if (id !== reqId.current) return;
-          setResults(toRows(data));
+          setResults(toRows(data).filter((r) => !r.siteGallery));
           setSearchError(false);
         })
         .catch(() => id === reqId.current && setSearchError(true))
@@ -184,7 +185,7 @@ export function JobStoryPanel({
       ...prev,
       story: { status: "draft", source: "mason", headline: "", dek: null, body: "", quote: null },
     }));
-  const namesClient = storyNamesClient(meta);
+  const clientWord = storyClientMatch(meta);
   const proof = meta.proof;
 
   return (
@@ -226,7 +227,9 @@ export function JobStoryPanel({
                 <li key={s.eventId} className="flex items-center gap-3 py-2">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] text-stone-900">
-                      {row?.name ??
+                      {row?.siteGallery
+                        ? `${row.name}: a site gallery, can't be a source. Remove it.`
+                        : row?.name ??
                         (notFound.has(s.eventId)
                           ? "Gallery not found (deleted?)"
                           : failed.has(s.eventId)
@@ -378,10 +381,10 @@ export function JobStoryPanel({
             </span>
           </div>
 
-          {namesClient && (
+          {clientWord && (
             <p className="text-[12px] leading-relaxed text-red-700">
-              This story names the client, and the job is anonymized. The site will not show it
-              until the name is gone.
+              This story mentions the client (&ldquo;{clientWord}&rdquo;), and the job is
+              anonymized. It can&apos;t be published until that&apos;s gone.
             </p>
           )}
 
