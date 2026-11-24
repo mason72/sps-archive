@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 import { mergeClientSettings } from "@/lib/events/settings-guard";
 import { getCachedThumbnailUrl, getThumbnailKey } from "@/lib/r2/client";
 import { collectEventAssets, purgeEventAssets, purgeEventOwnedFiles } from "@/lib/events/purge-assets";
@@ -542,6 +543,9 @@ export async function DELETE(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // The archive's stats row counted this gallery; recount on the next load.
+    await invalidateDashboardStats(supabase, user!.id);
 
     // Clean up R2 for every image (original + thumbnails + video rendition),
     // then the event's own logo, cover raster and guest list (PII), after the

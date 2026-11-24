@@ -385,6 +385,24 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_stats_cache: {
+        Row: {
+          computed_at: string
+          stats: Json
+          user_id: string
+        }
+        Insert: {
+          computed_at: string
+          stats: Json
+          user_id: string
+        }
+        Update: {
+          computed_at?: string
+          stats?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_sends: {
         Row: {
           body_html: string
@@ -849,6 +867,33 @@ export type Database = {
           },
         ]
       }
+      highlight_directions: {
+        Row: {
+          created_at: string
+          owner_user_id: string
+          signature: string
+          trained_on_events: number
+          trained_on_picks: number
+          vector: number[] | null
+        }
+        Insert: {
+          created_at?: string
+          owner_user_id: string
+          signature: string
+          trained_on_events?: number
+          trained_on_picks?: number
+          vector?: number[] | null
+        }
+        Update: {
+          created_at?: string
+          owner_user_id?: string
+          signature?: string
+          trained_on_events?: number
+          trained_on_picks?: number
+          vector?: number[] | null
+        }
+        Relationships: []
+      }
       images: {
         Row: {
           aesthetic_score: number | null
@@ -1293,6 +1338,7 @@ export type Database = {
       person_reference_centroids: {
         Row: {
           centroid: string
+          centroid_bits: unknown
           face_count: number
           name: string
           name_key: string
@@ -1302,6 +1348,7 @@ export type Database = {
         }
         Insert: {
           centroid: string
+          centroid_bits?: unknown
           face_count: number
           name: string
           name_key: string
@@ -1311,6 +1358,7 @@ export type Database = {
         }
         Update: {
           centroid?: string
+          centroid_bits?: unknown
           face_count?: number
           name?: string
           name_key?: string
@@ -1469,7 +1517,50 @@ export type Database = {
           published_target?: string | null
           section_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "scout_postcard_links_client_event_id_fkey"
+            columns: ["client_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scout_postcard_links_client_image_id_fkey"
+            columns: ["client_image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scout_postcard_links_client_section_id_fkey"
+            columns: ["client_section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scout_postcard_links_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scout_postcard_links_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "images"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scout_postcard_links_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       section_images: {
         Row: {
@@ -2210,6 +2301,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      dashboard_stats_clock: { Args: never; Returns: string }
       database_footprint: {
         Args: never
         Returns: {
@@ -2312,6 +2404,10 @@ export type Database = {
         Args: { p_share_id: string }
         Returns: undefined
       }
+      invalidate_dashboard_stats: {
+        Args: { p_user_id: string }
+        Returns: undefined
+      }
       match_person_cluster: {
         Args: { p_limit?: number; p_person_id: string }
         Returns: {
@@ -2384,6 +2480,14 @@ export type Database = {
           similarity: number
         }[]
       }
+      score_images_by_vectors: {
+        Args: {
+          query_embeddings: Json
+          target_event_id: string
+          target_user_id: string
+        }
+        Returns: Json
+      }
       scout_image_crew_candidates: {
         Args: { p_image_id: string; p_per_face?: number; p_user_id: string }
         Returns: {
@@ -2438,6 +2542,10 @@ export type Database = {
           p_next_offset?: number
           p_skipped: number
         }
+        Returns: boolean
+      }
+      store_dashboard_stats: {
+        Args: { p_computed_at: string; p_stats: Json; p_user_id: string }
         Returns: boolean
       }
     }

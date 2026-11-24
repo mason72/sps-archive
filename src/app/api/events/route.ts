@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasIntelAccess } from "@/lib/event-intel/access";
 import { clientSettingsForCreate } from "@/lib/events/settings-guard";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 import { enrichEvents } from "@/lib/events/enrich";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { resolveEventStatuses } from "@/lib/events/status";
@@ -358,6 +359,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) throw error;
+    await invalidateDashboardStats(supabase, user!.id);
 
     // Create sections from template if provided, otherwise seed a default
     // "Highlights" section. NOTE: never name a real section "All Photos" —

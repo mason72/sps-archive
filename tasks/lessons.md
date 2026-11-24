@@ -5063,3 +5063,17 @@ vitest 2 to 4.1.12 pulled Vite 8, which compiles with oxc and **ignores the `esb
 - (b) After moving an overlay, check `elementFromPoint` at every control it could cover, with a real hover.
 - (c) For phone checks use the saved probe or a `/dev` fixture, never a desktop window resize.
 - (d) A paged list fed by an IntersectionObserver needs a stop on failure (`allFailed`) and a source guard (a ref). Otherwise a persistent error loops, and switching galleries mid-request mixes the two lists.
+
+## 213. A replace-only cache must write on every path, and its ordering stamps must come from one clock (2026-11-24)
+
+The archive stats row moved to a per-account cache (`dashboard_stats_cache`, migration 103): 2.5 s and 31 requests down to ~0.07 s. Two fresh reviews found three bugs in my first two versions, and two of them are general:
+
+- **"Don't cache zeros" was written as "skip the write".** In a cache that is only ever replaced by a write, a skipped write freezes whatever row was there. An archive that dropped from 40 photos to 0 would have served 40 forever, and recounted on every load. The fix is to write a marker that no read accepts (`{}`), under the same ordering, never to skip.
+- **Ordering writes by "when the computation started" is only as good as the clock.** I stamped with `new Date()` on whichever Vercel instance ran the work. An invalidation from the delete's instance and a recount from another instance compare two clocks, and a few milliseconds of skew lets a recount that read the archive before the delete win. The database is now the only clock: `dashboard_stats_clock()` before reading, and `invalidate_dashboard_stats` stamps itself.
+- **Invalidate where the data changes, not where the screen happens to be.** The first version had the archive list request a recount (`?fresh=1`) after its own delete. It missed the editor's delete, the SPS import and two machine-created galleries, and it made a pin click run the full 2.5 s count. The server-side write now invalidates, so every caller is covered by construction.
+
+**Rules.**
+- (a) In a cache replaced only by writes, every computation path writes something, even if only an "unusable" marker.
+- (b) Stamps that order writes come from the database, never from an app server.
+- (c) Invalidate in the write path (the route or library that changes the data), never in the UI that happened to trigger it. Then grep every insert or delete of that table, and report the count (here: 6 sites).
+- (d) Prove the races in a rolled-back transaction. Read the result in a SEPARATE statement: a read inside the same `INSERT ... SELECT` sees the snapshot from before the function's write, and showed the old row for a write that had succeeded.

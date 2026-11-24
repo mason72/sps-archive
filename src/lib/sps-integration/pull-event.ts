@@ -40,6 +40,7 @@ import {
   sniffImageMime,
 } from "@/lib/upload/media";
 import { INTAKE_SECTION_NAME } from "@/lib/sections/intake";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 import { inngest } from "@/lib/inngest/client";
 import { describeError, reportSystemError } from "@/lib/monitoring/report";
 import { HttpStatusError, isTransientResult, retryResult, retryThrown } from "@/lib/net/retry";
@@ -283,6 +284,8 @@ export async function startSpsPull(
     .select("id")
     .single();
   if (eventError) throw eventError;
+  // A new gallery in the archive; its photos follow over the next minutes.
+  await invalidateDashboardStats(supabase, userId);
 
   // Photos land in the intake section, never Highlights — an SPS gallery is the
   // live feed, and Highlights is the curated best-of the photographer builds

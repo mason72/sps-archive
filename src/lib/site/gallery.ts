@@ -1,6 +1,7 @@
 import type { createServiceClient } from "@/lib/supabase/server";
 import { SITE_SCENES } from "./scenes";
 import { hasIntelAccess } from "@/lib/event-intel/access";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
 
@@ -82,6 +83,7 @@ export async function getOrCreateWebsiteGallery(
       .single();
     if (error) throw error;
     gallery = created;
+    await invalidateDashboardStats(supabase, userId);
   }
 
   await ensureWebsiteSections(supabase, gallery.id);

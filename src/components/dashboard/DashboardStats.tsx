@@ -28,7 +28,8 @@ export function DashboardStats() {
 
     loadStats();
 
-    // Re-fetch when events change (delete, duplicate, etc.)
+    // Re-fetch when events change (delete, duplicate, etc.). The server cache
+    // is cleared by those writes themselves, so this read already recounts.
     window.addEventListener("events-changed", loadStats);
     return () => window.removeEventListener("events-changed", loadStats);
   }, []);

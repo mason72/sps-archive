@@ -18,6 +18,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 import {
   buildImageKey,
   copyWithinR2,
@@ -165,7 +166,10 @@ export async function ensureScoutRoadEvent(db: ScoutDb, ownerId: string): Promis
     })
     .select("id")
     .single();
-  if (!error) return data.id;
+  if (!error) {
+    await invalidateDashboardStats(db, ownerId);
+    return data.id;
+  }
   // Another postcard created it a moment ago (the slug is unique).
   if (isUniqueViolation(error)) {
     const raced = await read();

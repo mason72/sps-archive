@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clientSettingsForCreate } from "@/lib/events/settings-guard";
 import { getAuthUser } from "@/lib/auth/helpers";
+import { invalidateDashboardStats } from "@/lib/dashboard/stats";
 import { nanoid } from "nanoid";
 
 /**
@@ -54,6 +55,7 @@ export async function POST(
       .single();
 
     if (createError) throw createError;
+    await invalidateDashboardStats(supabase, user!.id);
 
     // Copy sections (without images)
     const { data: sections } = await supabase
