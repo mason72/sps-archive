@@ -164,6 +164,7 @@ export async function indexEventBatch(
     .is("ai_indexed_at", null)
     .eq("thumbnail_generated", true)
     .eq("media_type", "image")
+    .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
     .or(aiIndexEligibleFilter())
     .order("ai_index_attempts", { ascending: true })
     .order("id", { ascending: true })
@@ -368,6 +369,7 @@ export async function indexEventBatch(
     .is("ai_indexed_at", null)
     .eq("thumbnail_generated", true)
     .eq("media_type", "image")
+    .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
     .or(aiIndexEligibleFilter());
 
   return {

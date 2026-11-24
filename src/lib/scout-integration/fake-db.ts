@@ -30,6 +30,8 @@ export class FakeDb {
     images: [],
     section_images: [],
     scout_postcard_links: [],
+    event_intel: [],
+    event_orgs: [],
   };
   /** Every write, in order: [op, table]. */
   log: [string, string][] = [];
@@ -49,6 +51,8 @@ export class FakeDb {
     const ids = new Set(rows.map((r) => r.id));
     this.tables.scout_postcard_links = this.tables.scout_postcard_links.filter((l) => !ids.has(l.image_id));
     this.tables.section_images = this.tables.section_images.filter((l) => !ids.has(l.image_id));
+    // client_image_id references images ON DELETE SET NULL (migration 102).
+    for (const l of this.tables.scout_postcard_links) if (ids.has(l.client_image_id)) l.client_image_id = null;
   }
 }
 
@@ -60,10 +64,12 @@ class Builder implements PromiseLike<Result> {
   private lim: number | null = null;
   private sortBy: { col: string; asc: boolean } | null = null;
   private mode: "many" | "single" | "maybe" = "many";
+  private returning = false;
 
   constructor(private db: FakeDb, private table: string) {}
 
   select() {
+    if (this.op !== "select") this.returning = true;
     return this;
   }
   insert(rows: Row | Row[]) {
@@ -86,6 +92,22 @@ class Builder implements PromiseLike<Result> {
   }
   in(col: string, vals: unknown[]) {
     this.preds.push((r) => vals.includes(r[col]));
+    return this;
+  }
+  is(col: string, val: null) {
+    this.preds.push((r) => (r[col] ?? null) === val);
+    return this;
+  }
+  gt(col: string, val: string) {
+    this.preds.push((r) => r[col] != null && r[col] > val);
+    return this;
+  }
+  gte(col: string, val: string) {
+    this.preds.push((r) => r[col] != null && r[col] >= val);
+    return this;
+  }
+  lte(col: string, val: string) {
+    this.preds.push((r) => r[col] != null && r[col] <= val);
     return this;
   }
   not() {
@@ -139,7 +161,7 @@ class Builder implements PromiseLike<Result> {
     if (this.op === "update") {
       for (const r of hit) Object.assign(r, this.patch);
       this.db.log.push(["update", this.table]);
-      return { data: null, error: null };
+      return { data: this.returning ? hit.map((r) => ({ ...r })) : null, error: null };
     }
     if (this.op === "delete") {
       this.db.tables[this.table] = rows.filter((r) => !hit.includes(r));

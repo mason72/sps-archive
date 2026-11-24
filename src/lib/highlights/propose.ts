@@ -91,6 +91,7 @@ async function allEventImages(
       .eq("events.user_id", ownerUserId)
       .eq("thumbnail_generated", true)
       .eq("is_cover_upload", false)
+      .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
       .order("id", { ascending: true })
       .range(page * 1000, page * 1000 + 999);
     if (error) throw error;
@@ -129,6 +130,7 @@ export async function buildHighlightsPlan(
     .select("id, events!images_event_id_fkey!inner(user_id)", { count: "exact", head: true })
     .eq("event_id", eventId)
     .eq("events.user_id", ownerUserId)
+    .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
     .not("ai_indexed_at", "is", null);
   if (idxErr) throw idxErr;
 

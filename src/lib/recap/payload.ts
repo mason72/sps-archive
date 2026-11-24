@@ -183,7 +183,9 @@ export async function resolveRecap(
           .eq("event_id", event.id)
           .eq("thumbnail_generated", true)
           // Never a cover upload (a client logo; lesson 184).
-          .eq("is_cover_upload", false);
+          .eq("is_cover_upload", false)
+          // A crew BTS copy (Scout) is not one of the client's photos.
+          .eq("is_crew_bts", false);
         if (ids) q = q.in("id", ids);
         return q;
       }, selected)

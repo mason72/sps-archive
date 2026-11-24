@@ -114,6 +114,7 @@ export async function POST(
           // A cover upload (a client logo) is not a photo; it must never be
           // planned into a section (lesson 184).
           .eq("is_cover_upload", false)
+          .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
           .order("created_at", { ascending: true })
           .order("id", { ascending: true })
           .range(offset, offset + 999);

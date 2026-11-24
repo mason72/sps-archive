@@ -50,7 +50,8 @@ export async function GET(
       .eq("media_type", "image")
       .eq("thumbnail_generated", true)
       // Same population as indexedCount, which leaves cover uploads out.
-      .eq("is_cover_upload", false);
+      .eq("is_cover_upload", false)
+      .eq("is_crew_bts", false); // a crew BTS copy (Scout) is not the client's photo
 
     const { plan, indexedCount } = await buildScenePlan(supabase, eventId, user!.id, key);
     if (indexedCount === 0) {

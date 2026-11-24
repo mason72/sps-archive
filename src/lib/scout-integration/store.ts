@@ -92,7 +92,7 @@ export function scoutDb({ deadlineAt = Number.POSITIVE_INFINITY }: { deadlineAt?
 }
 
 const LINK_COLUMNS =
-  "postcard_id, image_id, event_id, section_id, gig_id, author_email, created_at, published_target, published_at";
+  "postcard_id, image_id, event_id, section_id, gig_id, author_email, created_at, published_target, published_at, client_event_id, client_image_id, client_section_id, client_placed_at";
 
 // ── lookups ────────────────────────────────────────────────────────────────
 
@@ -123,7 +123,7 @@ export async function getLink(db: ScoutDb, postcardId: string): Promise<Postcard
   return (data as PostcardLink | null) ?? null;
 }
 
-async function requireLink(db: ScoutDb, postcardId: string): Promise<PostcardLink> {
+export async function requireLink(db: ScoutDb, postcardId: string): Promise<PostcardLink> {
   const link = await getLink(db, postcardId);
   if (!link) throw new ScoutIntegrationError("No such postcard in Pixeltrunk.", 404);
   return link;
@@ -744,7 +744,7 @@ export async function assertStoredClipIsSilent(
   return { bytes: bytes.byteLength, durationSeconds };
 }
 
-async function readStoredClip(r2Key: string, timeoutMs = 30_000): Promise<{ buf: Buffer; etag: string | null }> {
+export async function readStoredClip(r2Key: string, timeoutMs = 30_000): Promise<{ buf: Buffer; etag: string | null }> {
   const url = new URL(await getPresignedDownloadUrl(r2Key, 600));
   // Muting only removes streams, but the rewritten header can come out a few
   // KB larger than the source's, so the read-back allows 1 MB over the cap.
@@ -813,6 +813,8 @@ export interface PostcardDetail {
   crew: CrewInPhoto[];
   published_target: string | null;
   published_at: string | null;
+  /** The client gallery holding this postcard's BTS copy, if placed. */
+  client_event_id: string | null;
 }
 
 export async function postcardDetail(db: ScoutDb, postcardId: string): Promise<PostcardDetail> {
@@ -853,6 +855,7 @@ export async function postcardDetail(db: ScoutDb, postcardId: string): Promise<P
     crew,
     published_target: link.published_target,
     published_at: link.published_at,
+    client_event_id: link.client_event_id ?? null,
   };
 }
 
@@ -870,7 +873,7 @@ async function websiteSectionFor(db: ScoutDb, ownerId: string, target: string) {
 }
 
 /** Re-sync the public lane; a copy or delete that failed is an error, not a footnote. */
-async function syncOrThrow(db: ScoutDb, imageId: string, what: string) {
+export async function syncOrThrow(db: ScoutDb, imageId: string, what: string) {
   const sync = await syncSitePublication(db, [imageId]);
   if (sync.failed.length) {
     throw new ScoutIntegrationError(

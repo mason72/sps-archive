@@ -1,6 +1,6 @@
 import { isCuratedSectionName } from "./intake";
 import { isAiLooksMeta } from "./ai-looks";
-import { isScoutGigMeta } from "@/lib/scout-integration/validate";
+import { BTS_SECTION_NAME, isScoutBtsMeta, isScoutGigMeta } from "@/lib/scout-integration/validate";
 
 /**
  * What "Rebuild all sections" does to a section that already exists.
@@ -19,6 +19,9 @@ import { isScoutGigMeta } from "@/lib/scout-integration/validate";
  *     Looks button. Its members are links, so a rebuild would not lose a photo
  *     by deleting it, but it would silently undo a click and the name sorter
  *     never recreates it (ai-looks.ts).
+ *   - a client gallery's "Behind the scenes" section (`job_meta.kind =
+ *     "scout-bts"`, or that name; 2026-11-24): crew BTS copies placed by Scout,
+ *     which the sort itself leaves out, so they would otherwise lose their home.
  *   - a Scout gig section (`job_meta.kind = "scout-gig"`, 2026-11-23): one
  *     gig's crew postcards in the Scout Road gallery. Scout's postcard links
  *     point at it, and the name sorter would scatter a gig's photos into
@@ -39,7 +42,7 @@ export interface RebuildCandidate {
   jobMeta?: unknown;
 }
 
-export type KeepReason = "highlights" | "locked" | "smart" | "site" | "ai-looks" | "scout-gig";
+export type KeepReason = "highlights" | "locked" | "smart" | "site" | "ai-looks" | "scout-gig" | "scout-bts";
 
 /** Why a section survives a rebuild, or null when it is replaced. */
 export function rebuildKeepReason(s: RebuildCandidate): KeepReason | null {
@@ -49,6 +52,9 @@ export function rebuildKeepReason(s: RebuildCandidate): KeepReason | null {
   if (s.siteSceneKey) return "site";
   if (isAiLooksMeta(s.jobMeta)) return "ai-looks";
   if (isScoutGigMeta(s.jobMeta)) return "scout-gig";
+  // The client's Behind-the-scenes section: its crew photos are left out of
+  // the sort, so deleting the section would leave them in no section at all.
+  if (isScoutBtsMeta(s.jobMeta) || s.name.trim().toLowerCase() === BTS_SECTION_NAME.toLowerCase()) return "scout-bts";
   return null;
 }
 
@@ -71,4 +77,5 @@ export const KEEP_REASON_LABEL: Record<KeepReason, string> = {
   // section's own name ("AI Looks · AI renders"), so it stays short like the rest.
   "ai-looks": "AI renders",
   "scout-gig": "Scout gig",
+  "scout-bts": "crew behind the scenes",
 };

@@ -216,3 +216,33 @@ export function isScoutGigMeta(jobMeta: unknown): boolean {
 /** The private crew-BTS gallery every postcard is filed in (one section per gig). */
 export const SCOUT_ROAD_SLUG = "scout-road";
 export const SCOUT_ROAD_NAME = "Scout Road (crew BTS)";
+
+/** The section a crew-loved postcard is placed in, in the CLIENT's gallery. */
+export const BTS_SECTION_NAME = "Behind the scenes";
+/** `sections.job_meta.kind` for that section when Scout created it. */
+export const SCOUT_BTS_KIND = "scout-bts";
+
+/** True for the client gallery's Behind-the-scenes section made by Scout. */
+export function isScoutBtsMeta(jobMeta: unknown): boolean {
+  return !!jobMeta && typeof jobMeta === "object" && (jobMeta as { kind?: unknown }).kind === SCOUT_BTS_KIND;
+}
+
+/** A calendar event id without its recurring-instance suffix ("abc_20261124T…" → "abc"). */
+export function calendarBaseId(id: string): string {
+  const i = id.indexOf("_");
+  return i > 0 ? id.slice(0, i) : id;
+}
+
+/** Does any stored calendar id name this event, exactly or by its base id? */
+export function calendarIdsMatch(stored: readonly string[] | null | undefined, wanted: string): boolean {
+  if (!stored?.length || !wanted) return false;
+  const base = calendarBaseId(wanted);
+  return stored.some((s) => s === wanted || calendarBaseId(s) === base);
+}
+
+/** Pure: the YYYY-MM-DD bounds of a window of `days` from `date`, padded a day each side. */
+export function paddedWindow(date: string, days: number): { from: string; to: string } {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  const day = (n: number) => new Date(t + n * 86_400_000).toISOString().slice(0, 10);
+  return { from: day(-1), to: day(days) };
+}

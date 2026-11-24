@@ -50,6 +50,25 @@ create table if not exists scout_postcard_links (
 );
 
 create index if not exists scout_postcard_links_image_idx on scout_postcard_links (image_id);
+
+-- The CLIENT BTS BONUS (2026-11-24): a crew-loved postcard is COPIED into the
+-- client's own gallery (images.event_id is single-owner, and the guest gallery,
+-- ZIP and downloads read an event's photos by event_id). The link remembers
+-- exactly that copy, so a pull deletes it and nothing else. `set null`: a copy
+-- a person deletes in Pixeltrunk simply stops being placed.
+alter table scout_postcard_links
+  add column if not exists client_event_id uuid references events(id) on delete set null,
+  add column if not exists client_image_id uuid references images(id) on delete set null,
+  add column if not exists client_section_id uuid references sections(id) on delete set null,
+  add column if not exists client_placed_at timestamptz;
+create index if not exists scout_postcard_links_client_image_idx on scout_postcard_links (client_image_id);
+
+-- Marks that copy in the client's event: a crew behind-the-scenes photo the
+-- client SEES and DOWNLOADS, but that no people/face, recap, sort, Highlights,
+-- cover or AI reader may treat as one of their photos. Constant default, so
+-- PG 11+ adds it without rewriting the table; the lock is brief and bounded
+-- by lock_timeout above.
+alter table images add column if not exists is_crew_bts boolean not null default false;
 create index if not exists scout_postcard_links_gig_idx on scout_postcard_links (gig_id);
 
 alter table scout_postcard_links enable row level security;

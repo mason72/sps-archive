@@ -877,6 +877,7 @@ export type Database = {
           height: number | null
           id: string
           is_cover_upload: boolean
+          is_crew_bts: boolean
           is_eyes_open: boolean | null
           iso: number | null
           last_error: string | null
@@ -936,6 +937,7 @@ export type Database = {
           height?: number | null
           id?: string
           is_cover_upload?: boolean
+          is_crew_bts?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null
@@ -995,6 +997,7 @@ export type Database = {
           height?: number | null
           id?: string
           is_cover_upload?: boolean
+          is_crew_bts?: boolean
           is_eyes_open?: boolean | null
           iso?: number | null
           last_error?: string | null
@@ -1423,6 +1426,10 @@ export type Database = {
       scout_postcard_links: {
         Row: {
           author_email: string | null
+          client_event_id: string | null
+          client_image_id: string | null
+          client_placed_at: string | null
+          client_section_id: string | null
           created_at: string
           event_id: string
           gig_id: string
@@ -1434,6 +1441,10 @@ export type Database = {
         }
         Insert: {
           author_email?: string | null
+          client_event_id?: string | null
+          client_image_id?: string | null
+          client_placed_at?: string | null
+          client_section_id?: string | null
           created_at?: string
           event_id: string
           gig_id: string
@@ -1445,6 +1456,10 @@ export type Database = {
         }
         Update: {
           author_email?: string | null
+          client_event_id?: string | null
+          client_image_id?: string | null
+          client_placed_at?: string | null
+          client_section_id?: string | null
           created_at?: string
           event_id?: string
           gig_id?: string

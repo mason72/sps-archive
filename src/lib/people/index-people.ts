@@ -333,6 +333,7 @@ export async function buildPersonDetail(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .in("event_id", eventChunk)
         .eq("media_type", "image")
+        .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
         // Not a cover upload: "FM Logo" and "What IF logo" pass
         // looksLikePersonName and were cards on the wall (lesson 184).
         .eq("is_cover_upload", false)
@@ -412,6 +413,7 @@ export async function buildPersonDetail(
       .select("id, event_id, r2_key, original_filename, aesthetic_score")
       .in("id", slice)
       .eq("media_type", "image")
+      .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
       .eq("is_cover_upload", false)
       .eq("processing_status", "complete");
     if (error) throw error;
@@ -536,6 +538,7 @@ export async function buildPeopleIndex(
         .select("id, event_id, r2_key, parsed_name, original_filename, aesthetic_score")
         .eq("event_id", eventId)
         .eq("media_type", "image")
+        .eq("is_crew_bts", false) // a crew BTS copy (Scout) is not the client's photo
         // Not a cover upload: "FM Logo" and "What IF logo" pass
         // looksLikePersonName and were cards on the wall (lesson 184).
         .eq("is_cover_upload", false)

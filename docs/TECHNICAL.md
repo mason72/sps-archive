@@ -668,6 +668,58 @@ and response) goes through `scrubSignedUrls` (`src/lib/net/scrub-urls.ts`),
 which replaces each URL's query string with `?<redacted>`; Modal scrubs its own
 errors the same way (`scrub_urls`) and does not chain the original exception.
 
+**Client BTS bonus (Mason, 2026-11-24).** Crew-loved postcards (2+ Banger
+stamps in Scout) go into the CLIENT's own gallery, 24 h after qualifying unless
+an admin pulls them; a pull removes them. Scout decides when; Pixeltrunk only
+places and removes on request (`src/lib/scout-integration/client-bts.ts`). NDA
+gigs are allowed here (the client's own private gallery).
+
+- `GET /client-galleries?date=YYYY-MM-DD&days=N[&calendar_event_id=…]` (days
+  1–31) → `{ "candidates": [{ "event_id", "name", "date", "client_name",
+  "match": "calendar" | "date" }] }`. Calendar matches first (the owner's
+  `event_intel.calendar_event_ids`, exact or by the recurring base id before
+  `_`), then galleries dated in `date - 1 .. date + days`; never Scout Road,
+  the website or Work galleries; at most 30, newest first in each group;
+  `client_name` is the payer organisation, else the end brand.
+- `PUT /postcards/:id/client {event_id}` → `{ "ok": true, "event_id",
+  "section_id" }`. 404 unknown postcard or not one of the studio's client
+  galleries, 409 not archived yet or a locked "Behind the scenes" section.
+  Idempotent; a different `event_id` moves it.
+- `DELETE /postcards/:id/client` → `{ "removed": true|false }` (idempotent;
+  an unknown postcard is `{ "removed": false }`). `DELETE /postcards/:id` now
+  removes the client placement first (`deletePostcardEverywhere`).
+
+**Data model: a COPY, not a link.** `images.event_id` is single-owner and every
+client path reads an event's photos by it (the guest gallery's
+`readGalleryImageRows`, the ZIP and downloads in `download-core`, share scope,
+favorites); a section link to the Scout Road row would show in none. So the
+copy is a new `images` row owned by the client event, with its own R2 objects
+(original by ETag-matched server-side copy, plus the three posters), marked
+`is_crew_bts` and inserted with `ai_indexed_at` set. `scout_postcard_links`
+records it (`client_event_id`, `client_image_id`, `client_section_id`,
+`client_placed_at`; migration 102), so a pull deletes exactly that row and its
+objects, and only if it is a crew BTS copy in the recorded gallery. It sits in
+a "Behind the scenes" section (found by name, else created last with
+`job_meta.kind = "scout-bts"`), which Rebuild keeps. A clip copy is the silent
+stored original, re-judged with the clip checks before copying. It plays in the
+client gallery from that mp4 (signed R2 URL), never Stream. A pull removes the
+copy even from a locked section: the copy is Scout's.
+
+**Kept out of the client's photos.** Explicit `.eq("is_crew_bts", false)` in:
+the AI batch select and its count (`index-event.ts`), /people (3 reads,
+`index-people.ts`), face-cluster naming (`cluster-event.ts`), Highlights pool
+and count (`highlights/propose.ts`), the mosaic cover pool (`cover/pool.ts`),
+the recap photo count (`recap/payload.ts`), Sort into sections / Rebuild and
+its preview (`auto-sections`, `section-plan`), the scene planner
+(`scene-plan`). A guard test (`crew-bts-exclusions.test.ts`) counts them. By
+construction: no faces and no embedding ever exist for the copy, so face
+clustering, selfie search, identity scan, smart sections and Highlights picks
+cannot see it; its filename is never a person and every copy is its own
+singleton stack (a plain card). There is no client "new photos" email in this
+app. Not excluded (by design): the gallery, share scope, favorites, ZIP and
+downloads. Not excluded (noted): the recap's section count includes the
+Behind-the-scenes section.
+
 **Release steps for clips, in order** (none of them done by the branch):
 1. `modal deploy modal/video_pipeline.py`. It prints two endpoint URLs now:
    `process_video` (unchanged, keeps `VIDEO_PIPELINE_URL`) and `mute_video`.
@@ -684,7 +736,10 @@ errors the same way (`scrub_urls`) and does not chain the original exception.
 5. Deploy the app (migration 102 first, then the code). The deploy workflow
    re-syncs Inngest; confirm `scout-clip-cleanup` is listed in the Inngest
    dashboard, since a new function has failed to register before.
-6. Send one real Site-worthy clip from Scout and confirm: row `has_audio false`,
+6. Client BTS: with migration 102 applied (it adds `images.is_crew_bts` and
+   the `client_*` columns), PUT one postcard into a test client gallery, open
+   its share link and the ZIP, then DELETE it and confirm both are gone.
+7. Send one real Site-worthy clip from Scout and confirm: row `has_audio false`,
    nothing left under `scout-staging/` for it (after the cleanup job's
    wait, about 6 minutes), and the website plays it silent.
 

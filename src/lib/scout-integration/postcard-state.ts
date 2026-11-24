@@ -15,6 +15,11 @@ export interface PostcardLink {
   created_at: string;
   published_target: string | null;
   published_at: string | null;
+  /** The client BTS bonus: the COPY placed in a client's gallery, if any. */
+  client_event_id?: string | null;
+  client_image_id?: string | null;
+  client_section_id?: string | null;
+  client_placed_at?: string | null;
 }
 
 /**
