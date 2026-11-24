@@ -15,10 +15,18 @@
  *   - Faces are honest only for headshot-led galleries (Atlassian Expo 2026:
  *     7,747 photos, 111 people), so people are counted only from sources the
  *     editor marked, and are null when none is.
+ *
+ * Known limit (review, 2026-11-23): "clock-free" holds while every source
+ * shares ONE clock error. Galleries whose cameras sat on different zones, or
+ * rows ingested before 2026-09-24 (stored in the ingesting machine's zone,
+ * docs/GOTCHAS.md), can split one real day in two or merge two into one.
+ * Check the day count against the job's duration before publishing a story
+ * that quotes it.
  */
 
 import { readAllRows } from "@/lib/supabase/paged";
-import type { JobProofMeta, JobSource } from "./jobs";
+import { WORK_EVENT_SLUG, type JobProofMeta, type JobSource } from "./jobs";
+import { WEBSITE_EVENT_SLUG } from "./gallery";
 
 export const DAY_GAP_MS = 4 * 60 * 60 * 1000;
 /** A run shorter than this is a stray (a test frame, a late upload), not a day. */
@@ -79,18 +87,23 @@ export async function computeJobProof(
 
   const { data: owned, error: ownErr } = await supabase
     .from("events")
-    .select("id")
+    .select("id, slug")
     .in("id", ids)
     .eq("user_id", userId);
   if (ownErr) throw new Error(`Source gallery lookup failed: ${ownErr.message}`);
   if ((owned ?? []).length !== ids.length) {
     throw new JobProofError("A source gallery was not found");
   }
+  if ((owned ?? []).some((e) => e.slug === WORK_EVENT_SLUG || e.slug === WEBSITE_EVENT_SLUG)) {
+    throw new JobProofError("The TDP Work and TDP Website galleries can't be a job's source");
+  }
 
   // One read gives both the photo count and the capture times, so the two
   // numbers can never disagree about which photos exist.
   const rows = await readAllRows<{ id: string; taken_at: string | null }>(() =>
-    supabase.from("images").select("id, taken_at").in("event_id", ids)
+    // A gallery's uploaded cover (usually the client's logo) is an images row
+    // too; it was counted as a photo until review caught it (lesson 184).
+    supabase.from("images").select("id, taken_at").in("event_id", ids).eq("is_cover_upload", false)
   );
 
   const peopleIds = sources.filter((s) => s.people).map((s) => s.eventId);

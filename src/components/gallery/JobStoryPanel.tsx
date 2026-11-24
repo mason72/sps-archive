@@ -10,7 +10,6 @@ import {
   type JobSource,
   type JobStoryMeta,
 } from "@/lib/site/jobs";
-import { WEBSITE_EVENT_SLUG } from "@/lib/site/gallery";
 
 /**
  * The case-study half of the job form (twodudesphoto.com/work/<slug>):
@@ -38,7 +37,10 @@ interface EventsResponse {
   }>;
 }
 
-const HIDDEN_SLUGS = new Set([WORK_EVENT_SLUG, WEBSITE_EVENT_SLUG]);
+// "tdp-website" is WEBSITE_EVENT_SLUG (src/lib/site/gallery.ts), written out
+// because that module imports server-only code and this file ships to the
+// browser. The server refuses both galleries as sources regardless.
+const HIDDEN_SLUGS = new Set([WORK_EVENT_SLUG, "tdp-website"]);
 
 function toRows(data: EventsResponse): GalleryRow[] {
   return (data.events ?? [])
@@ -97,13 +99,14 @@ export function JobStoryPanel({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const reqId = useRef(0);
-  // Ids already asked for, so a gallery that never comes back (deleted) is
-  // asked about once, not on every render. Deliberately NOT cancelled on
-  // re-render: an answer for an id is still the answer after a re-render,
-  // and cancelling it left the guard believing the name had been fetched.
+  // Ids already asked for, so each linked gallery is looked up once, not on
+  // every render. Deliberately NOT cancelled on re-render: an answer for an
+  // id is still the answer after a re-render, and cancelling it left the
+  // guard believing the name had been fetched. A failed lookup is shown per
+  // row and asked again only when the form is reopened.
   const asked = useRef(new Set<string>());
   const [notFound, setNotFound] = useState<Set<string>>(new Set());
-  const [lookupFailed, setLookupFailed] = useState(false);
+  const [failed, setFailed] = useState<Set<string>>(new Set());
 
   // Names for galleries already linked (ids are all job_meta stores).
   useEffect(() => {
@@ -122,18 +125,16 @@ export function JobStoryPanel({
         });
         setNotFound((prev) => new Set([...prev, ...missing.filter((id) => !found.has(id))]));
       })
-      .catch(() => {
-        // Let the next render ask again rather than leave "Loading…" forever.
-        for (const id of missing) asked.current.delete(id);
-        setLookupFailed(true);
-      });
+      .catch(() => setFailed((prev) => new Set([...prev, ...missing])));
   }, [meta.sources, names]);
 
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
+      ++reqId.current; // an answer still in flight is for a query that is gone
       setResults([]);
       setSearchError(false);
+      setSearching(false);
       return;
     }
     const id = ++reqId.current;
@@ -228,8 +229,8 @@ export function JobStoryPanel({
                       {row?.name ??
                         (notFound.has(s.eventId)
                           ? "Gallery not found (deleted?)"
-                          : lookupFailed
-                            ? "Couldn't load the name"
+                          : failed.has(s.eventId)
+                            ? "Couldn't load the name (reopen to retry)"
                             : "Loading…")}
                     </span>
                     <span className="block text-[11px] text-stone-400">

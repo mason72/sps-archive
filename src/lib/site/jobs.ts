@@ -470,7 +470,31 @@ export function validateJobMeta(
   }
 
   // proof is the server's to count (job-proof.ts): a request body never sets it.
-  return { meta: { ...parseJobMeta(obj), proof: null } };
+  const meta: JobMeta = { ...parseJobMeta(obj), proof: null };
+  // serializeJob would withhold it anyway; refusing here means the form can
+  // never say "Story published" about a story the site will not show.
+  if (meta.story?.status === "published" && storyNamesClient(meta)) {
+    return { error: "This story names the client, and the job is anonymized. Remove the name to publish it." };
+  }
+  return { meta };
+}
+
+/** The case-study fields (2026-11-23), which older clients do not send. */
+export const CASE_STUDY_KEYS = ["special", "story", "sources"] as const;
+
+/**
+ * A job save replaces the whole document, so a body that OMITS a case-study
+ * field keeps the stored value: a browser tab opened before these fields
+ * existed, or any partial writer, would otherwise erase a published story
+ * and its proof with a 200 (review, 2026-11-23). Sending null (or [] / false)
+ * still changes the field on purpose. Non-objects pass through for the
+ * validator to reject.
+ */
+export function keepOmittedCaseStudyFields(input: unknown, stored: JobMeta): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const merged: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  for (const key of CASE_STUDY_KEYS) if (!(key in merged)) merged[key] = stored[key];
+  return merged;
 }
 
 /* ─── Completeness (draft vs live) ─── */
@@ -553,11 +577,25 @@ export function serializeJob(slug: string, meta: JobMeta) {
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** Words in a company name that identify nobody: legal forms and generic
+    business nouns ("Rand Technology" is identified by "Rand", not "Technology"). */
+const GENERIC_NAME_WORDS = new Set([
+  "inc", "incorporated", "corp", "corporation", "co", "company", "llc", "llp", "ltd", "limited", "plc",
+  "gmbh", "ag", "sa", "se", "bv", "nv", "the", "and", "of", "group", "holdings", "technology",
+  "technologies", "tech", "systems", "solutions", "software", "labs", "global", "international",
+  "services", "partners", "com", "net", "org", "io", "ai", "events", "media", "health",
+]);
+
 /**
- * True when an ANONYMIZED job's story mentions the client: the full name, or
- * its first word as a whole word ("Rand Technology" → "Rand", which does not
- * match "brand"). Over-matching only withholds a story; under-matching would
- * publish a name the client asked us to keep off the site.
+ * True when an ANONYMIZED job's story mentions the client, in any field.
+ * Checks every distinctive word of the name as a whole word (so "HP Inc."
+ * catches "HP's", "Salesforce, Inc." catches "Salesforce", "Amazon.com"
+ * catches "Amazon", and "Rand" does not match "brand"), the full name, and
+ * for multi-word names the name with spaces and punctuation squeezed out
+ * ("Coca-Cola" vs "CocaCola"). Over-matching only withholds a story (and the
+ * form says why); under-matching would publish a name the client asked us
+ * to keep off the site. Found by review, 2026-11-23: the first version
+ * checked only the full name and its first word.
  */
 export function storyNamesClient(meta: JobMeta): boolean {
   if (!meta.anonymize || !meta.story || !meta.client) return false;
@@ -566,9 +604,19 @@ export function storyNamesClient(meta: JobMeta): boolean {
     .filter(Boolean)
     .join("\n");
   const name = meta.client.trim();
-  const first = name.split(/\s+/)[0];
-  const needles = [name, ...(first.length >= 3 ? [first] : [])];
-  return needles.some((n) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(n)}($|[^\\p{L}\\p{N}])`, "iu").test(text));
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const distinctive = words.filter((w) => w.length >= 2 && !GENERIC_NAME_WORDS.has(w.toLowerCase()));
+  // A name made only of generic words ("The Company") still counts as itself.
+  const needles = [name, ...(distinctive.length ? distinctive : words)];
+  const wholeWord = (n: string) =>
+    new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(n)}($|[^\\p{L}\\p{N}])`, "iu").test(text);
+  if (needles.some(wholeWord)) return true;
+  if (words.length >= 2) {
+    const squeeze = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const squeezed = squeeze(words.filter((w) => !GENERIC_NAME_WORDS.has(w.toLowerCase())).join(""));
+    if (squeezed.length >= 6 && squeeze(text).includes(squeezed)) return true;
+  }
+  return false;
 }
 
 /* ─── Slugs ─── */

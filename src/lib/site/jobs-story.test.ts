@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   EMPTY_JOB_META,
+  keepOmittedCaseStudyFields,
   parseJobMeta,
   serializeJob,
   storyNamesClient,
@@ -150,5 +151,74 @@ describe("anonymized stories never name the client", () => {
   it("a named (not anonymized) client may appear in its own story", () => {
     const meta = { ...COMPLETE, story: { ...STORY, body: "Rand Technology brought us back." } };
     expect(serializeJob("x", meta).story).not.toBeNull();
+  });
+});
+
+describe("name guard: the forms review found it missed", () => {
+  const cases: Array<[string, string]> = [
+    ["Salesforce, Inc.", "Salesforce brought us back."],
+    ["HP Inc.", "HP's people team booked the lounge."],
+    ["Amazon.com", "Amazon flew us out."],
+    ["GE Aerospace", "GE booked us for a week."],
+    ["Coca-Cola", "The CocaCola team loved it."],
+    ["Atlassian", "One headshot lounge at Atlassian's Team 26."],
+  ];
+  for (const [client, body] of cases) {
+    it(`${client} vs "${body}"`, () => {
+      const meta: JobMeta = { ...COMPLETE, client, anonymize: true, alias: "Enterprise client", story: { ...STORY, body } };
+      expect(storyNamesClient(meta)).toBe(true);
+      expect(serializeJob("x", meta).story).toBeNull();
+    });
+  }
+
+  it("generic words in the name do not trip it (Rand Technology vs 'technology')", () => {
+    const meta: JobMeta = {
+      ...COMPLETE,
+      anonymize: true,
+      alias: "Enterprise tech client",
+      story: { ...STORY, body: "An enterprise technology client, a global trade fair, the brand team." },
+    };
+    expect(storyNamesClient(meta)).toBe(false);
+  });
+
+  it("the validator refuses to PUBLISH such a story, but a draft may hold it while being edited", () => {
+    const base = { ...COMPLETE, anonymize: true, alias: "Enterprise tech client" };
+    const named = { ...STORY, body: "Rand brought us back." };
+    expect(validateJobMeta({ ...base, story: named })).toEqual({
+      error: expect.stringMatching(/names the client/),
+    });
+    expect("error" in validateJobMeta({ ...base, story: { ...named, status: "draft" } })).toBe(false);
+  });
+});
+
+describe("keepOmittedCaseStudyFields (a stale browser tab must not erase a story)", () => {
+  const stored: JobMeta = {
+    ...COMPLETE,
+    special: true,
+    story: STORY,
+    sources: [{ eventId: ID_A, people: true }],
+  };
+
+  it("a body without the new keys keeps the stored ones", () => {
+    const oldTabBody = { ...COMPLETE, city: "Berlin" }; // the pre-deploy form's shape
+    for (const k of ["special", "story", "sources"]) delete (oldTabBody as Record<string, unknown>)[k];
+    const r = validateJobMeta(keepOmittedCaseStudyFields(oldTabBody, stored));
+    if ("error" in r) throw new Error(r.error);
+    expect(r.meta.city).toBe("Berlin");
+    expect(r.meta.story).toEqual(STORY);
+    expect(r.meta.special).toBe(true);
+    expect(r.meta.sources).toEqual(stored.sources);
+  });
+
+  it("an explicit null / [] / false still changes the field", () => {
+    const r = validateJobMeta(
+      keepOmittedCaseStudyFields({ ...COMPLETE, story: null, sources: [], special: false }, stored)
+    );
+    if ("error" in r) throw new Error(r.error);
+    expect([r.meta.story, r.meta.sources, r.meta.special]).toEqual([null, [], false]);
+  });
+
+  it("passes garbage through for the validator to reject", () => {
+    expect("error" in validateJobMeta(keepOmittedCaseStudyFields("nope", stored))).toBe(true);
   });
 });

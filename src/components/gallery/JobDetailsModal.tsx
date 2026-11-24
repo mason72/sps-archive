@@ -44,6 +44,18 @@ interface JobDetailsModalProps {
 }
 
 /**
+ * An untouched "Write a story" (nothing typed) is no story, and a quote with
+ * no words is no quote: dropping them here keeps a half-started draft from
+ * blocking every other save with "A story needs a headline".
+ */
+function tidyStory(meta: JobMeta): JobMeta {
+  let story = meta.story;
+  if (story && !story.headline.trim() && !story.body.trim() && !story.dek?.trim()) story = null;
+  if (story?.quote && !story.quote.text.trim()) story = { ...story, quote: null };
+  return story === meta.story ? meta : { ...meta, story };
+}
+
+/**
  * JobDetailsModal — the one form behind a TDP Work job's infosheet. Every
  * job-sheet field the website renders lives here; enum labels mirror the
  * site's copy exactly, so what the team picks is what visitors read.
@@ -126,7 +138,7 @@ export function JobDetailsModal({
 
   /** Resolves true only when the save landed. */
   const handleSave = async (override?: JobMeta, doneMessage?: string): Promise<boolean> => {
-    const toSave = override ?? meta;
+    const toSave = tidyStory(override ?? meta);
     if (slugChanged && !slugValid) {
       toast.error("Slug must be lowercase words separated by hyphens");
       return false;

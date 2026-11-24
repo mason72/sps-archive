@@ -86,8 +86,8 @@ export async function GET(request: NextRequest) {
     if (authError) return authError;
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
-    const offset = parseInt(searchParams.get("offset") || "0", 10);
+    let limit = parseInt(searchParams.get("limit") || "50", 10);
+    let offset = parseInt(searchParams.get("offset") || "0", 10);
     const q = (searchParams.get("q") || "").trim();
     const eventType = (searchParams.get("type") || "").trim();
     const status = (searchParams.get("status") || "").trim();
@@ -100,7 +100,8 @@ export async function GET(request: NextRequest) {
 
     // Specific galleries by id (the job form shows the sources a job already
     // links). Still scoped to the user above; malformed ids are a 400, not a
-    // silently shorter list.
+    // silently shorter list, and the page is forced to fit every id (an
+    // offset or a small limit would otherwise drop some).
     const idsParam = searchParams.get("ids");
     if (idsParam !== null) {
       const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
@@ -109,6 +110,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "ids must be 1 to 50 gallery ids" }, { status: 400 });
       }
       query = query.in("id", ids);
+      offset = 0;
+      limit = ids.length;
     }
 
     /**
@@ -256,7 +259,8 @@ export async function GET(request: NextRequest) {
      * Cheap query: one column, no joins.
      */
     let types: string[] = [];
-    {
+    // A lookup by id never shows the filter chips, so it skips this read.
+    if (idsParam === null) {
       // Paged: past 1,000 typed events a bare select would drop types too.
       const typeRows = await readAllRows(() =>
         supabase

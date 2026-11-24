@@ -115,8 +115,17 @@ describe("computeJobProof", () => {
       days: [[10, 10]],
       countedAt: "2026-11-23T00:00:00.000Z",
     });
+    // a gallery's uploaded cover (the client's logo) is not a photo
+    expect(calls.find((c) => c.table === "images")!.filters).toContainEqual(["eq", "is_cover_upload", false]);
     const personsCall = calls.find((c) => c.table === "persons")!;
     expect(personsCall.filters).toContainEqual(["in", "event_id", [A]]);
+  });
+
+  it("refuses the TDP Work and Website galleries as sources", async () => {
+    for (const slug of ["tdp-work", "tdp-website"]) {
+      const { db } = fakeDb({ events: { data: [{ id: A, slug } as { id: string }], error: null } });
+      await expect(computeJobProof(db, "u", [{ eventId: A, people: false }])).rejects.toBeInstanceOf(JobProofError);
+    }
   });
 
   it("people is null when no gallery is marked", async () => {

@@ -257,8 +257,10 @@ fields; the form footer says the same.
   headline, dek, body, quote: {text, by, role}|null}`. Body is plain text, a
   blank line between paragraphs. **Only a published story leaves the server**,
   and never one that names an anonymized client (`storyNamesClient`: the full
-  name, or its first word as a whole word; it fails closed, so the page just
-  has no story). Claude and Scout write drafts; Mason's "Approve and publish"
+  name, or any distinctive word of it as a whole word, so "HP Inc." catches
+  "HP's"; it fails closed, so the page just has no story). Publishing such a
+  story is refused at save, so the form never claims a story is live that
+  the site withholds. Claude and Scout write drafts; Mason's "Approve and publish"
   flips the status and saves in one tap (it rolls back to draft if the save
   fails). A stored status that is not exactly `"published"` reads as draft.
 - `sources` `[{eventId, people}]`: the client galleries the job delivered,
@@ -267,16 +269,23 @@ fields; the form footer says the same.
   coverage finds a fraction of the faces, Atlassian Expo 2026 = 7,747
   photos, 111 people).
 - `proof` `{photos, galleries, people, days, countedAt}`: **counted by the
-  server on every job save** (`src/lib/site/job-proof.ts`) from `sources`,
-  never typed and never accepted from a request (validateJobMeta drops it).
+  server** (`src/lib/site/job-proof.ts`) from `sources` on a job save when the
+  sources changed or the stored count is over a day old; never typed and
+  never accepted from a request (validateJobMeta drops it). Photos exclude a
+  gallery's uploaded cover (`is_cover_upload`); the TDP Work and Website
+  galleries are refused as sources.
   `days` is the clock-free heartbeat: a day is a run of frames with no
   4-hour gap, binned per hour from that day's first frame (camera clocks
   travel on the wrong timezone, so no time of day is ever derived). A failed
   count fails the save (502) rather than storing a blank proof.
 
-**A job save REPLACES the whole job_meta.** Anything that writes a job (a
-script, Scout drafting a story) must read the current document, change its
-field, and send all of it, or it erases the rest. The API sends `special`,
+**A job save REPLACES the whole job_meta**, with one guard: a body that
+omits `special`, `story` or `sources` keeps the stored value
+(`keepOmittedCaseStudyFields`), so a browser tab opened before these fields
+existed cannot erase a published story. Anything else that writes a job must
+read the current document, change its field and send all of it.
+`scripts/site/job-story.ts` does exactly that for drafted stories (dry run
+by default, refuses to publish). The API sends `special`,
 `story` (published, workflow fields stripped) and `proof` (counts only; no
 gallery ids or names, no `countedAt`).
 
