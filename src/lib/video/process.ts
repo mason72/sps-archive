@@ -109,9 +109,10 @@ export interface MutedVideoResult extends VideoProcessResult {
 }
 
 /**
- * A SILENT copy: the pipeline reads `sourceKey` (a staging object) and writes
- * the web rendition, with every audio stream dropped, to `destKey`, plus the
- * three poster variants for `destKey`. Used by the Scout integration, whose
+ * A SILENT copy: the pipeline reads `source.url` (Scout's signed URL, already
+ * vetted by the caller, so the clip with sound is never written to our
+ * storage) and writes the web rendition, with every audio stream dropped, to
+ * `destKey`, plus the three poster variants for `destKey`. Used by the Scout integration, whose
  * crew phone clips record conversations and client names: the audio is never
  * stored anywhere a gallery, download or the website can reach.
  *
@@ -120,9 +121,15 @@ export interface MutedVideoResult extends VideoProcessResult {
  * the audio, and it never sends `muted`, so it fails here instead. The caller
  * still checks the written bytes itself (mp4-tracks.ts): this flag is the
  * pipeline's claim, not the proof.
+ *
+ * The upload URLs live only as long as this call may wait (plus a minute), so
+ * a Modal run that outlives our timeout cannot write into the keys long after
+ * the caller rolled them back. Deploy order matters: the Modal function before
+ * the app, or an old deployment that ignores `mute` could, after a timeout,
+ * write a copy WITH sound inside that window (the read-back never sees it).
  */
 export async function processMutedVideoViaModal(
-  sourceKey: string,
+  source: { url: string },
   destKey: string,
   attribution?: { userId: string; eventId?: string | null },
   { timeoutMs = 240_000 }: { timeoutMs?: number } = {}
@@ -137,12 +144,12 @@ export async function processMutedVideoViaModal(
     throw new Error(`a muted rendition is written as .mp4, not ${destKey}`);
   }
 
-  const [videoUrl, smPut, mdPut, lgPut, displayPut] = await Promise.all([
-    getPresignedDownloadUrl(sourceKey, 3600),
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-sm"), "image/jpeg", 3600),
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-md"), "image/jpeg", 3600),
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-lg"), "image/jpeg", 3600),
-    getPresignedUploadUrl(destKey, "video/mp4", 3600),
+  const putTtl = Math.ceil(timeoutMs / 1000) + 60;
+  const [smPut, mdPut, lgPut, displayPut] = await Promise.all([
+    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-sm"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-md"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-lg"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(destKey, "video/mp4", putTtl),
   ]);
 
   const started = Date.now();
@@ -151,7 +158,7 @@ export async function processMutedVideoViaModal(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       pipeline_key: process.env.VIDEO_PIPELINE_KEY ?? null,
-      video_url: videoUrl,
+      video_url: source.url,
       poster_puts: { sm: smPut, md: mdPut, lg: lgPut },
       display_put: displayPut,
       mute: true,

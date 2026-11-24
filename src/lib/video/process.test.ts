@@ -12,7 +12,7 @@ vi.mock("@/lib/usage/record", () => ({ recordUsage: vi.fn(async () => {}), secon
 
 import { processMutedVideoViaModal } from "./process";
 
-const SRC = "scout-staging/abc.mp4";
+const SRC = { url: "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/p/clip.mp4?token=t" };
 const DEST = "events/e1/originals/abc.mp4";
 const okBody = (over: Record<string, unknown> = {}) =>
   ({ ok: true, duration_seconds: 3, width: 320, height: 240, has_audio: true, muted: true, ...over });
@@ -37,7 +37,11 @@ describe("processMutedVideoViaModal", () => {
     const [, init] = fetchMock.mock.calls[0];
     const sent = JSON.parse(init.body);
     expect(sent.mute).toBe(true);
-    expect(sent.video_url).toBe(`https://r2.test/get/${SRC}`);
+    expect(sent.video_url).toBe(SRC.url); // Scout's URL: no copy with sound in our storage
+    const { getPresignedUploadUrl } = await import("@/lib/r2/client");
+    // Upload URLs live as long as the call may wait plus a minute, not an hour.
+    const ttls = vi.mocked(getPresignedUploadUrl).mock.calls.map((c) => c[2]);
+    expect(ttls).toEqual([300, 300, 300, 300]);
     expect(sent.display_put).toBe(`https://r2.test/put/${DEST}`);
     expect(Object.keys(sent.poster_puts).sort()).toEqual(["lg", "md", "sm"]);
     expect(init.signal).toBeInstanceOf(AbortSignal); // never an unbounded wait

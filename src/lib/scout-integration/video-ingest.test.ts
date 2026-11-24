@@ -56,7 +56,8 @@ import { getDisplayKey, getThumbnailKey } from "@/lib/r2/client";
 import { assetLane, publicLaneKeys } from "@/lib/site/publish";
 import { fetchPostcardImage, fetchPostcardVideo } from "./fetch-image";
 import { FakeDb } from "./fake-db";
-import { ingestPostcard, postcardDetail, scoutStagingKey, type ScoutDb } from "./store";
+import { ingestPostcard, pipelineTimeoutMs, postcardDetail, type ScoutDb } from "./store";
+import { uploadToR2 } from "@/lib/r2/client";
 import type { PostcardInput } from "./validate";
 
 const fixture = (n: string) => readFileSync(join(__dirname, "../video/__fixtures__", n));
@@ -112,14 +113,15 @@ describe("a Scout clip", () => {
     expect(row).toMatchObject({ media_type: "video", mime_type: "video/mp4", has_audio: false, processing_status: "complete", thumbnail_generated: true });
     expect(row.file_size).toBe(MUTED.byteLength);
 
-    // The pipeline read the staging copy and wrote the stored original.
-    const [src, dest] = vi.mocked(processMutedVideoViaModal).mock.calls[0];
-    expect(src).toBe(scoutStagingKey(row.id));
+    // The pipeline read Scout's own URL and wrote the stored original.
+    const [src, dest, , opts] = vi.mocked(processMutedVideoViaModal).mock.calls[0];
+    expect(src).toEqual({ url: input().videoUrl });
     expect(dest).toBe(row.r2_key);
+    expect(opts?.timeoutMs).toBeLessThanOrEqual(225_000);
     // What is stored is byte-for-byte the muted rendition, and the clip WITH
-    // sound (the staging object) is gone.
+    // sound was never written to our storage at all.
     expect(r2.objects.get(row.r2_key)?.equals(MUTED)).toBe(true);
-    expect(r2.objects.has(scoutStagingKey(row.id))).toBe(false);
+    expect(uploadToR2).not.toHaveBeenCalled();
     expect([...r2.objects.values()].some((b) => b.equals(WITH_AUDIO))).toBe(false);
 
     // And the stored original is exactly what the website plays: a silent
@@ -139,11 +141,42 @@ describe("a Scout clip", () => {
     expect(r2.objects.size).toBe(0); // original, posters and staging all removed
   });
 
-  it("is refused when the pipeline does not confirm muting (an old deployment)", async () => {
-    vi.mocked(processMutedVideoViaModal).mockRejectedValue(new Error("Video pipeline did not confirm a muted rendition"));
+  it("is refused, and the copy WITH sound removed, when an old deployment ignores `mute`", async () => {
+    // What the real old function does: it writes the clip, sound and all, to
+    // the destination, answers without `muted`, and the bridge throws.
+    vi.mocked(processMutedVideoViaModal).mockImplementation(async (_src, dest) => {
+      r2.objects.set(dest, WITH_AUDIO);
+      for (const v of ["thumb-sm", "thumb-md", "thumb-lg"] as const) r2.objects.set(getThumbnailKey(dest, v), Buffer.from("jpg"));
+      throw new Error("Video pipeline did not confirm a muted rendition");
+    });
     await expect(ingestPostcard(store(), input())).rejects.toThrow(/muted/);
     expect(db.tables.images).toHaveLength(0);
     expect(r2.objects.size).toBe(0);
+  });
+
+  it("is refused when the pipeline cannot measure the clip", async () => {
+    pipelineWrites(MUTED, { durationSeconds: null });
+    await expect(ingestPostcard(store(), input())).rejects.toMatchObject({ status: 502 });
+    expect(db.tables.images).toHaveLength(0);
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it("loses a claim race cleanly: its own copy goes, the winner's link comes back", async () => {
+    pipelineWrites(MUTED);
+    const winner = { postcard_id: PID, image_id: "winner-image", event_id: "e", section_id: null, gig_id: "gig-1", author_email: null, created_at: "", published_target: null, published_at: null };
+    db.tables.images.push({ id: "winner-image", processing_status: "complete", media_type: "video", thumbnail_generated: true });
+    // The winner's link appears between our check and our claim.
+    const realFrom = db.from.bind(db);
+    let checks = 0;
+    db.from = ((t: string) => {
+      if (t === "scout_postcard_links" && ++checks === 2) db.tables.scout_postcard_links.push(winner);
+      return realFrom(t);
+    }) as typeof db.from;
+    const res = await ingestPostcard(store(), input());
+    expect(res).toMatchObject({ created: false });
+    expect(res.link.image_id).toBe("winner-image");
+    expect(db.tables.images.map((r) => r.id)).toEqual(["winner-image"]);
+    expect(r2.objects.size).toBe(0); // our silent copy and posters removed
   });
 
   it("is refused past Scout's length cap, by the pipeline's own probe", async () => {
@@ -190,5 +223,13 @@ describe("a Scout photo", () => {
     );
     expect(fetchPostcardVideo).not.toHaveBeenCalled();
     expect(processMutedVideoViaModal).not.toHaveBeenCalled();
+  });
+});
+
+describe("pipelineTimeoutMs", () => {
+  it("leaves time after the pipeline inside the route's 300 s", () => {
+    expect(pipelineTimeoutMs(0, 0)).toBe(225_000);
+    expect(pipelineTimeoutMs(0, 60_000)).toBe(165_000); // a slow fetch shortens it
+    expect(pipelineTimeoutMs(0, 280_000)).toBe(30_000); // never below a floor
   });
 });

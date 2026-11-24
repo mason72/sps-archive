@@ -20,7 +20,6 @@ import { randomUUID } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   buildImageKey,
-  deleteFromR2,
   deleteImageAssets,
   getPresignedDownloadUrl,
   uploadToR2,
@@ -361,24 +360,33 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
 
 // ── POST /postcards, a clip ────────────────────────────────────────────────
 
-/** Where Scout's clip waits, WITH its audio, while the pipeline makes the silent copy. */
-export function scoutStagingKey(imageId: string): string {
-  // Outside events/: no gallery, purge, sweep, share or ZIP path walks this
-  // prefix, and nothing references it once the request ends.
-  return `scout-staging/${imageId}.mp4`;
-}
-
 /** Ffprobe and Scout may disagree by a frame or a rounding; past this, it is a longer clip. */
 const DURATION_SLACK_S = 0.5;
 
 /**
+ * The POST route's own limit (route.ts maxDuration 300) less a margin. The
+ * pipeline gets what is left of it after the fetch, minus time for the
+ * read-back and the row writes, so the platform never kills the request
+ * mid-rollback.
+ */
+export const VIDEO_REQUEST_BUDGET_MS = 285_000;
+const AFTER_PIPELINE_RESERVE_MS = 60_000;
+const MIN_PIPELINE_MS = 30_000;
+
+/** Pure: how long the pipeline may take, given when the request started. */
+export function pipelineTimeoutMs(startedAt: number, now: number, budgetMs = VIDEO_REQUEST_BUDGET_MS): number {
+  return Math.max(MIN_PIPELINE_MS, budgetMs - (now - startedAt) - AFTER_PIPELINE_RESERVE_MS);
+}
+
+/**
  * A clip is filed SILENT (Mason, 2026-11-24: crew phone clips record
  * conversations and client names). The bytes Scout sends never become the
- * stored original:
+ * stored original, and are never written to our storage at all:
  *
- *   Scout MP4 → R2 staging key → Modal `mute` → the stored original
- *   (`events/<id>/originals/<image>.mp4`: video copied as is, audio, subtitle
- *   and data streams dropped, metadata cleared) + its three posters
+ *   Scout's signed URL → (read once here, in memory: size, MP4, video track)
+ *   → the SAME URL to Modal `mute` → the stored original
+ *   (`events/<id>/originals/<image>.mp4`: video copied as is; audio,
+ *   subtitle, data and chapters dropped; metadata cleared) + three posters
  *
  * then this server downloads what Modal wrote and reads its tracks itself
  * (`mp4TrackKinds`): any `soun` track and nothing is filed. Because the stored
@@ -386,7 +394,8 @@ const DURATION_SLACK_S = 0.5;
  * construction: the editor, downloads, ZIPs, and the website (a silent clip of
  * 60 s or less publishes on the R2 video lane, where the played file IS this
  * original; a longer one goes to Cloudflare Stream, which pulls the same
- * original). The staging object is deleted on every path.
+ * original). There is no staging copy to clean up: the only bytes with sound
+ * are Scout's own, and the buffer this request held and dropped.
  *
  * Same order and rollback as a photo otherwise: bytes before the row, the
  * claim on the postcard id, the section link, then `complete`. A clip is not
@@ -395,8 +404,11 @@ const DURATION_SLACK_S = 0.5;
  * video to Modal, but awaited so the answer is final.
  */
 async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<IngestResult> {
+  const startedAt = Date.now();
   if (!input.videoUrl) throw new ScoutIntegrationError("video_url is required for a video.", 400);
-  const clip = await fetchPostcardVideo(input.videoUrl);
+  // Read once to enforce the limits Modal does not (size, container, a video
+  // track); the bytes are then dropped. Modal reads the same signed URL.
+  await fetchPostcardVideo(input.videoUrl);
 
   const ownerId = await loadOwnerUserId(db);
   const eventId = await ensureScoutRoadEvent(db, ownerId);
@@ -405,7 +417,6 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
   const imageId = randomUUID();
   const filename = `${imageId}.mp4`;
   const r2Key = buildImageKey(eventId, filename);
-  const stagingKey = scoutStagingKey(imageId);
 
   let rowWritten = false;
   const rollback = async (why: string) => {
@@ -428,16 +439,23 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
     }
   };
 
-  await uploadToR2(stagingKey, clip, "video/mp4");
-  try {
+  {
     let silent: Awaited<ReturnType<typeof processMutedVideoViaModal>>;
     let storedBytes: number;
     try {
-      silent = await processMutedVideoViaModal(stagingKey, r2Key, { userId: ownerId, eventId });
+      silent = await processMutedVideoViaModal(
+        { url: input.videoUrl },
+        r2Key,
+        { userId: ownerId, eventId },
+        { timeoutMs: pipelineTimeoutMs(startedAt, Date.now()) }
+      );
       if (!silent.ok) {
         throw new ScoutIntegrationError(silent.error ?? "The clip could not be read as H.264 video.", 415);
       }
-      if ((silent.durationSeconds ?? 0) > SCOUT_VIDEO_MAX_SECONDS + DURATION_SLACK_S) {
+      if (silent.durationSeconds == null) {
+        throw new ScoutIntegrationError("The pipeline could not measure the clip's length.", 502);
+      }
+      if (silent.durationSeconds > SCOUT_VIDEO_MAX_SECONDS + DURATION_SLACK_S) {
         throw new ScoutIntegrationError(
           `The clip runs ${silent.durationSeconds} s; the longest is ${SCOUT_VIDEO_MAX_SECONDS} s.`,
           400
@@ -513,14 +531,6 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
       await rollback(err instanceof Error ? err.message : String(err));
       throw err;
     }
-  } finally {
-    // The only copy with sound. Never left behind on purpose; a failed delete
-    // is reported with its key so it can be removed by hand.
-    try {
-      await deleteFromR2(stagingKey);
-    } catch (err) {
-      await reportSystemError("scout.ingest-video.staging-delete", err, { stagingKey });
-    }
   }
 
   const link = await requireLink(db, input.postcardId);
@@ -555,8 +565,9 @@ export async function assertStoredClipIsSilent(
 
 async function readStoredClip(r2Key: string): Promise<Buffer> {
   const url = new URL(await getPresignedDownloadUrl(r2Key, 600));
-  // Muting only removes streams, so the copy is never larger than the clip.
-  return fetchCapped(url, { maxBytes: POSTCARD_VIDEO_MAX_BYTES }, "the silent copy");
+  // Muting only removes streams, but the rewritten header can come out a few
+  // KB larger than the source's, so the read-back allows 1 MB over the cap.
+  return fetchCapped(url, { maxBytes: POSTCARD_VIDEO_MAX_BYTES + 1024 * 1024 }, "the silent copy");
 }
 
 async function storeExif(db: ScoutDb, imageId: string, buffer: Buffer, takenAt: string | null) {

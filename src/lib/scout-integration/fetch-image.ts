@@ -38,7 +38,11 @@ export async function fetchPostcardImage(
 ): Promise<Buffer> {
   const checked = checkImageUrl(rawUrl);
   if (!checked.ok) throw new PostcardFetchError(checked.error, 400);
-  const buf = await fetchCapped(checked.value, { maxBytes: POSTCARD_MAX_BYTES, ...opts }, "image_url");
+  const buf = await fetchCapped(
+    checked.value,
+    { ...opts, maxBytes: opts.maxBytes ?? POSTCARD_MAX_BYTES },
+    "image_url"
+  );
   if (!looksLikeJpeg(buf)) throw new PostcardFetchError("image_url did not return a JPEG.", 415);
   return buf;
 }
@@ -61,7 +65,11 @@ export async function fetchPostcardVideo(
   if (!checked.ok) throw new PostcardFetchError(checked.error, 400);
   const buf = await fetchCapped(
     checked.value,
-    { maxBytes: POSTCARD_VIDEO_MAX_BYTES, timeoutMs: POSTCARD_VIDEO_TIMEOUT_MS, ...opts },
+    {
+      ...opts,
+      maxBytes: opts.maxBytes ?? POSTCARD_VIDEO_MAX_BYTES,
+      timeoutMs: opts.timeoutMs ?? POSTCARD_VIDEO_TIMEOUT_MS,
+    },
     "video_url"
   );
   if (!isMp4Container(buf)) throw new PostcardFetchError("video_url did not return an MP4.", 415);
@@ -88,6 +96,9 @@ export async function fetchCapped(
   }: { fetchImpl?: typeof fetch; maxBytes: number; timeoutMs?: number },
   label: string
 ): Promise<Buffer> {
+  // An undefined cap (e.g. `{ maxBytes: undefined }` spread over a default)
+  // would compare false forever and read without limit; refuse instead.
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) throw new Error(`fetchCapped: no byte cap for ${label}`);
   const signal = AbortSignal.timeout(timeoutMs);
   let res: Response;
   try {

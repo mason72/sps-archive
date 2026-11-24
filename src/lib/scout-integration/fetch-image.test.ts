@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fetchPostcardImage, fetchPostcardVideo, looksLikeJpeg, PostcardFetchError } from "./fetch-image";
+import { fetchCapped, fetchPostcardImage, fetchPostcardVideo, looksLikeJpeg, PostcardFetchError } from "./fetch-image";
 
 const URL_OK = "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/scout-photos/a.jpg?token=t";
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
@@ -102,5 +102,20 @@ describe("fetchPostcardVideo", () => {
       fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([mp4]))), maxBytes: 1000 }),
       413
     );
+  });
+});
+
+describe("fetchCapped", () => {
+  it("refuses to read with no byte cap", async () => {
+    const f = fakeFetch(new Response(streamOf([JPEG])));
+    await expect(
+      fetchCapped(new URL(URL_OK), { fetchImpl: f, maxBytes: undefined as unknown as number }, "x")
+    ).rejects.toThrow(/no byte cap/);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("keeps the default cap when a caller passes maxBytes: undefined", async () => {
+    const f = fakeFetch(new Response(streamOf([JPEG]), { headers: { "content-length": String(41 * 1024 * 1024) } }));
+    await failsWith(fetchPostcardImage(URL_OK, { fetchImpl: f, maxBytes: undefined }), 413);
   });
 });

@@ -90,6 +90,7 @@ def display_cmd(src: str, dest: str, mute: bool) -> list:
             "-c:v", "copy",
             "-an", "-sn", "-dn",
             "-map_metadata", "-1",
+            "-map_chapters", "-1",
             "-movflags", "+faststart",
             "-y", dest,
         ]
@@ -180,7 +181,8 @@ def process_video(payload: dict):
     audio_codec = (
         (audio_stream.get("codec_name") or "?").lower() if audio_stream else None
     )
-    if audio_codec is not None and audio_codec not in ALLOWED_AUDIO_CODECS:
+    # A muted copy drops the audio, so its codec does not matter (Opus, AMR).
+    if audio_codec is not None and audio_codec not in ALLOWED_AUDIO_CODECS and not mute:
         return {
             "ok": False,
             "error": (

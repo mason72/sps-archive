@@ -555,15 +555,18 @@ a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
 conversations and client names, and only clips an admin stamps Site-worthy in
 Scout are sent at all. `media_type: "video"` needs `video_url` (same host and
 path rules, no redirects, 60 s deadline, 50 MB counted while streaming, an MP4
-with a video track) and `duration_s` (at most 61). The clip goes to a staging
-key OUTSIDE `events/` (`scout-staging/<image id>.mp4`); the Modal pipeline is
-called with `mute: true` and writes the silent copy straight to the stored
-original key (`events/<id>/originals/<image id>.mp4`) plus posters
-(`processMutedVideoViaModal`, which refuses an answer without `muted: true`).
+with a video track) and `duration_s` (at most 61). The clip is read once in
+memory to enforce those limits and then dropped: it is NEVER written to our
+storage. The Modal pipeline is handed Scout's same signed URL with
+`mute: true` and writes the silent copy straight to the stored original key
+(`events/<id>/originals/<image id>.mp4`) plus posters
+(`processMutedVideoViaModal`, which refuses an answer without `muted: true`;
+its upload URLs live only as long as the call may wait, plus a minute; its
+timeout is what is left of the request's budget, `pipelineTimeoutMs`).
 This server then downloads the stored file and reads its tracks with its own
 parser (`src/lib/video/mp4-tracks.ts`): a `soun` track, no `vide` track, or an
-unreadable file rolls everything back. The staging object is deleted on every
-path. The row is `media_type video`, `has_audio false`, complete with posters,
+unreadable file rolls everything back, and so does a clip the pipeline could
+not measure. The row is `media_type video`, `has_audio false`, complete with posters,
 so the request answers `ready`; no AI event is sent (the AI lane reads images
 only) and GET reports no crew for a clip. Because the stored original is the
 silent file, every downstream copy is silent: a silent clip of 60 s or less
