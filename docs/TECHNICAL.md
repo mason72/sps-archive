@@ -553,18 +553,56 @@ a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
 
 **Clips are filed SILENT (Mason, 2026-11-24).** Crew phone clips record
 conversations and client names, and only clips an admin stamps Site-worthy in
-Scout are sent at all. `media_type: "video"` needs `video_url` (same host and
-path rules, no redirects, 60 s deadline, 50 MB counted while streaming, an MP4
-with a video track) and `duration_s` (at most 61). The clip is read once in
-memory to enforce those limits and then dropped: it is NEVER written to our
-storage. The Modal pipeline is handed Scout's same signed URL with
-`mute: true`; it downloads it ONCE (no redirects followed, 55 MB cap, 90 s
-deadline) into its own temp dir, and every later step reads that one local
-file, then writes the silent copy straight to the stored original key
-(`events/<id>/originals/<image id>.mp4`) plus posters. It reports duration
-and codec from a probe of the file it WROTE. `processMutedVideoViaModal`
-refuses an answer without `muted: true`, and its upload URLs live only as long
-as the call may wait, plus a minute.
+Scout are sent at all. The path, in order:
+
+1. **Refusals with no writes.** `VIDEO_MUTE_URL` unset → retryable **503**.
+   `video_url` is read once in memory (same host and path rules, no redirects,
+   60 s, 50 MB counted while streaming) and must be an MP4 with a video track,
+   H.264 (`avc1`/`avc3`) and at most 61 s by its own `mvhd`: HEVC (some
+   Android phones, uploaded as-is from Scout's web app; iOS re-encodes to
+   H.264) is a **415**, an overlong clip a **400**. Too little of the time
+   budget left → **503**. None of these creates the gallery, a section, a row
+   or an object, and Modal is not called.
+2. **Modal `mute_video`** (its own endpoint, `processMutedVideoViaModal`) is
+   handed Scout's signed URL, reads it once, and writes the silent copy to a
+   STAGING key, `scout-staging/<event>/<image>.mp4` (top-level, so one R2
+   lifecycle rule covers it), plus three posters. Never
+   to `originals/`. An old deployment has no such endpoint: 404 → **503**.
+   Modal's 303 for a long call is followed only to its own host, by GET;
+   any other redirect is an error.
+3. **The staged bytes are judged** by this server's own parser
+   (`assertStoredClipIsSilent`, `src/lib/video/mp4-tracks.ts`): any `soun`
+   handler, any audio sample entry in any track (mp4a, ac-3, ec-3, Opus,
+   alac, samr, lpcm, sowt, twos and more), more than one `moov`, any `moof`
+   or `mvex` (fragmented), a non-H.264 video entry, an unreadable length, or a
+   length over `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack) refuses it.
+4. Only then is it **copied server-side to `originals/`** and the staged
+   object deleted, and the row, claim, section link and `complete` are
+   written, with `duration_seconds` and `file_size` from those bytes.
+5. **On any failure after Modal was called**, a delayed cleanup is scheduled
+   FIRST (Inngest `scout-clip-cleanup`, event `scout/clip.cleanup`): it sleeps
+   past the upload URLs' life (`mutePutTtlSeconds` + 60 s), then deletes every
+   key the attempt could have written (derived from the two ids by
+   `clipKeys`, never handed in), unless a row uses the original. A Modal run
+   that outlives our timeout and PUTs late is cleaned up by it; so is a
+   request killed mid-rollback. Then the rollback runs (row, original,
+   posters, staged).
+
+Because the stored original is the silent file, every downstream copy is
+silent, and because the cap equals the R2 video lane's limit for a known-silent
+clip, every accepted clip publishes there (`kind: "video"`, `posterUrl`,
+`videoUrl`). The row is `media_type video`, `has_audio false`, complete with
+posters, so the request answers `ready`; no AI event is sent (the AI lane reads
+images only) and GET reports no crew for a clip.
+
+**Time budget.** `VIDEO_REQUEST_BUDGET_MS` (285 s, inside the route's 300 s)
+counts from the moment the POST arrived (the route passes its own start time).
+Under 90 s left before Modal → 503 with nothing written; otherwise Modal gets
+what is left minus 60 s. The writes after the pipeline run on a client whose
+every call stops at the budget's end minus `ROLLBACK_RESERVE_MS` (12 s;
+`deadlineFetch`, `src/lib/net/deadline-fetch.ts`), and the rollback gets its own
+10 s window, so a burst of slow gateway answers fails the request cleanly
+instead of the platform killing it mid-write.
 
 **Contract with Scout: the clip URL is signed for 900 s (15 min).** Scout's
 bridge signs the MP4 URL for 15 minutes, comfortably above this route's 285 s
@@ -600,6 +638,25 @@ error text, fetch failures, rollback reasons, `system_errors`, the route's log
 and response) goes through `scrubSignedUrls` (`src/lib/net/scrub-urls.ts`),
 which replaces each URL's query string with `?<redacted>`; Modal scrubs its own
 errors the same way (`scrub_urls`) and does not chain the original exception.
+
+**Release steps for clips, in order** (none of them done by the branch):
+1. `modal deploy modal/video_pipeline.py`. It prints two endpoint URLs now:
+   `process_video` (unchanged, keeps `VIDEO_PIPELINE_URL`) and `mute_video`.
+2. Prove the mute endpoint before the app uses it: POST it a short test clip
+   with sound and check that the answer says `muted: true` and that the staged
+   object has no audio stream (`ffprobe`). Also check one portrait phone clip
+   keeps its rotation on Modal's ffmpeg.
+3. Set `VIDEO_MUTE_URL` (the `mute_video` URL) on Vercel, Production. Until it
+   is set, clip POSTs answer 503 and nothing is written.
+4. Add an R2 lifecycle rule on the archive bucket: delete objects with prefix
+   `scout-staging/` 1 day after creation. It is the backstop if the delayed
+   cleanup never runs. (Staging is top-level precisely because lifecycle
+   rules match by prefix only.)
+5. Deploy the app (migration 102 first, then the code). The deploy workflow
+   re-syncs Inngest; confirm `scout-clip-cleanup` is listed in the Inngest
+   dashboard, since a new function has failed to register before.
+6. Send one real Site-worthy clip from Scout and confirm: row `has_audio false`,
+   nothing left under `staging/` for it, and the website plays it silent.
 
 **Status.** `ready` = complete and `ai_indexed_at` set (a clip: complete with posters); `failed` = upload failed
 or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including

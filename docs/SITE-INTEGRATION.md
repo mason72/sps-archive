@@ -377,19 +377,17 @@ also get a lossless `-c copy` remux to `events/{id}/video/{file}.mp4`
 (Firefox won't play QuickTime containers). Unsupported codecs politely fail
 the row (`processing_status: failed` + human-readable `processing_error`).
 
-**Muted renditions (`mute: true`, 2026-11-24).** The pipeline can write the
-rendition with every audio, subtitle, data and chapter stream dropped (video
-copied untouched, metadata cleared; the source's audio codec is not checked,
-since it is dropped), ffprobes what it wrote, and answers
-`muted: true` only when no audio stream is left. Used by the Scout
-integration (`docs/TECHNICAL.md` 9b), which writes the silent copy AS the
-stored original, so a crew clip's sound is never kept. **Needs a redeploy of
-`modal/video_pipeline.py` before Scout clips work**: the deployed function
-ignores `mute`, never says `muted`, and the caller refuses that answer.
-Deploy it BEFORE the app: until then, a Scout call that times out could let the
-old function write a copy with sound into the keys the caller already rolled
-back (bounded by the upload URLs' few-minute life).
-Local proof: `python3 -I modal/tests/test_video_mute.py`.
+**Muted copies: the `mute_video` endpoint (2026-11-24).** A SEPARATE web
+endpoint of the same Modal app (the app reaches it at `VIDEO_MUTE_URL`; the
+upload pipeline stays at `VIDEO_PIPELINE_URL` and refuses `mute`). It downloads
+the source once (no redirects, 55 MB, 90 s), writes a copy with every audio,
+subtitle, data and chapter stream dropped (video copied untouched, metadata
+cleared; the source's audio codec is not checked, since it is dropped) to the
+`staged_put` URL, re-probes what it wrote, and answers `muted: true` with the
+written file's duration and codec. A deployment from before it existed has no
+such endpoint (404), so it can never receive a clip. Used by the Scout
+integration (`docs/TECHNICAL.md` 9b). Local proof:
+`python3 -I modal/tests/test_video_mute.py`.
 
 **Stream lifecycle.** Stream ingestion happens at *publish* time (membership
 sync), so only website videos cost Stream minutes; unpublishing deletes the

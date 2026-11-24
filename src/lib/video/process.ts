@@ -110,64 +110,113 @@ export interface MutedVideoResult extends VideoProcessResult {
 }
 
 /**
- * A SILENT copy: the pipeline reads `source.url` (Scout's signed URL, already
- * vetted by the caller, so the clip with sound is never written to our
- * storage) and writes the web rendition, with every audio stream dropped, to
- * `destKey`, plus the three poster variants for `destKey`. Used by the Scout integration, whose
- * crew phone clips record conversations and client names: the audio is never
- * stored anywhere a gallery, download or the website can reach.
+ * The silent-copy endpoint is missing: `VIDEO_MUTE_URL` is unset, or the
+ * deployed Modal app has no `mute_video` endpoint (404). Retryable once the
+ * deploy is done; the caller answers 503 and nothing is written.
+ */
+export class VideoMuteUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VideoMuteUnavailableError";
+  }
+}
+
+/** True when the app knows where the silent-copy endpoint is. */
+export function isVideoMuteConfigured(): boolean {
+  return !!process.env.VIDEO_MUTE_URL;
+}
+
+/** How long the upload URLs handed to the pipeline stay valid, in seconds. */
+export function mutePutTtlSeconds(timeoutMs: number): number {
+  return Math.ceil(timeoutMs / 1000) + 60;
+}
+
+/**
+ * A SILENT copy, from its OWN Modal endpoint (`mute_video`, at
+ * `VIDEO_MUTE_URL`), never the upload pipeline's: a deployment without it
+ * answers 404, so an old function can never receive the clip or write a copy
+ * that keeps its sound.
  *
- * Refuses (throws) unless the pipeline answers `muted: true`. An older
- * deployment of modal/video_pipeline.py ignores `mute` and would happily copy
- * the audio, and it never sends `muted`, so it fails here instead. The caller
- * still checks the written bytes itself (mp4-tracks.ts): this flag is the
- * pipeline's claim, not the proof.
+ * The pipeline reads `source.url` (Scout's signed URL, vetted by the caller)
+ * once, writes the copy with every audio stream dropped to `stagedKey` (a
+ * STAGING key, never the stored original: the caller verifies the staged
+ * bytes and only then copies them into place), and the three posters for
+ * `posterKey`. Refuses (throws) unless the answer says `muted: true`; the
+ * caller's own read of the bytes is the proof, this flag only the claim.
  *
- * The upload URLs live only as long as this call may wait (plus a minute), so
- * a Modal run that outlives our timeout cannot write into the keys long after
- * the caller rolled them back. Deploy order matters: the Modal function before
- * the app, or an old deployment that ignores `mute` could, after a timeout,
- * write a copy WITH sound inside that window (the read-back never sees it).
+ * Upload URLs live `mutePutTtlSeconds(timeoutMs)`: a run that outlives our
+ * timeout can still write inside that window, which is why the caller
+ * schedules a delayed delete of every key handed out here.
+ *
+ * Redirects are never followed blindly. Modal answers a call that runs past
+ * 150 s with 303 to a result URL on its own host; that, and only that, is
+ * polled until the deadline. Anything else is an error.
  */
 export async function processMutedVideoViaModal(
   source: { url: string },
-  destKey: string,
+  keys: { stagedKey: string; posterKey: string },
   attribution?: { userId: string; eventId?: string | null },
-  { timeoutMs = 240_000 }: { timeoutMs?: number } = {}
+  {
+    timeoutMs = 240_000,
+    fetchImpl = fetch,
+  }: { timeoutMs?: number; fetchImpl?: typeof fetch } = {}
 ): Promise<MutedVideoResult> {
-  const url = process.env.VIDEO_PIPELINE_URL;
-  if (!url) {
-    throw new Error(
-      "VIDEO_PIPELINE_URL is not configured — deploy modal/video_pipeline.py and set it"
+  const endpoint = process.env.VIDEO_MUTE_URL;
+  if (!endpoint) {
+    throw new VideoMuteUnavailableError(
+      "VIDEO_MUTE_URL is not configured — deploy modal/video_pipeline.py (mute_video) and set it"
     );
   }
-  if (!destKey.toLowerCase().endsWith(".mp4")) {
-    throw new Error(`a muted rendition is written as .mp4, not ${destKey}`);
+  if (!/^scout-staging\/[^/]+\/[^/]+\.mp4$/i.test(keys.stagedKey)) {
+    throw new Error(`a muted copy is staged under scout-staging/ as .mp4, not ${keys.stagedKey}`);
   }
 
-  const putTtl = Math.ceil(timeoutMs / 1000) + 60;
-  const [smPut, mdPut, lgPut, displayPut] = await Promise.all([
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-sm"), "image/jpeg", putTtl),
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-md"), "image/jpeg", putTtl),
-    getPresignedUploadUrl(getThumbnailKey(destKey, "thumb-lg"), "image/jpeg", putTtl),
-    getPresignedUploadUrl(destKey, "video/mp4", putTtl),
+  const putTtl = mutePutTtlSeconds(timeoutMs);
+  const [smPut, mdPut, lgPut, stagedPut] = await Promise.all([
+    getPresignedUploadUrl(getThumbnailKey(keys.posterKey, "thumb-sm"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(getThumbnailKey(keys.posterKey, "thumb-md"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(getThumbnailKey(keys.posterKey, "thumb-lg"), "image/jpeg", putTtl),
+    getPresignedUploadUrl(keys.stagedKey, "video/mp4", putTtl),
   ]);
 
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => Math.max(1, deadline - Date.now());
+  const origin = new URL(endpoint).origin;
   const started = Date.now();
-  const res = await fetch(url, {
+
+  let res = await fetchImpl(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       pipeline_key: process.env.VIDEO_PIPELINE_KEY ?? null,
       video_url: source.url,
       poster_puts: { sm: smPut, md: mdPut, lg: lgPut },
-      display_put: displayPut,
-      mute: true,
+      staged_put: stagedPut,
     }),
-    // A cold Modal container plus a 50 MB download and copy fits well inside;
-    // a dead socket must not hold the request until the platform kills it.
-    signal: AbortSignal.timeout(timeoutMs),
+    redirect: "manual",
+    signal: AbortSignal.timeout(remaining()),
   });
+  // A long call: Modal hands back a result URL on its own host to poll.
+  while (res.status === 303) {
+    const location = res.headers.get("location");
+    const next = location ? new URL(location, endpoint) : null;
+    if (!next || next.origin !== origin) {
+      throw new Error("Video pipeline redirected off its own host; not followed");
+    }
+    res = await fetchImpl(next.toString(), {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(remaining()),
+    });
+  }
+  if (res.status === 404) {
+    throw new VideoMuteUnavailableError(
+      "The deployed video pipeline has no mute_video endpoint (404) — redeploy modal/video_pipeline.py"
+    );
+  }
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`Video pipeline answered a redirect (${res.status}); not followed`);
+  }
   if (!res.ok) {
     throw new Error(scrubSignedUrls(`Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`));
   }
@@ -201,9 +250,7 @@ export async function processMutedVideoViaModal(
     muted: json.muted === true,
   };
   if (result.ok && !result.muted) {
-    throw new Error(
-      "Video pipeline did not confirm a muted rendition — redeploy modal/video_pipeline.py (mute support, 2026-11-24)"
-    );
+    throw new Error("Video pipeline did not confirm a muted copy; nothing is filed");
   }
   return result;
 }

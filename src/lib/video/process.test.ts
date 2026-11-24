@@ -10,53 +10,99 @@ vi.mock("@/lib/r2/client", async (importOriginal) => {
 });
 vi.mock("@/lib/usage/record", () => ({ recordUsage: vi.fn(async () => {}), secondsSince: () => 1 }));
 
-import { processMutedVideoViaModal } from "./process";
+import { getPresignedUploadUrl } from "@/lib/r2/client";
+import { VideoMuteUnavailableError, mutePutTtlSeconds, processMutedVideoViaModal } from "./process";
 
 const SRC = { url: "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/p/clip.mp4?token=t" };
-const DEST = "events/e1/originals/abc.mp4";
+const KEYS = {
+  stagedKey: "scout-staging/e1/abc.mp4",
+  posterKey: "events/e1/originals/abc.mp4",
+};
+const MUTE_URL = "https://ws--sps-archive-video-mute-video.modal.run";
 const okBody = (over: Record<string, unknown> = {}) =>
   ({ ok: true, duration_seconds: 3, width: 320, height: 240, has_audio: true, muted: true, ...over });
+const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
 
 let fetchMock: ReturnType<typeof vi.fn>;
+const call = (over: { timeoutMs?: number } = {}) =>
+  processMutedVideoViaModal(SRC, KEYS, undefined, { fetchImpl: fetchMock as unknown as typeof fetch, ...over });
+
 beforeEach(() => {
-  process.env.VIDEO_PIPELINE_URL = "https://modal.test/process_video";
+  process.env.VIDEO_MUTE_URL = MUTE_URL;
+  process.env.VIDEO_PIPELINE_URL = "https://ws--sps-archive-video-process-video.modal.run";
   fetchMock = vi.fn();
-  vi.stubGlobal("fetch", fetchMock);
+  vi.mocked(getPresignedUploadUrl).mockClear();
 });
 afterEach(() => {
-  vi.unstubAllGlobals();
+  delete process.env.VIDEO_MUTE_URL;
   delete process.env.VIDEO_PIPELINE_URL;
 });
 
 describe("processMutedVideoViaModal", () => {
-  it("asks for a muted rendition written to the stored key, posters beside it", async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify(okBody())));
-    const r = await processMutedVideoViaModal(SRC, DEST);
+  it("calls the mute endpoint (never the upload pipeline's) with a STAGING key and posters", async () => {
+    fetchMock.mockResolvedValue(json(okBody()));
+    const r = await call();
     expect(r).toMatchObject({ ok: true, muted: true, durationSeconds: 3 });
 
-    const [, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(MUTE_URL);
+    expect(init.redirect).toBe("manual"); // never follows a redirect blindly
     const sent = JSON.parse(init.body);
-    expect(sent.mute).toBe(true);
-    expect(sent.video_url).toBe(SRC.url); // Scout's URL: no copy with sound in our storage
-    const { getPresignedUploadUrl } = await import("@/lib/r2/client");
-    // Upload URLs live as long as the call may wait plus a minute, not an hour.
+    expect(sent.video_url).toBe(SRC.url);
+    expect(sent.staged_put).toBe(`https://r2.test/put/${KEYS.stagedKey}`);
+    expect(sent).not.toHaveProperty("display_put");
+    expect(Object.keys(sent.poster_puts).sort()).toEqual(["lg", "md", "sm"]);
     const ttls = vi.mocked(getPresignedUploadUrl).mock.calls.map((c) => c[2]);
     expect(ttls).toEqual([300, 300, 300, 300]);
-    expect(sent.display_put).toBe(`https://r2.test/put/${DEST}`);
-    expect(Object.keys(sent.poster_puts).sort()).toEqual(["lg", "md", "sm"]);
-    expect(init.signal).toBeInstanceOf(AbortSignal); // never an unbounded wait
+    expect(mutePutTtlSeconds(240_000)).toBe(300);
   });
 
-  it("refuses an answer that does not confirm muting (an older deployment ignores `mute`)", async () => {
+  it("refuses to stage anywhere but staging/", async () => {
+    await expect(
+      processMutedVideoViaModal(SRC, { stagedKey: "events/e1/originals/abc.mp4", posterKey: KEYS.posterKey })
+    ).rejects.toThrow(/scout-staging/);
+  });
+
+  it("is unavailable (not a silent pass) when VIDEO_MUTE_URL is unset or the endpoint 404s", async () => {
+    delete process.env.VIDEO_MUTE_URL;
+    await expect(call()).rejects.toBeInstanceOf(VideoMuteUnavailableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    process.env.VIDEO_MUTE_URL = MUTE_URL;
+    fetchMock.mockResolvedValue(new Response("Not Found", { status: 404 }));
+    await expect(call()).rejects.toBeInstanceOf(VideoMuteUnavailableError);
+  });
+
+  it("follows Modal's 303 to a result URL on ITS OWN host, by GET, until the answer", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: `${MUTE_URL}/?__modal_function_call_id=fc-1` } }))
+      .mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: `/?__modal_function_call_id=fc-1` } }))
+      .mockResolvedValueOnce(json(okBody()));
+    await expect(call()).resolves.toMatchObject({ muted: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls.slice(1)) {
+      expect(init.method).toBe("GET");
+      expect(init.redirect).toBe("manual");
+    }
+  });
+
+  it("refuses a redirect to another host, and any other redirect", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: "https://evil.test/x" } }));
+    await expect(call()).rejects.toThrow(/off its own host/);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: `${MUTE_URL}/x` } }));
+    await expect(call()).rejects.toThrow(/redirect \(302\)/);
+  });
+
+  it("refuses an answer that does not confirm muting", async () => {
     for (const body of [okBody({ muted: undefined }), okBody({ muted: false }), okBody({ muted: "true" })]) {
-      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body)));
-      await expect(processMutedVideoViaModal(SRC, DEST)).rejects.toThrow(/did not confirm a muted rendition/);
+      fetchMock.mockResolvedValueOnce(json(body));
+      await expect(call()).rejects.toThrow(/did not confirm a muted copy/);
     }
   });
 
   it("passes a clean codec rejection through for the caller to report", async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: false, error: "Unsupported video codec 'hevc'" })));
-    await expect(processMutedVideoViaModal(SRC, DEST)).resolves.toMatchObject({ ok: false, error: /hevc/ });
+    fetchMock.mockResolvedValue(json({ ok: false, error: "Unsupported video codec 'hevc'" }));
+    await expect(call()).resolves.toMatchObject({ ok: false, error: /hevc/ });
   });
 
   it("never lets a signed URL from the pipeline's error text into the thrown message", async () => {
@@ -64,16 +110,8 @@ describe("processMutedVideoViaModal", () => {
     fetchMock.mockResolvedValue(
       new Response(`RuntimeError: ffprobe failed: ${SRC.url.split("?")[0]}?token=${FAKE}: Invalid data`, { status: 500 })
     );
-    const err = await processMutedVideoViaModal(SRC, DEST).then(() => null, (e) => e as Error);
+    const err = await call().then(() => null, (e) => e as Error);
     expect(err?.message).toMatch(/\?<redacted>/);
     expect(err?.message).not.toContain(FAKE);
-  });
-
-  it("throws on a pipeline error, a missing endpoint, or a non-mp4 destination", async () => {
-    fetchMock.mockResolvedValue(new Response("nope", { status: 500 }));
-    await expect(processMutedVideoViaModal(SRC, DEST)).rejects.toThrow(/500/);
-    await expect(processMutedVideoViaModal(SRC, "events/e1/originals/abc.mov")).rejects.toThrow(/\.mp4/);
-    delete process.env.VIDEO_PIPELINE_URL;
-    await expect(processMutedVideoViaModal(SRC, DEST)).rejects.toThrow(/VIDEO_PIPELINE_URL/);
   });
 });

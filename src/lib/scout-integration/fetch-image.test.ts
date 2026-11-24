@@ -92,6 +92,21 @@ describe("fetchPostcardVideo", () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it("refuses HEVC (415) and a clip over 61 s (400) on this first read", async () => {
+    const hevc = Buffer.from(mp4);
+    hevc.write("hvc1", hevc.indexOf("avc1", hevc.indexOf("stsd")), "latin1");
+    await failsWith(fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([hevc]))) }), 415);
+
+    const long = Buffer.from(mp4);
+    const mvhd = long.indexOf("mvhd");
+    long.writeUInt32BE(1000, mvhd + 16); // timescale
+    long.writeUInt32BE(61_010, mvhd + 20); // 61.01 s
+    await failsWith(fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([long]))) }), 400);
+
+    long.writeUInt32BE(61_000, mvhd + 20); // exactly 61 s is fine
+    await expect(fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([long]))) })).resolves.toBeTruthy();
+  });
+
   it("is 415 for a JPEG or a broken MP4, 413 past the cap", async () => {
     await failsWith(fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([JPEG]))) }), 415);
     await failsWith(

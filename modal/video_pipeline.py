@@ -10,13 +10,13 @@ For each uploaded video (called by the Inngest "video/uploaded" function):
      image thumbnails, so the editor grid and site publishing work unchanged
   3. For .mov originals: losslessly remux (-c copy) to a web-playable .mp4
      rendition (Firefox won't play QuickTime containers)
-  4. With `mute: true` (Scout crew clips, 2026-11-24): the rendition is
+  4. `mute_video`, a SEPARATE endpoint (Scout crew clips, 2026-11-24): the rendition is
      written WITHOUT audio (video stream copied untouched, every audio,
      subtitle and data stream dropped, container metadata cleared), and the
      written file is ffprobed again: any audio stream left is an error, never
-     an upload. The response says `muted: true` only after that check, and the
-     caller refuses a response without it, so an older deployment that does
-     not know `mute` fails closed instead of passing audio through.
+     an upload. The response says `muted: true` only after that check. A
+     deployment from before this endpoint existed has no `mute_video` URL at
+     all (404), so it can never receive a clip, let alone write one.
 
 The function is credential-free: the Next.js side presigns every URL it needs.
 Auth: shared secret `pipeline_key` in the JSON payload (the body already
@@ -173,6 +173,30 @@ def _rotation(stream: dict) -> int:
     return abs(int(tag_rot)) % 360 if tag_rot else 0
 
 
+def _check_key(payload: dict) -> None:
+    import os
+
+    from fastapi import HTTPException
+
+    expected = os.environ.get("VIDEO_PIPELINE_KEY")
+    if expected and payload.get("pipeline_key") != expected:
+        raise HTTPException(status_code=401, detail="bad pipeline_key")
+
+
+def _scrubbed(run):
+    """Run `run()`; any failure is re-raised with every URL's query string
+    removed and the original exception NOT chained (its message can carry a
+    signed URL into the log)."""
+    from fastapi import HTTPException
+
+    try:
+        return run()
+    except HTTPException:
+        raise
+    except Exception as err:  # noqa: BLE001 - scrubbed and re-raised
+        raise RuntimeError(scrub_urls(f"{type(err).__name__}: {err}")) from None
+
+
 @app.function(
     image=video_image,
     timeout=600,  # a 500MB remux + upload fits comfortably
@@ -182,50 +206,70 @@ def _rotation(stream: dict) -> int:
 @modal.fastapi_endpoint(method="POST")
 def process_video(payload: dict):
     """
-    Input JSON:
+    The upload path's pipeline (sound kept). Input JSON:
       {
         "pipeline_key": shared secret (must match Modal secret VIDEO_PIPELINE_KEY),
         "video_url":   presigned GET of the original,
         "poster_puts": {"sm": url, "md": url, "lg": url},  # presigned PUTs
         "display_put": url | null  # presigned PUT for the .mov→.mp4 remux
-        "mute": bool (optional)    # write the rendition with NO audio; needs display_put
       }
 
     Returns metadata on success, or {"ok": false, "error": "..."} for
     unsupported codecs (a clean rejection, not a retryable failure).
+    Muting is NOT done here: it has its own endpoint, `mute_video`, so a caller
+    that wants silence can never be answered by a function that keeps sound.
     """
-    import os
-
-    import httpx
     from fastapi import HTTPException
 
-    expected = os.environ.get("VIDEO_PIPELINE_KEY")
-    if expected and payload.get("pipeline_key") != expected:
-        raise HTTPException(status_code=401, detail="bad pipeline_key")
+    _check_key(payload)
+    if payload.get("mute"):
+        raise HTTPException(status_code=400, detail="mute is handled by the mute_video endpoint")
+    return _scrubbed(
+        lambda: _pipeline(
+            payload["video_url"], payload["poster_puts"], payload.get("display_put"), False
+        )
+    )
 
-    video_url = payload["video_url"]
-    poster_puts = payload["poster_puts"]
-    display_put = payload.get("display_put")
-    mute = bool(payload.get("mute"))
-    if mute and not display_put:
-        # Muting is done on the rendition; without one, nothing would be muted.
-        raise HTTPException(status_code=400, detail="mute requires display_put")
 
-    try:
+@app.function(
+    image=video_image,
+    timeout=600,
+    memory=2048,
+    secrets=[modal.Secret.from_name("video-pipeline")],
+)
+@modal.fastapi_endpoint(method="POST")
+def mute_video(payload: dict):
+    """
+    The SILENT copy (Scout crew clips, 2026-11-24). Its own endpoint and URL
+    (VIDEO_MUTE_URL on the app side): a deployment without it answers 404, so
+    an old function can never receive a clip or write anything. Input JSON:
+      {
+        "pipeline_key": shared secret,
+        "video_url":   the clip (an https signed URL; read ONCE, no redirects),
+        "poster_puts": {"sm": url, "md": url, "lg": url},
+        "staged_put":  presigned PUT for the silent copy, under a staging key
+      }
+    The copy is written with every audio, subtitle, data and chapter stream
+    dropped, re-probed, and uploaded only if it has no audio; the answer
+    (`muted: true`, duration, codec) describes the file it WROTE. The caller
+    verifies the staged bytes again before filing them.
+    """
+    from fastapi import HTTPException
+
+    _check_key(payload)
+    staged_put = payload.get("staged_put")
+    if not staged_put:
+        raise HTTPException(status_code=400, detail="staged_put is required")
+
+    def run():
         with tempfile.TemporaryDirectory() as src_tmp:
-            if mute:
-                # One read of the source, no redirects; it never leaves this
-                # container's temp dir, which is removed on every path.
-                local = f"{src_tmp}/source.mp4"
-                download_no_redirects(video_url, local)
-                video_url = local
-            return _pipeline(video_url, poster_puts, display_put, mute)
-    except HTTPException:
-        raise
-    except Exception as err:  # noqa: BLE001 - scrubbed and re-raised
-        # `from None`: the original exception (and its message, which can
-        # carry a signed URL) is not chained into the log.
-        raise RuntimeError(scrub_urls(f"{type(err).__name__}: {err}")) from None
+            # One read of the source, no redirects; it never leaves this
+            # container's temp dir, which is removed on every path.
+            local = f"{src_tmp}/source.mp4"
+            download_no_redirects(payload["video_url"], local)
+            return _pipeline(local, payload["poster_puts"], staged_put, True)
+
+    return _scrubbed(run)
 
 
 def _pipeline(video_url: str, poster_puts: dict, display_put, mute: bool) -> dict:

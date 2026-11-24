@@ -143,6 +143,18 @@ type Events = {
       userId: string;
     };
   };
+  /**
+   * A Scout clip attempt did not finish: wait `sleepSeconds` (past the silent-
+   * copy pipeline's upload URLs), then delete every key the attempt could
+   * have written, unless a row uses it (src/lib/inngest/scout-cleanup.ts).
+   */
+  "scout/clip.cleanup": {
+    data: {
+      eventId: string;
+      imageId: string;
+      sleepSeconds: number;
+    };
+  };
 };
 
 export const inngest = new Inngest({

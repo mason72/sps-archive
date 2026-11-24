@@ -12,7 +12,14 @@
  *    never a header or a name (the SPS-pull rule).
  */
 import { checkImageUrl } from "./validate";
-import { isMp4Container, mp4TrackKinds } from "@/lib/video/mp4-tracks";
+import {
+  H264_SAMPLE_ENTRIES,
+  isMp4Container,
+  mp4DurationSeconds,
+  mp4TrackKinds,
+  mp4VideoCodecs,
+} from "@/lib/video/mp4-tracks";
+import { SILENT_R2_MAX_DURATION_SECONDS } from "@/lib/stream/client";
 
 export const POSTCARD_MAX_BYTES = 40 * 1024 * 1024;
 export const POSTCARD_FETCH_TIMEOUT_MS = 30_000;
@@ -80,6 +87,34 @@ export async function fetchPostcardVideo(
     throw new PostcardFetchError(`video_url is not a readable MP4: ${errorText(err)}`, 415);
   }
   if (!kinds.includes("vide")) throw new PostcardFetchError("video_url has no video track.", 415);
+
+  // Refuse what the pipeline would refuse, here, before anything is written
+  // or Modal is called: HEVC (an Android phone's default, uploaded as-is from
+  // Scout's web app) and anything longer than the R2 lane allows. The stored
+  // copy is judged again after the pipeline; this is only the early "no".
+  let codecs: string[];
+  let seconds: number;
+  try {
+    codecs = mp4VideoCodecs(buf);
+    seconds = mp4DurationSeconds(buf);
+  } catch (err) {
+    throw new PostcardFetchError(`video_url is not a readable MP4: ${errorText(err)}`, 415);
+  }
+  if (!codecs.length || !codecs.every((c) => H264_SAMPLE_ENTRIES.has(c))) {
+    throw new PostcardFetchError(
+      `video_url is not H.264 (${codecs.join(", ") || "no video sample entry"}); export the clip as H.264.`,
+      415
+    );
+  }
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new PostcardFetchError("video_url has no readable length.", 415);
+  }
+  if (seconds > SILENT_R2_MAX_DURATION_SECONDS) {
+    throw new PostcardFetchError(
+      `video_url runs ${seconds.toFixed(2)} s; the longest clip is ${SILENT_R2_MAX_DURATION_SECONDS} s.`,
+      400
+    );
+  }
   return buf;
 }
 

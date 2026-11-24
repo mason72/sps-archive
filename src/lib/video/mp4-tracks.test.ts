@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isMp4Container, mp4DurationSeconds, mp4HasAudio, mp4TrackKinds, mp4VideoCodecs, Mp4ParseError } from "./mp4-tracks";
+import {
+  isMp4Container,
+  mp4DurationSeconds,
+  mp4HasAudio,
+  mp4SilenceProblems,
+  mp4TrackKinds,
+  mp4VideoCodecs,
+  Mp4ParseError,
+} from "./mp4-tracks";
 
 // Real files, made by modal/tests/test_video_mute.py with ffmpeg: a 3 s H.264
 // clip with an AAC tone, and the pipeline's muted rendition of it.
@@ -45,5 +53,53 @@ describe("mp4DurationSeconds / mp4VideoCodecs (read from the stored file)", () =
 
   it("throws on a file with no movie header rather than guessing a length", () => {
     expect(() => mp4DurationSeconds(withAudio.subarray(0, 64))).toThrow(Mp4ParseError);
+  });
+});
+
+/** Indices of every `hdlr` box type in a file. */
+function hdlrAt(buf: Uint8Array): number[] {
+  const out: number[] = [];
+  const b = Buffer.from(buf);
+  for (let i = b.indexOf("hdlr"); i >= 0; i = b.indexOf("hdlr", i + 4)) out.push(i);
+  return out;
+}
+
+describe("mp4SilenceProblems (refuse anything that might carry sound)", () => {
+  const fragmented = fixture("tone-muted-fragmented.mp4");
+
+  it("finds nothing in the muted copy", () => {
+    expect(mp4SilenceProblems(muted)).toEqual([]);
+  });
+
+  it("refuses a file with an audio track", () => {
+    expect(mp4SilenceProblems(withAudio)).toContain("audio track (soun)");
+  });
+
+  it("refuses an audio sample entry even when its track's handler says video", () => {
+    // Relabel the audio track's handler soun → vide: the handler check alone
+    // would now pass it, the sample entry (mp4a) still gives it away.
+    const relabeled = new Uint8Array(withAudio);
+    const b = Buffer.from(relabeled.buffer, relabeled.byteOffset, relabeled.byteLength);
+    const soun = hdlrAt(relabeled).find((i) => b.toString("latin1", i + 12, i + 16) === "soun");
+    expect(soun).toBeDefined();
+    b.write("vide", soun! + 12, "latin1");
+    expect(mp4TrackKinds(relabeled)).not.toContain("soun");
+    expect(mp4SilenceProblems(relabeled).join()).toMatch(/audio sample entry \(mp4a\) in a vide track/);
+  });
+
+  it("refuses a fragmented file, even a silent one", () => {
+    expect(mp4TrackKinds(fragmented)).toEqual(["vide"]);
+    const problems = mp4SilenceProblems(fragmented);
+    expect(problems).toContain("fragmented (moof)");
+    expect(problems).toContain("fragmented (mvex)");
+  });
+
+  it("refuses a file with more than one moov", () => {
+    // Append a copy of the moov box to the end of the muted file.
+    const b = Buffer.from(muted);
+    const at = b.indexOf("moov") - 4;
+    const size = b.readUInt32BE(at);
+    const twice = Buffer.concat([b, b.subarray(at, at + size)]);
+    expect(mp4SilenceProblems(twice)).toContain("2 moov boxes");
   });
 });

@@ -409,6 +409,29 @@ export async function copyToInfrequentAccess(key: string, etag: string): Promise
   );
 }
 
+/**
+ * Server-side copy of one object to another key in the same bucket (no bytes
+ * through the app). Bounded by `timeoutMs` across the SDK's retries, so a hung
+ * copy cannot outlive the request that asked for it.
+ */
+export async function copyWithinR2(
+  sourceKey: string,
+  destKey: string,
+  contentType: string,
+  timeoutMs = 60_000
+): Promise<void> {
+  await R2.send(
+    new CopyObjectCommand({
+      Bucket: BUCKET,
+      Key: destKey,
+      CopySource: encodeURI(`${BUCKET}/${sourceKey}`),
+      MetadataDirective: "REPLACE",
+      ContentType: contentType,
+    }),
+    { abortSignal: AbortSignal.timeout(timeoutMs) }
+  );
+}
+
 /** Delete a file from R2 */
 export async function deleteFromR2(key: string): Promise<void> {
   await R2.send(
