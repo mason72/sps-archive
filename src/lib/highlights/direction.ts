@@ -107,11 +107,7 @@ async function candidateSections(
   // Owner-scoped: sections carries no user_id, so the join is the filter.
   // Paged: there are over 1,000 such sections since the Pixieset migration,
   // and an unpaged read stops at 1,000 with no error.
-  const secs = await readAllRows<{
-    id: string;
-    event_id: string;
-    events: { event_date: string | null; created_at: string } | null;
-  }>(() =>
+  const raw = await readAllRows(() =>
     supabase
       .from("sections")
       .select("id, event_id, events!inner(user_id, created_at, event_date)")
@@ -123,6 +119,13 @@ async function candidateSections(
       .neq("event_id", excludeEventId)
   );
 
+  // A many-to-one embed arrives as one object at runtime; the generated
+  // types call it an array, so the shape is asserted here (as before).
+  const secs = raw.map((r) => ({
+    id: r.id as string,
+    event_id: r.event_id as string,
+    events: r.events as unknown as { event_date: string | null; created_at: string } | null,
+  }));
   const ordered = orderTrainingCandidates(secs);
 
   const out: TrainableSection[] = [];

@@ -10,6 +10,7 @@ import {
   MIN_PICKS_TO_TRAIN,
   trainHighlightDirection,
 } from "./direction";
+import { isHeadshotGallery, readHeadshotReference } from "./headshot-reference";
 import { suggestedHighlightCount, typicalRangeFor } from "./limits";
 import {
   bwBaselineNote,
@@ -193,7 +194,8 @@ export interface ProposeResult {
   proposals: ProposedMoment[];
   totalMoments: number;
   /** How the ordering was produced — surfaced so the UI never over-claims. */
-  ranker: "learned" | "unranked";
+  /** "headshots": ranked by the owner's curated website headshots. */
+  ranker: "learned" | "headshots" | "unranked";
   trainedOnPicks: number;
   /** People treated as crew and capped in the set. */
   crewFound: number;
@@ -229,38 +231,39 @@ export async function proposeHighlights(
     };
   }
 
-  const direction = await trainHighlightDirection(supabase, ownerUserId, eventId);
+  // Faces: how many per frame ("only humans"), how many are SUBJECTS (group
+  // shots), and who the subjects are (coverage, one per person). Absent face
+  // data simply means the timeline still spreads picks. Read first: the face
+  // counts also decide whether this is a headshot gallery.
+  const facesByImage = await readFaces(supabase, images.map((i) => i.id));
+  const faceSummary = new Map(images.map((i) => [i.id, summarizeFaces(facesByImage.get(i.id) ?? [])]));
 
-  // The rules (rules.ts) and the learned direction, scored against every
+  // What "good" means. A headshot gallery ranks by likeness to the owner's
+  // curated website headshots (headshot-reference.ts: the learned direction
+  // rewards what stands out, which on a wall of portraits is props and odd
+  // poses); anything else, or an owner with no such reference, keeps the
+  // direction learned from their past Highlights.
+  const models = new Set(images.map((i) => i.embedding_model).filter((m): m is string => !!m));
+  const headshotGallery = isHeadshotGallery(images.map((i) => faceSummary.get(i.id)!.faces));
+  const reference = headshotGallery ? await readHeadshotReference(supabase, ownerUserId, models) : null;
+  const direction = reference ? null : await trainHighlightDirection(supabase, ownerUserId, eventId);
+  const taste = reference ?? direction?.vector ?? null;
+
+  // The rules (rules.ts) and the taste vector, scored against every
   // indexed photo in ONE call (migration 100): nine paged scans took 8.6 s on
   // Electronica. A failure here THROWS rather than proposing without rules: an
   // unruled set is exactly the complaint, and the auto-fill retries.
-  const ruleVectors = await ruleTextVectors(
-    ownerUserId,
-    eventId,
-    new Set(images.map((i) => i.embedding_model).filter((m): m is string => !!m))
-  );
-  const scored = await scoreByVectors(
-    supabase,
-    [...(direction ? [direction.vector] : []), ...ruleVectors],
-    ownerUserId,
-    eventId
-  );
-  const offset = direction ? 1 : 0;
+  const ruleVectors = await ruleTextVectors(ownerUserId, eventId, models);
+  const scored = await scoreByVectors(supabase, [...(taste ? [taste] : []), ...ruleVectors], ownerUserId, eventId);
+  const offset = taste ? 1 : 0;
   const scoreById = new Map<string, number>();
   const ruleScores = new Map<string, Partial<Record<RuleKey, number>>>();
   for (const [id, sims] of scored) {
-    if (direction) scoreById.set(id, sims[0]);
+    if (taste) scoreById.set(id, sims[0]);
     const row: Partial<Record<RuleKey, number>> = {};
     RULE_KEYS.forEach((key, i) => (row[key] = sims[offset + i]));
     ruleScores.set(id, row);
   }
-
-  // Faces: how many per frame ("only humans"), how many are SUBJECTS (group
-  // shots), and who the subjects are (coverage, one per person). Absent face
-  // data simply means the timeline still spreads picks.
-  const facesByImage = await readFaces(supabase, images.map((i) => i.id));
-  const faceSummary = new Map(images.map((i) => [i.id, summarizeFaces(facesByImage.get(i.id) ?? [])]));
   const personByImage = new Map<string, string[]>();
   for (const [id, f] of faceSummary) if (f.subjectPersonIds.length) personByImage.set(id, f.subjectPersonIds);
 
@@ -357,7 +360,7 @@ export async function proposeHighlights(
   const shortlistOf = async (ms: Moment[], size: number, exclude: ReadonlySet<string>) => {
     const pool = ms.filter((m) => !exclude.has(m.key));
     const n = Math.min(pool.length, size);
-    const list = direction
+    const list = taste
       ? [...pool].sort((a, b) => b.score - a.score).slice(0, n)
       : timelineSample(pool, n);
     const missing = list.filter((m) => !faceVecsByImage.has(m.frames[m.bestIndex].id));
@@ -451,7 +454,7 @@ export async function proposeHighlights(
   return {
     proposals,
     totalMoments: moments.length,
-    ranker: direction ? "learned" : "unranked",
+    ranker: reference ? "headshots" : direction ? "learned" : "unranked",
     trainedOnPicks: direction?.trainedOnPicks ?? 0,
     crewFound: crewIds.size,
     ruledOut,
