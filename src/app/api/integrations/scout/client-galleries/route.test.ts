@@ -42,6 +42,13 @@ describe("GET /client-galleries", () => {
     expect(vi.mocked(listClientGalleries).mock.calls[0][1]).toEqual({ date: "2026-11-20", days: 2, calendarEventId: "cal1_x" });
   });
 
+  it("answers calendar/series matches only when there is no date but a calendar id", async () => {
+    const res = await GET(req("/api/integrations/scout/client-galleries?calendar_event_id=cal1_x"));
+    expect(res.status).toBe(200);
+    expect(vi.mocked(listClientGalleries).mock.calls[0][1]).toEqual({ date: null, days: 1, calendarEventId: "cal1_x" });
+    expect((await GET(req("/api/integrations/scout/client-galleries?days=2"))).status).toBe(400);
+  });
+
   it("is 401 without the key and 400 for a bad date or days", async () => {
     expect((await GET(req("/x?date=2026-11-20&days=1", {}, null))).status).toBe(401);
     for (const q of ["date=2026-13-01&days=1", "date=2026-11-20&days=0", "date=2026-11-20&days=32", "date=2026-11-20&days=1.5"]) {

@@ -70,20 +70,20 @@ export interface ClientGalleryCandidate {
   name: string;
   date: string | null;
   client_name: string | null;
-  match: "calendar" | "date";
+  match: "calendar" | "series" | "date";
 }
 
 // ── GET /client-galleries ──────────────────────────────────────────────────
 
 export async function listClientGalleries(
   db: ScoutDb,
-  { date, days, calendarEventId }: { date: string; days: number; calendarEventId: string | null }
+  { date, days, calendarEventId }: { date: string | null; days: number; calendarEventId: string | null }
 ): Promise<ClientGalleryCandidate[]> {
   const ownerId = await loadOwnerUserId(db);
 
   // Calendar matches: the owner's event_intel rows that carry any calendar id,
-  // matched in code (exact or by the recurring instance's base id).
-  const calendarIds: string[] = [];
+  // matched in code: exact ("calendar") or by the recurring series ("series").
+  const relation = new Map<string, "calendar" | "series">();
   if (calendarEventId) {
     // Paged by the key (PostgREST answers at most 1,000 rows per request).
     let after: string | null = null; // a uuid column: no "" sentinel
@@ -93,30 +93,39 @@ export async function listClientGalleries(
       const { data, error } = await q.order("event_id", { ascending: true }).limit(1_000);
       if (error) throw error;
       const page = data ?? [];
-      for (const r of page) if (calendarIdsMatch(r.calendar_event_ids, calendarEventId)) calendarIds.push(r.event_id);
+      for (const r of page) {
+        const m = calendarIdsMatch(r.calendar_event_ids, calendarEventId);
+        if (m) relation.set(r.event_id, m);
+      }
       if (page.length < 1_000) break;
       after = page[page.length - 1].event_id;
     }
   }
 
-  const { from, to } = paddedWindow(date, days);
-  const byDate = await db
-    .from("events")
-    .select("id, name, slug, event_date")
-    .eq("user_id", ownerId)
-    .gte("event_date", from)
-    .lte("event_date", to)
-    .order("event_date", { ascending: false })
-    .limit(MAX_CANDIDATES * 2);
-  if (byDate.error) throw byDate.error;
-
-  let byCalendar: { id: string; name: string; slug: string; event_date: string | null }[] = [];
-  if (calendarIds.length) {
+  type EventRow = { id: string; name: string; slug: string; event_date: string | null };
+  // No date: the calendar and series matches only.
+  let byDate: EventRow[] = [];
+  if (date) {
+    const { from, to } = paddedWindow(date, days);
     const { data, error } = await db
       .from("events")
       .select("id, name, slug, event_date")
       .eq("user_id", ownerId)
-      .in("id", calendarIds.slice(0, 100))
+      .gte("event_date", from)
+      .lte("event_date", to)
+      .order("event_date", { ascending: false })
+      .limit(MAX_CANDIDATES * 2);
+    if (error) throw error;
+    byDate = data ?? [];
+  }
+
+  let byCalendar: EventRow[] = [];
+  if (relation.size) {
+    const { data, error } = await db
+      .from("events")
+      .select("id, name, slug, event_date")
+      .eq("user_id", ownerId)
+      .in("id", [...relation.keys()].slice(0, 100))
       .order("event_date", { ascending: false });
     if (error) throw error;
     byCalendar = data ?? [];
@@ -124,13 +133,15 @@ export async function listClientGalleries(
 
   const seen = new Set<string>();
   const rows: (Omit<ClientGalleryCandidate, "client_name">)[] = [];
-  const take = (e: { id: string; name: string; slug: string; event_date: string | null }, match: "calendar" | "date") => {
+  const take = (e: EventRow, match: ClientGalleryCandidate["match"]) => {
     if (seen.has(e.id) || NOT_CLIENT_GALLERIES.has(e.slug) || rows.length >= MAX_CANDIDATES) return;
     seen.add(e.id);
     rows.push({ event_id: e.id, name: e.name, date: e.event_date, match });
   };
-  for (const e of byCalendar) take(e, "calendar");
-  for (const e of byDate.data ?? []) take(e, "date");
+  // Exact calendar matches first, then the series, then the date window.
+  for (const e of byCalendar) if (relation.get(e.id) === "calendar") take(e, "calendar");
+  for (const e of byCalendar) if (relation.get(e.id) === "series") take(e, "series");
+  for (const e of byDate) take(e, "date");
 
   // Client name: the payer organisation, else the end brand.
   const names = new Map<string, string>();
@@ -253,8 +264,13 @@ export async function placeInClientGallery(
       return { ok: true, event_id: targetEventId, section_id: link.client_section_id ?? (await ensureBtsSection(db, targetEventId)) };
     }
   }
-  // Placed somewhere else: a move takes it out of the old gallery first.
-  if (link.client_image_id || link.client_event_id) await removeFromClientGallery(db, postcardId);
+  // Placed somewhere else: a MOVE. The new copy is made, verified and claimed
+  // FIRST; the old one is removed only after that, so a failed move (locked
+  // section, not ready, a copy check) leaves the shot where it was and
+  // Scout's "In <old gallery>" stays true.
+  const previous = link.client_image_id
+    ? { imageId: link.client_image_id, eventId: link.client_event_id ?? null }
+    : null;
 
   const { data: src, error: sErr } = await db.from("images").select(SOURCE_COLUMNS).eq("id", link.image_id).maybeSingle();
   if (sErr) throw sErr;
@@ -348,13 +364,16 @@ export async function placeInClientGallery(
       .insert({ section_id: sectionId, image_id: copyId, sort_order: (tail?.[0]?.sort_order ?? -1) + 1 });
     if (linkErr) throw linkErr;
 
-    // ── claim the placement; a concurrent PUT that won keeps its copy ──
-    const { data: claimed, error: claimErr } = await db
+    // ── claim the placement, conditional on what this request read (none, or
+    // the copy it is moving away from); a concurrent PUT that won keeps its copy ──
+    const claim = db
       .from("scout_postcard_links")
       .update({ client_event_id: targetEventId, client_image_id: copyId, client_section_id: sectionId, client_placed_at: now })
-      .eq("postcard_id", postcardId)
-      .is("client_image_id", null)
-      .select("postcard_id");
+      .eq("postcard_id", postcardId);
+    const { data: claimed, error: claimErr } = await (previous
+      ? claim.eq("client_image_id", previous.imageId)
+      : claim.is("client_image_id", null)
+    ).select("postcard_id");
     if (claimErr) throw claimErr;
     if (!claimed?.length) {
       await rollback("lost the placement race");
@@ -367,6 +386,20 @@ export async function placeInClientGallery(
   } catch (err) {
     await rollback(err instanceof Error ? err.message : String(err));
     throw err;
+  }
+
+  // The new copy is in place and recorded: now, and only now, the old one goes.
+  if (previous) {
+    try {
+      await deleteClientCopy(db, postcardId, previous.imageId, previous.eventId);
+    } catch (err) {
+      // The move stands; the old copy is reported so it can be removed by hand.
+      await reportSystemError("scout.client-bts.move-old-copy", err, {
+        postcardId,
+        imageId: previous.imageId,
+        eventId: previous.eventId,
+      });
+    }
   }
   return { ok: true, event_id: targetEventId, section_id: sectionId };
 }
@@ -387,13 +420,37 @@ export async function removeFromClientGallery(
   const current = link ?? (await requireLink(db, postcardId));
   let removed = false;
   if (current.client_image_id) {
+    removed = await deleteClientCopy(db, postcardId, current.client_image_id, current.client_event_id ?? null);
+  }
+  if (current.client_image_id || current.client_event_id || current.client_section_id) {
+    const { error } = await db
+      .from("scout_postcard_links")
+      .update({ client_event_id: null, client_image_id: null, client_section_id: null, client_placed_at: null })
+      .eq("postcard_id", postcardId);
+    if (error) throw error;
+  }
+  return { removed };
+}
+
+/**
+ * Delete ONE client copy (row and R2 objects), only if it is a crew BTS copy in
+ * the expected gallery; otherwise touch nothing and report. True if deleted.
+ */
+async function deleteClientCopy(
+  db: ScoutDb,
+  postcardId: string,
+  copyId: string,
+  expectedEventId: string | null
+): Promise<boolean> {
+  let removed = false;
+  {
     const { data: copy, error } = await db
       .from("images")
       .select("id, event_id, r2_key, media_type, site_published_at, is_crew_bts")
-      .eq("id", current.client_image_id)
+      .eq("id", copyId)
       .maybeSingle();
     if (error) throw error;
-    if (copy && copy.is_crew_bts && copy.event_id === current.client_event_id) {
+    if (copy && copy.is_crew_bts && copy.event_id === expectedEventId) {
       if (copy.site_published_at) {
         // Someone published the copy to the website: take it off first, so no
         // public copy outlives the row.
@@ -426,14 +483,7 @@ export async function removeFromClientGallery(
       });
     }
   }
-  if (current.client_image_id || current.client_event_id || current.client_section_id) {
-    const { error } = await db
-      .from("scout_postcard_links")
-      .update({ client_event_id: null, client_image_id: null, client_section_id: null, client_placed_at: null })
-      .eq("postcard_id", postcardId);
-    if (error) throw error;
-  }
-  return { removed };
+  return removed;
 }
 
 /**

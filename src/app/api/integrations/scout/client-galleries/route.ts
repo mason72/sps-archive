@@ -8,9 +8,11 @@ import { scoutErrorResponse } from "@/lib/scout-integration/respond";
 /**
  * GET /api/integrations/scout/client-galleries?date=YYYY-MM-DD&days=N[&calendar_event_id=…]
  *
- * Candidate client galleries for a gig: those linked to its calendar event
- * (exact id or the recurring base id; listed first, `match: "calendar"`), then
- * those dated inside the gig's days, padded a day each side (`match: "date"`).
+ * Candidate client galleries for a gig: those linked to its EXACT calendar
+ * event (`match: "calendar"`), then to the same recurring series only
+ * (`match: "series"`), then those dated inside the gig's days, padded a day
+ * each side (`match: "date"`). `date` may be omitted when calendar_event_id is
+ * given: then only the calendar and series matches come back.
  * At most 30, newest first within each group. Scout auto-links only on a
  * calendar match; otherwise an admin picks.
  */
@@ -27,7 +29,11 @@ export async function GET(request: Request) {
   const daysRaw = url.searchParams.get("days") ?? "1";
   const days = Number(daysRaw);
   const calendarEventId = url.searchParams.get("calendar_event_id")?.trim() || null;
-  if (!isDay(date)) return NextResponse.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+  // Without a date, a calendar id alone asks for its calendar/series matches.
+  if (date == null && !calendarEventId) {
+    return NextResponse.json({ error: "date (YYYY-MM-DD) or calendar_event_id is required." }, { status: 400 });
+  }
+  if (date != null && !isDay(date)) return NextResponse.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
   if (!/^\d+$/.test(daysRaw) || !Number.isInteger(days) || days < 1 || days > CLIENT_GALLERY_MAX_DAYS) {
     return NextResponse.json({ error: `days must be a whole number from 1 to ${CLIENT_GALLERY_MAX_DAYS}.` }, { status: 400 });
   }

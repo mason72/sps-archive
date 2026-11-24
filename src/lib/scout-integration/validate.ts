@@ -233,11 +233,24 @@ export function calendarBaseId(id: string): string {
   return i > 0 ? id.slice(0, i) : id;
 }
 
-/** Does any stored calendar id name this event, exactly or by its base id? */
-export function calendarIdsMatch(stored: readonly string[] | null | undefined, wanted: string): boolean {
-  if (!stored?.length || !wanted) return false;
+/**
+ * How a gallery's stored calendar ids relate to a gig's calendar event id:
+ *   "calendar"  one stored id IS that event id, exactly;
+ *   "series"    only the recurring series matches (same base id before "_"),
+ *               e.g. last month's instance of a weekly booking;
+ *   null        no relation.
+ * Scout auto-links only on a single "calendar" match, so a series match must
+ * never be reported as one: it would link this week's gig to another week's
+ * gallery.
+ */
+export function calendarIdsMatch(
+  stored: readonly string[] | null | undefined,
+  wanted: string
+): "calendar" | "series" | null {
+  if (!stored?.length || !wanted) return null;
+  if (stored.includes(wanted)) return "calendar";
   const base = calendarBaseId(wanted);
-  return stored.some((s) => s === wanted || calendarBaseId(s) === base);
+  return stored.some((s) => calendarBaseId(s) === base) ? "series" : null;
 }
 
 /** Pure: the YYYY-MM-DD bounds of a window of `days` from `date`, padded a day each side. */

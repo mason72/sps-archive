@@ -156,6 +156,34 @@ describe("PUT /postcards/:id/client (placeInClientGallery)", () => {
     expect(db.tables.sections.filter((s) => s.name === "Behind the scenes")).toHaveLength(1);
   });
 
+  it("a FAILED move leaves the shot in its old gallery (locked section, not ready, copy check)", async () => {
+    await placeInClientGallery(store(), PID, CLIENT);
+    const oldCopy = copies()[0];
+    const stays = () => {
+      expect(copies().map((c) => c.id)).toEqual([oldCopy.id]);
+      expect(r2.objects.has(oldCopy.r2_key)).toBe(true);
+      expect(link()).toMatchObject({ client_event_id: CLIENT, client_image_id: oldCopy.id });
+      expect(keysUnder(CLIENT2)).toEqual([]);
+    };
+
+    db.tables.sections.push({ id: "locked", event_id: CLIENT2, name: "Behind the scenes", locked: true, sort_order: 0 });
+    await expect(placeInClientGallery(store(), PID, CLIENT2)).rejects.toMatchObject({ status: 409 });
+    stays();
+    db.tables.sections = db.tables.sections.filter((s) => s.id !== "locked");
+
+    db.tables.images.find((r) => r.id === ARCHIVED)!.processing_status = "pending";
+    await expect(placeInClientGallery(store(), PID, CLIENT2)).rejects.toMatchObject({ status: 409 });
+    stays();
+    db.tables.images.find((r) => r.id === ARCHIVED)!.processing_status = "complete";
+
+    const archivedKey = db.tables.images.find((r) => r.id === ARCHIVED)!.r2_key;
+    const { headR2Object } = await import("@/lib/r2/client");
+    vi.mocked(headR2Object).mockResolvedValueOnce({ etag: "stale", size: 1 }); // the source changed under us
+    await expect(placeInClientGallery(store(), PID, CLIENT2)).rejects.toMatchObject({ status: 502 });
+    stays();
+    expect(r2.objects.has(archivedKey)).toBe(true);
+  });
+
   it("MOVES it when the event changes: the old copy (row and objects) is gone", async () => {
     await placeInClientGallery(store(), PID, CLIENT);
     const oldCopy = copies()[0];
@@ -166,6 +194,9 @@ describe("PUT /postcards/:id/client (placeInClientGallery)", () => {
     expect(db.tables.images.some((r) => r.id === oldCopy.id)).toBe(false);
     expect(keysUnder(CLIENT)).toEqual([]);
     expect(link()).toMatchObject({ client_event_id: CLIENT2 });
+    // The new copy was in place BEFORE the old one was deleted.
+    const order = db.log.filter(([op, t]) => t === "images" && (op === "insert" || op === "delete")).map(([op]) => op);
+    expect(order.slice(-2)).toEqual(["insert", "delete"]);
   });
 
   it("reuses an existing Behind-the-scenes section, and refuses (409) a locked one", async () => {
@@ -275,9 +306,14 @@ describe("GET /client-galleries (listClientGalleries)", () => {
     );
   });
 
-  it("lists calendar matches first (exact or by base id), then the padded date window", async () => {
+  it("orders EXACT calendar matches, then SERIES matches, then the padded date window", async () => {
+    db.tables.event_intel.push({ event_id: "exact", user_id: OWNER, calendar_event_ids: ["cal123"] });
+    db.tables.events.push({ id: "exact", slug: "exact", user_id: OWNER, name: "This week", event_date: "2024-01-01" });
     const out = await listClientGalleries(store(), { date: "2026-11-20", days: 2, calendarEventId: "cal123" });
-    expect(out[0]).toMatchObject({ event_id: "old", match: "calendar" }); // stored instance id, base matches
+    expect(out.slice(0, 2)).toEqual([
+      expect.objectContaining({ event_id: "exact", match: "calendar" }), // the stored id IS the asked id
+      expect.objectContaining({ event_id: "old", match: "series" }), // same series, another instance: never "calendar"
+    ]);
     const dated = out.filter((c) => c.match === "date").map((c) => c.event_id);
     expect(dated).toEqual(["edge-after", CLIENT2, CLIENT, "edge-before"]); // newest first
     expect(dated).not.toContain("too-late");
@@ -285,9 +321,16 @@ describe("GET /client-galleries (listClientGalleries)", () => {
     expect(out.find((c) => c.event_id === CLIENT)).toMatchObject({ name: "Acme SKO", date: "2026-11-20", client_name: "Acme Inc" });
   });
 
-  it("matches an exact recurring-instance id too", async () => {
-    const out = await listClientGalleries(store(), { date: "2020-01-01", days: 1, calendarEventId: "cal123_20261120T160000Z" });
+  it("calls an exact recurring-instance id \"calendar\", and another instance of its series \"series\"", async () => {
+    let out = await listClientGalleries(store(), { date: null, days: 1, calendarEventId: "cal123_20261120T160000Z" });
     expect(out).toEqual([expect.objectContaining({ event_id: "old", match: "calendar" })]);
+    out = await listClientGalleries(store(), { date: null, days: 1, calendarEventId: "cal123_20261218T160000Z" });
+    expect(out).toEqual([expect.objectContaining({ event_id: "old", match: "series" })]);
+  });
+
+  it("answers the calendar and series matches only when no date is given", async () => {
+    const out = await listClientGalleries(store(), { date: null, days: 1, calendarEventId: "cal123" });
+    expect(out.map((c) => c.match)).toEqual(["series"]);
   });
 
   it("caps the list at 30", async () => {

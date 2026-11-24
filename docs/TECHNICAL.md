@@ -675,16 +675,22 @@ places and removes on request (`src/lib/scout-integration/client-bts.ts`). NDA
 gigs are allowed here (the client's own private gallery).
 
 - `GET /client-galleries?date=YYYY-MM-DD&days=N[&calendar_event_id=…]` (days
-  1–31) → `{ "candidates": [{ "event_id", "name", "date", "client_name",
-  "match": "calendar" | "date" }] }`. Calendar matches first (the owner's
-  `event_intel.calendar_event_ids`, exact or by the recurring base id before
-  `_`), then galleries dated in `date - 1 .. date + days`; never Scout Road,
+  1–31; `date` may be left out when `calendar_event_id` is given, and then only
+  calendar and series matches come back) → `{ "candidates": [{ "event_id",
+  "name", "date", "client_name", "match": "calendar" | "series" | "date" }] }`.
+  In that order: `"calendar"` = a stored `event_intel.calendar_event_ids`
+  entry IS the asked id; `"series"` = only the recurring series matches (same
+  base id before `_`, e.g. last month's instance: Scout must never auto-link
+  on it); then `"date"` = galleries dated in `date - 1 .. date + days`; never Scout Road,
   the website or Work galleries; at most 30, newest first in each group;
   `client_name` is the payer organisation, else the end brand.
 - `PUT /postcards/:id/client {event_id}` → `{ "ok": true, "event_id",
   "section_id" }`. 404 unknown postcard or not one of the studio's client
   galleries, 409 not archived yet or a locked "Behind the scenes" section.
-  Idempotent; a different `event_id` moves it.
+  Idempotent; a different `event_id` moves it, and a MOVE makes, verifies
+  and records the new copy FIRST and only then deletes the old one, so a
+  failed move (409 locked or not ready, 502 copy check) leaves the shot in
+  its old gallery.
 - `DELETE /postcards/:id/client` → `{ "removed": true|false }` (idempotent;
   an unknown postcard is `{ "removed": false }`). `DELETE /postcards/:id` now
   removes the client placement first (`deletePostcardEverywhere`).
