@@ -6,9 +6,18 @@ import {
   isJobSceneKey,
   isValidJobSlug,
   validateJobMeta,
+  parseJobMeta,
+  keepOmittedCaseStudyFields,
+  guardPublishedStory,
   JOB_KEY_PREFIX,
 } from "@/lib/site/jobs";
 import { loadSectionLinks } from "@/lib/sections/gallery-members";
+import { computeJobProof, JobProofError } from "@/lib/site/job-proof";
+
+// A job save can recount a large set of source galleries (job-proof.ts).
+export const maxDuration = 60;
+
+const PROOF_FRESH_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Helper: verify section ownership through event → user chain.
@@ -20,7 +29,7 @@ async function verifySectionOwnership(
 ) {
   const { data: section } = await supabase
     .from("sections")
-    .select("id, event_id, name, site_scene_key, locked, sort_seed")
+    .select("id, event_id, name, site_scene_key, locked, sort_seed, job_meta")
     .eq("id", sectionId)
     .single();
 
@@ -61,6 +70,7 @@ export async function PATCH(
     }
 
     const updates: Record<string, unknown> = {};
+    let jobNotice: string | null = null;
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     // The lock toggle itself — deliberately editable while locked (that's how
@@ -78,9 +88,38 @@ export async function PATCH(
           { status: 400 }
         );
       }
-      const result = validateJobMeta(body.jobMeta);
+      const stored = parseJobMeta(section.job_meta);
+      const validated = validateJobMeta(keepOmittedCaseStudyFields(body.jobMeta, stored));
+      if ("error" in validated) {
+        return NextResponse.json({ error: validated.error }, { status: 400 });
+      }
+      const result = guardPublishedStory(validated.meta, stored);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      jobNotice = result.notice;
+      // Proof is counted from the linked galleries: whenever they change, and
+      // otherwise once a day at most (galleries grow after delivery), so an
+      // unrelated edit does not pay for a full recount. A count that fails
+      // fails the save: storing proof: null would quietly drop the numbers
+      // from the live case study.
+      const sameSources = JSON.stringify(result.meta.sources) === JSON.stringify(stored.sources);
+      const fresh =
+        stored.proof !== null && Date.now() - Date.parse(stored.proof.countedAt) < PROOF_FRESH_MS;
+      try {
+        result.meta.proof =
+          sameSources && fresh
+            ? stored.proof
+            : await computeJobProof(supabase, user!.id, result.meta.sources);
+      } catch (err) {
+        if (err instanceof JobProofError) {
+          return NextResponse.json({ error: err.message }, { status: err.status });
+        }
+        console.error("Job proof count failed:", err);
+        return NextResponse.json(
+          { error: "Couldn't count the source galleries. Nothing was saved; try again." },
+          { status: 502 }
+        );
       }
       updates.job_meta = result.meta;
     }
@@ -162,6 +201,9 @@ export async function PATCH(
         sortMode: data.sort_mode ?? null,
         sortSeed: data.sort_seed ?? null,
       },
+      // Set when the save changed something the editor did not ask for
+      // (a published story moved back to draft): the form shows it.
+      notice: jobNotice,
     });
   } catch (error) {
     console.error("Update section error:", error);

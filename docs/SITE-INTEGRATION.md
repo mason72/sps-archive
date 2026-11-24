@@ -249,6 +249,60 @@ without a published image is **omitted** from the API. The editor shows a
 live/draft dot on the section row and a status banner with the exact missing
 fields; the form footer says the same.
 
+**Case studies (2026-11-23, twodudesphoto.com/work/<slug>).** The job form's
+"Case study" panel (`JobStoryPanel.tsx`) adds four job_meta fields:
+
+- `special` (boolean): the job leads /work as a magazine spread.
+- `story` `{status: "draft"|"published", source: "mason"|"claude"|"scout",
+  headline, dek, body, quote: {text, by, role}|null}`. Body is plain text, a
+  blank line between paragraphs. **Only a published story leaves the server**,
+  and never one that names an anonymized client (`clientNameMatch`: the
+  full name and each distinctive word as whole words, squeezed forms like
+  "Service Now", initials like "GE", accents ignored; it fails closed, so
+  the page just has no story). At save (`guardPublishedStory`), newly
+  publishing or editing such a story is refused with the matched word; a
+  story that was ALREADY live is moved back to draft and the save goes
+  through, because that save is usually the client asking to be anonymized.
+  **The match is a backstop, not a guarantee**: no rule built from a name
+  catches nicknames ("a16z", "Coke"), so Mason reading the story before
+  Approve is the real control, and the form says so on anonymized jobs.
+  Short forms (3 letters or fewer, and initials) match case-sensitively and
+  across separators ("I.B.M.", "P&G"), so "IT" does not match "it". Any
+  story that was already live is demoted, never refused, even if edited in
+  the same save. Three reviews on 2026-11-23 each found forms the previous
+  version missed; that history is why the stance is "backstop".
+  On anonymized jobs `eventName` and `venue` that name the client are sent
+  as null too. Job images never carry the upload filename (it often holds a
+  client's or guest's name), and anonymized jobs' images carry no gallery
+  name. Claude and Scout write drafts; Mason's "Approve and publish"
+  flips the status and saves in one tap (it rolls back to draft if the save
+  fails). A stored status that is not exactly `"published"` reads as draft.
+- `sources` `[{eventId, people}]`: the client galleries the job delivered,
+  picked by search in the form (`GET /api/events?q=` / `?ids=`). `people`
+  marks the galleries whose face count is honest (headshot-led ones: event
+  coverage finds a fraction of the faces, Atlassian Expo 2026 = 7,747
+  photos, 111 people).
+- `proof` `{photos, galleries, people, days, countedAt}`: **counted by the
+  server** (`src/lib/site/job-proof.ts`) from `sources` on a job save when the
+  sources changed or the stored count is over a day old; never typed and
+  never accepted from a request (validateJobMeta drops it). Photos exclude a
+  gallery's uploaded cover (`is_cover_upload`); the TDP Work and Website
+  galleries are refused as sources.
+  `days` is the clock-free heartbeat: a day is a run of frames with no
+  4-hour gap, binned per hour from that day's first frame (camera clocks
+  travel on the wrong timezone, so no time of day is ever derived). A failed
+  count fails the save (502) rather than storing a blank proof.
+
+**A job save REPLACES the whole job_meta**, with one guard: a body that
+omits `special`, `story` or `sources` keeps the stored value
+(`keepOmittedCaseStudyFields`), so a browser tab opened before these fields
+existed cannot erase a published story. Anything else that writes a job must
+read the current document, change its field and send all of it.
+`scripts/site/job-story.ts` does exactly that for drafted stories (dry run
+by default, refuses to publish). The API sends `special`,
+`story` (published, workflow fields stripped) and `proof` (counts only; no
+gallery ids or names, no `countedAt`).
+
 Auth, caching, and image shape are identical to the scene API:
 
 ```bash
@@ -268,6 +322,10 @@ curl -H "X-SPS-Key: $SPS_INTEGRATION_KEY" https://app.pixeltrunk.com/api/site/jo
     "ballpark": "24-48k",             // null = row hidden on the site
     "industry": "tech", "industryOther": null, "year": 2025,
     "touchups": true,                 // never null — false when unset
+    "special": false,
+    "story": null,                    // or {headline, dek, body, quote}
+    "proof": { "photos": 15376, "galleries": 10, "people": 502,
+               "days": [[310, 402, 380], [290, 350]] },   // or null
     "images": [ /* scene-shaped: id, event, city, service, featured,
                    width, height, thumbUrl, fullUrl, focalX, focalY —
                    first image = cover */ ]

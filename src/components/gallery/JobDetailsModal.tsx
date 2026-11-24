@@ -25,6 +25,7 @@ import {
   suggestIndustryForClient,
   type JobMeta,
 } from "@/lib/site/jobs";
+import { JobStoryPanel } from "./JobStoryPanel";
 
 interface JobDetailsModalProps {
   sectionId: string;
@@ -40,6 +41,18 @@ interface JobDetailsModalProps {
   onClose: () => void;
   /** Fired after a successful save with the stored meta + (possibly new) key. */
   onSaved: (sectionId: string, meta: JobMeta, siteSceneKey: string) => void;
+}
+
+/**
+ * An untouched "Write a story" (nothing typed) is no story, and a quote with
+ * no words is no quote: dropping them here keeps a half-started draft from
+ * blocking every other save with "A story needs a headline".
+ */
+function tidyStory(meta: JobMeta): JobMeta {
+  let story = meta.story;
+  if (story && !story.headline.trim() && !story.body.trim() && !story.dek?.trim()) story = null;
+  if (story?.quote && !story.quote.text.trim()) story = { ...story, quote: null };
+  return story === meta.story ? meta : { ...meta, story };
 }
 
 /**
@@ -123,14 +136,16 @@ export function JobDetailsModal({
   const slugValid = isValidJobSlug(slug);
   const isLive = missing.length === 0 && imageCount > 0;
 
-  const handleSave = async () => {
+  /** Resolves true only when the save landed. */
+  const handleSave = async (override?: JobMeta, doneMessage?: string): Promise<boolean> => {
+    const toSave = tidyStory(override ?? meta);
     if (slugChanged && !slugValid) {
       toast.error("Slug must be lowercase words separated by hyphens");
-      return;
+      return false;
     }
     setIsSaving(true);
     try {
-      const body: Record<string, unknown> = { jobMeta: meta };
+      const body: Record<string, unknown> = { jobMeta: toSave };
       if (slugChanged) body.jobSlug = slug;
       const res = await fetch(`/api/sections/${sectionId}`, {
         method: "PATCH",
@@ -143,16 +158,21 @@ export function JobDetailsModal({
       }
       const data = (await res.json()) as {
         section: { siteSceneKey: string; jobMeta: unknown };
+        notice?: string | null;
       };
+      if (data.notice) toast.warning(data.notice, { duration: 10000 });
       toast.success(
-        missing.length === 0
+        doneMessage ??
+        (missing.length === 0
           ? "Job details saved"
-          : `Saved — not live yet (missing: ${missing.join(", ")})`
+          : `Saved — not live yet (missing: ${missing.join(", ")})`)
       );
       onSaved(sectionId, parseJobMeta(data.section.jobMeta), data.section.siteSceneKey);
       onClose();
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save job details");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -459,6 +479,28 @@ export function JobDetailsModal({
             </span>
           </button>
 
+          <JobStoryPanel
+            meta={meta}
+            setMeta={setMeta}
+            savedSources={initial.sources}
+            onApprove={() => {
+              if (!meta.story) return;
+              const approved = { ...meta, story: { ...meta.story, status: "published" as const } };
+              setMeta(approved);
+              // Published only if the save lands: a failed save must not leave
+              // the form claiming a story is live that the site never got.
+              void handleSave(approved, "Story published").then((ok) => {
+                if (!ok)
+                  setMeta((prev) =>
+                    prev.story ? { ...prev, story: { ...prev.story, status: "draft" } } : prev
+                  );
+              });
+            }}
+            isSaving={isSaving}
+            inputClass={inputClass}
+            labelClass={labelClass}
+          />
+
           {/* Slug — frozen at creation; editing it moves the job's site URL */}
           <div className="space-y-1.5">
             <label className={labelClass}>URL slug</label>
@@ -503,7 +545,7 @@ export function JobDetailsModal({
               Cancel
             </button>
             <button
-              onClick={handleSave}
+              onClick={() => void handleSave()}
               disabled={isSaving}
               className="px-4 py-1.5 bg-stone-900 text-white text-[12px] uppercase tracking-[0.15em] font-medium hover:bg-stone-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
