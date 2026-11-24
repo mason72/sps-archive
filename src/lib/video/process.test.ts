@@ -59,6 +59,16 @@ describe("processMutedVideoViaModal", () => {
     await expect(processMutedVideoViaModal(SRC, DEST)).resolves.toMatchObject({ ok: false, error: /hevc/ });
   });
 
+  it("never lets a signed URL from the pipeline's error text into the thrown message", async () => {
+    const FAKE = "FAKE-TOKEN-0123456789abcdef";
+    fetchMock.mockResolvedValue(
+      new Response(`RuntimeError: ffprobe failed: ${SRC.url.split("?")[0]}?token=${FAKE}: Invalid data`, { status: 500 })
+    );
+    const err = await processMutedVideoViaModal(SRC, DEST).then(() => null, (e) => e as Error);
+    expect(err?.message).toMatch(/\?<redacted>/);
+    expect(err?.message).not.toContain(FAKE);
+  });
+
   it("throws on a pipeline error, a missing endpoint, or a non-mp4 destination", async () => {
     fetchMock.mockResolvedValue(new Response("nope", { status: 500 }));
     await expect(processMutedVideoViaModal(SRC, DEST)).rejects.toThrow(/500/);

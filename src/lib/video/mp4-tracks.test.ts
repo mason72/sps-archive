@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isMp4Container, mp4HasAudio, mp4TrackKinds, Mp4ParseError } from "./mp4-tracks";
+import { isMp4Container, mp4DurationSeconds, mp4HasAudio, mp4TrackKinds, mp4VideoCodecs, Mp4ParseError } from "./mp4-tracks";
 
 // Real files, made by modal/tests/test_video_mute.py with ffmpeg: a 3 s H.264
 // clip with an AAC tone, and the pipeline's muted rendition of it.
@@ -31,5 +31,19 @@ describe("mp4TrackKinds", () => {
   it("knows an MP4 by its ftyp box", () => {
     expect(isMp4Container(withAudio)).toBe(true);
     expect(isMp4Container(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]))).toBe(false);
+  });
+});
+
+describe("mp4DurationSeconds / mp4VideoCodecs (read from the stored file)", () => {
+  it("reads the 3 s length and the H.264 sample entry of both fixtures", () => {
+    for (const f of [withAudio, muted]) {
+      expect(mp4DurationSeconds(f)).toBeGreaterThan(2.9);
+      expect(mp4DurationSeconds(f)).toBeLessThan(3.2);
+      expect(mp4VideoCodecs(f)).toEqual(["avc1"]);
+    }
+  });
+
+  it("throws on a file with no movie header rather than guessing a length", () => {
+    expect(() => mp4DurationSeconds(withAudio.subarray(0, 64))).toThrow(Mp4ParseError);
   });
 });

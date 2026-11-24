@@ -28,8 +28,11 @@ Deploy: modal deploy modal/video_pipeline.py
 """
 
 import json
+import re
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 
 import modal
 
@@ -76,6 +79,58 @@ def _probe(url: str) -> dict:
     if result.returncode != 0:
         raise ValueError(f"ffprobe failed: {result.stderr[-500:]}")
     return json.loads(result.stdout)
+
+
+# A muted source is downloaded first (one read, no redirects); Scout caps clips
+# at 50 MB, so anything much larger is not a clip we asked for.
+MUTE_SOURCE_MAX_BYTES = 55 * 1024 * 1024
+MUTE_SOURCE_TIMEOUT_S = 90
+
+_SIGNED_QUERY = re.compile(r"""(https?://[^\s?'"<>]+)\?[^\s'"<>]*""")
+
+
+def scrub_urls(text: str) -> str:
+    """Replace every URL's query string (signatures, tokens) with ?<redacted>,
+    so an error message can be logged and returned without a credential."""
+    return _SIGNED_QUERY.sub(r"\1?<redacted>", text or "")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib then raises HTTPError for the 3xx itself
+
+
+def download_no_redirects(
+    url: str,
+    dest: str,
+    max_bytes: int = MUTE_SOURCE_MAX_BYTES,
+    timeout: float = MUTE_SOURCE_TIMEOUT_S,
+    require_https: bool = True,
+) -> int:
+    """Fetch `url` to `dest` ONCE: no redirects followed (the server's rule),
+    a deadline, and a byte cap counted while reading. Every later step (probe,
+    poster, the muted copy) reads this one local file, so they cannot see
+    different objects behind the same URL."""
+    if require_https and not url.startswith("https://"):
+        raise ValueError("source must be https")
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        resp = opener.open(url, timeout=timeout)
+    except urllib.error.HTTPError as err:
+        raise ValueError(f"source answered HTTP {err.code} (redirects are not followed)") from None
+    total = 0
+    with resp, open(dest, "wb") as out:
+        while True:
+            chunk = resp.read(1 << 20)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(f"source is over the {max_bytes}-byte limit")
+            out.write(chunk)
+    if total == 0:
+        raise ValueError("source is empty")
+    return total
 
 
 def display_cmd(src: str, dest: str, mute: bool) -> list:
@@ -155,6 +210,27 @@ def process_video(payload: dict):
     if mute and not display_put:
         # Muting is done on the rendition; without one, nothing would be muted.
         raise HTTPException(status_code=400, detail="mute requires display_put")
+
+    try:
+        with tempfile.TemporaryDirectory() as src_tmp:
+            if mute:
+                # One read of the source, no redirects; it never leaves this
+                # container's temp dir, which is removed on every path.
+                local = f"{src_tmp}/source.mp4"
+                download_no_redirects(video_url, local)
+                video_url = local
+            return _pipeline(video_url, poster_puts, display_put, mute)
+    except HTTPException:
+        raise
+    except Exception as err:  # noqa: BLE001 - scrubbed and re-raised
+        # `from None`: the original exception (and its message, which can
+        # carry a signed URL) is not chained into the log.
+        raise RuntimeError(scrub_urls(f"{type(err).__name__}: {err}")) from None
+
+
+def _pipeline(video_url: str, poster_puts: dict, display_put, mute: bool) -> dict:
+    """Probe, posters and the rendition. `video_url` is a local file in mute mode."""
+    import httpx
 
     # ── 1. Probe + validate ──────────────────────────────────────────────
     probe = _probe(video_url)
@@ -248,9 +324,21 @@ def process_video(payload: dict):
                 if remux.returncode != 0:
                     raise ValueError(f"remux failed: {remux.stderr[-500:]}")
                 if mute:
-                    left = audio_stream_count(display_path)
+                    # The file we WROTE is the one source of truth for a muted
+                    # copy: its audio count, its codec and its length.
+                    written = _probe(display_path)
+                    left = sum(1 for st in written.get("streams", []) if st.get("codec_type") == "audio")
                     if left != 0:
                         raise ValueError(f"mute failed: {left} audio stream(s) left")
+                    out_video = next(
+                        (st for st in written.get("streams", []) if st.get("codec_type") == "video"),
+                        None,
+                    )
+                    out_codec = ((out_video or {}).get("codec_name") or "?").lower()
+                    if out_codec not in ALLOWED_VIDEO_CODECS:
+                        raise ValueError(f"muted copy has video codec '{out_codec}', not H.264")
+                    video_codec = out_codec
+                    duration = float(written.get("format", {}).get("duration") or 0) or None
                     muted = True
                 with open(display_path, "rb") as f:
                     resp = client.put(

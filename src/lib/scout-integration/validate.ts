@@ -1,3 +1,5 @@
+import { SILENT_R2_MAX_DURATION_SECONDS } from "@/lib/stream/client";
+
 /**
  * Input rules for the Scout integration routes. Pure: no I/O, so every rule
  * here has a test beside it.
@@ -58,8 +60,11 @@ export interface PostcardInput {
   durationS: number | null;
 }
 
-/** Longest clip accepted, in seconds: Scout's own cap. */
-export const SCOUT_VIDEO_MAX_SECONDS = 61;
+/**
+ * Longest clip accepted, in seconds: Scout's own cap, and the R2 video lane's
+ * limit for a silent clip, so nothing accepted can land on Stream.
+ */
+export const SCOUT_VIDEO_MAX_SECONDS = SILENT_R2_MAX_DURATION_SECONDS;
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 

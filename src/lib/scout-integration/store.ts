@@ -25,7 +25,14 @@ import {
   uploadToR2,
 } from "@/lib/r2/client";
 import { processMutedVideoViaModal } from "@/lib/video/process";
-import { mp4TrackKinds } from "@/lib/video/mp4-tracks";
+import {
+  H264_SAMPLE_ENTRIES,
+  mp4DurationSeconds,
+  mp4TrackKinds,
+  mp4VideoCodecs,
+} from "@/lib/video/mp4-tracks";
+import { SILENT_R2_MAX_DURATION_SECONDS } from "@/lib/stream/client";
+import { scrubSignedUrls } from "@/lib/net/scrub-urls";
 import { generateThumbnailsFromBuffer } from "@/lib/thumbnails/generate";
 import { extractExif } from "@/lib/upload/parse-filename";
 import { reportSystemError } from "@/lib/monitoring/report";
@@ -46,7 +53,6 @@ import {
   SCOUT_GIG_KIND,
   SCOUT_ROAD_NAME,
   SCOUT_ROAD_SLUG,
-  SCOUT_VIDEO_MAX_SECONDS,
   gigSectionNames, type PostcardInput, type ScoutPublishTarget } from "./validate";
 
 export type ScoutDb = ReturnType<typeof createServiceClient>;
@@ -218,7 +224,11 @@ export interface IngestResult {
   aiIndexRequested: boolean | null;
 }
 
-export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise<IngestResult> {
+export async function ingestPostcard(
+  db: ScoutDb,
+  input: PostcardInput,
+  { startedAt = Date.now() }: { startedAt?: number } = {}
+): Promise<IngestResult> {
   const decision = ingestDecision(await getLink(db, input.postcardId));
   if (decision.action === "return-existing") {
     return {
@@ -229,7 +239,7 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
     };
   }
 
-  if (input.mediaType === "video") return ingestPostcardVideo(db, input);
+  if (input.mediaType === "video") return ingestPostcardVideo(db, input, startedAt);
 
   // Fetch BEFORE writing anything: a bad URL or a non-JPEG leaves no trace
   // (not even an empty gallery or gig section).
@@ -247,7 +257,8 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
   await uploadToR2(r2Key, buffer, "image/jpeg");
 
   let rowWritten = false;
-  const rollback = async (why: string) => {
+  const rollback = async (reason: string) => {
+    const why = scrubSignedUrls(reason);
     if (rowWritten) {
       // Cascades the claim (scout_postcard_links) and the section link.
       const { error } = await db.from("images").delete().eq("id", imageId);
@@ -360,22 +371,29 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
 
 // ── POST /postcards, a clip ────────────────────────────────────────────────
 
-/** Ffprobe and Scout may disagree by a frame or a rounding; past this, it is a longer clip. */
-const DURATION_SLACK_S = 0.5;
-
 /**
- * The POST route's own limit (route.ts maxDuration 300) less a margin. The
- * pipeline gets what is left of it after the fetch, minus time for the
- * read-back and the row writes, so the platform never kills the request
- * mid-rollback.
+ * The POST route's own limit (route.ts maxDuration 300) less a margin, counted
+ * from the moment the request arrived (the route passes its own start time).
  */
 export const VIDEO_REQUEST_BUDGET_MS = 285_000;
-const AFTER_PIPELINE_RESERVE_MS = 60_000;
-const MIN_PIPELINE_MS = 30_000;
+/** Kept back after the pipeline for the read-back and the row writes. */
+export const AFTER_PIPELINE_RESERVE_MS = 60_000;
+/** Below this much time left, the pipeline is not started at all. */
+export const MIN_REMAINING_FOR_PIPELINE_MS = 90_000;
 
-/** Pure: how long the pipeline may take, given when the request started. */
-export function pipelineTimeoutMs(startedAt: number, now: number, budgetMs = VIDEO_REQUEST_BUDGET_MS): number {
-  return Math.max(MIN_PIPELINE_MS, budgetMs - (now - startedAt) - AFTER_PIPELINE_RESERVE_MS);
+/**
+ * Pure: how long the pipeline may take, or null when too little of the budget
+ * is left to run it AND finish inside the route's limit. There is no floor:
+ * a floor is exactly what let the old version overrun the budget.
+ */
+export function pipelineTimeoutMs(
+  startedAt: number,
+  now: number,
+  budgetMs = VIDEO_REQUEST_BUDGET_MS
+): number | null {
+  const remaining = budgetMs - (now - startedAt);
+  if (remaining < MIN_REMAINING_FOR_PIPELINE_MS) return null;
+  return remaining - AFTER_PIPELINE_RESERVE_MS;
 }
 
 /**
@@ -403,8 +421,7 @@ export function pipelineTimeoutMs(startedAt: number, now: number, budgetMs = VID
  * pipeline runs inside this request, the way /api/upload/complete hands a
  * video to Modal, but awaited so the answer is final.
  */
-async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<IngestResult> {
-  const startedAt = Date.now();
+async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput, startedAt: number): Promise<IngestResult> {
   if (!input.videoUrl) throw new ScoutIntegrationError("video_url is required for a video.", 400);
   // Read once to enforce the limits Modal does not (size, container, a video
   // track); the bytes are then dropped. Modal reads the same signed URL.
@@ -418,8 +435,17 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
   const filename = `${imageId}.mp4`;
   const r2Key = buildImageKey(eventId, filename);
 
+  // Refuse before anything is written, while Scout can simply retry: a
+  // pipeline started this late could not finish inside the route's limit, and
+  // a kill mid-way would leave a copy with no row. 503 = try again later.
+  const timeoutMs = pipelineTimeoutMs(startedAt, Date.now());
+  if (timeoutMs == null) {
+    throw new ScoutIntegrationError("Too little time left in this request to process the clip; retry.", 503);
+  }
+
   let rowWritten = false;
-  const rollback = async (why: string) => {
+  const rollback = async (reason: string) => {
+    const why = scrubSignedUrls(reason);
     if (rowWritten) {
       const { error } = await db.from("images").delete().eq("id", imageId);
       if (error) {
@@ -441,27 +467,21 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
 
   {
     let silent: Awaited<ReturnType<typeof processMutedVideoViaModal>>;
-    let storedBytes: number;
+    let stored: StoredClip;
     try {
       silent = await processMutedVideoViaModal(
         { url: input.videoUrl },
         r2Key,
         { userId: ownerId, eventId },
-        { timeoutMs: pipelineTimeoutMs(startedAt, Date.now()) }
+        { timeoutMs }
       );
       if (!silent.ok) {
         throw new ScoutIntegrationError(silent.error ?? "The clip could not be read as H.264 video.", 415);
       }
-      if (silent.durationSeconds == null) {
-        throw new ScoutIntegrationError("The pipeline could not measure the clip's length.", 502);
-      }
-      if (silent.durationSeconds > SCOUT_VIDEO_MAX_SECONDS + DURATION_SLACK_S) {
-        throw new ScoutIntegrationError(
-          `The clip runs ${silent.durationSeconds} s; the longest is ${SCOUT_VIDEO_MAX_SECONDS} s.`,
-          400
-        );
-      }
-      storedBytes = await assertStoredClipIsSilent(r2Key);
+      // Everything filed about the clip is read from the STORED bytes: its
+      // tracks, its codec and its length. No earlier read of Scout's URL and
+      // no figure the pipeline reported stands in for them.
+      stored = await assertStoredClipIsSilent(r2Key);
     } catch (err) {
       await rollback(err instanceof Error ? err.message : String(err));
       throw err;
@@ -474,7 +494,7 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
         filename,
         original_filename: postcardFilename(input.postcardId, "video"),
         r2_key: r2Key,
-        file_size: storedBytes,
+        file_size: stored.bytes,
         mime_type: "video/mp4",
         media_type: "video",
         parsed_name: null,
@@ -516,7 +536,7 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
       const { error: updErr } = await db
         .from("images")
         .update({
-          duration_seconds: silent.durationSeconds,
+          duration_seconds: stored.durationSeconds,
           has_audio: false,
           width: silent.width,
           height: silent.height,
@@ -537,20 +557,31 @@ async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<I
   return { link, created: true, status: "ready", aiIndexRequested: null };
 }
 
+export interface StoredClip {
+  bytes: number;
+  durationSeconds: number;
+}
+
 /**
- * Read back what the pipeline stored and check its tracks with our own parser.
- * Returns the stored size. Throws (and the caller rolls back) on any audio
- * track, on no video track, or on a file that cannot be read: "could not
- * check" is never "silent".
+ * Read back what the pipeline stored and judge it with our own parser: the one
+ * source of truth for the clip. Throws (and the caller rolls back) on any
+ * audio track, no video track, a video track that is not H.264, a length over
+ * `SILENT_R2_MAX_DURATION_SECONDS` (61 s, the R2 video lane's limit for a
+ * silent clip, with NO extra slack, so nothing filed can fall into the Stream
+ * lane), or a file that cannot be read: "could not check" is never "fine".
  */
 export async function assertStoredClipIsSilent(
   r2Key: string,
   read: (key: string) => Promise<Buffer> = readStoredClip
-): Promise<number> {
+): Promise<StoredClip> {
   const bytes = await read(r2Key);
   let kinds: string[];
+  let codecs: string[];
+  let durationSeconds: number;
   try {
     kinds = mp4TrackKinds(bytes);
+    codecs = mp4VideoCodecs(bytes);
+    durationSeconds = mp4DurationSeconds(bytes);
   } catch (err) {
     throw new ScoutIntegrationError(`The silent copy could not be checked: ${err instanceof Error ? err.message : err}`, 502);
   }
@@ -560,7 +591,19 @@ export async function assertStoredClipIsSilent(
   if (!kinds.includes("vide")) {
     throw new ScoutIntegrationError("The pipeline's copy has no video track; nothing was filed.", 502);
   }
-  return bytes.byteLength;
+  if (!codecs.length || !codecs.every((c) => H264_SAMPLE_ENTRIES.has(c))) {
+    throw new ScoutIntegrationError(`The clip is not H.264 (${codecs.join(", ") || "none"}); nothing was filed.`, 415);
+  }
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new ScoutIntegrationError("The clip's length could not be read; nothing was filed.", 502);
+  }
+  if (durationSeconds > SILENT_R2_MAX_DURATION_SECONDS) {
+    throw new ScoutIntegrationError(
+      `The clip runs ${durationSeconds.toFixed(2)} s; the longest is ${SILENT_R2_MAX_DURATION_SECONDS} s.`,
+      400
+    );
+  }
+  return { bytes: bytes.byteLength, durationSeconds };
 }
 
 async function readStoredClip(r2Key: string): Promise<Buffer> {

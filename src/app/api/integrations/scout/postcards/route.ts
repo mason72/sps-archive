@@ -18,6 +18,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
+  // The clip path's time budget counts from HERE, not from wherever the store
+  // happens to start its clock (store.ts pipelineTimeoutMs).
+  const startedAt = Date.now();
   const refused = requireScoutKey(request);
   if (refused) return refused;
 
@@ -31,7 +34,7 @@ export async function POST(request: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
-    const result = await ingestPostcard(scoutDb(), parsed.value);
+    const result = await ingestPostcard(scoutDb(), parsed.value, { startedAt });
     return NextResponse.json(
       {
         image_id: result.link.image_id,

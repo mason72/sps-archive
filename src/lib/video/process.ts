@@ -5,6 +5,7 @@ import {
   getVideoDisplayKey,
 } from "@/lib/r2/client";
 import { recordUsage, secondsSince } from "@/lib/usage/record";
+import { scrubSignedUrls } from "@/lib/net/scrub-urls";
 
 /**
  * Bridge to the Modal video pipeline (modal/video_pipeline.py).
@@ -68,7 +69,7 @@ export async function processVideoViaModal(
 
   if (!res.ok) {
     throw new Error(
-      `Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`
+      scrubSignedUrls(`Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`)
     );
   }
 
@@ -168,7 +169,7 @@ export async function processMutedVideoViaModal(
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
-    throw new Error(`Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`);
+    throw new Error(scrubSignedUrls(`Video pipeline failed: ${res.status} ${await res.text().catch(() => "")}`));
   }
 
   if (attribution) {

@@ -558,23 +558,48 @@ path rules, no redirects, 60 s deadline, 50 MB counted while streaming, an MP4
 with a video track) and `duration_s` (at most 61). The clip is read once in
 memory to enforce those limits and then dropped: it is NEVER written to our
 storage. The Modal pipeline is handed Scout's same signed URL with
-`mute: true` and writes the silent copy straight to the stored original key
-(`events/<id>/originals/<image id>.mp4`) plus posters
-(`processMutedVideoViaModal`, which refuses an answer without `muted: true`;
-its upload URLs live only as long as the call may wait, plus a minute; its
-timeout is what is left of the request's budget, `pipelineTimeoutMs`).
-This server then downloads the stored file and reads its tracks with its own
-parser (`src/lib/video/mp4-tracks.ts`): a `soun` track, no `vide` track, or an
-unreadable file rolls everything back, and so does a clip the pipeline could
-not measure. The row is `media_type video`, `has_audio false`, complete with posters,
-so the request answers `ready`; no AI event is sent (the AI lane reads images
-only) and GET reports no crew for a clip. Because the stored original is the
-silent file, every downstream copy is silent: a silent clip of 61 s or less
-(`SILENT_R2_MAX_DURATION_SECONDS`; the 60 s line is for clips not known silent)
-publishes on the R2 video lane, whose playable file is that original (the site
-gets `kind: "video"`, `posterUrl`, `videoUrl`); one over 61 s takes the
-Cloudflare Stream lane, which pulls the same original. POST `maxDuration` is
-300 s for the pipeline call (240 s deadline, cold start included).
+`mute: true`; it downloads it ONCE (no redirects followed, 55 MB cap, 90 s
+deadline) into its own temp dir, and every later step reads that one local
+file, then writes the silent copy straight to the stored original key
+(`events/<id>/originals/<image id>.mp4`) plus posters. It reports duration
+and codec from a probe of the file it WROTE. `processMutedVideoViaModal`
+refuses an answer without `muted: true`, and its upload URLs live only as long
+as the call may wait, plus a minute.
+
+**Contract with Scout: the clip URL is signed for 900 s (15 min).** Scout's
+bridge signs the MP4 URL for 15 minutes, comfortably above this route's 285 s
+budget, so Modal's read never meets an expired URL inside a request that can
+still succeed. If Scout ever shortens it below the budget, clips fail with a
+pipeline error (refused and rolled back, never filed with audio).
+
+**Time budget.** The budget (`VIDEO_REQUEST_BUDGET_MS`, 285 s, inside the
+route's 300 s) counts from the moment the POST arrived (the route passes its own
+start time). If less than 90 s is left before Modal would be called, the request
+is refused with a retryable **503** before anything is written; otherwise Modal
+gets what is left minus 60 s kept for the read-back and the row writes. There is
+no floor, because a floor is what let the old version overrun.
+
+**One source of truth: the stored bytes.** This server downloads the file Modal
+stored and reads it with its own parser (`src/lib/video/mp4-tracks.ts`): any
+`soun` track, no `vide` track, a video sample entry that is not H.264
+(`avc1`/`avc3`), an unreadable length, or a length over
+`SILENT_R2_MAX_DURATION_SECONDS` (61 s, NO slack) rolls everything back. The
+row's `duration_seconds` and `file_size` come from those bytes, never from the
+pipeline's report or our first read of Scout's URL. The row is
+`media_type video`, `has_audio false`, complete with posters, so the request
+answers `ready`; no AI event is sent (the AI lane reads images only) and GET
+reports no crew for a clip. Because the stored original is the silent file,
+every downstream copy is silent, and because the ingest cap equals the R2
+video lane's limit for a known-silent clip (61 s; the 60 s line is for clips not
+known silent), every accepted clip publishes on the R2 video lane, whose
+playable file is that original (the site gets `kind: "video"`, `posterUrl`,
+`videoUrl`). POST `maxDuration` is 300 s.
+
+**No signed URL in an error.** Every message on the clip path (ffmpeg and Modal
+error text, fetch failures, rollback reasons, `system_errors`, the route's log
+and response) goes through `scrubSignedUrls` (`src/lib/net/scrub-urls.ts`),
+which replaces each URL's query string with `?<redacted>`; Modal scrubs its own
+errors the same way (`scrub_urls`) and does not chain the original exception.
 
 **Status.** `ready` = complete and `ai_indexed_at` set (a clip: complete with posters); `failed` = upload failed
 or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including

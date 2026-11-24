@@ -56,7 +56,15 @@ import { getDisplayKey, getThumbnailKey } from "@/lib/r2/client";
 import { assetLane, publicLaneKeys } from "@/lib/site/publish";
 import { fetchPostcardImage, fetchPostcardVideo } from "./fetch-image";
 import { FakeDb } from "./fake-db";
-import { ingestPostcard, pipelineTimeoutMs, postcardDetail, type ScoutDb } from "./store";
+import {
+  AFTER_PIPELINE_RESERVE_MS,
+  MIN_REMAINING_FOR_PIPELINE_MS,
+  VIDEO_REQUEST_BUDGET_MS,
+  ingestPostcard,
+  pipelineTimeoutMs,
+  postcardDetail,
+  type ScoutDb,
+} from "./store";
 import { uploadToR2 } from "@/lib/r2/client";
 import type { PostcardInput } from "./validate";
 
@@ -65,6 +73,26 @@ const WITH_AUDIO = fixture("tone-with-audio.mp4");
 const MUTED = fixture("tone-muted.mp4");
 
 const OWNER = "00000000-0000-4000-8000-00000000aaaa";
+
+/** A copy of an MP4 whose movie header says `duration / timescale` seconds (version-0 mvhd). */
+function withMovieLength(mp4: Buffer, timescale: number, duration: number): Buffer {
+  const out = Buffer.from(mp4);
+  const at = out.indexOf("mvhd");
+  if (at < 0 || out[at + 4] !== 0) throw new Error("fixture has no version-0 mvhd");
+  out.writeUInt32BE(timescale, at + 4 + 12);
+  out.writeUInt32BE(duration, at + 4 + 16);
+  return out;
+}
+
+/** A copy of an MP4 whose video sample entry is renamed (e.g. avc1 → hvc1). */
+function withSampleEntry(mp4: Buffer, fourcc: string): Buffer {
+  const out = Buffer.from(mp4);
+  // The sample entry, not the "avc1" compatible brand in ftyp.
+  const at = out.indexOf("avc1", out.indexOf("stsd"));
+  if (out.indexOf("stsd") < 0 || at < 0) throw new Error("fixture has no avc1 sample entry");
+  out.write(fourcc, at, "latin1");
+  return out;
+}
 const PID = "3f2a9c1e-0b7d-4e7a-9a51-2c4d6e8f0a1b";
 
 const input = (over: Partial<PostcardInput> = {}): PostcardInput => ({
@@ -154,8 +182,8 @@ describe("a Scout clip", () => {
     expect(r2.objects.size).toBe(0);
   });
 
-  it("is refused when the pipeline cannot measure the clip", async () => {
-    pipelineWrites(MUTED, { durationSeconds: null });
+  it("is refused when the stored file's length cannot be read", async () => {
+    pipelineWrites(withMovieLength(MUTED, 0, 0)); // timescale 0: no length
     await expect(ingestPostcard(store(), input())).rejects.toMatchObject({ status: 502 });
     expect(db.tables.images).toHaveLength(0);
     expect(r2.objects.size).toBe(0);
@@ -179,9 +207,43 @@ describe("a Scout clip", () => {
     expect(r2.objects.size).toBe(0); // our silent copy and posters removed
   });
 
-  it("is refused past Scout's length cap, by the pipeline's own probe", async () => {
-    pipelineWrites(MUTED, { durationSeconds: 75 });
+  it("judges length by the STORED file, whatever the pipeline reported", async () => {
+    // The pipeline says 3 s; the bytes it stored run 75 s. The bytes win.
+    pipelineWrites(withMovieLength(MUTED, 1000, 75_000), { durationSeconds: 3 });
     await expect(ingestPostcard(store(), input())).rejects.toMatchObject({ status: 400 });
+    expect(db.tables.images).toHaveLength(0);
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it("accepts up to exactly 61 s and refuses anything longer, with no slack (the R2 lane's limit)", async () => {
+    pipelineWrites(withMovieLength(MUTED, 1000, 60_500), { durationSeconds: 3 });
+    await ingestPostcard(store(), input());
+    expect(db.tables.images[0].duration_seconds).toBe(60.5); // the stored length is what is filed
+    expect(assetLane({ mediaType: "video", durationSeconds: 60.5, hasAudio: false })).toBe("video");
+
+    for (const ms of [61_000, 61_010]) {
+      db = new FakeDb();
+      db.tables.events.push({ id: "website", slug: "tdp-website", user_id: OWNER });
+      r2.objects.clear();
+      pipelineWrites(withMovieLength(MUTED, 1000, ms));
+      const run = ingestPostcard(store(), input());
+      if (ms === 61_000) await expect(run).resolves.toMatchObject({ created: true });
+      else await expect(run).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
+  it("refuses a stored copy that is not H.264", async () => {
+    pipelineWrites(withSampleEntry(MUTED, "hvc1"));
+    await expect(ingestPostcard(store(), input())).rejects.toMatchObject({ status: 415 });
+    expect(db.tables.images).toHaveLength(0);
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it("refuses with a retryable 503, before anything is written, when the budget is nearly spent", async () => {
+    pipelineWrites(MUTED);
+    const startedAt = Date.now() - (VIDEO_REQUEST_BUDGET_MS - MIN_REMAINING_FOR_PIPELINE_MS + 1_000);
+    await expect(ingestPostcard(store(), input(), { startedAt })).rejects.toMatchObject({ status: 503 });
+    expect(processMutedVideoViaModal).not.toHaveBeenCalled();
     expect(db.tables.images).toHaveLength(0);
     expect(r2.objects.size).toBe(0);
   });
@@ -227,9 +289,20 @@ describe("a Scout photo", () => {
 });
 
 describe("pipelineTimeoutMs", () => {
-  it("leaves time after the pipeline inside the route's 300 s", () => {
-    expect(pipelineTimeoutMs(0, 0)).toBe(225_000);
-    expect(pipelineTimeoutMs(0, 60_000)).toBe(165_000); // a slow fetch shortens it
-    expect(pipelineTimeoutMs(0, 280_000)).toBe(30_000); // never below a floor
+  it("never lets the pipeline plus the work after it run past the budget, which is inside the route's 300 s", () => {
+    expect(VIDEO_REQUEST_BUDGET_MS).toBeLessThanOrEqual(300_000);
+    for (let elapsed = 0; elapsed <= 300_000; elapsed += 500) {
+      const t = pipelineTimeoutMs(0, elapsed);
+      if (t == null) continue;
+      expect(elapsed + t + AFTER_PIPELINE_RESERVE_MS).toBeLessThanOrEqual(VIDEO_REQUEST_BUDGET_MS);
+      expect(t).toBeGreaterThanOrEqual(MIN_REMAINING_FOR_PIPELINE_MS - AFTER_PIPELINE_RESERVE_MS);
+    }
+  });
+
+  it("gives the whole budget to an early start and refuses a late one (no floor)", () => {
+    expect(pipelineTimeoutMs(0, 0)).toBe(VIDEO_REQUEST_BUDGET_MS - AFTER_PIPELINE_RESERVE_MS);
+    expect(pipelineTimeoutMs(0, 60_000)).toBe(VIDEO_REQUEST_BUDGET_MS - 60_000 - AFTER_PIPELINE_RESERVE_MS);
+    expect(pipelineTimeoutMs(0, VIDEO_REQUEST_BUDGET_MS - MIN_REMAINING_FOR_PIPELINE_MS + 1)).toBeNull();
+    expect(pipelineTimeoutMs(0, 280_000)).toBeNull();
   });
 });

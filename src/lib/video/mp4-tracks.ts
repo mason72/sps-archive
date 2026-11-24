@@ -91,6 +91,64 @@ export function mp4TrackKinds(buf: Uint8Array): string[] {
   return kinds;
 }
 
+function findMoov(buf: Uint8Array): Box {
+  for (const b of boxes(buf, 0, buf.length)) if (b.type === "moov") return b;
+  throw new Mp4ParseError("no moov box: not a complete MP4");
+}
+
+/**
+ * The movie's length in seconds, from `moov/mvhd` (timescale and duration;
+ * version 0 is 32-bit, version 1 is 64-bit). Read from the STORED file, so the
+ * length the row carries and the cap it is held to describe the bytes that
+ * will play, not an earlier read of somebody else's URL.
+ */
+export function mp4DurationSeconds(buf: Uint8Array): number {
+  const mvhd = child(buf, findMoov(buf), "mvhd");
+  if (!mvhd) throw new Mp4ParseError("no mvhd box");
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const version = buf[mvhd.start];
+  let timescale: number;
+  let duration: number;
+  if (version === 1) {
+    if (mvhd.start + 32 > mvhd.end) throw new Mp4ParseError("mvhd is truncated");
+    timescale = view.getUint32(mvhd.start + 20);
+    duration = Number(view.getBigUint64(mvhd.start + 24));
+  } else {
+    if (mvhd.start + 20 > mvhd.end) throw new Mp4ParseError("mvhd is truncated");
+    timescale = view.getUint32(mvhd.start + 12);
+    duration = view.getUint32(mvhd.start + 16);
+  }
+  if (!timescale) throw new Mp4ParseError("mvhd has no timescale");
+  return duration / timescale;
+}
+
+/**
+ * The sample format of every VIDEO track (`stsd`'s first entry): `avc1` or
+ * `avc3` is H.264, `hvc1`/`hev1` is HEVC. Read from the stored file.
+ */
+export function mp4VideoCodecs(buf: Uint8Array): string[] {
+  const out: string[] = [];
+  for (const trak of boxes(buf, findMoov(buf).start, findMoov(buf).end)) {
+    if (trak.type !== "trak") continue;
+    const mdia = child(buf, trak, "mdia");
+    const hdlr = mdia ? child(buf, mdia, "hdlr") : null;
+    if (!mdia || !hdlr || hdlr.start + 12 > hdlr.end) throw new Mp4ParseError("a track has no readable hdlr box");
+    if (String.fromCharCode(...buf.subarray(hdlr.start + 8, hdlr.start + 12)) !== "vide") continue;
+    const minf = child(buf, mdia, "minf");
+    const stbl = minf ? child(buf, minf, "stbl") : null;
+    const stsd = stbl ? child(buf, stbl, "stsd") : null;
+    // stsd payload: version+flags (4), entry_count (4), then sample entries.
+    if (!stsd || stsd.start + 16 > stsd.end) throw new Mp4ParseError("a video track has no readable stsd box");
+    const first = boxes(buf, stsd.start + 8, stsd.end).next();
+    if (first.done) throw new Mp4ParseError("a video track has no sample entry");
+    out.push(first.value.type);
+  }
+  return out;
+}
+
+/** H.264 sample entries. */
+export const H264_SAMPLE_ENTRIES: ReadonlySet<string> = new Set(["avc1", "avc3"]);
+
 export function mp4HasAudio(buf: Uint8Array): boolean {
   return mp4TrackKinds(buf).includes("soun");
 }

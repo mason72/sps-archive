@@ -57,6 +57,117 @@ def video_packets_md5(path):
     return out
 
 
+def check_download(vp, clip_path, tmp):
+    """One read, no redirects, a byte cap: served by a local HTTP server."""
+    import http.server
+    import threading
+
+    body = Path(clip_path).read_bytes()
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", "/clip.mp4")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        dest = f"{tmp}/dl.mp4"
+        n = vp.download_no_redirects(f"{base}/clip.mp4", dest, require_https=False)
+        assert n == len(body) and Path(dest).read_bytes() == body
+        for url, kw, why in [
+            (f"{base}/redirect", {}, "302"),
+            (f"{base}/clip.mp4", {"max_bytes": 1000}, "limit"),
+        ]:
+            try:
+                vp.download_no_redirects(url, f"{tmp}/x.mp4", require_https=False, **kw)
+            except ValueError as err:
+                assert why in str(err), err
+            else:
+                raise AssertionError(f"{url} {kw} was accepted")
+        try:
+            vp.download_no_redirects(f"{base}/clip.mp4", f"{tmp}/y.mp4")
+        except ValueError as err:
+            assert "https" in str(err)
+        else:
+            raise AssertionError("plain http accepted")
+    finally:
+        srv.shutdown()
+
+
+def check_pipeline_reports_the_written_file(vp, src):
+    """Run the real _pipeline (ffmpeg and all) in mute mode with the network
+    faked, and a FIRST probe that lies about the source (999 s). The answer
+    must describe the file the pipeline WROTE: about 3 s, H.264, no audio."""
+    puts = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def put(self, url, content=None, headers=None):
+            puts[url] = content
+            return FakeResp()
+
+    fake_httpx = types.ModuleType("httpx")
+    fake_httpx.Client = FakeClient
+    sys.modules["httpx"] = fake_httpx
+
+    real_probe = vp._probe
+
+    def lying_probe(path):
+        p = real_probe(path)
+        if path == src:
+            p["format"]["duration"] = "999.0"
+        return p
+
+    vp._probe = lying_probe
+    try:
+        out = vp._pipeline(src, {"sm": "put-sm", "md": "put-md", "lg": "put-lg"}, "put-display", True)
+    finally:
+        vp._probe = real_probe
+    assert out["ok"] and out["muted"] is True, out
+    assert abs(out["duration_seconds"] - 3.0) < 0.2, f"length came from the first read: {out}"
+    assert out["video_codec"] == "h264", out
+    with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+        f.write(puts["put-display"])
+        f.flush()
+        assert vp.audio_stream_count(f.name) == 0, "uploaded copy has audio"
+
+
+def check_scrub(vp):
+    fake = "FAKE-TOKEN-0123456789abcdef"
+    msg = (
+        "ffprobe failed: https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/p/c.mp4"
+        f"?token={fake}&x=1: Invalid data; also 'https://r2.example/k?X-Amz-Signature={fake}'"
+    )
+    out = vp.scrub_urls(msg)
+    assert fake not in out, out
+    assert "c.mp4?<redacted>" in out and "r2.example/k?<redacted>" in out, out
+    assert vp.scrub_urls("no url here") == "no url here"
+
+
 def main():
     vp = load_pipeline()
     with tempfile.TemporaryDirectory() as tmp:
@@ -86,6 +197,10 @@ def main():
         assert r.returncode == 0, r.stderr
         assert kinds(probe(control)) == ["audio", "video"], "control lost its audio"
         assert vp.audio_stream_count(control) == 1
+
+        check_download(vp, src, tmp)
+        check_pipeline_reports_the_written_file(vp, src)
+        check_scrub(vp)
 
         # Keep the files for the TypeScript box-parser check, when asked.
         if len(sys.argv) > 1:
