@@ -221,12 +221,13 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
     };
   }
 
+  // Fetch BEFORE writing anything: a bad URL or a non-JPEG leaves no trace
+  // (not even an empty gallery or gig section).
+  const buffer = await fetchPostcardImage(input.imageUrl);
+
   const ownerId = await loadOwnerUserId(db);
   const eventId = await ensureScoutRoadEvent(db, ownerId);
   const sectionId = await ensureGigSection(db, eventId, input);
-
-  // Fetch BEFORE writing anything: a bad URL or a non-JPEG leaves no trace.
-  const buffer = await fetchPostcardImage(input.imageUrl);
 
   const imageId = randomUUID();
   const filename = `${imageId}.jpg`;
@@ -240,7 +241,18 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
     if (rowWritten) {
       // Cascades the claim (scout_postcard_links) and the section link.
       const { error } = await db.from("images").delete().eq("id", imageId);
-      if (error) await reportSystemError("scout.ingest.rollback-row", error, { imageId, why });
+      if (error) {
+        // The row (and maybe its claim) is still there, so its bytes must stay:
+        // deleting them would leave a row pointing at nothing. Mark it failed
+        // so Scout reads "failed" instead of "processing" until someone looks.
+        await reportSystemError("scout.ingest.rollback-row", error, { imageId, why });
+        const { error: markErr } = await db
+          .from("images")
+          .update({ processing_status: "failed" })
+          .eq("id", imageId);
+        if (markErr) await reportSystemError("scout.ingest.rollback-mark", markErr, { imageId });
+        return;
+      }
     }
     const failed = await deleteImageAssets(r2Key, "image");
     if (failed.length) {
@@ -472,14 +484,17 @@ export async function publishPostcard(db: ScoutDb, postcardId: string, target: S
   }
   const ownerId = await loadOwnerUserId(db);
 
-  // One scene at a time: moving targets takes it off the old one first.
-  if (link.published_target && link.published_target !== target) {
-    await removeFromTarget(db, ownerId, link.image_id, link.published_target);
-  }
-
+  // Check the NEW scene before touching the old one, so a refusal leaves the
+  // photo exactly where it was.
   const section = await websiteSectionFor(db, ownerId, target);
   if (section.locked) {
     throw new ScoutIntegrationError(`"${section.name}" is locked in Pixeltrunk; unlock it to add photos.`, 423);
+  }
+
+  // One scene at a time: moving targets takes it off the old one. The sync
+  // below reconciles both memberships in one pass.
+  if (link.published_target && link.published_target !== target) {
+    await removeFromTarget(db, ownerId, link.image_id, link.published_target);
   }
   const { data: tail, error: tailErr } = await db
     .from("section_images")
@@ -538,12 +553,12 @@ export async function deletePostcard(db: ScoutDb, postcardId: string) {
 
   const { data: memberships, error: memErr } = await db
     .from("section_images")
-    .select("section_id, sections!inner(name, locked, site_scene_key)")
+    .select("section_id, sections!inner(name, locked, site_scene_key, is_auto)")
     .eq("image_id", imageId);
   if (memErr) throw memErr;
   const rows = (memberships ?? []) as unknown as {
     section_id: string;
-    sections: { name: string; locked: boolean; site_scene_key: string | null };
+    sections: { name: string; locked: boolean; site_scene_key: string | null; is_auto: boolean };
   }[];
 
   const locked = rows.filter((r) => r.sections.locked);
@@ -554,7 +569,17 @@ export async function deletePostcard(db: ScoutDb, postcardId: string) {
     );
   }
 
-  // 1. Off the website, everywhere it appears.
+  const { data: img, error: imgErr } = await db
+    .from("images")
+    .select("r2_key, media_type, site_published_at")
+    .eq("id", imageId)
+    .maybeSingle();
+  if (imgErr) throw imgErr;
+
+  // 1. Off the website, everywhere it appears. The sync runs whenever the row
+  // says it is published, not only when a membership was just removed: a
+  // retry after a failed sync finds no memberships left, and skipping the sync
+  // then would orphan the public copy forever once the row is gone.
   const websiteSectionIds = rows.filter((r) => r.sections.site_scene_key).map((r) => r.section_id);
   if (websiteSectionIds.length) {
     const { error } = await db
@@ -563,12 +588,15 @@ export async function deletePostcard(db: ScoutDb, postcardId: string) {
       .eq("image_id", imageId)
       .in("section_id", websiteSectionIds);
     if (error) throw error;
+  }
+  if (websiteSectionIds.length || img?.site_published_at) {
     await syncOrThrow(db, imageId, "unpublish");
   }
 
-  // 2. Kept elsewhere by a person? Then only the Scout Road copy goes.
+  // 2. Kept elsewhere by a PERSON? Then only the Scout Road copy goes. A
+  // section the sorter made (`is_auto`) is not a person's filing.
   const elsewhere = rows.filter(
-    (r) => !r.sections.site_scene_key && r.section_id !== link.section_id
+    (r) => !r.sections.site_scene_key && !r.sections.is_auto && r.section_id !== link.section_id
   );
   if (elsewhere.length) {
     if (link.section_id) {
@@ -585,12 +613,6 @@ export async function deletePostcard(db: ScoutDb, postcardId: string) {
   }
 
   // 3. The last copy: hard delete, then the whole R2 footprint.
-  const { data: img, error: imgErr } = await db
-    .from("images")
-    .select("r2_key, media_type")
-    .eq("id", imageId)
-    .maybeSingle();
-  if (imgErr) throw imgErr;
   const { error: delErr } = await db.from("images").delete().eq("id", imageId); // cascades the link
   if (delErr) throw delErr;
   if (img?.r2_key) {

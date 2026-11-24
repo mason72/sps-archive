@@ -528,7 +528,7 @@ crew roster and `crew_faces`. No `tdp-website` gallery = 503.
 | `DELETE /postcards/:id` | Unpublish, then delete (see below). |
 | `POST /postcards/:id/publish` `{target}` / `DELETE` | Put the photo in / take it off a website BTS scene. |
 | `GET /publish-targets` | `bts/headshot-booth`, `bts/photo-booth`, `bts/anti-booth` with labels. |
-| `GET /gig-crew?from&to` | Array of `{calendar_event_id, start, end, title, kind, city, venue, crew: [{email, display_name, source}]}`, window at most 120 days. |
+| `GET /gig-crew?from&to` | Array of `{calendar_event_id, start, end, title, kind, city, venue, crew: [{email, display_name, source, on_roster}]}`, window at most 120 days. |
 
 **Ingest (POST).** Idempotent on `postcard_id`, the primary key of
 `scout_postcard_links`. Order: link exists? return it. Otherwise ensure the
@@ -544,7 +544,9 @@ so this one deletes its photo and returns the winner's) → `section_images` →
 `generateThumbnailsFromBuffer` → `processing_status = complete` → EXIF
 (Scout's zoned `taken_at` only when the file has no capture time). A failure
 before `complete` rolls back the row (cascading the claim) and the R2 objects,
-so a retry starts clean. Then the same Inngest events `/api/upload/complete`
+so a retry starts clean; if the row itself cannot be deleted, its bytes stay
+and it is marked `failed`. The image is fetched before the gallery or gig
+section is ensured, so a bad URL leaves nothing behind. Then the same Inngest events `/api/upload/complete`
 sends, `ai/index.requested` and `focal/auto.suggest`, AWAITED (a failed send is
 a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
 `maxDuration = 120`, as for `/api/upload/complete`.
@@ -564,13 +566,16 @@ nothing is written. Scout shows these as tags a person can remove.
 **Publish.** Same mechanics as `/api/site/gallery`: membership of the
 `tdp-website` gallery's scene section IS publication (`getWebsiteSection` +
 `syncSitePublication`, which also schedules the `TDP_SITE_REVALIDATE_URL` ping).
-One scene at a time (a new target takes it off the old one). A lane copy that
+One scene at a time (a new target takes it off the old one, after the new
+scene's lock is checked). A lane copy that
 fails is a 502, never a quiet success; a locked section is 423; a photo not yet
 `complete` with thumbnails is 409.
 
 **Delete.** Refused (423) when the photo sits in a locked section. Otherwise off
-every website section first (and synced), then: if a person also filed it in
-another non-website section, only the Scout Road copy and the link go;
+every website section first, and synced whenever the row is published
+(`site_published_at`), even with no membership left, so a retry after a failed
+sync cannot orphan the public copy. Then: if a person also filed it in another
+non-website, non-`is_auto` section, only the Scout Road copy and the link go;
 otherwise the row is hard-deleted (cascades the link, faces, section links) and
 `deleteImageAssets` removes the original and the three thumbnails, with failed
 keys reported.
@@ -578,7 +583,8 @@ keys reported.
 **Gig crew.** `listEvents("exposure")` with a day of slack each side, then
 filtered on the day the calendar wrote; only `gig` and `setup` entries.
 Attendee emails pass through lower-cased (calendar/resource addresses dropped),
-named from the roster by primary email or alias. Title names resolve through
+named from the roster by primary email or alias; `on_roster: false` marks an
+invitee who is not crew (a client contact can be on the invite). Title names resolve through
 `crewNameKey` on the whole name, then the first name, only when exactly one
 crew member answers; otherwise they come back with `email: null`. One entry per
 person; the attendee wins. A calendar that cannot be read is 502, never `[]`.

@@ -51,17 +51,17 @@ describe("gigCrewFor", () => {
   it("passes attendee emails through lower-cased, named from the roster by alias", () => {
     const g = gigCrewFor(ev, index);
     expect(g.crew.filter((m) => m.source === "attendee")).toEqual([
-      { email: "joeynags@gmail.com", display_name: "Joey", source: "attendee" },
-      { email: "freelancer@example.com", display_name: "Pat Freelance", source: "attendee" },
+      { email: "joeynags@gmail.com", display_name: "Joey", source: "attendee", on_roster: true },
+      { email: "freelancer@example.com", display_name: "Pat Freelance", source: "attendee", on_roster: false },
     ]);
   });
 
   it("adds title crew not already present, with email null for names that do not resolve", () => {
     const g = gigCrewFor(ev, index);
     expect(g.crew.filter((m) => m.source === "title")).toEqual([
-      { email: "jerrick@twodudesphoto.com", display_name: "Jerrick", source: "title" },
-      { email: null, display_name: "ALEX", source: "title" }, // ambiguous: never guessed
-      { email: null, display_name: "CRISTINA", source: "title" },
+      { email: "jerrick@twodudesphoto.com", display_name: "Jerrick", source: "title", on_roster: true },
+      { email: null, display_name: "ALEX", source: "title", on_roster: false }, // ambiguous: never guessed
+      { email: null, display_name: "CRISTINA", source: "title", on_roster: false },
     ]);
     expect(g.crew.filter((m) => m.display_name === "Joey")).toHaveLength(1); // JOEY in the title = the attendee
   });

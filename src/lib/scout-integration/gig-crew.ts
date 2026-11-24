@@ -32,6 +32,13 @@ export interface GigCrewMember {
   email: string | null;
   display_name: string;
   source: "attendee" | "title";
+  /**
+   * True when this entry resolved to a crew roster row. Attendees pass through
+   * whether or not they are crew (a client contact can be invited to the
+   * calendar entry), so Scout must treat `on_roster: false` as "someone on the
+   * invite", never as crew.
+   */
+  on_roster: boolean;
 }
 
 export interface GigCrew {
@@ -117,6 +124,7 @@ export function gigCrewFor(ev: CalendarEventLike, index: RosterIndex): GigCrew {
       email,
       display_name: row?.display_name ?? a.displayName ?? email,
       source: "attendee",
+      on_roster: !!row,
     });
   }
 
@@ -128,12 +136,12 @@ export function gigCrewFor(ev: CalendarEventLike, index: RosterIndex): GigCrew {
       if (email && seenEmails.has(email)) continue;
       seenCrewIds.add(row.id);
       if (email) seenEmails.add(email);
-      crew.push({ email, display_name: row.display_name, source: "title" });
+      crew.push({ email, display_name: row.display_name, source: "title", on_roster: true });
     } else {
       const k = crewNameKey(name);
       if (!k || seenUnresolved.has(k)) continue;
       seenUnresolved.add(k);
-      crew.push({ email: null, display_name: name, source: "title" });
+      crew.push({ email: null, display_name: name, source: "title", on_roster: false });
     }
   }
 
