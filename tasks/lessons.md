@@ -5038,3 +5038,28 @@ vitest 2 to 4.1.12 pulled Vite 8, which compiles with oxc and **ignores the `esb
 **Use going forward (Mason, same day: "these are much better - please make sure to use this going forward").** For any hand-picked headshots (TDP Work job photos, site scenes, ads) start from `npx tsx scripts/site/headshot-sheet.ts <eventId> <count> <outDir>`: it runs the picker's headshot path read-only and writes a numbered contact sheet. Then the eye pass (cut chin-in-hand, hand-at-lapel, looking away, tiny-in-frame; balance the set) and show Mason the sheet before publishing.
 
 **Rules.** (a) Before rewriting a picker, re-run it: the complaint may be about stale output. (b) When a fix to the data a model learns from makes results worse, the objective is the bug: ask what the model is literally rewarded for. (c) Any "newest N" over a table the migration filled must order by when the work happened, not when the row was written (same trap as lesson 188 events ordering, `sort_date`).
+
+## 212. Three browser probes that cannot check a phone layout, the one that can, and a hidden control that still takes space (2026-11-24)
+
+**Context.** Building the TDP Work crew pick page (`/fill/[sectionId]`) and sidebar polish, verified on real data at desktop and 390px.
+
+**What did not work, each one reassuring-looking.**
+- Claude in Chrome's `resize_window` to 390 reported success while `innerWidth` stayed 1965. It took effect only at a later reload, with the window left narrow for the next check.
+- Framing the page in a 390px iframe on the same origin: the app sends `X-Frame-Options: DENY` (correct), so the frame was empty and `contentDocument` was null.
+- The built-in Browser pane emulates a phone but is signed out on localhost, and the session was not open in a window.
+
+**What worked.**
+- `scripts/triage/phone-probe.mjs` (saved this time; lesson 185 only described it). It runs headless Chromium at 390x844 with touch, so `pointer: coarse` matches. It mints the session in-process with `admin.generateLink` + `verifyOtp`, writes the cookie with `@supabase/ssr`, and prints no token.
+- Run it against `next start` after `npm run build`, which also proves the build that ships.
+- `/dev/fill` renders the pick page from a fixture (every call goes through a `FillApi` object), for layout checks with no account.
+
+**The bug a screenshot caught that types never would.** Row actions hidden with `opacity-0` until hover still held their width, so job names cut to "Atlassi…" at the default sidebar width. Adding one more hidden button made it worse.
+- First fix: float the strip over the row's right end. A fresh reviewer then caught that the strip covered the lock button, so the lock could not be clicked with a mouse in any gallery.
+- Final fix: anchor the strip just left of the image count. It covers only the tail of the name, and leaves the count, "N failed" and the lock clickable.
+- On touch the actions stay inline, so names wrap to two lines instead.
+
+**Rules.**
+- (a) A control hidden by opacity still takes space and still takes a tap. Hide its layout too, or float it where it covers nothing clickable.
+- (b) After moving an overlay, check `elementFromPoint` at every control it could cover, with a real hover.
+- (c) For phone checks use the saved probe or a `/dev` fixture, never a desktop window resize.
+- (d) A paged list fed by an IntersectionObserver needs a stop on failure (`allFailed`) and a source guard (a ref). Otherwise a persistent error loops, and switching galleries mid-request mixes the two lists.

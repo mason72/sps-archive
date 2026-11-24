@@ -1,5 +1,20 @@
 # Pixeltrunk - Build Plan
 
+## TDP Work: crew pick link + sidebar navigation (Mason, 2026-11-24)
+Why: four draft jobs (Money20/20 Europe 2024, Money20/20 Asia 2024, World Employer Branding Week 2024, Cybercon 2023) need 6 to 12 photos each from photographers who are not developers, on their phones, from source galleries of 324 to 6,263 photos. Decisions (question cards): Mason sends a link per job; phone-first; shared info@ login (no token page); crew picks publish right away on a live job; scope = pick link + sidebar polish (Jobs board, batch link and "Suggest 10" held).
+- [x] API `GET /api/fill/[sectionId]`: job, its sources (owner-checked), ids already in the job.
+- [x] API `POST /api/fill/[sectionId]/shortlist?source=`: the Highlights ranker (headshot path on headshot galleries), chosen frame per moment, site-published flag.
+- [x] API `GET /api/fill/[sectionId]/photos?source=&offset=`: every photo of a source, paged, for "Show all".
+- [x] Page `/fill/[sectionId]`: phone-first, source tabs, ranked shortlist, show-all, sticky Add N, done state. Add = the existing `/api/images/transfer` copy.
+- [x] Sidebar: resizable (drag edge, double-click resets, width remembered), visible filter chips with counts, "No photos" (was "Empty"), "Not live" on TDP Work, status line on job rows, "Copy pick link" on jobs with sources.
+- [x] Verify on real TDP Work data at desktop and 390px; typecheck, lint, build.
+- [ ] Ship (live-event check first), docs (TECHNICAL, GOTCHAS if any, memory).
+- Review: two fresh reviewers. First found 10 (no auth holes): lock unclickable under the hover strip (every gallery), All-photos source race, failure retry loop, live/draft copy, re-copy moving a member to the end (transfer now `ignoreDuplicates`), refresh failure after Add, non-UUID 500, em dash in a 423, width vs window, viewer dialog. All fixed. Sweep: 7 section-link upserts; transfer fixed; `POST /api/sections/[id]/images` and the batch add keep "re-add moves to end" (behavior change for editor drags, Mason's call); reorder/auto/smart/site routes rewrite order on purpose.
+- Second review (of the fixes): Add cleared photos tapped while it was sending (now clears only what was sent); A>B>A gallery switch could double a page (generation counter); Space in the viewer could close it (dialog takes focus); width now shrinks with the window. All fixed.
+- Verified: desktop in Mason's Chrome (localhost, real TDP Work), phone via `scripts/triage/phone-probe.mjs` at 390x844 touch on `next start` (pick page, viewer, sidebar sheet, Not live filter, bad link); one add-and-remove on the Cybercon 2023 draft, restored (0 members, publish flag null).
+- Follow-up noted: /login's `redirect` is followed unvalidated (`window.location.href = redirect`), so a crafted link can bounce someone to another site after sign-in. Pre-existing.
+- Follow-up noted: Copy to... loads only the newest 100 galleries and filters them in the browser (1,472 on info@), so an older target gallery cannot be found there. TDP Work is pinned, so it is unaffected.
+
 ## Justin, 2026-11-16: tooltips + Highlights picker (shipped 5e13b58, 441bb3c)
 - [x] Hover labels on every icon button + guard test (5e13b58, verified on production).
 - [x] Highlights rules, one per person by face, variety without labels (441bb3c; production propose on Electronica: 40/40 distinct, rules applied). Lessons 206-207.

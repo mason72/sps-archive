@@ -239,6 +239,20 @@ Upload (see §4):
 
 Sections (see §6):
 - `GET/POST /api/sections`, `PATCH/DELETE /api/sections/[sectionId]`, `POST /api/sections/[sectionId]/images`, `POST /api/sections/reorder`
+
+TDP Work crew pick link (2026-11-24, `src/lib/site/fill.ts`, page `/fill/[sectionId]`, UI `src/components/fill/FillJob.tsx`):
+- **What it is.** Mason sends a photographer one link per job. The page opens the job's source client galleries (`job_meta.sources`). It shows:
+  - a ranked "Best picks" shortlist of 36, from `proposeHighlights` (headshot galleries rank by likeness to the website headshots, otherwise the learned taste; one frame per person);
+  - a paged "All photos" in shooting order;
+  - a sticky "Add N photos".
+- **What Add does.** It is the ordinary `POST /api/images/transfer` copy (a zero-copy link), so joining the job publishes exactly as Copy to... does. Mason's call: crew picks on a live job go live at once.
+- **Routes** (signed-in, owner-checked in `loadFillJob`):
+  - `GET /api/fill/[sectionId]`: the job, its sources and the ids already in it.
+  - `POST /api/fill/[sectionId]/shortlist?source=`: the ranked shortlist. POST because it is expensive.
+  - `GET /api/fill/[sectionId]/photos?source=&offset=`: all photos, paged at 60 and ordered on `id` last.
+- **Owner checks.** A section is reachable only if it is a `job/` section in a gallery the caller owns. A source is reachable only if the job lists it AND the caller owns it.
+- **Where the link comes from.** "Copy pick link" on a job row in the editor sidebar, shown only when the job has at least one source.
+- **Fixture.** `/dev/fill` renders the same screen with no sign-in (every call goes through a `FillApi` object), so phone layout can be checked anywhere.
 - `POST /api/events/[eventId]/auto-sections` *(depends on dormant AI)*
 
 Sharing & public galleries:

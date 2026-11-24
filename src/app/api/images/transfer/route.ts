@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
     if (target.locked) {
       return NextResponse.json(
-        { error: `"${target.name}" is locked — unlock it to receive images.` },
+        { error: `"${target.name}" is locked. Unlock it to receive images.` },
         { status: 423 }
       );
     }
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       if (lockedNames.length > 0) {
         return NextResponse.json(
           {
-            error: `Nothing moved — images live in locked ${
+            error: `Nothing moved: images live in locked ${
               lockedNames.length === 1 ? "section" : "sections"
             } ${lockedNames.map((n) => `"${n}"`).join(", ")}. Unlock to move.`,
           },
@@ -135,8 +135,10 @@ export async function POST(request: NextRequest) {
       if (updateError) throw updateError;
     }
 
-    // Link into the target section (append to its drag order). Upsert so a
-    // re-copy of an existing member is a no-op, not an error.
+    // Link into the target section (append to its drag order). A re-copy of
+    // an existing member is a no-op: ignoreDuplicates keeps its place, where a
+    // plain upsert moved it to the end (two tabs on the crew pick page adding
+    // the same photo, 2026-11-24).
     const { data: existing } = await supabase
       .from("section_images")
       .select("sort_order")
@@ -151,7 +153,7 @@ export async function POST(request: NextRequest) {
         image_id: imageId,
         sort_order: nextOrder++,
       })),
-      { onConflict: "section_id,image_id" }
+      { onConflict: "section_id,image_id", ignoreDuplicates: true }
     );
     if (linkError) throw linkError;
 
