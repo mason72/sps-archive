@@ -29,7 +29,8 @@ vi.mock("@/lib/r2/client", async (importOriginal) => {
     copyWithinR2: vi.fn(async (src: string, dest: string, _ct: string, _t: number, opts?: { ifMatch?: string }) => {
       const b = r2.objects.get(src);
       if (!b) throw new Error(`no object ${src}`);
-      if (opts?.ifMatch && opts.ifMatch !== md5(b)) {
+      // A real If-Match carries the QUOTED ETag; anything else does not match.
+      if (opts?.ifMatch && opts.ifMatch !== `"${md5(b)}"`) {
         throw Object.assign(new Error("PreconditionFailed"), { name: "PreconditionFailed" });
       }
       r2.copies.push([src, dest]);
@@ -137,6 +138,25 @@ function withSampleEntry(mp4: Buffer, fourcc: string): Buffer {
   return out;
 }
 
+/** A copy of an MP4 whose stsd holds a second, `fourcc` entry after the avc1 one. */
+function withExtraSampleEntry(mp4: Buffer, fourcc: string): Buffer {
+  const b = Buffer.from(mp4);
+  const stsd = b.indexOf("stsd") - 4;
+  const size = b.readUInt32BE(stsd);
+  const extra = Buffer.alloc(16);
+  extra.writeUInt32BE(16, 0);
+  extra.write(fourcc, 4, "latin1");
+  const out = Buffer.concat([b.subarray(0, stsd + size), extra, b.subarray(stsd + size)]);
+  // Grow every box that contains stsd (stsd, stbl, minf, mdia, trak, moov) and bump the entry count.
+  out.writeUInt32BE(size + 16, stsd);
+  out.writeUInt32BE(out.readUInt32BE(stsd + 12) + 1, stsd + 12);
+  for (const t of ["stbl", "minf", "mdia", "trak", "moov"]) {
+    const at = out.lastIndexOf(t, stsd) - 4;
+    out.writeUInt32BE(out.readUInt32BE(at) + 16, at);
+  }
+  return out;
+}
+
 const input = (over: Partial<PostcardInput> = {}): PostcardInput => ({
   postcardId: PID,
   gigId: "gig-1",
@@ -207,12 +227,12 @@ describe("a Scout clip", () => {
     expect(src).toEqual({ url: input().videoUrl });
     expect(keys.stagedKey).toMatch(/^scout-staging\/[^/]+\/[^/]+\.mp4$/);
     expect(keys.posterKey).toBe(row.r2_key);
-    // Copied into originals only after the checks; the staged (silent) copy is
-    // left for the cleanup job, which was scheduled BEFORE Modal was called.
+    // Copied into originals only after the checks; the staged copy is gone
+    // (deleted after the row insert, and again by the cleanup job, which was
+    // scheduled BEFORE Modal was called).
     expect(r2.copies).toEqual([[keys.stagedKey, row.r2_key]]);
     expect(r2.objects.get(row.r2_key)?.equals(MUTED)).toBe(true);
-    expect(keysUnder("scout-staging/")).toEqual([keys.stagedKey]);
-    expect(r2.objects.get(keys.stagedKey)?.equals(MUTED)).toBe(true);
+    expect(keysUnder("scout-staging/")).toEqual([]);
     // The clip with sound was never written to our storage at all.
     expect(uploadToR2).not.toHaveBeenCalled();
     expect([...r2.objects.values()].some((b) => b.equals(WITH_AUDIO))).toBe(false);
@@ -371,10 +391,25 @@ describe("a Scout clip", () => {
     }
   });
 
-  it("refuses a staged copy that is not H.264", async () => {
+  it("refuses a staged copy that is not H.264 (415: the clip's codec)", async () => {
     pipelineWrites(withSampleEntry(MUTED, "hvc1"));
     await expect(ingest()).rejects.toMatchObject({ status: 415 });
     expect(r2.objects.size).toBe(0);
+  });
+
+  it("calls a non-video entry beside H.264 the pipeline's fault (502), never the clip's", async () => {
+    pipelineWrites(withSampleEntry(MUTED, "mp4a"));
+    await expect(ingest()).rejects.toMatchObject({ status: 502 });
+    pipelineWrites(withExtraSampleEntry(MUTED, "mp4a")); // [avc1, mp4a]
+    await expect(ingest()).rejects.toMatchObject({ status: 502 });
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it("still files the clip when the staged delete fails (the cleanup job retries it)", async () => {
+    pipelineWrites(MUTED);
+    const { deleteFromR2 } = await import("@/lib/r2/client");
+    vi.mocked(deleteFromR2).mockRejectedValueOnce(new Error("R2 blip"));
+    await expect(ingest()).resolves.toMatchObject({ created: true });
   });
 
   it("refuses a staged copy whose length cannot be read", async () => {

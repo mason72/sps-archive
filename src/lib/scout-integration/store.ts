@@ -37,9 +37,10 @@ import {
 import { deadlineFetch } from "@/lib/net/deadline-fetch";
 import { clipKeys } from "./clip-keys";
 import {
-  H264_SAMPLE_ENTRIES,
   mp4DurationSeconds,
   mp4SilentH264Problems,
+  mp4VideoSampleEntries,
+  OTHER_VIDEO_SAMPLE_ENTRIES,
   mp4TrackKinds,
   mp4VideoCodecs,
 } from "@/lib/video/mp4-tracks";
@@ -405,6 +406,8 @@ export const MIN_REMAINING_FOR_PIPELINE_MS = 90_000;
 export const ROLLBACK_RESERVE_MS = 12_000;
 /** Scheduling the cleanup job may take this long before the clip is refused. */
 export const CLEANUP_SEND_TIMEOUT_MS = 5_000;
+/** The success path's own delete of the staged copy may take this long. */
+export const STAGED_DELETE_TIMEOUT_MS = 3_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -576,7 +579,8 @@ async function ingestPostcardVideo(
     if (!etag) throw new ScoutIntegrationError("The staged copy came back without an ETag; nothing was filed.", 502);
     try {
       await copyWithinR2(keys.stagedKey, r2Key, "video/mp4", Math.max(1_000, writeDeadline - Date.now()), {
-        ifMatch: etag,
+        // The standard quoted form, as an If-Match header carries an ETag.
+        ifMatch: `"${etag}"`,
       });
     } catch (err) {
       throw new ScoutIntegrationError(
@@ -588,8 +592,6 @@ async function ingestPostcardVideo(
     if (filed.etag !== etag || filed.size !== stored.bytes) {
       throw new ScoutIntegrationError("The filed copy is not the one that was checked; nothing was filed.", 502);
     }
-    // The staged copy is NOT deleted here: the cleanup job always deletes it,
-    // off the request's clock.
   } catch (err) {
     if (err instanceof VideoMuteUnavailableError) {
       await rollback(err.message);
@@ -615,6 +617,12 @@ async function ingestPostcardVideo(
     });
     if (insErr) throw insErr;
     rowWritten = true;
+    // Best effort, short: a filed clip must not depend on the cleanup job
+    // being registered to lose its staged copy. Errors are ignored; the job
+    // deletes it again harmlessly.
+    await withTimeout(deleteFromR2(keys.stagedKey), STAGED_DELETE_TIMEOUT_MS, "deleting the staged copy").catch(
+      () => {}
+    );
 
     const { error: claimErr } = await wdb.from("scout_postcard_links").insert({
       postcard_id: input.postcardId,
@@ -699,14 +707,23 @@ export async function assertStoredClipIsSilent(
   } catch (err) {
     throw new ScoutIntegrationError(`The silent copy could not be checked: ${err instanceof Error ? err.message : err}`, 502);
   }
-  // One video track whose only fault is its codec is a clip problem (415);
-  // anything else outside the allow-list is the pipeline's (502).
+  // 415 only when the ONE video track's entries are all a non-H.264 VIDEO
+  // codec (the clip's fault: re-export it). Anything else outside the
+  // allow-list, e.g. [avc1, mp4a], is the pipeline's fault: 502.
+  let entries: string[];
+  try {
+    entries = mp4VideoSampleEntries(bytes);
+  } catch (err) {
+    throw new ScoutIntegrationError(`The silent copy could not be checked: ${err instanceof Error ? err.message : err}`, 502);
+  }
   const codecOnly =
     kinds.length === 1 &&
     kinds[0] === "vide" &&
     problems.length > 0 &&
-    problems.every((p) => p.startsWith("sample entry"));
-  if (codecOnly || (!problems.length && !codecs.every((c) => H264_SAMPLE_ENTRIES.has(c)))) {
+    problems.every((p) => p.startsWith("sample entry")) &&
+    entries.length > 0 &&
+    entries.every((e) => OTHER_VIDEO_SAMPLE_ENTRIES.has(e));
+  if (codecOnly) {
     throw new ScoutIntegrationError(`The clip is not H.264 (${codecs.join(", ") || "none"}); nothing was filed.`, 415);
   }
   if (problems.length) {

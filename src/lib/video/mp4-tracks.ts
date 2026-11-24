@@ -57,6 +57,13 @@ function child(buf: Uint8Array, parent: Box, type: string): Box | null {
   return null;
 }
 
+/** The ONE `type` box in `parent`; a second one is recorded as a problem. */
+function onlyChild(buf: Uint8Array, parent: Box, type: string, problems: string[]): Box | null {
+  const found = [...boxes(buf, parent.start, parent.end)].filter((b) => b.type === type);
+  if (found.length > 1) problems.push(`${found.length} ${type} boxes where one is allowed`);
+  return found[0] ?? null;
+}
+
 /** True when the file opens with an `ftyp` box (MP4 / QuickTime family). */
 export function isMp4Container(buf: Uint8Array): boolean {
   return (
@@ -178,14 +185,16 @@ export function mp4SilentH264Problems(buf: Uint8Array): string[] {
   if (traks.length !== 1) problems.push(`${traks.length} tracks (exactly one video track allowed)`);
 
   for (const trak of traks) {
-    const mdia = child(buf, trak, "mdia");
-    const hdlr = mdia ? child(buf, mdia, "hdlr") : null;
+    // Exactly one of each box along the chain that is checked: a second
+    // mdia/hdlr/minf/stbl/stsd could hold what this walk does not look at.
+    const mdia = onlyChild(buf, trak, "mdia", problems);
+    const hdlr = mdia ? onlyChild(buf, mdia, "hdlr", problems) : null;
     if (!mdia || !hdlr || hdlr.start + 12 > hdlr.end) throw new Mp4ParseError("a track has no readable hdlr box");
     const handler = String.fromCharCode(...buf.subarray(hdlr.start + 8, hdlr.start + 12));
     if (handler !== "vide") problems.push(`a ${handler} track`);
-    const minf = child(buf, mdia, "minf");
-    const stbl = minf ? child(buf, minf, "stbl") : null;
-    const stsd = stbl ? child(buf, stbl, "stsd") : null;
+    const minf = onlyChild(buf, mdia, "minf", problems);
+    const stbl = minf ? onlyChild(buf, minf, "stbl", problems) : null;
+    const stsd = stbl ? onlyChild(buf, stbl, "stsd", problems) : null;
     if (!stsd || stsd.start + 8 > stsd.end) {
       problems.push(`a ${handler} track with no sample description`);
       continue;
@@ -201,6 +210,31 @@ export function mp4SilentH264Problems(buf: Uint8Array): string[] {
 
 /** H.264 sample entries. */
 export const H264_SAMPLE_ENTRIES: ReadonlySet<string> = new Set(["avc1", "avc3"]);
+
+/** Video codecs that are not H.264: a clip in one of these is Scout's to re-export (415). */
+export const OTHER_VIDEO_SAMPLE_ENTRIES: ReadonlySet<string> = new Set([
+  "hvc1", "hev1", "dvh1", "dvhe", "av01", "vp08", "vp09", "mp4v", "s263", "mjp2", "jpeg",
+  "apch", "apcn", "apcs", "apco", "ap4h",
+]);
+
+/** Every sample entry of every `vide` track (all entries, not just the first). */
+export function mp4VideoSampleEntries(buf: Uint8Array): string[] {
+  const out: string[] = [];
+  const moov = findMoov(buf);
+  for (const trak of boxes(buf, moov.start, moov.end)) {
+    if (trak.type !== "trak") continue;
+    const mdia = child(buf, trak, "mdia");
+    const hdlr = mdia ? child(buf, mdia, "hdlr") : null;
+    if (!mdia || !hdlr || hdlr.start + 12 > hdlr.end) throw new Mp4ParseError("a track has no readable hdlr box");
+    if (String.fromCharCode(...buf.subarray(hdlr.start + 8, hdlr.start + 12)) !== "vide") continue;
+    const minf = child(buf, mdia, "minf");
+    const stbl = minf ? child(buf, minf, "stbl") : null;
+    const stsd = stbl ? child(buf, stbl, "stsd") : null;
+    if (!stsd) continue;
+    for (const e of boxes(buf, stsd.start + 8, stsd.end)) out.push(e.type);
+  }
+  return out;
+}
 
 export function mp4HasAudio(buf: Uint8Array): boolean {
   return mp4TrackKinds(buf).includes("soun");

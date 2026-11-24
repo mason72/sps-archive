@@ -592,13 +592,28 @@ Scout are sent at all. The path, in order:
    entry is `avc1`/`avc3`. A second track of any kind, an audio track
    relabelled `vide`, any other entry (`mp4a`, `apac`, `enca`, ...), or a
    parse error is refused, as is a length over
-   `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack). A read-back over the cap
-   is a 502.
+   `SILENT_R2_MAX_DURATION_SECONDS` (61 s, no slack). Exactly one box is
+   allowed at each step of the checked chain (`mdia` > `hdlr`, `minf` >
+   `stbl` > `stsd`): a second one is refused. A 415 is returned only when the
+   one video track's entries are all a non-H.264 video codec (re-export);
+   anything else, e.g. `[avc1, mp4a]`, is the pipeline's fault: 502. A
+   read-back over the cap is a 502.
+
+   **Accepted risk: unreferenced bytes are not inspected.** The check reads the
+   box structure and the sample descriptions, not every byte: media data that
+   no sample table points to (bytes in `mdat` outside any sample), and the
+   payloads of `uuid`, `udta`, `free` and `meta` boxes, are not decoded. A
+   player plays only what a track's sample table describes, and that is
+   verified to be one H.264 video track. Such bytes could only come from a
+   misbehaving `mute_video`: `-map 0:v:0 -an` writes a fresh file containing
+   only the video samples (and `-map_metadata -1` drops the metadata).
 6. **Exactly the checked bytes are filed**: the server copies the staged
    object to `originals/` with `CopySourceIfMatch` = the ETag of the read it
    judged (a staged object replaced since is refused by R2), then HEADs the
    original and requires the same ETag and size. Any mismatch rolls back. Then
-   the row, claim, section link and `complete` are written, with
+   the row, claim, section link and `complete` are written (right after the row
+   insert, the staged copy is deleted best-effort with a 3 s limit, so a filed
+   clip does not depend on the cleanup job being registered), with
    `duration_seconds` and `file_size` from those bytes. On any failure the
    request also rolls back at once (row, original, posters, staged copy).
 

@@ -118,6 +118,40 @@ describe("mp4SilentH264Problems (allow-list: one track, video, every entry H.264
     expect(mp4SilentH264Problems(twice)).toContain("2 moov boxes");
   });
 
+  it("refuses a second stbl (here holding an mp4a entry) beside the checked one", () => {
+    const box = (type: string, body: Buffer) => {
+      const h = Buffer.alloc(8);
+      h.writeUInt32BE(8 + body.length, 0);
+      h.write(type, 4, "latin1");
+      return Buffer.concat([h, body]);
+    };
+    const mp4a = box("mp4a", Buffer.alloc(8));
+    const stsdBody = Buffer.concat([Buffer.from([0, 0, 0, 0, 0, 0, 0, 1]), mp4a]);
+    const stbl2 = box("stbl", box("stsd", stsdBody));
+    const b = Buffer.from(muted);
+    const minf = b.indexOf("minf") - 4;
+    const end = minf + b.readUInt32BE(minf);
+    const out = Buffer.concat([b.subarray(0, end), stbl2, b.subarray(end)]);
+    for (const t of ["minf", "mdia", "trak", "moov"]) {
+      const at = out.lastIndexOf(t, minf + 4) - 4;
+      out.writeUInt32BE(out.readUInt32BE(at) + stbl2.length, at);
+    }
+    // The first stbl is untouched (one avc1 entry); only the one-box rule catches it.
+    expect(mp4SilentH264Problems(out)).toEqual(["2 stbl boxes where one is allowed"]);
+  });
+
+  it("refuses a second hdlr in the media box", () => {
+    const b = Buffer.from(muted);
+    const hdlr = b.indexOf("hdlr") - 4;
+    const size = b.readUInt32BE(hdlr);
+    const out = Buffer.concat([b.subarray(0, hdlr + size), b.subarray(hdlr, hdlr + size), b.subarray(hdlr + size)]);
+    for (const t of ["mdia", "trak", "moov"]) {
+      const at = out.lastIndexOf(t, hdlr) - 4;
+      out.writeUInt32BE(out.readUInt32BE(at) + size, at);
+    }
+    expect(mp4SilentH264Problems(out)).toContain("2 hdlr boxes where one is allowed");
+  });
+
   it("refuses a video track with no sample description", () => {
     const b = Buffer.from(muted);
     b.write("xxxx", b.indexOf("stsd"), "latin1"); // the box is still there, just not an stsd
