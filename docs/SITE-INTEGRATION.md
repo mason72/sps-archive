@@ -377,6 +377,16 @@ also get a lossless `-c copy` remux to `events/{id}/video/{file}.mp4`
 (Firefox won't play QuickTime containers). Unsupported codecs politely fail
 the row (`processing_status: failed` + human-readable `processing_error`).
 
+**Muted renditions (`mute: true`, 2026-11-24).** The pipeline can write the
+rendition with every audio, subtitle and data stream dropped (video copied
+untouched, metadata cleared), ffprobes what it wrote, and answers
+`muted: true` only when no audio stream is left. Used by the Scout
+integration (`docs/TECHNICAL.md` 9b), which writes the silent copy AS the
+stored original, so a crew clip's sound is never kept. **Needs a redeploy of
+`modal/video_pipeline.py` before Scout clips work**: the deployed function
+ignores `mute`, never says `muted`, and the caller refuses that answer.
+Local proof: `python3 -I modal/tests/test_video_mute.py`.
+
 **Stream lifecycle.** Stream ingestion happens at *publish* time (membership
 sync), so only website videos cost Stream minutes; unpublishing deletes the
 Stream copy and clears `stream_uid`, symmetric with the R2 lane. If Stream

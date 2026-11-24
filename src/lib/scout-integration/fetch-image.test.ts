@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { fetchPostcardImage, looksLikeJpeg, PostcardFetchError } from "./fetch-image";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fetchPostcardImage, fetchPostcardVideo, looksLikeJpeg, PostcardFetchError } from "./fetch-image";
 
 const URL_OK = "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/scout-photos/a.jpg?token=t";
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
@@ -70,5 +72,35 @@ describe("fetchPostcardImage", () => {
   it("knows a JPEG by its first three bytes", () => {
     expect(looksLikeJpeg(JPEG)).toBe(true);
     expect(looksLikeJpeg(new Uint8Array([0xff, 0xd8]))).toBe(false);
+  });
+});
+
+describe("fetchPostcardVideo", () => {
+  const VIDEO_URL = "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/scout-postcards/u/1.mp4?token=t";
+  const mp4 = new Uint8Array(readFileSync(join(__dirname, "../video/__fixtures__/tone-with-audio.mp4")));
+
+  it("returns an MP4 with a video track, with redirects refused", async () => {
+    const f = fakeFetch(new Response(streamOf([mp4])));
+    const buf = await fetchPostcardVideo(VIDEO_URL, { fetchImpl: f });
+    expect(buf.byteLength).toBe(mp4.byteLength);
+    expect(vi.mocked(f).mock.calls[0][1]).toMatchObject({ redirect: "error" });
+  });
+
+  it("never fetches a clip from a foreign host", async () => {
+    const f = fakeFetch(new Response(streamOf([mp4])));
+    await failsWith(fetchPostcardVideo("https://example.com/storage/v1/object/x.mp4", { fetchImpl: f }), 400);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("is 415 for a JPEG or a broken MP4, 413 past the cap", async () => {
+    await failsWith(fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([JPEG]))) }), 415);
+    await failsWith(
+      fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([mp4.subarray(0, 200)]))) }),
+      415
+    );
+    await failsWith(
+      fetchPostcardVideo(VIDEO_URL, { fetchImpl: fakeFetch(new Response(streamOf([mp4]))), maxBytes: 1000 }),
+      413
+    );
   });
 });

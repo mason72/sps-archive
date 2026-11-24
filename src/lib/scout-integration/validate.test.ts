@@ -122,3 +122,58 @@ describe("gig sections", () => {
     expect(isScoutGigMeta(null)).toBe(false);
   });
 });
+
+describe("parsePostcardBody: clips", () => {
+  const VIDEO_OK =
+    "https://ezubznenjcogwocccznj.supabase.co/storage/v1/object/sign/scout-postcards/u/1.mp4?token=t";
+  const clip = (over: Record<string, unknown> = {}) =>
+    body({ media_type: "video", video_url: VIDEO_OK, duration_s: 12.4, ...over });
+
+  it("leaves a photo request exactly as it was", () => {
+    for (const b of [body(), body({ media_type: "photo" })]) {
+      const r = parsePostcardBody(b);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value).toMatchObject({ mediaType: "photo", videoUrl: null, durationS: null, imageUrl: URL_OK });
+    }
+  });
+
+  it("accepts a clip with its URL, length and poster", () => {
+    const r = parsePostcardBody(clip());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toMatchObject({ mediaType: "video", videoUrl: VIDEO_OK, durationS: 12.4 });
+    expect(parsePostcardBody(clip({ duration_s: 61 })).ok).toBe(true);
+  });
+
+  it("is a 400 for a clip without video_url", () => {
+    for (const over of [{ video_url: undefined }, { video_url: "" }, { video_url: "   " }]) {
+      const r = parsePostcardBody(clip(over));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/video_url is required/);
+    }
+  });
+
+  it("refuses a video_url on a foreign host, over http, or outside storage", () => {
+    for (const bad of [
+      "https://example.com/storage/v1/object/sign/x.mp4",
+      "https://ezubznenjcogwocccznj.supabase.co.evil.com/storage/v1/object/x.mp4",
+      VIDEO_OK.replace("https:", "http:"),
+      "https://ezubznenjcogwocccznj.supabase.co/rest/v1/x",
+    ]) {
+      const r = parsePostcardBody(clip({ video_url: bad }));
+      expect(r.ok, bad).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/^video_url /);
+    }
+  });
+
+  it("needs a positive duration_s no longer than Scout's cap", () => {
+    for (const d of [undefined, 0, -1, "12", Number.NaN, 61.5]) {
+      expect(parsePostcardBody(clip({ duration_s: d })).ok, String(d)).toBe(false);
+    }
+  });
+
+  it("refuses an unknown media_type, and clip fields on a photo", () => {
+    expect(parsePostcardBody(body({ media_type: "audio" })).ok).toBe(false);
+    expect(parsePostcardBody(body({ video_url: VIDEO_OK })).ok).toBe(false);
+    expect(parsePostcardBody(body({ media_type: "photo", duration_s: 3 })).ok).toBe(false);
+  });
+});

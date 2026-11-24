@@ -10,6 +10,13 @@ For each uploaded video (called by the Inngest "video/uploaded" function):
      image thumbnails, so the editor grid and site publishing work unchanged
   3. For .mov originals: losslessly remux (-c copy) to a web-playable .mp4
      rendition (Firefox won't play QuickTime containers)
+  4. With `mute: true` (Scout crew clips, 2026-11-24): the rendition is
+     written WITHOUT audio (video stream copied untouched, every audio,
+     subtitle and data stream dropped, container metadata cleared), and the
+     written file is ffprobed again: any audio stream left is an error, never
+     an upload. The response says `muted: true` only after that check, and the
+     caller refuses a response without it, so an older deployment that does
+     not know `mute` fails closed instead of passing audio through.
 
 The function is credential-free: the Next.js side presigns every URL it needs.
 Auth: shared secret `pipeline_key` in the JSON payload (the body already
@@ -71,6 +78,36 @@ def _probe(url: str) -> dict:
     return json.loads(result.stdout)
 
 
+def display_cmd(src: str, dest: str, mute: bool) -> list:
+    """The ffmpeg command for the web rendition. Pure, so it can be tested
+    without Modal. Muted: map the first video stream only, copy it as is
+    (lossless, no re-encode), drop audio/subtitle/data, clear metadata."""
+    if mute:
+        return [
+            "ffmpeg", "-v", "error",
+            "-i", src,
+            "-map", "0:v:0",
+            "-c:v", "copy",
+            "-an", "-sn", "-dn",
+            "-map_metadata", "-1",
+            "-movflags", "+faststart",
+            "-y", dest,
+        ]
+    return [
+        "ffmpeg", "-v", "error",
+        "-i", src,
+        "-c", "copy",
+        "-movflags", "+faststart",
+        "-y", dest,
+    ]
+
+
+def audio_stream_count(path: str) -> int:
+    """How many audio streams ffprobe finds in a local file."""
+    probe = _probe(path)
+    return sum(1 for s in probe.get("streams", []) if s.get("codec_type") == "audio")
+
+
 def _rotation(stream: dict) -> int:
     """Degrees of display rotation, from side data or legacy tags."""
     for sd in stream.get("side_data_list", []) or []:
@@ -95,6 +132,7 @@ def process_video(payload: dict):
         "video_url":   presigned GET of the original,
         "poster_puts": {"sm": url, "md": url, "lg": url},  # presigned PUTs
         "display_put": url | null  # presigned PUT for the .mov→.mp4 remux
+        "mute": bool (optional)    # write the rendition with NO audio; needs display_put
       }
 
     Returns metadata on success, or {"ok": false, "error": "..."} for
@@ -112,6 +150,10 @@ def process_video(payload: dict):
     video_url = payload["video_url"]
     poster_puts = payload["poster_puts"]
     display_put = payload.get("display_put")
+    mute = bool(payload.get("mute"))
+    if mute and not display_put:
+        # Muting is done on the rendition; without one, nothing would be muted.
+        raise HTTPException(status_code=400, detail="mute requires display_put")
 
     # ── 1. Probe + validate ──────────────────────────────────────────────
     probe = _probe(video_url)
@@ -196,20 +238,18 @@ def process_video(payload: dict):
                     )
                 resp.raise_for_status()
 
-            # ── 3. Optional lossless remux for .mov originals ────────────
+            # ── 3. Optional lossless remux (.mov originals, or a muted copy) ─
+            muted = False
             if display_put:
                 display_path = f"{tmp}/display.mp4"
-                remux = _run(
-                    [
-                        "ffmpeg", "-v", "error",
-                        "-i", video_url,
-                        "-c", "copy",
-                        "-movflags", "+faststart",
-                        "-y", display_path,
-                    ]
-                )
+                remux = _run(display_cmd(video_url, display_path, mute))
                 if remux.returncode != 0:
                     raise ValueError(f"remux failed: {remux.stderr[-500:]}")
+                if mute:
+                    left = audio_stream_count(display_path)
+                    if left != 0:
+                        raise ValueError(f"mute failed: {left} audio stream(s) left")
+                    muted = True
                 with open(display_path, "rb") as f:
                     resp = client.put(
                         display_put,
@@ -224,6 +264,7 @@ def process_video(payload: dict):
         "width": width,
         "height": height,
         "has_audio": audio_stream is not None,
+        "muted": muted,
         "video_codec": video_codec,
         "audio_codec": audio_codec,
     }

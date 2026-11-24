@@ -45,6 +45,9 @@ export interface PostcardImageRow {
   processing_status: string;
   ai_indexed_at: string | null;
   ai_index_attempts: number | null;
+  /** "video" rows never enter the AI lane (it indexes images only). */
+  media_type?: string | null;
+  thumbnail_generated?: boolean | null;
 }
 
 /**
@@ -54,16 +57,20 @@ export interface PostcardImageRow {
  *   still archived in the second case; there is just nothing AI to report.
  * - processing: anything else, including a lane switched off by
  *   AI_INDEXING_ENABLED, which stays "processing" until it is switched on.
+ * A clip is ready once it is complete with posters: the AI lane reads only
+ * images (`events_needing_ai_index`), so waiting for `ai_indexed_at` would
+ * keep a video "processing" forever.
  */
 export function postcardStatus(row: PostcardImageRow): PostcardStatus {
   if (row.processing_status === "failed") return "failed";
   if (row.processing_status !== "complete") return "processing";
+  if (row.media_type === "video") return row.thumbnail_generated ? "ready" : "processing";
   if (row.ai_indexed_at) return "ready";
   if ((row.ai_index_attempts ?? 0) >= AI_INDEX_MAX_ATTEMPTS) return "failed";
   return "processing";
 }
 
 /** The stored filename for a postcard: no person or gig name, so /people never reads one from it. */
-export function postcardFilename(postcardId: string): string {
-  return `scout-postcard-${postcardId}.jpg`;
+export function postcardFilename(postcardId: string, kind: "photo" | "video" = "photo"): string {
+  return `scout-postcard-${postcardId}.${kind === "video" ? "mp4" : "jpg"}`;
 }

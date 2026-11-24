@@ -18,14 +18,22 @@
  */
 import { randomUUID } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { buildImageKey, deleteImageAssets, uploadToR2 } from "@/lib/r2/client";
+import {
+  buildImageKey,
+  deleteFromR2,
+  deleteImageAssets,
+  getPresignedDownloadUrl,
+  uploadToR2,
+} from "@/lib/r2/client";
+import { processMutedVideoViaModal } from "@/lib/video/process";
+import { mp4TrackKinds } from "@/lib/video/mp4-tracks";
 import { generateThumbnailsFromBuffer } from "@/lib/thumbnails/generate";
 import { extractExif } from "@/lib/upload/parse-filename";
 import { reportSystemError } from "@/lib/monitoring/report";
 import { inngest } from "@/lib/inngest/client";
 import { WEBSITE_EVENT_SLUG, getWebsiteSection } from "@/lib/site/gallery";
 import { syncSitePublication } from "@/lib/site/membership";
-import { fetchPostcardImage } from "./fetch-image";
+import { POSTCARD_VIDEO_MAX_BYTES, fetchCapped, fetchPostcardImage, fetchPostcardVideo } from "./fetch-image";
 import { pickCrewMatches, type CrewInPhoto, type CrewRosterEntry } from "./crew-match";
 import {
   claimOutcome,
@@ -39,6 +47,7 @@ import {
   SCOUT_GIG_KIND,
   SCOUT_ROAD_NAME,
   SCOUT_ROAD_SLUG,
+  SCOUT_VIDEO_MAX_SECONDS,
   gigSectionNames, type PostcardInput, type ScoutPublishTarget } from "./validate";
 
 export type ScoutDb = ReturnType<typeof createServiceClient>;
@@ -221,6 +230,8 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
     };
   }
 
+  if (input.mediaType === "video") return ingestPostcardVideo(db, input);
+
   // Fetch BEFORE writing anything: a bad URL or a non-JPEG leaves no trace
   // (not even an empty gallery or gig section).
   const buffer = await fetchPostcardImage(input.imageUrl);
@@ -348,6 +359,206 @@ export async function ingestPostcard(db: ScoutDb, input: PostcardInput): Promise
   return { link, created: true, status: "processing", aiIndexRequested };
 }
 
+// ── POST /postcards, a clip ────────────────────────────────────────────────
+
+/** Where Scout's clip waits, WITH its audio, while the pipeline makes the silent copy. */
+export function scoutStagingKey(imageId: string): string {
+  // Outside events/: no gallery, purge, sweep, share or ZIP path walks this
+  // prefix, and nothing references it once the request ends.
+  return `scout-staging/${imageId}.mp4`;
+}
+
+/** Ffprobe and Scout may disagree by a frame or a rounding; past this, it is a longer clip. */
+const DURATION_SLACK_S = 0.5;
+
+/**
+ * A clip is filed SILENT (Mason, 2026-11-24: crew phone clips record
+ * conversations and client names). The bytes Scout sends never become the
+ * stored original:
+ *
+ *   Scout MP4 → R2 staging key → Modal `mute` → the stored original
+ *   (`events/<id>/originals/<image>.mp4`: video copied as is, audio, subtitle
+ *   and data streams dropped, metadata cleared) + its three posters
+ *
+ * then this server downloads what Modal wrote and reads its tracks itself
+ * (`mp4TrackKinds`): any `soun` track and nothing is filed. Because the stored
+ * original is the silent file, everything downstream is silent by
+ * construction: the editor, downloads, ZIPs, and the website (a silent clip of
+ * 60 s or less publishes on the R2 video lane, where the played file IS this
+ * original; a longer one goes to Cloudflare Stream, which pulls the same
+ * original). The staging object is deleted on every path.
+ *
+ * Same order and rollback as a photo otherwise: bytes before the row, the
+ * claim on the postcard id, the section link, then `complete`. A clip is not
+ * AI-indexed (the lane reads images only), so no Inngest event is sent; the
+ * pipeline runs inside this request, the way /api/upload/complete hands a
+ * video to Modal, but awaited so the answer is final.
+ */
+async function ingestPostcardVideo(db: ScoutDb, input: PostcardInput): Promise<IngestResult> {
+  if (!input.videoUrl) throw new ScoutIntegrationError("video_url is required for a video.", 400);
+  const clip = await fetchPostcardVideo(input.videoUrl);
+
+  const ownerId = await loadOwnerUserId(db);
+  const eventId = await ensureScoutRoadEvent(db, ownerId);
+  const sectionId = await ensureGigSection(db, eventId, input);
+
+  const imageId = randomUUID();
+  const filename = `${imageId}.mp4`;
+  const r2Key = buildImageKey(eventId, filename);
+  const stagingKey = scoutStagingKey(imageId);
+
+  let rowWritten = false;
+  const rollback = async (why: string) => {
+    if (rowWritten) {
+      const { error } = await db.from("images").delete().eq("id", imageId);
+      if (error) {
+        await reportSystemError("scout.ingest-video.rollback-row", error, { imageId, why });
+        const { error: markErr } = await db
+          .from("images")
+          .update({ processing_status: "failed" })
+          .eq("id", imageId);
+        if (markErr) await reportSystemError("scout.ingest-video.rollback-mark", markErr, { imageId });
+        return;
+      }
+    }
+    // Original (the silent copy, if Modal got that far) + posters.
+    const failed = await deleteImageAssets(r2Key, "video");
+    if (failed.length) {
+      await reportSystemError("scout.ingest-video.rollback-r2", new Error("R2 delete failed"), { imageId, failed, why });
+    }
+  };
+
+  await uploadToR2(stagingKey, clip, "video/mp4");
+  try {
+    let silent: Awaited<ReturnType<typeof processMutedVideoViaModal>>;
+    let storedBytes: number;
+    try {
+      silent = await processMutedVideoViaModal(stagingKey, r2Key, { userId: ownerId, eventId });
+      if (!silent.ok) {
+        throw new ScoutIntegrationError(silent.error ?? "The clip could not be read as H.264 video.", 415);
+      }
+      if ((silent.durationSeconds ?? 0) > SCOUT_VIDEO_MAX_SECONDS + DURATION_SLACK_S) {
+        throw new ScoutIntegrationError(
+          `The clip runs ${silent.durationSeconds} s; the longest is ${SCOUT_VIDEO_MAX_SECONDS} s.`,
+          400
+        );
+      }
+      storedBytes = await assertStoredClipIsSilent(r2Key);
+    } catch (err) {
+      await rollback(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+
+    try {
+      const { error: insErr } = await db.from("images").insert({
+        id: imageId,
+        event_id: eventId,
+        filename,
+        original_filename: postcardFilename(input.postcardId, "video"),
+        r2_key: r2Key,
+        file_size: storedBytes,
+        mime_type: "video/mp4",
+        media_type: "video",
+        parsed_name: null,
+        processing_status: "pending",
+      });
+      if (insErr) throw insErr;
+      rowWritten = true;
+
+      const { error: claimErr } = await db.from("scout_postcard_links").insert({
+        postcard_id: input.postcardId,
+        image_id: imageId,
+        event_id: eventId,
+        section_id: sectionId,
+        gig_id: input.gigId,
+        author_email: input.authorEmail,
+      });
+      const outcome = claimOutcome(claimErr);
+      if (outcome === "lost") {
+        await rollback("lost the claim race");
+        const winner = await requireLink(db, input.postcardId);
+        return { link: winner, created: false, status: await statusOf(db, winner.image_id), aiIndexRequested: null };
+      }
+      if (outcome === "error") throw claimErr;
+
+      const { data: tail, error: tailErr } = await db
+        .from("section_images")
+        .select("sort_order")
+        .eq("section_id", sectionId)
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      if (tailErr) throw tailErr;
+      const { error: linkErr } = await db
+        .from("section_images")
+        .insert({ section_id: sectionId, image_id: imageId, sort_order: (tail?.[0]?.sort_order ?? -1) + 1 });
+      if (linkErr) throw linkErr;
+
+      // The same fields the video/uploaded job stores, except has_audio,
+      // which describes the STORED file: silent, proven above.
+      const { error: updErr } = await db
+        .from("images")
+        .update({
+          duration_seconds: silent.durationSeconds,
+          has_audio: false,
+          width: silent.width,
+          height: silent.height,
+          thumbnail_generated: true,
+          processing_status: "complete",
+          processing_error: null,
+          ...(input.takenAt ? { taken_at: new Date(input.takenAt).toISOString() } : {}),
+        })
+        .eq("id", imageId);
+      if (updErr) throw updErr;
+    } catch (err) {
+      await rollback(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  } finally {
+    // The only copy with sound. Never left behind on purpose; a failed delete
+    // is reported with its key so it can be removed by hand.
+    try {
+      await deleteFromR2(stagingKey);
+    } catch (err) {
+      await reportSystemError("scout.ingest-video.staging-delete", err, { stagingKey });
+    }
+  }
+
+  const link = await requireLink(db, input.postcardId);
+  return { link, created: true, status: "ready", aiIndexRequested: null };
+}
+
+/**
+ * Read back what the pipeline stored and check its tracks with our own parser.
+ * Returns the stored size. Throws (and the caller rolls back) on any audio
+ * track, on no video track, or on a file that cannot be read: "could not
+ * check" is never "silent".
+ */
+export async function assertStoredClipIsSilent(
+  r2Key: string,
+  read: (key: string) => Promise<Buffer> = readStoredClip
+): Promise<number> {
+  const bytes = await read(r2Key);
+  let kinds: string[];
+  try {
+    kinds = mp4TrackKinds(bytes);
+  } catch (err) {
+    throw new ScoutIntegrationError(`The silent copy could not be checked: ${err instanceof Error ? err.message : err}`, 502);
+  }
+  if (kinds.includes("soun")) {
+    throw new ScoutIntegrationError("The pipeline's copy still has an audio track; nothing was filed.", 502);
+  }
+  if (!kinds.includes("vide")) {
+    throw new ScoutIntegrationError("The pipeline's copy has no video track; nothing was filed.", 502);
+  }
+  return bytes.byteLength;
+}
+
+async function readStoredClip(r2Key: string): Promise<Buffer> {
+  const url = new URL(await getPresignedDownloadUrl(r2Key, 600));
+  // Muting only removes streams, so the copy is never larger than the clip.
+  return fetchCapped(url, { maxBytes: POSTCARD_VIDEO_MAX_BYTES }, "the silent copy");
+}
+
 async function storeExif(db: ScoutDb, imageId: string, buffer: Buffer, takenAt: string | null) {
   try {
     const exif = await extractExif(
@@ -379,7 +590,7 @@ async function storeExif(db: ScoutDb, imageId: string, buffer: Buffer, takenAt: 
 async function loadImageState(db: ScoutDb, imageId: string) {
   const { data, error } = await db
     .from("images")
-    .select("id, processing_status, ai_indexed_at, ai_index_attempts, aesthetic_score, thumbnail_generated")
+    .select("id, processing_status, ai_indexed_at, ai_index_attempts, aesthetic_score, thumbnail_generated, media_type")
     .eq("id", imageId)
     .maybeSingle();
   if (error) throw error;
@@ -393,6 +604,7 @@ async function statusOf(db: ScoutDb, imageId: string): Promise<PostcardStatus> {
 
 export interface PostcardDetail {
   status: PostcardStatus;
+  media_type: "photo" | "video";
   image_id: string;
   aesthetic_score: number | null;
   crew: CrewInPhoto[];
@@ -406,7 +618,8 @@ export async function postcardDetail(db: ScoutDb, postcardId: string): Promise<P
   const status = postcardStatus(image);
 
   let crew: CrewInPhoto[] = [];
-  if (status === "ready") {
+  // A clip has no detected faces (the face lane reads images), so no crew.
+  if (status === "ready" && image.media_type !== "video") {
     const ownerId = await loadOwnerUserId(db);
     const { data: candidates, error } = await db.rpc("scout_image_crew_candidates", {
       p_image_id: link.image_id,
@@ -431,6 +644,7 @@ export async function postcardDetail(db: ScoutDb, postcardId: string): Promise<P
 
   return {
     status,
+    media_type: image.media_type === "video" ? "video" : "photo",
     image_id: link.image_id,
     aesthetic_score: image.aesthetic_score ?? null,
     crew,

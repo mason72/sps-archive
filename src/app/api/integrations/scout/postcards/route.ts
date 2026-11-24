@@ -8,12 +8,14 @@ import { scoutErrorResponse } from "@/lib/scout-integration/respond";
  * POST /api/integrations/scout/postcards — archive one Scout postcard.
  *
  * Idempotent on `postcard_id`: a repeat returns the existing link (201 the
- * first time, 200 after). The fetch (30 s deadline, 40 MB cap), the R2 write
- * and the thumbnail render all happen inside this request; 120 s matches
- * /api/upload/complete, which also thumbnails a large original in-request.
+ * first time, 200 after). A photo: fetch (30 s deadline, 40 MB cap), R2 write
+ * and thumbnails, all in this request. A clip (`media_type: "video"`): fetch
+ * (60 s, 50 MB), then the Modal pipeline writes the SILENT copy and posters
+ * (240 s deadline, cold start included) and the stored file is checked for an
+ * audio track, all before answering; hence 300 s.
  */
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const refused = requireScoutKey(request);

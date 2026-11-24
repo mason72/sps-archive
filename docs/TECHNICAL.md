@@ -523,8 +523,8 @@ crew roster and `crew_faces`. No `tdp-website` gallery = 503.
 
 | Route | What it does |
 | --- | --- |
-| `POST /postcards` | Archive one postcard. Body `{postcard_id, gig_id, gig_title, gig_start?, taken_at?, author_email?, image_url, width?, height?}`. 201 `{image_id, status, created: true, ai_index_requested}`; a repeat answers 200 with the existing link. |
-| `GET /postcards/:id` | `{status, image_id, aesthetic_score, crew: [{email, display_name, confidence}], published_target, published_at}`. |
+| `POST /postcards` | Archive one postcard. Body `{postcard_id, gig_id, gig_title, gig_start?, taken_at?, author_email?, image_url, width?, height?}`, plus for a clip `media_type: "video", video_url, duration_s` (`image_url` is then the poster). 201 `{image_id, status, created: true, ai_index_requested}`; a repeat answers 200 with the existing link. |
+| `GET /postcards/:id` | `{status, media_type, image_id, aesthetic_score, crew: [{email, display_name, confidence}], published_target, published_at}`. |
 | `DELETE /postcards/:id` | Unpublish, then delete (see below). |
 | `POST /postcards/:id/publish` `{target}` / `DELETE` | Put the photo in / take it off a website BTS scene. |
 | `GET /publish-targets` | `bts/headshot-booth`, `bts/photo-booth`, `bts/anti-booth` with labels. |
@@ -551,7 +551,28 @@ sends, `ai/index.requested` and `focal/auto.suggest`, AWAITED (a failed send is
 a `system_errors` row; the 30-minute ai-index sweep picks the gallery up).
 `maxDuration = 120`, as for `/api/upload/complete`.
 
-**Status.** `ready` = complete and `ai_indexed_at` set; `failed` = upload failed
+**Clips are filed SILENT (Mason, 2026-11-24).** Crew phone clips record
+conversations and client names, and only clips an admin stamps Site-worthy in
+Scout are sent at all. `media_type: "video"` needs `video_url` (same host and
+path rules, no redirects, 60 s deadline, 50 MB counted while streaming, an MP4
+with a video track) and `duration_s` (at most 61). The clip goes to a staging
+key OUTSIDE `events/` (`scout-staging/<image id>.mp4`); the Modal pipeline is
+called with `mute: true` and writes the silent copy straight to the stored
+original key (`events/<id>/originals/<image id>.mp4`) plus posters
+(`processMutedVideoViaModal`, which refuses an answer without `muted: true`).
+This server then downloads the stored file and reads its tracks with its own
+parser (`src/lib/video/mp4-tracks.ts`): a `soun` track, no `vide` track, or an
+unreadable file rolls everything back. The staging object is deleted on every
+path. The row is `media_type video`, `has_audio false`, complete with posters,
+so the request answers `ready`; no AI event is sent (the AI lane reads images
+only) and GET reports no crew for a clip. Because the stored original is the
+silent file, every downstream copy is silent: a silent clip of 60 s or less
+publishes on the R2 video lane, whose playable file is that original (the site
+gets `kind: "video"`, `posterUrl`, `videoUrl`); one over 60 s takes the
+Cloudflare Stream lane, which pulls the same original. POST `maxDuration` is
+300 s for the pipeline call (240 s deadline, cold start included).
+
+**Status.** `ready` = complete and `ai_indexed_at` set (a clip: complete with posters); `failed` = upload failed
 or the AI lane gave up (`AI_INDEX_MAX_ATTEMPTS`); else `processing` (including
 while `AI_INDEXING_ENABLED` is off).
 

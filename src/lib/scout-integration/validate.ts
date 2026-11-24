@@ -46,10 +46,20 @@ export interface PostcardInput {
   gigStart: string | null;
   takenAt: string | null;
   authorEmail: string | null;
+  /** For a clip, the POSTER JPEG (still required, so the contract is one shape). */
   imageUrl: string;
   width: number | null;
   height: number | null;
+  /** "photo" unless Scout sends media_type "video". */
+  mediaType: "photo" | "video";
+  /** The clip itself (video only). */
+  videoUrl: string | null;
+  /** Scout's measured length (video only); the pipeline's own probe is checked too. */
+  durationS: number | null;
 }
+
+/** Longest clip accepted, in seconds: Scout's own cap. */
+export const SCOUT_VIDEO_MAX_SECONDS = 61;
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -83,6 +93,29 @@ export function parsePostcardBody(body: unknown): Parsed<PostcardInput> {
   if (b.width != null && posInt(b.width) == null) return { ok: false, error: "width must be a positive integer." };
   if (b.height != null && posInt(b.height) == null) return { ok: false, error: "height must be a positive integer." };
 
+  // Photos are today's request, unchanged. A clip says so explicitly and
+  // carries its own URL and length; a video field on a photo is refused
+  // rather than ignored, so a half-wired sender fails at the first request.
+  const mediaType = b.media_type == null || b.media_type === "photo" ? "photo" : b.media_type === "video" ? "video" : null;
+  if (!mediaType) return { ok: false, error: 'media_type must be "photo" or "video".' };
+  let videoUrl: string | null = null;
+  let durationS: number | null = null;
+  if (mediaType === "video") {
+    videoUrl = str(b.video_url);
+    if (!videoUrl) return { ok: false, error: "video_url is required for a video." };
+    const url = checkImageUrl(videoUrl, "video_url");
+    if (!url.ok) return { ok: false, error: url.error };
+    if (typeof b.duration_s !== "number" || !Number.isFinite(b.duration_s) || b.duration_s <= 0) {
+      return { ok: false, error: "duration_s must be a positive number of seconds for a video." };
+    }
+    if (b.duration_s > SCOUT_VIDEO_MAX_SECONDS) {
+      return { ok: false, error: `duration_s is ${b.duration_s}; the longest clip is ${SCOUT_VIDEO_MAX_SECONDS} s.` };
+    }
+    durationS = b.duration_s;
+  } else if (b.video_url != null || b.duration_s != null) {
+    return { ok: false, error: 'video_url and duration_s are only for media_type "video".' };
+  }
+
   return {
     ok: true,
     value: {
@@ -95,6 +128,9 @@ export function parsePostcardBody(body: unknown): Parsed<PostcardInput> {
       imageUrl,
       width: posInt(b.width),
       height: posInt(b.height),
+      mediaType,
+      videoUrl,
+      durationS,
     },
   };
 }
@@ -107,20 +143,20 @@ export function parsePostcardBody(body: unknown): Parsed<PostcardInput> {
  */
 export const SCOUT_STORAGE_HOST = "ezubznenjcogwocccznj.supabase.co";
 
-export function checkImageUrl(raw: string): Parsed<URL> {
+export function checkImageUrl(raw: string, label = "image_url"): Parsed<URL> {
   let u: URL;
   try {
     u = new URL(raw);
   } catch {
-    return { ok: false, error: "image_url is not a URL." };
+    return { ok: false, error: `${label} is not a URL.` };
   }
-  if (u.protocol !== "https:") return { ok: false, error: "image_url must be https." };
-  if (u.username || u.password) return { ok: false, error: "image_url must not carry credentials." };
+  if (u.protocol !== "https:") return { ok: false, error: `${label} must be https.` };
+  if (u.username || u.password) return { ok: false, error: `${label} must not carry credentials.` };
   if (u.hostname !== SCOUT_STORAGE_HOST || (u.port && u.port !== "443")) {
-    return { ok: false, error: `image_url must be a Scout storage URL (${SCOUT_STORAGE_HOST}).` };
+    return { ok: false, error: `${label} must be a Scout storage URL (${SCOUT_STORAGE_HOST}).` };
   }
   if (!u.pathname.startsWith("/storage/v1/object/")) {
-    return { ok: false, error: "image_url must be a Supabase Storage object URL." };
+    return { ok: false, error: `${label} must be a Supabase Storage object URL.` };
   }
   return { ok: true, value: u };
 }
